@@ -33,6 +33,7 @@ import { getConfig, overheadPctOf } from './configStore'
 import { useBackLayer, BackClose } from './nav'
 import { SaveStatus } from './SaveStatus'
 import SignedDocuments from './SignedDocuments'
+import { lowTarget } from './moneyLoad'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -149,7 +150,7 @@ export default function QuoteDetailDrawer({
               {workSummary(quote.work)
                 ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
                 : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p></>}
-              {internalView && <p className={`mt-1 font-semibold ${quote.gmPct >= 0.34 ? 'text-green-700' : quote.gmPct >= 0.27 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(quote.gmPct)} margin</p>}
+              {internalView && <p className={`mt-1 font-semibold ${quote.gmPct >= lowTarget() ? 'text-green-700' : quote.gmPct >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(quote.gmPct)} margin</p>}
             </div>
           </div>
 

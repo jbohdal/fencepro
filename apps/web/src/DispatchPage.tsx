@@ -22,6 +22,7 @@ import { scheduleInstall, type PreparedText } from './installScheduleApi'
 import { InstallTextSheet } from './ScheduleInstall'
 import { toast } from './toast'
 import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
+import { lowTarget } from './moneyLoad'
 
 /* ═══════════════════════════════════════════════
    DISPATCH COMMAND CENTER
@@ -940,7 +941,7 @@ function JobDetailPanel({
         </div>
         {can('costs.view') && <div className="flex justify-between">
           <span className="text-gray-400">Margin</span>
-          <span className={`font-medium ${job.gmPct >= 0.34 ? 'text-green-600' : job.gmPct >= 0.27 ? 'text-yellow-600' : 'text-red-600'}`}>
+          <span className={`font-medium ${job.gmPct >= lowTarget() ? 'text-green-600' : job.gmPct >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>
             {(job.gmPct * 100).toFixed(1)}%
           </span>
         </div>}

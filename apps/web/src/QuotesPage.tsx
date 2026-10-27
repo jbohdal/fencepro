@@ -18,6 +18,7 @@ import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import { getQuotes, updateQuote } from './quoteStore'
 import { averageMargin } from './quoteStats'
+import { quoteMarginTone } from './moneyLoad'
 import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 
@@ -98,10 +99,10 @@ const STATUS_OPTIONS = ['DRAFT', 'SENT', 'SOLD', 'LOST']
 const FENCE_CATEGORIES = ['All', 'Vinyl', 'Chainlink', 'Aluminum', 'Commercial', 'Other']
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-function marginColor(pct: number) {
-  if (pct >= 0.34) return 'text-green-600'
-  if (pct >= 0.27) return 'text-yellow-600'
-  return 'text-red-500'
+/** A quote's margin against its own style's Target Margin (Settings › Pricing); gray with no cost. */
+function marginColor(q: { gmPct: number; totalCOGS: number; fenceStyle: string }) {
+  const tone = quoteMarginTone(q)
+  return tone === 'good' ? 'text-green-600' : tone === 'near' ? 'text-yellow-600' : tone === 'bad' ? 'text-red-500' : 'text-gray-400'
 }
 
 function fenceCategory(style: string): string {
@@ -234,7 +235,7 @@ function PipelineAnalytics({ quotes }: { quotes: SavedQuote[] }) {
           { label: 'Closed',         value: String(totalSold), sub: fmtPct(closingRate) + ' close rate', accent: true },
           { label: 'Closed Revenue', value: fmt(totalRev),     sub: `avg ${fmt(avgDeal)}/job` },
           { label: 'Open Pipeline',  value: fmt(openPipe),     sub: `${quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length} active` },
-          { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => q.gmPct >= 0.34).length + ' above target' },
+          { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => quoteMarginTone(q) === 'good').length + ' at their Target Margin' },
         ].map(s => (
           <div key={s.label} className={`rounded-2xl p-4 ${s.accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
             <p className={`text-xs font-semibold mb-1 ${s.accent ? 'text-orange-100' : 'text-gray-400'}`}>{s.label}</p>
@@ -390,8 +391,8 @@ function QuoteDrawer({
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400 text-sm">Gross Margin</span>
-                <span className={`font-bold text-sm ${quote.gmPct >= 0.34 ? 'text-green-400' : quote.gmPct >= 0.27 ? 'text-yellow-400' : 'text-red-400'}`}>
-                  {fmtPct(quote.gmPct)}
+                <span className={`font-bold text-sm ${({ good: 'text-green-400', near: 'text-yellow-400', bad: 'text-red-400', none: 'text-gray-400' } as const)[quoteMarginTone(quote)]}`}>
+                  {quote.totalCOGS > 0 ? fmtPct(quote.gmPct) : 'No cost'}
                 </span>
               </div>
             </div>
@@ -644,7 +645,7 @@ export default function QuotesPage({
                   <td className="px-4 py-3 text-gray-700" data-label="Style">{styleLabel(q.fenceStyle)}</td>
                   <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{sectionsCell(q.sections, q.work)}</td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
-                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q.gmPct)}`} data-label="Margin">{fmtPct(q.gmPct)}</td>
+                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(q)}`} data-label="Margin">{q.totalCOGS > 0 ? fmtPct(q.gmPct) : '—'}</td>
                   <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>
