@@ -11,25 +11,27 @@
 //   APP_URL=http://localhost:4083 API_URL=http://localhost:4083 \
 //   E2E_STAFF_COOKIE=<dev owner cookie> E2E_SALES_COOKIE=<dev Salesman cookie> [SHOTS=<folder>] node e2e/visit-quote-send.mjs
 //   (the cookies: cd apps/portal && npx tsx scripts/dev-session-token.ts --cookie --out <file> [--email aud-sales@example.invalid])
+//   Or only E2E_ACCESS_TOKEN (the owner, how run-heavy.sh runs it): the owner's cookie is moved over from it, and
+//   without E2E_SALES_COOKIE the test makes a Salesman login of its own (removed at the end) and gives it the card.
 //
 // Dev only (devOnly.mjs refuses port 4000 and anything not on this Mac). The test customer, card and quote are
 // removed at the end.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, devices } from 'playwright'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, STAFF_COOKIE, ACCESS_TOKEN, makeTestLogin, removeTestLogin } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
-const OWNER = process.env.E2E_STAFF_COOKIE || ''
+const OWNER = STAFF_COOKIE // E2E_STAFF_COOKIE, or E2E_ACCESS_TOKEN moved over to a cookie (lib.mjs)
 const SALES = process.env.E2E_SALES_COOKIE || ''
 const SHOTS = process.env.SHOTS || ''
 const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
 if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
-if (!OWNER || !SALES) { console.error('Set E2E_STAFF_COOKIE (owner) and E2E_SALES_COOKIE (a Salesman), from scripts/dev-session-token.ts --cookie.'); process.exit(2) }
+if (!OWNER || (!SALES && !ACCESS_TOKEN)) { console.error('Set E2E_STAFF_COOKIE (owner) and E2E_SALES_COOKIE (a Salesman), from scripts/dev-session-token.ts --cookie, or E2E_ACCESS_TOKEN (the owner).'); process.exit(2) }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
@@ -41,7 +43,7 @@ const api = async (p, init = {}) => (await (await fetch(API + p, { ...init, head
 const shot = async (page, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `visit-quote-send-${name}.png`) }) } }
 
 const NAME_LAST = `Visit Send ${Date.now().toString(36)}`
-const made = { contact: '', card: '', account: '', quote: '' }
+const made = { contact: '', card: '', account: '', quote: '', salesman: null, rep: 'AUD Sales' }
 const cardNow = async () => ((await api('/api/pipeline')).data?.leads ?? []).find(l => l.id === made.card)
 
 /** The pipeline, saved on the newest copy (other runs save it at the same time). */
@@ -55,19 +57,25 @@ async function patchPipeline(delta) {
 }
 
 async function setup() {
-  made.account = psql(`select "crmAccountId" from "CrmUser" where email='aud-sales@example.invalid'`)
-  if (!made.account) throw new Error('The AUD Salesman is not on the dev copy')
+  let repEmail = 'aud-sales@example.invalid'
+  if (!SALES) {
+    made.salesman = await makeTestLogin({ role: 'sales_rep', firstName: 'Visit', ownerToken: ACCESS_TOKEN, api: API })
+    repEmail = made.salesman.email; made.rep = made.salesman.name
+  }
+  made.account = psql(`select "crmAccountId" from "CrmUser" where email='${q(repEmail)}'`)
+  if (!made.account) throw new Error(`The Salesman ${repEmail} is not on the dev copy`)
   made.contact = psql(`insert into "CrmContact" (id, "accountId", "firstName", "lastName", phone, email, "serviceAddress", "updatedAt") values (gen_random_uuid(), '${q(made.account)}', 'E2E', '${q(NAME_LAST)}', '3525550179', 'e2e-visit-send@example.invalid', '3100 SW College Rd, Ocala, FL 34474', now()) returning id`).split('\n')[0]
   made.card = `e2e-visit-send-${Date.now().toString(36)}`
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  const lead = { id: made.card, firstName: 'E2E', lastName: NAME_LAST, phone: '3525550179', email: 'e2e-visit-send@example.invalid', address: '3100 SW College Rd, Ocala, FL 34474', stage: 'Appointment', customerId: made.contact, assignedRep: 'AUD Sales', lastMoved: today, createdAt: today }
+  const lead = { id: made.card, firstName: 'E2E', lastName: NAME_LAST, phone: '3525550179', email: 'e2e-visit-send@example.invalid', address: '3100 SW College Rd, Ocala, FL 34474', stage: 'Appointment', customerId: made.contact, assignedRep: made.rep, lastMoved: today, createdAt: today }
   const s = await patchPipeline(() => ({ upsert: [{ lead, before: null }], remove: [] }))
   check('setup: a customer with a card in Appointment', s === 200 && (await cardNow())?.stage === 'Appointment', String(s))
 }
 
 async function phone(browser) {
   const ctx = await browser.newContext({ ...devices['iPhone 13'] })
-  await signInByCookie(ctx, { cookie: SALES, api: API })
+  if (SALES) await signInByCookie(ctx, { cookie: SALES, api: API })
+  else await signInByCookie(ctx, { cookie: '', token: '', email: made.salesman.email, password: made.salesman.password, api: API })
   const page = await ctx.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
@@ -93,6 +101,9 @@ async function phone(browser) {
   await page.locator('[data-save-submit]').tap()
   await page.waitForSelector('[data-quote-drawer] [data-proposal-send]', { timeout: 30000 }).catch(async () => { await shot(page, 'fail-after-save') })
   made.quote = new URL(page.url()).searchParams.get('qv') || ''
+  // The message shows for a few seconds only (toast.tsx TOAST_MS): read it now, before waiting on the server below.
+  let toast = ''
+  for (let i = 0; i < 20 && !/Card moved to/.test(toast); i++) { toast = (await page.locator('[data-toast]').allTextContents().catch(() => [])).join(' '); if (!/Card moved to/.test(toast)) await sleep(250) }
   await shot(page, '3-send')
   check('phone: after saving, the quote\'s window opens with its Send box (not back on the card)', await page.locator('[data-quote-drawer] [data-proposal-send]').count() === 1 && !!made.quote && (await page.locator(`[data-card-window="${made.card}"]`).count()) === 0, page.url())
   for (let i = 0; i < 20 && made.quote && psql(`select count(*) from "SavedQuote" where id='${q(made.quote)}' and "crmContactId"='${q(made.contact)}'`) !== '1'; i++) await sleep(500)
@@ -100,7 +111,6 @@ async function phone(browser) {
   let stage = ''
   for (let i = 0; i < 20; i++) { stage = (await cardNow())?.stage ?? ''; if (stage !== 'Appointment') break; await sleep(500) }
   check('phone: the card moved from Appointment to Estimating (the Ready to quote stage)', stage === 'Estimating', stage)
-  const toast = (await page.locator('[data-toast]').allTextContents().catch(() => [])).join(' ')
   check('phone: the screen says the card moved', /Card moved to Estimating/.test(toast), toast.slice(0, 200))
   check('phone: no page errors', errors.length === 0, errors.join(' | '))
   await ctx.close()
@@ -121,6 +131,7 @@ async function cleanup() {
     }
     check('test records removed', !made.contact || psql(`select count(*) from "CrmContact" where id='${q(made.contact)}'`) === '0')
   } catch (e) { check('test records removed', false, String(e?.message || e).slice(0, 200)) }
+  if (made.salesman) await removeTestLogin(made.salesman, { ownerToken: ACCESS_TOKEN, api: API })
 }
 
 const wk = await webkit.launch()
