@@ -197,7 +197,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     const card = html.slice(html.indexOf('data-option="3"'), html.indexOf('data-option="2"'))
     expect(card).toContain('Most popular')
     expect(card).toContain('<span class="tier">Better</span>')
-    expect(card).toContain('6 ft or 8 ft panels')
+    expect(card).toContain('6 ft and 8 ft panels') // its runs took both widths (runRails 6ft, 8ft)
     expect(card).not.toContain('(best price)')
     expect(card).toContain('$7,179')
     expect(html).not.toContain('$7,363')
