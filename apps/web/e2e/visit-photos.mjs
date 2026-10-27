@@ -107,6 +107,12 @@ async function phone(browser) {
   await sleep(2500)
   const row = page.locator('button', { hasText: NAME }).first()
   if (await row.count()) await row.click(); else await page.getByRole('button', { name: /Complete/ }).first().click()
+  // Tapping a visit opens the visit first (d1f303c and 204768f, Oct 26-27 2026); "How did it go?" opens the outcome form.
+  await page.waitForSelector('[data-visit-window], [data-outcome-form]', { timeout: 10000 })
+  if (await page.locator('[data-visit-window]').count()) {
+    check('phone: tapping the visit opens it, with "How did it go?"', await page.locator('[data-visit-window] [data-visit-outcome]').count() === 1)
+    await page.locator('[data-visit-window] [data-visit-outcome]').click()
+  }
   await page.waitForSelector('[data-outcome-form]', { timeout: 10000 })
   await page.locator('[data-outcome="ready_to_quote"]').click()
   await page.locator('[data-outcome-form] textarea').fill('Front gate sags, two broken posts by the drive.')
