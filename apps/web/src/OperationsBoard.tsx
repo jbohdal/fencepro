@@ -57,9 +57,11 @@ function withinNDays(iso: string, n: number): boolean {
   if (!iso) return false
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return false
-  const now = Date.now()
-  const diff = d.getTime() - now
-  return diff >= 0 && diff <= n * 86_400_000
+  // From today (a job starting today counts as this week), by business day, not by the hour.
+  const day = iso.slice(0, 10)
+  const today = TODAY()
+  const end = businessDate(new Date(Date.now() + n * 86_400_000))
+  return day >= today && day <= end
 }
 
 function isToday(iso: string): boolean {

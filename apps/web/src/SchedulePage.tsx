@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { styleLabel } from './fenceCatalog'
 import {
   loadSchedule as storeLoadSchedule,
   saveSchedule as storeSaveSchedule,
@@ -22,7 +21,7 @@ import { getJob, getJobs } from './jobStore'
 
 // Jobs with an install date and no board entry, shown on the month from their dates (monthEntries.ts): the
 // same list Schedule install's crew warning reads.
-import { FROM_DATES, datedJobsWithoutEntries, entryWork } from './monthEntries'
+import { FROM_DATES, datedJobsWithoutEntries, entryWork, entryStyle } from './monthEntries'
 export { datedJobsWithoutEntries }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -505,7 +504,7 @@ export default function SchedulePage() {
                                   data-install-clash={clashIds.has(j.id) ? 'yes' : undefined}
                                   data-install-from-dates={j.id.startsWith(FROM_DATES) ? 'yes' : undefined}
                                   // Everything on hover; a tap opens the job (Move install).
-                                  title={[j.clientName, j.area, ...(work ? [work] : [styleLabel(j.fenceType), j.sections ? `${j.sections} sections` : '']), own.length > 1 ? `day ${nth} of ${own.length}` : '', crew?.name].filter(Boolean).join('\n')}
+                                  title={[j.clientName, j.area, ...(work ? [work] : [entryStyle(j), j.sections ? `${j.sections} sections` : '']), own.length > 1 ? `day ${nth} of ${own.length}` : '', crew?.name].filter(Boolean).join('\n')}
                                   style={{ borderLeftColor: clashIds.has(j.id) ? '#dc2626' : crewColor, backgroundColor: `${crewColor}1f` }}
                                   className={`border-l-4 rounded px-1.5 py-1 ${clashIds.has(j.id) ? 'ring-2 ring-red-500' : ''} ${readOnly ? '' : 'cursor-grab'} ${j.stagingJobId ? 'cursor-pointer' : ''} group`}
                                 >

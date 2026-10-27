@@ -7,6 +7,7 @@
  */
 
 import { styleLabel } from './fenceCatalog'
+import { soldStyleLabel } from './soldStyleLabel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
 import { workScope, type SavedWork } from './moveRepair'
@@ -223,7 +224,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           {scope ? <>
             <Field label="Fence Type" value={scope.title} />
             {job.fenceType && <Field label="Existing fence" value={styleLabel(job.fenceType)} />}
-          </> : <Field label="Fence Type" value={styleLabel(job.fenceType)} />}
+          </> : <Field label="Fence Type" value={soldStyleLabel(job.fenceType, job.rawJob?.quoteId ? getQuotes().find(q => q.id === job.rawJob!.quoteId) as any : null)} />}
           {scope ? (
             // A repair or a move: what the crew does, from the quote (not a new fence's feet and sections).
             <div data-job-work-scope={scope.title}>

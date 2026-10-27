@@ -2,6 +2,7 @@ import { SyncBadge } from './SaveStatus'
 import { initOptionLists, isOptionListsLoaded } from './optionListsStore'
 import { startColorReadyWatch } from './colorReady'
 import { styleLabel } from './fenceCatalog'
+import { quoteStyleLabel } from './soldStyleLabel'
 import { startOutbox, resumeAfterSignIn } from './outbox'
 import { unsentCount } from './unsent'
 import { uploadAll } from './mediaStore'
@@ -1308,7 +1309,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       <div key={q.id} className="px-6 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50" onClick={() => handleOpenQuote(q)}>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
-                          <p className="text-sm text-gray-500">{[styleLabel(q.fenceStyle), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
+                          <p className="text-sm text-gray-500">{[quoteStyleLabel(q as any), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
                           {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(withShownMargin(q, showCommissionHere))}`}>{fmtPct(withShownMargin(q, showCommissionHere).gmPct)}</span>}

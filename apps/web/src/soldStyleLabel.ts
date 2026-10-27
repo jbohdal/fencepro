@@ -4,7 +4,7 @@
  * signed contracts backfill failed with "does not provide an export named customerFenceName").
  */
 
-import { customerFenceName, soldRailsOf } from '../../portal/src/server/lib/customerFenceName'
+import { customerFenceName, soldRailsOf, isSoldQuote } from '../../portal/src/server/lib/customerFenceName'
 import { styleLabel } from './fenceCatalog'
 
 /**
@@ -16,4 +16,9 @@ import { styleLabel } from './fenceCatalog'
 export function soldStyleLabel(name: string | null | undefined, quote?: { fenceStyle?: string | null; runRails?: unknown; proposal?: unknown } | null): string {
   const label = styleLabel(name)
   return label ? customerFenceName(label, soldRailsOf(quote, String(name ?? ''))) : label
+}
+
+/** A quote's fence name in a list: the sold name once it is sold or signed, else the builder's name (a draft keeps "(best price)"). */
+export function quoteStyleLabel(q: { fenceStyle?: string | null; status?: string | null; acceptedAt?: unknown; soldAt?: unknown; runRails?: unknown; proposal?: unknown }): string {
+  return isSoldQuote(q) ? soldStyleLabel(q.fenceStyle, q) : styleLabel(q.fenceStyle)
 }

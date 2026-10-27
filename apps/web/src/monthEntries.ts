@@ -70,3 +70,9 @@ export function entryWork(e: { stagingJobId?: string }): string | null {
   const job = e.stagingJobId ? getJob(e.stagingJobId) : null
   return job ? repairWorkOf(job.quoteId) : null
 }
+
+/** A month or day entry's fence name: a sold best price job names the panels its runs used (soldStyleLabel), never "(best price)". */
+export function entryStyle(e: { stagingJobId?: string; fenceType: string }): string {
+  const job = e.stagingJobId ? getJob(e.stagingJobId) : null
+  return soldStyleLabel(e.fenceType, job?.quoteId ? getQuoteById(job.quoteId) as any : null)
+}
