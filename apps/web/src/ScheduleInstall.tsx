@@ -30,6 +30,7 @@ import { newId } from './recordSync'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { monthEntries } from './monthEntries'
 import { getJobs } from './jobStore'
+import { jobInstallWord } from './jobWork'
 import { stagePhase, stageName } from './opsStagesStore'
 import { isDonePhase } from './opsStageModel'
 import { smsLink } from './appointmentLogic'
@@ -193,6 +194,8 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
   onDone?: () => void
 }) {
   useBackLayer(onClose, { key: 'schedule-install' })
+  // "Schedule repair" for a repair job (jobWork.ts jobInstallWord; recheck Oct 27 2026).
+  const W = jobInstallWord(getJobs().find(j => j.id === jobId)), w = W.toLowerCase()
   const { settings } = loadSchedule()
   const crews = settings.crews
   const [facts, setFacts] = useState<ReadyJob | null>(null)
@@ -247,7 +250,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
     if (!r.ok) { toast.error('Not scheduled', r.error); return }
     const d = r.data
     const note = d.movedFrom ? ` ${usDate(d.movedFrom)} is not a crew day, so it starts ${usDate(d.days[0])}.` : ''
-    setText({ text: d.text, title: d.rescheduled ? 'Install moved' : 'Install scheduled', what: d.rescheduled ? 'moved' : 'scheduled',
+    setText({ text: d.text, title: d.rescheduled ? `${W} moved` : `${W} scheduled`, what: d.rescheduled ? 'moved' : 'scheduled',
       summary: `${d.text.customerName}: ${d.days.length} crew day${d.days.length === 1 ? '' : 's'}, ${d.days.map(shortDay).join(', ')}, ${d.crew.name}.${note} ${d.calendar}` })
     onDone?.()
   }
@@ -267,8 +270,8 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
   }
 
   return (
-    <Sheet onClose={onClose} label="Schedule install" attr={{ 'data-schedule-install': jobId }}>
-      <Head title={closedJob ? 'Install' : scheduled ? 'Move install' : 'Schedule install'} onClose={onClose} />
+    <Sheet onClose={onClose} label={`Schedule ${w}`} attr={{ 'data-schedule-install': jobId }}>
+      <Head title={closedJob ? W : scheduled ? `Move ${w}` : `Schedule ${w}`} onClose={onClose} />
       {error && <p className="p-5 text-sm text-red-700">{error}</p>}
       {!facts && !error && <p className="p-5 text-sm text-gray-500">Loading…</p>}
       {facts && (
@@ -339,7 +342,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
 
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
             <button type="button" className="btn btn-primary flex-1 min-h-[48px]" disabled={saving || !start || !crew} onClick={save} data-si-save>
-              {saving ? 'Saving…' : scheduled ? 'Move install' : warnings.length ? 'Schedule anyway' : 'Schedule install'}
+              {saving ? 'Saving…' : scheduled ? `Move ${w}` : warnings.length ? 'Schedule anyway' : `Schedule ${w}`}
             </button>
             <button type="button" className="btn btn-secondary min-h-[48px]" onClick={onClose}>Cancel</button>
           </div>
@@ -572,12 +575,14 @@ export function RainDayDialog({ date: dateAt, onClose }: { date?: string; onClos
 
 /* ── The button on the job page and the pipeline card ──────────────────── */
 
-export function ScheduleInstallButton({ jobId, scheduledDate, className = 'btn btn-primary w-full min-h-[48px]' }: { jobId: string; scheduledDate?: string; className?: string }) {
+/** `word`: "Repair" on a repair job ("Schedule repair", "Move repair"); "Install" otherwise (jobWork.ts jobInstallWord). */
+export function ScheduleInstallButton({ jobId, scheduledDate, className = 'btn btn-primary w-full min-h-[48px]', word = 'Install' }: { jobId: string; scheduledDate?: string; className?: string; word?: 'Install' | 'Repair' }) {
   const [open, setOpen] = useState(false)
+  const w = word.toLowerCase()
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)} data-schedule-install-button={jobId}>
-        {scheduledDate ? 'Move install' : 'Schedule install'}
+        {scheduledDate ? `Move ${w}` : `Schedule ${w}`}
       </button>
       {open && <ScheduleInstallDialog jobId={jobId} onClose={() => setOpen(false)} />}
     </>

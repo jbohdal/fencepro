@@ -1,7 +1,8 @@
 /**
  * The signed contract as a PDF (pdfkit): the option the customer accepted, its
  * price, what is included, the deposit, the warranty of that option word for
- * word, and "Warranty starts on the install date: <date>" once the job is
+ * word, and "Warranty starts on the install date: <date>" (a repair: "the
+ * repair date", titled "Fence Repair Contract") once the job is
  * installed (until then it says the date is set when the fence is
  * installed). Made fresh each time it is opened, from the proposal frozen on
  * the quote, so the words are the ones signed and the install date appears
@@ -20,6 +21,7 @@ import { acceptedOnUpdate } from './warrantyUpdates.js'
 import { depositOf, pricedWholeDollar } from './paymentMath.js'
 import { termsOn, companyAddress, type Term } from './contractTerms.js'
 import { plainIp } from './signedDocuments.js'
+import { workKindOf } from './installDays.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -67,6 +69,8 @@ export interface ContractInput {
   signedRecord?: SignedRecord | null
   /** Settings → Contract Templates as frozen on the proposal when it was signed (lib/contractTerms.ts). */
   terms?: Term[]
+  /** A fence move or repair (the proposal's kind); a new fence has none. */
+  kind?: 'move' | 'repair' | null
 }
 
 /**
@@ -90,14 +94,22 @@ export function drawSignedRecord(doc: PDFKit.PDFDocument, L: number, W: number, 
   }
 }
 
-/** The warranty lines exactly as the contract prints them (the job page and tests use the same words). */
-export function warrantyLines(w: OptionWarranty | null, installDate: string | null): { title: string; text: string; start: string } {
+/**
+ * The warranty lines exactly as the contract prints them (the job page and tests use the same words).
+ * A repair's starts on the repair date (recheck Oct 27 2026: a signed repair contract said "the install date").
+ */
+export function warrantyLines(w: OptionWarranty | null, installDate: string | null, kind?: string | null): { title: string; text: string; start: string } {
+  const repair = kind === 'repair'
+  const what = repair ? 'repair' : 'install'
   return {
     title: w?.name || 'Warranty',
     text: w?.text || 'No warranty is written on this proposal.',
-    start: installDate ? `Warranty starts on the install date: ${installDate}` : 'Warranty starts on the install date (set when the fence is installed).',
+    start: installDate ? `Warranty starts on the ${what} date: ${installDate}` : `Warranty starts on the ${what} date (set when the ${repair ? 'repair is done' : 'fence is installed'}).`,
   }
 }
+
+/** The contract's title: a repair's says so. */
+export const contractTitle = (kind?: string | null) => (kind === 'repair' ? 'Fence Repair Contract' : 'Fence Contract')
 
 export function contractPdf(c: ContractInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -117,7 +129,7 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
     // The company's address only when Settings → Company has it: no empty line otherwise.
     if (c.company.address) doc.font('Helvetica').fontSize(10).fillColor(GRAY).text(c.company.address, L + 68, 82, { width: W - 68 })
     doc.moveTo(L, 108).lineTo(L + W, 108).lineWidth(2).strokeColor(PURPLE).stroke().lineWidth(1)
-    doc.font('Helvetica-Bold').fontSize(24).fillColor(INK).text('Fence Contract', L, 124, { width: W, align: 'center' })
+    doc.font('Helvetica-Bold').fontSize(24).fillColor(INK).text(contractTitle(c.kind), L, 124, { width: W, align: 'center' })
     doc.moveDown(0.8)
     const facts: Array<[string, string]> = [
       ['Customer', c.customerName], ['Property', c.address || 'Not given'],
@@ -139,7 +151,7 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
       for (const x of c.included) doc.font('Helvetica').fontSize(10).fillColor(INK).text(`•  ${x}`, L, doc.y, { width: W })
       if (c.includedNote) { doc.moveDown(0.3); doc.font('Helvetica').fontSize(10).fillColor(INK).text(c.includedNote, L, doc.y, { width: W }) }
     }
-    const w = warrantyLines(c.warranty, c.installDate)
+    const w = warrantyLines(c.warranty, c.installDate, c.kind)
     heading(`Warranty: ${w.title}`, 60)
     doc.font('Helvetica').fontSize(10).fillColor(INK).text(w.text, L, doc.y, { width: W })
     doc.moveDown(0.4)
@@ -229,6 +241,7 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
     signedRecord: record,
     // Only the terms frozen on the proposal: what the customer read and signed.
     terms: (await termsOn(p)) ?? [],
+    kind: p.kind === 'repair' || p.kind === 'move' ? p.kind : workKindOf(q.work) === 'new' ? null : workKindOf(q.work) as 'move' | 'repair',
   })
 }
 

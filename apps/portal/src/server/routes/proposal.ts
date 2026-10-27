@@ -602,7 +602,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const perOption = p.options.some(o => o.warranty?.text)
   const wOf = (o: ProposalOption | undefined) => perOption ? { name: o?.warranty?.name || '', text: o?.warranty?.text || '' } : { name: '', text: p.warranty || '' }
   const wNow = wOf(p.options[chosen])
-  const wStart = accepted ? warrantyLines(null, installDay).start : ''
+  const wStart = accepted ? warrantyLines(null, installDay, p.kind).start : ''
   const warranty = (perOption || p.warranty) ? `<section id="warranty" data-warranty-section><h2>Warranty</h2>${perOption ? `<p class="wname" id="wname">${esc(wNow.name)}</p>` : ''}<p id="wtext">${esc(wNow.text).replace(/\n/g, '<br>')}</p>${wStart ? `<p class="small" data-warranty-start><b>${esc(wStart)}</b></p>` : ''}</section>` : ''
   // Settings → Contract Templates as frozen on the proposal: read before signing, the same words as the signed contract.
   const terms = (p.terms ?? []).filter(t => t && t.text)

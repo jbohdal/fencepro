@@ -235,11 +235,14 @@ export const permitIsOk = (status: string | null | undefined) => status === 'not
  * Invoiced, Paid). Permit Pending is passed over when the job's permit is not
  * needed or already issued (a repair, round 5 review Oct 26 2026: "Advance to
  * Permit Pending" on a repair with permit Not needed), as waitingStageOf does.
+ * Need Drawing is passed over for a repair (`repair`): a repair has no drawing
+ * to make (recheck Oct 27 2026: "Advance to Need Drawing" on a repair). Only
+ * the button's next stage; a job can still be put in any stage by hand.
  */
-export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk?: boolean } = {}): OpsStageDef | null {
+export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk?: boolean; repair?: boolean } = {}): OpsStageDef | null {
   if (isDonePhase(phaseOf(list, id))) return null
   let next = nextStage(list, id)
-  while (next && opts.permitOk && next.id === 'permit_pending') next = nextStage(list, next.id)
+  while (next && ((opts.permitOk && next.id === 'permit_pending') || (opts.repair && next.id === 'need_drawing'))) next = nextStage(list, next.id)
   return next
 }
 

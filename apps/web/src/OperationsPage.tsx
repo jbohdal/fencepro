@@ -10,6 +10,7 @@ import { styleLabel } from './fenceCatalog'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
 import { workScope, type SavedWork } from './moveRepair'
+import { isRepairJob, jobInstallWord } from './jobWork'
 import { InstallPacketPanel } from './installPacket'
 import PermitPanel from './PermitPanel'
 import AutomationRunLog from './AutomationRunLog'
@@ -147,7 +148,10 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   // Past Permit Pending when the permit is not needed or issued (the board's summary, read again when the permit is saved).
   useMilestoneSummary()
   const permitOk = permitOkOf(job.id)
-  const canAdvance = !inSideLane && !!advanceStage(job.opsStage, permitOk)
+  // A repair has no drawing to make: Advance passes over Need Drawing, and the page says Repair, not Install (recheck Oct 27 2026).
+  const repair = isRepairJob(job.rawJob)
+  const W = jobInstallWord(job.rawJob)
+  const canAdvance = !inSideLane && !!advanceStage(job.opsStage, permitOk, repair)
   // The stages a job can go to; a hidden stage the job is in still shows, so you can see where it is.
   const choices = pickable()
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
@@ -188,10 +192,10 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           {isJobSource ? (
             <div data-job-schedule>
               {/* One way to schedule: the Schedule install window (start day, crew, crew days on work days, the stage, the text). */}
-              <Field label="Install" value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
+              <Field label={W} value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
               <Field label="Crew" value={crewName(job.crewAssigned) || 'Not assigned'} />
               <Field label="Sales Rep" value={job.salesRep} />
-              {can('schedule.change') && !inSideLane && !closed && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} /></div>}
+              {can('schedule.change') && !inSideLane && !closed && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} word={W} /></div>}
             </div>
           ) : (
             <>
@@ -264,7 +268,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && seesPrices && <div className="mt-3"><SignedDocuments which={{ jobId: job.id }} heading="Documents" /></div>}
 
         {isJobSource && (
-          <Section title="Install packet">
+          <Section title={`${W} packet`}>
             <InstallPacketPanel jobId={job.id} job={{ fenceStyle: job.fenceType, notes: job.notes, walkGates: job.rawJob?.walkGates, dblGates: job.rawJob?.dblGates, customerName: job.customerName }}
               quote={job.rawJob?.quoteId ? getQuotes().find(q => q.id === job.rawJob!.quoteId) : undefined} />
           </Section>
@@ -341,7 +345,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               ) : (
                 <button onClick={onAdvance} disabled={!canAdvance} data-ops-advance
                   className="btn btn-primary flex-1 disabled:opacity-40">
-                  {canAdvance ? `Advance to ${advanceStage(job.opsStage, permitOk)!.name} →` : 'Advance Stage →'}
+                  {canAdvance ? `Advance to ${advanceStage(job.opsStage, permitOk, repair)!.name} →` : 'Advance Stage →'}
                 </button>
               )}
               {!closed && <button onClick={onHold} data-ops-hold

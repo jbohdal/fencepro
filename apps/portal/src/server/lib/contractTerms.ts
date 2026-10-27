@@ -39,14 +39,31 @@ export async function termsOn(proposal: unknown): Promise<Term[] | null> {
   return (await pricingModule()).frozenTerms(proposal)
 }
 
+/** The stock first sentence of Settings → Contract Templates' Scope and Exclusions (web/src/contractTerms.ts). */
+export const STOCK_SCOPE_OPENING = 'Installation is per plan and scope above.'
+export const REPAIR_SCOPE_OPENING = 'Repair work is per the items listed above.'
+
+/**
+ * A repair's terms: the stock opening of Scope and Exclusions, "Installation
+ * is per plan and scope above.", reads "Repair work is per the items listed
+ * above." (recheck Oct 27 2026: a signed repair contract said Installation).
+ * The rest of the section, and any words Jonathan typed in its place, stay as
+ * they are.
+ */
+export function termsForRepair(terms: Term[]): Term[] {
+  return terms.map(t => (t.key === 'scope_exclusions' && t.text.startsWith(STOCK_SCOPE_OPENING) ? { ...t, text: REPAIR_SCOPE_OPENING + t.text.slice(STOCK_SCOPE_OPENING.length) } : t))
+}
+
 /**
  * The proposal to save with its terms and the company's address. `frozen`: it
  * was sent or signed, so it keeps the terms and address it went out with.
+ * `repair`: the quote is a repair (its work), so the terms say repair (termsForRepair).
  */
-export async function stampQuoteTerms(accountId: string, proposal: unknown, existing: { proposal?: unknown } | null, frozen: boolean): Promise<unknown> {
+export async function stampQuoteTerms(accountId: string, proposal: unknown, existing: { proposal?: unknown } | null, frozen: boolean, opts: { repair?: boolean } = {}): Promise<unknown> {
   if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal) || !Array.isArray((proposal as any).options)) return proposal
   const [m, s] = await Promise.all([pricingModule(), settingsOf(accountId)])
   const out = m.stampTerms(proposal, s.sections, existing?.proposal ?? null, frozen) as Record<string, any>
+  if (!frozen && opts.repair && Array.isArray(out.terms)) out.terms = termsForRepair(out.terms)
   const company = out.company && typeof out.company === 'object' ? { ...out.company } : {}
   const was = (existing?.proposal as any)?.company?.address
   if (frozen) {

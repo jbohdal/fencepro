@@ -29,6 +29,7 @@ import { plainStyleName } from '../estimates.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 import { ensurePermit, packetInputFor, portalFor, renderPacket, defaultPermitStatusOf } from './permits.js'
 import { textAllowedFor, textAllowedTo, mergedTextNo } from '../textConsent.js'
+import { installWord, repairWording } from '../workWords.js'
 
 export interface StepRun {
   accountId: string
@@ -182,6 +183,9 @@ async function updateBusiness(accountId: string, key: string, runId: string, cha
   throw new Error('The business record kept changing while this step tried to save; it will try again.')
 }
 
+/** A rule's own words for a repair job: "Schedule the install for {name}" reads "Schedule the repair for …" (lib/workWords.ts). */
+const forWork = (text: string, e: EntityContext) => (installWord(e.work as any) === 'Repair' ? repairWording(text) : text)
+
 // ── Steps ────────────────────────────────────────────────────────────────────
 
 export async function runStep(r: StepRun): Promise<StepOutcome> {
@@ -190,8 +194,9 @@ export async function runStep(r: StepRun): Promise<StepOutcome> {
   const fill = (t: string) => fillTemplate(t, e, { 'permit portal': portalFor(e.permit?.county || e.county || 'Marion')?.url ?? '' })
   switch (s.type) {
     case 'create_task': {
-      const t = await makeTask(r, 'task', { title: fill(s.title), description: fill(s.description), assignTo: fill(s.assignTo), dueInDays: s.dueInDays })
-      return { detail: `${t.already ? 'task was already made' : 'task made'}: "${fill(s.title)}"${s.assignTo ? ` for ${fill(s.assignTo) || 'anyone'}` : ''}, due ${floridaDay(addDays(r.now, s.dueInDays))}` }
+      const title = fill(forWork(s.title, e)), description = fill(forWork(s.description, e))
+      const t = await makeTask(r, 'task', { title, description, assignTo: fill(s.assignTo), dueInDays: s.dueInDays })
+      return { detail: `${t.already ? 'task was already made' : 'task made'}: "${title}"${s.assignTo ? ` for ${fill(s.assignTo) || 'anyone'}` : ''}, due ${floridaDay(addDays(r.now, s.dueInDays))}` }
     }
     case 'notify': {
       const title = fill(s.title), body = fill(s.body)
@@ -408,7 +413,7 @@ export async function describeSteps(accountId: string, steps: Step[], e: EntityC
     const d = (would: string, warning?: string) => out.push({ index, type: s.type, would, ...(warning ? { warning } : {}) })
     switch (s.type) {
       case 'wait': at = new Date(at.getTime() + s.minutes * 60_000); d(`wait until ${at.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`); break
-      case 'create_task': d(`make a task "${fill(s.title)}"${fill(s.assignTo) ? ` for ${fill(s.assignTo)}` : ''}, due ${floridaDay(addDays(at, s.dueInDays))}`); break
+      case 'create_task': d(`make a task "${fill(forWork(s.title, e))}"${fill(s.assignTo) ? ` for ${fill(s.assignTo)}` : ''}, due ${floridaDay(addDays(at, s.dueInDays))}`); break
       case 'notify': d(`notify: "${fill(s.title)}"${s.body ? ` - ${fill(s.body)}` : ''}${s.push ? ' (and push to your phone)' : ''}`); break
       case 'email_customer': d(`email ${e.email || '(no email on file)'}: "${fill(s.subject)}"\n${fill(s.body)}`, !e.email.includes('@') ? 'This customer has no email address; the step would fail.' : !gmail.connected ? GMAIL_NOT_CONNECTED : undefined); break
       case 'prepare_text': {
