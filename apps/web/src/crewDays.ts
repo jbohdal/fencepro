@@ -9,8 +9,8 @@ import type { Job } from './jobStore'
 
 /** YYYY-MM-DD in Florida. */
 export const ymd = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-/** How far ahead "Coming up" looks. */
-export const AHEAD_DAYS = 21
+/** How far ahead "Coming up" looks: 60 days (a repair 23 days out did not show at 21; review, Oct 27 2026). Server: crewVisits.ts VISIT_AHEAD_DAYS. */
+export const AHEAD_DAYS = 60
 
 export interface CrewDay { job: Job; day: string; crew: string; dayNo: number; days: number }
 

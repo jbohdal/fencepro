@@ -2,8 +2,8 @@
  * The installer's service visits (audit Oct 26 2026: a covered warranty
  * visit booked with the installer for Tuesday never showed on his phone).
  * The rule on one appointment (no database), then against the dev database
- * (DEV_DB=1; refuses any other): his visits from today through 21 days, the
- * covered request's issue and $0 work order and its packet, never a price,
+ * (DEV_DB=1; refuses any other): his visits from today through 60 days, the
+ * covered request's issue and no charge work order and its packet, never a price,
  * never another person's visit, a cancelled one or an install.
  */
 
@@ -21,19 +21,22 @@ const base = { type: 'service', status: 'scheduled', startAt: at('2026-10-27T12:
 
 describe('which appointments are his visits', () => {
   const today = '2026-10-26'
-  test('booked with him (by login, or by his full name on an older booking), today through 21 days', () => {
+  test('booked with him (by login, or by his full name on an older booking), today through 60 days', () => {
     expect(isCrewVisit(base, me, today)).toBe(true)
     expect(isCrewVisit({ ...base, assignedToUserId: null, assignedTo: ' carl  crew ' }, me, today)).toBe(true)
     expect(isCrewVisit({ ...base, type: 'warranty', startAt: at('2026-10-26T13:00:00Z') }, me, today)).toBe(true)
     expect(isCrewVisit({ ...base, startAt: at('2026-11-16T15:00:00Z') }, me, today)).toBe(true)
+    // A repair 23 days out (review, Oct 27 2026), and the last day.
+    expect(isCrewVisit({ ...base, startAt: at('2026-11-18T15:00:00Z') }, me, today)).toBe(true)
+    expect(isCrewVisit({ ...base, startAt: at('2026-12-25T15:00:00Z') }, me, today)).toBe(true)
   })
-  test('never someone else\'s, a first name alone, cancelled or done, an install, past, beyond 21 days or with no time', () => {
+  test('never someone else\'s, a first name alone, cancelled or done, an install, past, beyond 60 days or with no time', () => {
     expect(isCrewVisit({ ...base, assignedToUserId: 'u-other' }, me, today)).toBe(false)
     expect(isCrewVisit({ ...base, assignedToUserId: null, assignedTo: 'Carl' }, me, today)).toBe(false)
     for (const status of ['cancelled', 'completed', 'no_show']) expect(isCrewVisit({ ...base, status }, me, today)).toBe(false)
     expect(isCrewVisit({ ...base, type: 'install' }, me, today)).toBe(false)
     expect(isCrewVisit({ ...base, startAt: at('2026-10-25T15:00:00Z') }, me, today)).toBe(false)
-    expect(isCrewVisit({ ...base, startAt: at('2026-11-18T15:00:00Z') }, me, today)).toBe(false)
+    expect(isCrewVisit({ ...base, startAt: at('2026-12-26T15:00:00Z') }, me, today)).toBe(false)
     expect(isCrewVisit({ ...base, startAt: null }, me, today)).toBe(false)
     expect(isCrewVisit({ ...base, archivedAt: new Date() }, me, today)).toBe(false)
   })
@@ -70,7 +73,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the installer\'s My installs lis
     await prisma.crmAccount.delete({ where: { id: accountId } })
   })
 
-  test('the covered warranty visit booked with him shows with its issue, the $0 work order and the packet; nothing else and no price', async () => {
+  test('the covered warranty visit booked with him shows with its issue, the no charge work order and the packet; nothing else and no price', async () => {
     const c = await prisma.crmContact.create({ data: { accountId, firstName: 'Walker', lastName: tag, phone: '3525550111', serviceAddress: '110 SE Watula Ave, Ocala, FL 34471' } as any })
     const job = await prisma.savedJob.create({ data: { accountId, crmContactId: c.id, customerName: `Walker ${tag}`, status: 'paid', completedDate: '2026-10-01' } as any })
     const inTwoDays = new Date(Date.now() + 2 * 86_400_000)
@@ -79,7 +82,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the installer\'s My installs lis
     await mk({ assignedTo: 'Someone Else', assignedToUserId: crypto.randomUUID() })
     await mk({ status: 'cancelled' })
     await mk({ type: 'install' })
-    await mk({ startAt: new Date(Date.now() + 30 * 86_400_000) })
+    await mk({ startAt: new Date(Date.now() + 65 * 86_400_000) })
     await prisma.serviceTicket.create({ data: { accountId, jobId: job.id, crmContactId: c.id, issue: 'gate', notes: 'Latch does not catch.', stage: 'scheduled', decision: 'covered', warrantyName: 'Lifetime Craftsmanship Warranty', appointmentId: visit.id } as any })
     const pk = await prisma.installPacket.create({ data: { accountId, jobId: job.id, token: `pk${tag}${crypto.randomBytes(8).toString('hex')}`, snapshot: {} as any } })
 

@@ -19,7 +19,8 @@ import { forCrew } from './costRedact.js'
 import { issueLabel } from './serviceTicketModel.js'
 import { serializeMedia } from './media.js'
 
-export const VISIT_AHEAD_DAYS = 21
+// The same as My installs "Coming up" (web crewDays.ts AHEAD_DAYS): 60 days (review, Oct 27 2026).
+export const VISIT_AHEAD_DAYS = 60
 const CLOSED = new Set(['cancelled', 'completed', 'no_show'])
 
 export interface CrewVisit {
