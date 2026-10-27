@@ -9,7 +9,8 @@
 
 import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
-import { can, canOpenOperations } from './permissions'
+import { can, canOpenOperations, signedInRole } from './permissions'
+import { seesCommission } from './salesmanCommission'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
@@ -228,7 +229,8 @@ export default function QuoteDetailDrawer({
           {/* Internal: where every dollar of this quote goes */}
           {quote.finalPrice > 0 && quote.totalCOGS > 0 && (() => {
             const cfg = getConfig()
-            const pct = typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : (quote.hasSalesman ? cfg.pricing.commissionSalesman : cfg.pricing.commissionNonSalesman) ?? 0
+            // Not shown to a Salesman (Oct 27 2026): her view reads as it did without the commission.
+            const pct = !seesCommission(signedInRole(), can('costs.view')) ? 0 : typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : (quote.hasSalesman ? cfg.pricing.commissionSalesman : cfg.pricing.commissionNonSalesman) ?? 0
             // Rounded to the whole dollar: commission and overhead stay on the price before rounding (the cents are out of profit).
             const rounding = typeof quote.pricing?.roundingCents === 'number' ? quote.pricing.roundingCents : 0
             // The ± dollar adjustment is out of profit too: commission and overhead stay on the price before it.
