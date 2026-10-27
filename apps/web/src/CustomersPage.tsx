@@ -974,7 +974,7 @@ function ArchivedOfCustomer({ customerId, customerArchived }: { customerId: stri
       <p className="text-xs font-semibold text-gray-600">Archived</p>
       {jobs.map(j => (
         <div key={j.id} className="flex flex-wrap items-center gap-2" data-archived-job={j.id}>
-          <span className="flex-1 min-w-[10rem] text-sm text-gray-800 break-words">Job: {j.fenceStyle || 'fence'}{j.contractValue ? `, ${fmt(j.contractValue)}` : ''}</span>
+          <span className="flex-1 min-w-[10rem] text-sm text-gray-800 break-words">Job: {styleLabel(j.fenceStyle) || 'fence'}{j.contractValue ? `, ${fmt(j.contractValue)}` : ''}</span>
           {canJob && <button className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy === j.id} onClick={() => back('job', j.id)} data-unarchive-job={j.id}>Unarchive</button>}
         </div>
       ))}
@@ -1194,6 +1194,9 @@ function CustomerDetail({
     ?? (rememberedTab?.id === customer.id ? asCustomerTab(rememberedTab.tab) : null)
     ?? 'activity')
   const shown = shownCustomerTab(activeTab, tabs)
+  // A link to this same customer on another tab (the quote window's "Open the job's pull sheet"): that tab opens.
+  const navTab = asCustomerTab(useNav().params.get('tab'))
+  useEffect(() => { if (navTab) setActiveTab(navTab) }, [navTab])
 
   const headRef = useRef<HTMLElement | null>(null)
   const tabsRef = useRef<HTMLDivElement | null>(null)
@@ -1515,7 +1518,7 @@ function CustomerDetail({
                       <tbody className="divide-y divide-gray-100">
                         {quotes.slice(0, quoteLimit).map(q => (
                           <tr key={q.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onQuoteClick?.(q.id)} data-customer-quote={q.id}>
-                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
+                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{styleLabel(q.type) || q.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                             <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
                             {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= lowTarget() ? 'text-green-600' : q.margin >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>

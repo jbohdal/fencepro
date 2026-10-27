@@ -9,7 +9,7 @@
 
 import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
-import { can } from './permissions'
+import { can, canOpenOperations } from './permissions'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
@@ -24,13 +24,16 @@ import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import RunSpacingTable from './RunSpacingTable'
 import { workSummary, repairLines } from './moveRepair'
 import CustomerPhotoTicks from './CustomerPhotoTicks'
-import { ChangeOrderButton, ChangeOrderPanel, isSignedForChange } from './ChangeOrders'
+import { ChangeOrderButton, ChangeOrderPanel, isSignedForChange, refreshChangeOrders, getOrdersForQuote, CO_EVENT } from './ChangeOrders'
+import { quoteChangeNote } from './quoteChangeNote'
+import { getJobByQuoteId } from './jobStore'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 import ProposalSend from './ProposalSend'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import MediaGallery from './MediaGallery'
 import DollarPickets from './DollarPickets'
 import { getConfig, overheadPctOf } from './configStore'
-import { useBackLayer, BackClose } from './nav'
+import { useBackLayer, BackClose, navigate } from './nav'
 import { SaveStatus } from './SaveStatus'
 import SignedDocuments from './SignedDocuments'
 import { lowTarget } from './moneyLoad'
@@ -88,6 +91,26 @@ export default function QuoteDetailDrawer({
   // never the Salesman (round 3 recheck: Christa's sold quote offered it).
   const canLose = quote.status !== 'LOST' && !quote.acceptedAt && (!isSignedForChange(quote) || can('billing.change'))
 
+  // A signed quote whose job an approved change order changed: say what the job is now and which pull sheet to
+  // order from (walkthrough recheck, Oct 27 2026). The quote itself stays as signed (quoteChangeNote.ts).
+  const signedForChange = isSignedForChange(quote)
+  const [, setCoTick] = useState(0)
+  useEffect(() => {
+    if (!signedForChange) return
+    const h = () => setCoTick(t => t + 1)
+    window.addEventListener(CO_EVENT, h)
+    void refreshChangeOrders(quote.id)
+    return () => window.removeEventListener(CO_EVENT, h)
+  }, [signedForChange, quote.id])
+  const changeNote = signedForChange ? quoteChangeNote(getOrdersForQuote(quote.id), Math.round(quote.finalPrice * 100)) : null
+  const changedJob = changeNote ? getJobByQuoteId(quote.id) : null
+  // The job's pull sheet (the customer page's Pull sheets tab, opened on the job's), for the office and the Salesman.
+  const jobPullSheetPath = quote.customerId
+    ? `/customers/${encodeURIComponent(quote.customerId)}?tab=pullsheets${changedJob ? `&ps=${encodeURIComponent(`j_${changedJob.id}`)}` : ''}`
+    : null
+  // The job: its window in Operations; the Salesman (no Operations) gets its pull sheet on the customer page.
+  const jobPath = changedJob && canOpenOperations() ? `/operations?job=${encodeURIComponent(changedJob.id)}` : jobPullSheetPath
+
   function handleMarkSold() {
     if (!confirm(`Mark this quote as SOLD and create a job?`)) return
     try {
@@ -139,6 +162,19 @@ export default function QuoteDetailDrawer({
         </div>
 
         <div className="px-8 py-6 space-y-6">
+          {changeNote && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950" data-quote-changed-by>
+              <p className="font-semibold">{changeNote.text}</p>
+              <p className="text-xs text-amber-900 mt-1">This quote is kept as signed; the job has the change.</p>
+              {jobPath && (
+                <button type="button" onClick={() => navigate(jobPath, { from: `Quote #${quoteNumber(quote.id)}` })}
+                  className="mt-2 min-h-[44px] text-sm font-semibold text-amber-950 underline text-left" data-quote-open-job>
+                  {changedJob && canOpenOperations() ? 'Open the job' : changeNote.pullSheetRev ? `Open the job's pull sheet (rev ${changeNote.pullSheetRev})` : 'Open the job\'s pull sheet'}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Top price bar */}
           <div className="bg-gradient-to-r from-orange-50 to-white rounded-2xl border border-orange-100 p-6 flex items-end justify-between">
             <div>
@@ -150,7 +186,7 @@ export default function QuoteDetailDrawer({
               {/* A repair or a move: what is being done, not "0 ft total, 0 sections" (round 2, Oct 26 2026). */}
               {workSummary(quote.work)
                 ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
-                : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p></>}
+                : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p>{changeNote?.pullSheetRev ? <p className="text-xs text-amber-800">as signed</p> : null}</>}
               {internalView && <p className={`mt-1 font-semibold ${quote.gmPct >= lowTarget() ? 'text-green-700' : quote.gmPct >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(quote.gmPct)} margin</p>}
             </div>
           </div>
@@ -184,7 +220,7 @@ export default function QuoteDetailDrawer({
 
           {quoteHasPlan(quote) && (
             <section>
-              <p className="text-xs font-bold text-gray-500 mb-2">Site plan</p>
+              <p className="text-xs font-bold text-gray-500 mb-2">{changeNote?.pullSheetRev ? 'Site plan (as signed)' : 'Site plan'}</p>
               <QuotePlan quote={quote} style={getConfig().fenceStyles.find(s => s.name === quote.fenceStyle)} caption={false} />
             </section>
           )}
@@ -211,7 +247,7 @@ export default function QuoteDetailDrawer({
           {/* Runs, with the post spacing the crew sets */}
           {(quote.runs || []).length > 0 && (
             <section>
-              <p className="text-xs font-bold text-gray-500 mb-2">Runs</p>
+              <p className="text-xs font-bold text-gray-500 mb-2">{changeNote?.pullSheetRev ? 'Runs (as signed)' : 'Runs'}</p>
               <RunSpacingTable quote={quote} />
             </section>
           )}
@@ -249,11 +285,22 @@ export default function QuoteDetailDrawer({
           {/* Pull sheet (internal) */}
           {internalView && quote.pullSheet?.length > 0 && (
             <section>
-              <p className="text-xs font-bold text-gray-400 mb-2">Pull Sheet</p>
+              <p className="text-xs font-bold text-gray-400 mb-2">{changeNote?.pullSheetRev ? 'Pull Sheet (as signed)' : 'Pull Sheet'}</p>
+              {changeNote && (
+                <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950" data-quote-pull-sheet-changed>
+                  <p>{changeNote.pullSheetText}</p>
+                  {changeNote.pullSheetRev && jobPullSheetPath && (
+                    <button type="button" onClick={() => navigate(jobPullSheetPath, { from: `Quote #${quoteNumber(quote.id)}` })}
+                      className="mt-1 min-h-[44px] font-semibold underline text-left" data-quote-open-job-pull-sheet>
+                      Open the job's pull sheet (rev {changeNote.pullSheetRev})
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="bg-gray-50 rounded-xl p-3 max-h-48 overflow-y-auto">
                 {quote.pullSheet.map((li, i) => (
                   <div key={i} className="flex justify-between py-1 text-xs border-b border-gray-100 last:border-0">
-                    <span className="text-gray-700 truncate pr-2">{li.item}</span>
+                    <span className="text-gray-700 truncate pr-2">{partWithPair(li.item)}</span>
                     <span className="text-gray-500">{li.qty} × {fmt(li.unitCost)}</span>
                   </div>
                 ))}

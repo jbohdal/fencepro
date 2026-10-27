@@ -12,7 +12,7 @@
  * job's install packet link /p/i/<link> (installPacket.tsx).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Printer, Users, Copy, ExternalLink } from 'lucide-react'
 import { fetchWithAuth } from './crmAuth'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
@@ -25,6 +25,7 @@ import RunSpacingTable from './RunSpacingTable'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { sendInstallPacket, packetUrl } from './installPacket'
 import { refreshChangeOrders, quoteWithChanges, CO_EVENT } from './ChangeOrders'
+import { useNav } from './nav'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/pull-sheets'
@@ -54,13 +55,18 @@ const STATUS_STYLE: Record<string, string> = {
 
 export default function CustomerPullSheetsTab({ customerId }: { customerId: string }) {
   const [data, setData] = useState<{ quantitiesOnly: boolean; entries: PullSheetEntry[] } | null | 'error'>(null)
-  const [openId, setOpenId] = useState<string | null>(null)
+  // A link may name the pull sheet to open (?ps=j_<job>: the quote window's "Open the job's pull sheet").
+  const asked = () => { try { return new URLSearchParams(window.location.search).get('ps') } catch { return null } }
+  const [openId, setOpenId] = useState<string | null>(asked)
   const load = () => {
     fetchWithAuth(`${API}/customer/${encodeURIComponent(customerId)}`)
       .then(async r => { const j = await r.json().catch(() => null); setData(r.ok && j?.success ? j.data : 'error') })
       .catch(() => setData('error'))
   }
-  useEffect(() => { setData(null); setOpenId(null); load() }, [customerId])
+  useEffect(() => { setData(null); setOpenId(asked()); load() }, [customerId])
+  // A link to another one while this tab is open.
+  const navPs = useNav().params.get('ps')
+  useEffect(() => { if (navPs) setOpenId(navPs) }, [navPs])
 
   if (data === null) return <p className="text-sm text-gray-500 py-6 text-center">Loading pull sheets…</p>
   if (data === 'error') return (
@@ -95,12 +101,15 @@ export default function CustomerPullSheetsTab({ customerId }: { customerId: stri
           ))}
         </div>
       )}
-      {open && <PullSheetView key={open.id} entry={open} costs={costs} customerId={customerId} onChanged={load} onClose={() => setOpenId(null)} />}
+      {open && <PullSheetView key={open.id} entry={open} costs={costs} customerId={customerId} onChanged={load} onClose={() => setOpenId(null)} scrollTo={open.id === asked()} />}
     </div>
   )
 }
 
-function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { entry: PullSheetEntry; costs: boolean; customerId: string; onChanged: () => void; onClose: () => void }) {
+function PullSheetView({ entry: e, costs, customerId, onChanged, onClose, scrollTo = false }: { entry: PullSheetEntry; costs: boolean; customerId: string; onChanged: () => void; onClose: () => void; scrollTo?: boolean }) {
+  // Opened from a link (?ps=): brought into view, below a long list on a phone.
+  const viewRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (scrollTo) viewRef.current?.scrollIntoView({ block: 'start' }) }, [scrollTo])
   const [busy, setBusy] = useState<'' | 'pdf' | 'crew'>('')
   const [crewUrl, setCrewUrl] = useState(e.packetToken ? packetUrl(e.packetToken) : '')
   const signedQ = e.quoteId ? getQuotes().find(x => x.id === e.quoteId) : undefined
@@ -151,7 +160,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-4" data-pull-sheet-view={e.id}>
+    <div ref={viewRef} className="bg-white rounded-2xl border border-gray-200 p-4 space-y-4 scroll-mt-20" data-pull-sheet-view={e.id}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-semibold text-gray-900 [overflow-wrap:anywhere]">{e.style || 'Fence'}</h3>
@@ -216,7 +225,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose }: { en
               </table>
             </div>
           )}
-          {removed.length > 0 && <p className="text-xs text-amber-900 mt-1" data-pull-sheet-removed>Taken off by the change: {removed.map(c => `${c.item} (was ${qtyText(c.was)})`).join(', ')}.</p>}
+          {removed.length > 0 && <p className="text-xs text-amber-900 mt-1" data-pull-sheet-removed>Taken off by the change: {removed.map(c => `${partWithPair(c.item)} (was ${qtyText(c.was)})`).join(', ')}.</p>}
           {e.revisions && e.revisions.length > 1 && (
             <details className="mt-2" data-pull-sheet-history>
               <summary className="text-xs font-semibold text-gray-700 min-h-[44px] flex items-center cursor-pointer">Earlier revisions ({e.revisions.length - 1})</summary>
