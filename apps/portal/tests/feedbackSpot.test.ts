@@ -24,18 +24,22 @@ describe('the floating Feedback button finds a free spot', () => {
     const customerPage = { left: 16, top: 530, width: 160, height: 48 }
     const camera = { left: 16, top: 700, width: 170, height: 44 }
     const spots = spotsFor(390, 844, 76)
-    const s = pickSpot(spots, freeOf([customerPage, camera]), 844)
-    expect(overlaps(s, customerPage)).toBe(false)
-    expect(overlaps(s, camera)).toBe(false)
-    expect(s.tab).toBeFalsy()
+    // A phone: the edge tab, which reaches no control's middle (they sit inside the 16 px gutter).
+    const s = pickSpot(spots, freeOf([customerPage, camera]), 844, 390)
+    expect(s.tab).toBe(true)
+    expect(s.left + s.width / 2).toBeLessThan(customerPage.left)
+    // A computer: a full button, on a spot with nothing under it.
+    const wide = pickSpot(spotsFor(1280, 800, 0), freeOf([{ left: 0, top: 700, width: 1280, height: 100 }]), 800, 1280)
+    expect(wide.tab).toBeFalsy()
+    expect(overlaps(wide, { left: 0, top: 700, width: 1280, height: 100 })).toBe(false)
   })
 
-  test('a screen full of controls: a thin tab on the left edge, inside the 16 px gutter, where it is free', () => {
+  test('a screen full of controls: a narrow tab on the left edge, its middle inside the 16 px gutter, where it is free', () => {
     // Full width rows everywhere, with the side gutter kept clear (16 px).
-    const rows = Array.from({ length: 20 }, (_, i) => ({ left: 16, top: i * 42, width: 358, height: 40 }))
-    const s = pickSpot(spotsFor(390, 844, 76), freeOf(rows), 844)
+    const rows = Array.from({ length: 21 }, (_, i) => ({ left: 16, top: i * 42, width: 1248, height: 40 }))
+    const s = pickSpot(spotsFor(1280, 844, 0), freeOf(rows), 844, 1280)
     expect(s.tab).toBe(true)
-    expect(s.left + s.width).toBeLessThanOrEqual(16)
+    expect(s.left + s.width / 2).toBeLessThan(16)
     expect(s.width).toBe(TAB.width)
     // A control flush to the left edge half way down: the tab moves to another height.
     const flush = { left: 0, top: 380, width: 390, height: 90 }

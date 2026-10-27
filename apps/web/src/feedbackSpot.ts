@@ -5,18 +5,21 @@
  * Over a window the button floats (FeedbackButton.tsx FeedbackOverWindow). A
  * fixed corner covered real controls on an iPhone: the card window's
  * "Customer page" button and the quote builder's camera button (iPhone
- * Simulator and e2e/field.mjs, Oct 26 2026). So the button tries a few spots,
- * low on the screen first (thumb reach), and takes the first one with nothing
- * tappable under it; when every spot has something under it, it becomes a
- * small tab on the screen's left edge, inside the 16 px side gutter that every
- * screen keeps clear.
+ * Simulator and e2e/field.mjs, Oct 26 2026). On a phone (under 768 px) it is a
+ * narrow tab on the screen's left edge: the windows keep a 16 px side gutter,
+ * so it can only touch the outer edge of a control, never its middle, even
+ * while the window scrolls under it. On a wider screen it tries a few spots, low
+ * on the screen first, and takes the first one with nothing tappable under it,
+ * else the edge tab.
  */
 
 export interface Spot { left: number; top: number; width: number; height: number; tab?: boolean }
 
 /** The full size button (44 px tall, "Feedback" with its icon) and the edge tab. */
 export const BUTTON = { width: 112, height: 44 }
-export const TAB = { width: 14, height: 56 }
+export const TAB = { width: 22, height: 64 }
+/** Under this width the button is always the edge tab. */
+export const PHONE_MAX = 767
 
 /**
  * The spots to try, in order, for a viewport `vw` x `vh`. `bottomInset` is
@@ -49,9 +52,11 @@ export function probePoints(s: Spot): Array<[number, number]> {
   return xs.flatMap(x => ys.map(y => [x, y] as [number, number]))
 }
 
-/** The first spot `isFree` accepts; else the first free edge tab; else the edge tab half way down. */
-export function pickSpot(spots: Spot[], isFree: (s: Spot) => boolean, vh: number): Spot {
-  return spots.find(isFree) ?? TAB_AT.map(a => edgeTab(vh, a)).find(isFree) ?? edgeTab(vh)
+/** The first spot `isFree` accepts; else the first free edge tab; else the edge tab half way down. A phone: the edge tab only. */
+export function pickSpot(spots: Spot[], isFree: (s: Spot) => boolean, vh: number, vw = 1024): Spot {
+  const tabs = TAB_AT.map(a => edgeTab(vh, a))
+  if (vw <= PHONE_MAX) return tabs.find(isFree) ?? tabs[0]
+  return spots.find(isFree) ?? tabs.find(isFree) ?? tabs[0]
 }
 
 /** What counts as something a person taps: buttons, links, fields, a signature box, and anything marked as a button. */

@@ -13,7 +13,7 @@ import { MessageSquarePlus, X, Loader2, Pencil, Undo2 } from 'lucide-react'
 import { captureScreen, sendFeedback, whereText } from './feedback'
 import { BackClose, useNav } from './nav'
 import { toast } from './toast'
-import { BUTTON, CUSTOMER_HOLDS, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
+import { BUTTON, CUSTOMER_HOLDS, PHONE_MAX, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
 
 type Point = [number, number]
 type Stroke = Point[]
@@ -151,8 +151,9 @@ function useFreeSpot(on: boolean): Spot | null | 'hidden' {
       const bar = document.querySelector('[data-tabbar]')?.getBoundingClientRect()
       const inset = bar && bar.height > 0 && bar.top < vh ? vh - bar.top : 0
       const spots = spotsFor(vw, vh, inset)
-      const keep = cur.current && !cur.current.tab && spots.some(s => s.left === cur.current!.left && s.top === cur.current!.top) && free(cur.current)
-      const next = keep ? cur.current! : pickSpot(spots, free, vh)
+      const c = cur.current
+      const keep = !!c && free(c) && (c.tab ? vw <= PHONE_MAX && c.top + c.height <= vh : vw > PHONE_MAX && spots.some(s => s.left === c.left && s.top === c.top))
+      const next = keep ? cur.current! : pickSpot(spots, free, vh, vw)
       if (!cur.current || next.left !== cur.current.left || next.top !== cur.current.top || !!next.tab !== !!cur.current.tab) { cur.current = next; setSpot(next) }
     }
     const soon = () => { if (!frame) frame = requestAnimationFrame(measure) }
@@ -217,7 +218,7 @@ export default function FeedbackButton({ screen = '', floating = false }: { scre
             ? 'fixed z-[175] flex items-center justify-center rounded-r-lg bg-orange-500/90 text-white shadow-lg disabled:opacity-60'
             : 'fixed z-[175] flex items-center justify-center gap-1.5 rounded-full bg-white text-gray-700 border border-gray-300 shadow-lg hover:bg-gray-50 disabled:opacity-60 text-sm font-semibold'
           : 'flex items-center justify-center gap-1.5 w-11 h-11 md:w-auto md:h-9 md:px-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-60 text-sm'}>
-        {tab ? <span className="w-1 h-8 rounded-full bg-white/90" aria-hidden="true" /> : <>
+        {tab ? <MessageSquarePlus size={16} aria-hidden="true" /> : <>
           {busy ? <Loader2 size={20} className="animate-spin md:w-4 md:h-4" aria-hidden="true" /> : <MessageSquarePlus size={20} className="md:w-4 md:h-4" aria-hidden="true" />}
           <span className={floating ? '' : 'hidden xl:inline'}>{busy ? 'Taking picture...' : 'Feedback'}</span>
         </>}
