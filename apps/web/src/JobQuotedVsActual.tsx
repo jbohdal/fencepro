@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { useCan } from './permissions'
 import { loadJobCost, usd, TAKEOFF_EVENT, type JobCost, type CompareRow } from './takeoffStore'
 import { CO_EVENT } from './ChangeOrders'
@@ -100,7 +101,7 @@ function Row({ r, hasActual }: { r: CompareRow; hasActual: boolean }) {
   const off = hasActual && (r.qtyDiff !== 0 || r.diffCostCents !== 0)
   return (
     <div className={`rounded-lg border px-2 py-1.5 text-xs ${r.extra ? 'border-orange-300 bg-orange-50' : off ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`} data-cost-row={r.part} data-cost-row-diff={r.diffCostCents}>
-      <p className="font-medium text-gray-900 break-words">{r.part}{r.extra ? ' (added on the job)' : ''}</p>
+      <p className="font-medium text-gray-900 break-words">{partWithPair(r.part)}{r.extra ? ' (added on the job)' : ''}</p>
       <div className="grid grid-cols-3 gap-1 mt-0.5 tabular-nums">
         <span className="text-gray-600">Qty {q2(r.plannedQty)} → {hasActual ? q2(r.usedQty) : '—'}{hasActual && r.qtyDiff !== 0 ? <b className={r.qtyDiff > 0 ? ' text-red-700' : ' text-green-700'}> ({r.qtyDiff > 0 ? '+' : ''}{q2(r.qtyDiff)})</b> : null}</span>
         <span className="text-gray-600 text-right">{usd(r.quotedCostCents)} → {hasActual ? usd(r.actualCostCents) : '—'}</span>

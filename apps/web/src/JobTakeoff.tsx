@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { X, Minus, Plus, Camera, Search, Trash2, ClipboardList, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Job } from './jobStore'
 import { getQuotes } from './quoteStore'
@@ -234,7 +235,7 @@ function LineRow({ t, line, job, photoUrl, readOnly }: { t: Takeoff; line: Takeo
   return (
     <div className={`rounded-xl bg-white border p-3 space-y-2 ${line.extra ? 'border-orange-300' : d !== 0 ? 'border-amber-300' : 'border-gray-200'}`} data-takeoff-line={line.id} data-takeoff-part={line.part}>
       <div className="flex items-start gap-2">
-        <p className="flex-1 min-w-0 text-sm font-medium text-gray-900 break-words">{line.part}</p>
+        <p className="flex-1 min-w-0 text-sm font-medium text-gray-900 break-words">{partWithPair(line.part)}</p>
         {line.extra && <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-orange-100 text-orange-800 shrink-0">{REASONS.find(r => r.key === line.reason)?.label ?? 'Added'}</span>}
       </div>
       {!line.extra && <p className="text-xs text-gray-600" data-takeoff-diff={d}>Pull sheet {fmtQty(line.plannedQty)} · {diffWords(d)}</p>}

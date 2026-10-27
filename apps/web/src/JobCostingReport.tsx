@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { styleLabel } from './fenceCatalog'
 import { loadReport, groupReport, partTrends, usd, type ReportJob, type ReportGroup } from './takeoffStore'
 
@@ -69,7 +70,7 @@ export default function JobCostingReport() {
           {parts.length === 0 && <p className="p-4 text-sm text-gray-500">Every approved takeoff matched its pull sheet so far.</p>}
           {parts.map(p => (
             <div key={p.part} className="p-3 text-sm" data-jc-part={p.part}>
-              <p className="font-medium text-gray-900 break-words">{p.part}</p>
+              <p className="font-medium text-gray-900 break-words">{partWithPair(p.part)}</p>
               <p className="text-xs text-gray-600 tabular-nums">
                 Over on {p.overJobs} of {p.jobs} jobs (+{p.overQty}) · under on {p.underJobs} (−{p.underQty}) · net <b className={p.netQty > 0 ? 'text-red-700' : 'text-green-700'}>{p.netQty > 0 ? '+' : ''}{p.netQty}</b>
               </p>

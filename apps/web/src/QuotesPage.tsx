@@ -720,7 +720,7 @@ export default function QuotesPage({
                 <p className="text-xs text-gray-400 font-semibold mb-2">Items to pull</p>
                 {pullConfirm.pullSheet.slice(0, 15).map((item, i) => (
                   <div key={i} className="flex justify-between text-xs py-0.5">
-                    <span className="text-gray-700 truncate pr-2">{item.item}</span>
+                    <span className="text-gray-700 truncate pr-2">{partWithPair(item.item)}</span>
                     <span className="text-gray-500 shrink-0">×{item.qty}</span>
                   </div>
                 ))}
