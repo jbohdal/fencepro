@@ -57,13 +57,20 @@ try {
   const own = money(await b.locator('[data-quote-price]').textContent())
   const cl = await tiers()
   check('chain link: titled "Two options", two of them', (await b.locator('[data-tiers-title]').textContent()).startsWith('Two options') && cl.length === 2, JSON.stringify(cl.map(t => t.name)))
-  check('chain link: Dig set with concrete is not available for quoting yet (its post prices)', cl[0]?.name === 'Dig set with concrete' && /not available for quoting yet: Dig set is waiting for prices on 2 parts/.test(cl[0]?.reason ?? ''), cl[0]?.reason)
+  // Whether 4 ft Galvanized dig set is priced is the server's answer (its quotable styles): its post pipe was
+  // priced from Stephens 06-251126 (docs/FEATURES.md, "06-251126 and 06-251608 on dev": "4 and 5 ft Galvanized
+  // dig set have every part priced"), so a copy of live made after that has it available; an older copy waits.
+  const quotable = ((await (await fetch(`${API}/api/quotes/styles`, { headers: { Authorization: `Bearer ${TOKEN}` } })).json()).data ?? []).map(s => s.name)
+  const dsPriced = quotable.includes('chain/4/galv/res/ds')
+  if (dsPriced) check('chain link: Dig set with concrete is priced (its post parts are), not held', cl[0]?.name === 'Dig set with concrete' && money(cl[0]?.price) > 0 && !cl[0]?.reason, `${cl[0]?.price} ${cl[0]?.reason ?? ''}`)
+  else check('chain link: Dig set with concrete is not available for quoting yet (its post prices)', cl[0]?.name === 'Dig set with concrete' && /not available for quoting yet: Dig set is waiting for prices on \d+ parts?/.test(cl[0]?.reason ?? ''), cl[0]?.reason)
   check('chain link: No dig, Most popular, at the quote\'s own price', cl[1]?.name === 'No dig' && cl[1].popular && money(cl[1].price) === own, `${cl[1]?.price} vs ${own}`)
   await b.locator('[data-tiers]').scrollIntoViewIfNeeded(); if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-cl-two-options.png` })
   await b.locator('[data-step="style"]').click(); await sleep(300)
   await b.locator('[data-choice-material="chain"]').click().catch(() => {}); await sleep(300)
   const dsState = await b.locator('[data-choice-dim="install"][data-choice-key="ds"]').getAttribute('data-choice-state').catch(() => null)
-  check('quote builder: chain link Install has Dig set, greyed (off) until priced', dsState === 'held', String(dsState))
+  if (dsPriced) check('quote builder: chain link Install has Dig set, on (priced)', !!dsState && dsState !== 'held', String(dsState))
+  else check('quote builder: chain link Install has Dig set, greyed (off) until priced', dsState === 'held', String(dsState))
 
   // ── 2. Aluminum ──
   await quoteOn('Aluminum Emily, 4 ft tall, No dig')

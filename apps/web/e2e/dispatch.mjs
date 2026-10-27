@@ -33,7 +33,10 @@ const jobs = await get('/api/saved-jobs')
 // Jobs with no date: given a crew here they stay on the map (a dated job shows only on its own dates).
 const onMap = jobs.filter(j => !j.deletedAt && !j.archivedAt && (j.status === 'staging' || j.status === 'scheduled') && !j.scheduledDate)
 if (onMap.length < 2 || !crews.length) { console.error(`Needs at least two staging jobs (has ${onMap.length}) and one Schedule crew (has ${crews.length}).`); process.exit(2) }
-const BY_ID = onMap[0].id, BY_NAME = onMap[1].id
+// Jobs that already have their map point first: one with an address the map cannot place
+// (another test's leftover) would leave the crew with no pin to check.
+const placed = [...onMap.filter(j => j.lat != null && j.lng != null), ...onMap.filter(j => j.lat == null || j.lng == null)]
+const BY_ID = placed[0].id, BY_NAME = placed[1].id
 const NAME_CREW = 'Juan Bravo'
 const CLASS_HEX = { 'bg-blue-500': '#3B82F6', 'bg-purple-500': '#8B5CF6', 'bg-green-500': '#22C55E', 'bg-orange-500': '#5E28A1', 'bg-pink-500': '#EC4899', 'bg-teal-500': '#14B8A6', 'bg-red-500': '#EF4444', 'bg-indigo-500': '#6366F1', 'bg-yellow-500': '#EAB308', 'bg-cyan-500': '#06B6D4' }
 const crewHex = CLASS_HEX[crews[0].color] || crews[0].color
@@ -51,6 +54,12 @@ async function run(name, viewport, phone) {
     if (r.request().method() !== 'GET') return r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true,"data":null}' })
     const res = await r.fetch()
     const body = await res.json()
+    // The job list comes as a table (?shape=table, web/src/listTable.ts): turned back into
+    // rows here (the app takes a plain list as well), so the crews can be set by field name.
+    if (body.data?.$table === 1) {
+      const { cols, rows, missing } = body.data
+      body.data = rows.map((r, i) => Object.fromEntries(cols.map((c, k) => [c, r[k]]).filter((_, k) => !missing?.[i]?.includes(k))))
+    }
     if (Array.isArray(body.data)) for (const j of body.data) {
       if (j.id === BY_ID) j.crewAssigned = crews[0].id
       if (j.id === BY_NAME) j.crewAssigned = NAME_CREW

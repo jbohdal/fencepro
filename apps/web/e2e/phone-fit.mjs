@@ -596,6 +596,8 @@ async function customerScreen(s, who) {
   })
   if (bar) check(`${tag}: the action bar sits above the tab bar`, bar.bar <= bar.tab + 1, `${bar.bar} vs ${bar.tab}`)
   await s.page.evaluate(() => { const sc = document.querySelector('[data-page-scroll]'); sc.scrollTop = 0; const c = document.querySelector('[data-customer-scroll]'); if (c) c.scrollTop = 0 })
+  // Back at the top the full header (with More) comes back on the next scroll event: wait for it (WebKit is a beat later).
+  await s.page.waitForSelector('[data-customer-header][data-compact="no"]', { timeout: 5000 }).catch(() => {})
   await judge(s, `customer (${who})`)
   // Every menu on the customer screen, the header's too; the owner's More holds Delete customer.
   await popups(s, `customer (${who})`, {

@@ -11,7 +11,7 @@
  * prices anything. Nothing here returns a cost.
  */
 
-import { deriveLayout, type YardLayout } from './yardLayout'
+import { deriveLayout, teePostFor, type YardLayout } from './yardLayout'
 import { layoutPanelFt } from './gateSlide'
 import { priceQuoteJob, type QuoteJob, type QuoteJobRequest } from './quoteJob'
 import { resolveTiers, type TierSet } from './tiers'
@@ -104,11 +104,16 @@ export function layoutWidthFt(style: Pick<FenceStyle, 'name' | 'panelWidth' | 'a
 
 /** Exactly what the quote builder sends to priceQuoteJob for this yard and style on a new quote. */
 export function builderRequest(cfg: AppConfig, yard: YardLayout, style: FenceStyle, priceAdjust = 0, tierSet: Pick<TierSet, 'category' | 'tiers' | 'popular'> | null = null): QuoteJobRequest {
-  const r = deriveLayout(yard, layoutWidthFt(style) * 12)
+  // As QuoteBuilder derives a drawn yard: the style's tee post, then each gate's width (chain link
+  // gate leaves go by width) and vinyl tees as line posts. Without them the website priced a 10 ft
+  // double gate as an 8 ft one, below the builder's price for the same yard (Oct 26, 2026).
+  const r = deriveLayout(yard, layoutWidthFt(style) * 12, { teeAs: teePostFor(style) })
   return {
     fenceStyle: style.name,
     runs: r.runs.map(x => ({ ft: x.ft, rail: 'auto' as const })),
     corners: r.corners, ends: r.ends, walkGates: r.walkGates, dblGates: r.dblGates,
+    gateWidths: r.gateWidthsFt,
+    ...(r.linePosts ? { extraLinePosts: r.linePosts } : {}),
     tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust,
     overrides: newQuoteOverrides(cfg), jobType: 'new', move: null, repair: null,
     tierSet, tierPrefs: { off: [], swap: {} }, compare: false, offer: [], offerNewFence: false, offerMoveAsIs: true, photoIds: {}, keepStyle: null,

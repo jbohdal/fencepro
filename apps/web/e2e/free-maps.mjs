@@ -36,6 +36,8 @@ try {
   await c.route(/\/api\/saved-jobs\/?(\?.*)?$/, async r => {
     if (r.request().method() !== 'GET') return r.abort()
     const res = await r.fetch(); const json = await res.json()
+    // The job list comes as a table (?shape=table, web/src/listTable.ts): back into rows (the app takes a plain list too).
+    if (json?.data?.$table === 1) { const { cols, rows, missing } = json.data; json.data = rows.map((row, i) => Object.fromEntries(cols.map((k, n) => [k, row[n]]).filter((_, n) => !missing?.[i]?.includes(n)))) }
     const j = Array.isArray(json?.data) ? json.data.find(x => x.status === 'staging') : null
     if (j) { heldId = j.id; j.previousStatus = j.status; j.status = 'on_hold'; j.opsStage = 'customer_delay' }
     await r.fulfill({ response: res, json })

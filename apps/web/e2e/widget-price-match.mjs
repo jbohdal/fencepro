@@ -17,7 +17,7 @@ import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+if (!/localhost:\d+/.test(APP) || !/localhost:\d+/.test(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []

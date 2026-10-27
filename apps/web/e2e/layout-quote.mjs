@@ -7,7 +7,8 @@
 // pad, add a walk gate and a double gate, pick a style; the sections, posts
 // and price must match the same job typed as a run list. Then save, reopen
 // on a computer sized screen and check the layout and post spacing came back.
-// The test quote is deleted at the end.
+// It saves to a customer of its own (made through the API), never a real one; the quote and the customer
+// are deleted at the end.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
@@ -47,6 +48,10 @@ async function typeLength(page, keys) {
 
 const browser = await chromium.launch()
 let savedId = null
+// Its own customer (it used to save onto a real customer of the dev copy, Shawn Collins).
+const CUST = `Layout Quote E2E${Date.now().toString(36)}`
+const contact = await api('/api/crm-contacts', { method: 'POST', body: JSON.stringify({ firstName: 'Layout', lastName: CUST.replace(/^Layout /, ''), phone: '3525550167', email: 'e2e-layout-quote@example.invalid', serviceAddress: '110 SE Watula Ave, Ocala, FL 34471', leadSource: 'Other' }) })
+const contactId = contact?.id
 try {
   // ── Phone: build the backyard ──
   const s = await open(browser, true)
@@ -119,17 +124,17 @@ try {
   const sticky = (await p.locator('[data-quote-bar]').textContent()).trim()
   check('phone: footage, sections and price pinned at the bottom', sticky.includes('436 ft · 57 sections') && sticky.includes(layoutPrice), sticky)
 
-  // Save to a dev customer.
+  // Save to its own customer.
   await p.locator('[data-quote-bar] [data-save-open]').click()
-  await p.locator('input[placeholder="Name, phone, or email..."]').fill('Shawn Collins'); await sleep(400)
-  await p.locator('text=Shawn Collins').last().click()
+  await p.locator('input[placeholder="Name, phone, or email..."]').fill(CUST); await sleep(600)
+  await p.locator(`text=${CUST}`).last().click()
   await p.locator('button:has-text("Save quote")').last().click()
   await sleep(2500)
   check('phone: no page errors', s.errors.length === 0, s.errors.join(' | '))
   await s.ctx.close()
 
   const list = await api('/api/saved-quotes')
-  const saved = (Array.isArray(list) ? list : list.quotes || []).filter(q => q.layout?.yard?.shape === 'backyard' && q.customerName === 'Shawn Collins').sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
+  const saved = (Array.isArray(list) ? list : list.quotes || []).filter(q => q.layout?.yard?.shape === 'backyard' && q.crmContactId === contactId).sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
   savedId = saved?.id
   check('saved with its layout and sections per run', !!saved && saved.layout.yard.sides.length === 5 && saved.layout.runSections.join(',') === '2,2,15,19,15,2,2',
     saved ? `${saved.runs.join(',')} | ${saved.layout.runSections.join(',')}` : 'not found')
@@ -137,7 +142,7 @@ try {
   // ── Computer: reopen the saved quote ──
   const d = await open(browser, false)
   await d.page.keyboard.press('Meta+k')
-  await d.page.keyboard.type('Shawn Collins'); await sleep(600)
+  await d.page.keyboard.type(CUST); await sleep(800)
   await d.page.locator('[data-global-search] [role="option"]:has-text("White Vinyl Privacy, 6 ft tall, 8 ft panels")').first().locator('button').first().click()
   await sleep(800)
   const reopened = await d.page.locator('[data-quote-builder] [data-side]').count()
@@ -148,8 +153,9 @@ try {
   // The crew sees runs by side with post spacing on the customer's quote.
   await d.page.goto(`${APP}/?customer=${saved.crmContactId}`)
   await d.page.waitForSelector('[data-global-appointment]'); await sleep(1000)
-  await d.page.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
-  await d.page.locator(`text=$${Math.round(saved.finalPrice).toLocaleString('en-US')}`).first().click(); await sleep(800)
+  await d.page.locator('[data-customer-tab="quotes"]').first().click(); await sleep(500)
+  // The quote's row on the Quotes tab (the summary tiles above show the same amount).
+  await d.page.locator(`[data-customer-quote="${saved.id}"]`).first().click(); await sleep(800)
   const runTable = (await d.page.locator('[data-run-spacing]').first().textContent()).replace(/\s+/g, ' ')
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/desktop-quote-drawer-runs.png` })
   check('the saved quote shows its site plan', await d.page.locator('[data-quote-plan] [data-site-plan]').count() > 0)
@@ -170,6 +176,7 @@ try {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
 } finally {
   if (savedId) await api(`/api/saved-quotes/${savedId}`, { method: 'DELETE' })
+  if (contactId) await api(`/api/crm-contacts/${contactId}`, { method: 'DELETE' })
   await browser.close()
 }
 const passed = results.filter(Boolean).length

@@ -215,6 +215,8 @@ try {
     await page.locator('[data-co-modal]').waitFor({ timeout: 10000 })
     await page.locator('[data-co-line-description]').first().fill('Add a 4 ft section by the shed')
     await page.locator('[data-co-line-amount]').first().fill('200')
+    // A change order needs the reason typed by whoever makes it (41aabb6, Oct 26): Save stays off until then.
+    await page.locator('[data-co-reason]').fill('Customer asked for a section by the shed')
     const saveText = await page.locator('[data-co-save-draft]').innerText()
     check('salesman: the save says it goes to the office to OK', /send to the office to OK/i.test(saveText), saveText)
     await page.locator('[data-co-save-draft]').tap()

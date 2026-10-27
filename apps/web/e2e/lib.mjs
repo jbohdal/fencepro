@@ -16,8 +16,23 @@ if ((!local(APP) || !local(API)) && process.env.E2E_ALLOW_REMOTE !== 'I understa
   console.error('Refusing to run: APP_URL and API_URL must be localhost. These tests write test data.')
   process.exit(2)
 }
-export const STAFF_COOKIE = process.env.E2E_STAFF_COOKIE || ''
 export const ACCESS_TOKEN = process.env.E2E_ACCESS_TOKEN || ''
+/**
+ * The `ezbiz_staff` cookie for the suites that sign in only by cookie. E2E_STAFF_COOKIE
+ * when it is set; otherwise, with only E2E_ACCESS_TOKEN (how run-heavy.sh and the
+ * nightly run are usually started), the token is moved over to a cookie once here,
+ * the way the app does on its first load (POST /api/crm-auth/move-over; the token
+ * keeps working).
+ */
+async function cookieFromToken() {
+  if (!ACCESS_TOKEN) return ''
+  try {
+    const r = await fetch(`${API}/api/crm-auth/move-over`, { method: 'POST', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json', Authorization: `Bearer ${ACCESS_TOKEN}` }, body: '{}' })
+    const set = (r.headers.getSetCookie?.() ?? [r.headers.get('set-cookie') || '']).join('\n')
+    return set.match(/ezbiz_staff=([^;\s]+)/)?.[1] || ''
+  } catch { return '' }
+}
+export const STAFF_COOKIE = process.env.E2E_STAFF_COOKIE || await cookieFromToken()
 if ((!EMAIL || !PASSWORD) && !STAFF_COOKIE && !ACCESS_TOKEN) {
   console.error('Set E2E_STAFF_COOKIE (scripts/dev-session-token.ts --cookie), E2E_ACCESS_TOKEN, or E2E_EMAIL and E2E_PASSWORD for a login on the test database.')
   process.exit(2)
@@ -102,6 +117,36 @@ export async function nav(s, label) {
  * to the URL, so the URL is looked up from what the page already loaded).
  */
 export const IMP = `const imp = name => { const hit = performance.getEntriesByType('resource').map(e => e.name).filter(n => n.includes('/src/' + name)).pop(); return import(hit ? hit.replace(location.origin, '') : '/src/' + name) }`
+
+/**
+ * A test login of its own on the dev copy (the WT test logins are gone since the
+ * scrubbed refresh, Oct 26 2026): invited by the owner and accepted with a random
+ * password, the way a new hire is. Returns { id, email, password, token, firstName,
+ * lastName, name, role }. Remove it with removeTestLogin(). The email is
+ * @example.invalid; nothing is sent (the dev copy's outbound gate is shut).
+ */
+export async function makeTestLogin({ role = 'sales_rep', firstName = 'E2E', lastName, ownerToken = ACCESS_TOKEN, api = API } = {}) {
+  const code = Math.random().toString(36).slice(2, 8)
+  const last = lastName || `${role.replace('_', ' ')} ${code}`
+  const email = `e2e-${role.replace('_', '-')}-${code}@example.invalid`
+  const H = { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }
+  const inv = await fetch(`${api}/api/crm-auth/invite`, { method: 'POST', headers: { ...H, Authorization: `Bearer ${ownerToken}` }, body: JSON.stringify({ firstName, lastName: last, email, role }) })
+  const ij = await inv.json().catch(() => null)
+  if (!ij?.data?.inviteUrl) throw new Error(`invite ${role}: ${inv.status} ${JSON.stringify(ij).slice(0, 200)}`)
+  const password = `E2e-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2, 6).toUpperCase()}!`
+  const acc = await fetch(`${api}/api/crm-auth/accept-invite`, { method: 'POST', headers: H, body: JSON.stringify({ token: new URL(ij.data.inviteUrl).searchParams.get('token'), email, password }) })
+  const aj = await acc.json().catch(() => null)
+  const token = aj?.data?.accessToken
+  if (!token) throw new Error(`accept invite ${role}: ${acc.status} ${JSON.stringify(aj).slice(0, 200)}`)
+  const me = await (await fetch(`${api}/api/crm-auth/me`, { headers: { Authorization: `Bearer ${token}` } })).json().catch(() => null)
+  return { id: me?.data?.id ?? null, email, password, token, firstName, lastName: last, name: `${firstName} ${last}`, role }
+}
+
+/** Removes a login made by makeTestLogin (the owner's Team delete). */
+export async function removeTestLogin(login, { ownerToken = ACCESS_TOKEN, api = API } = {}) {
+  if (!login?.id) return
+  await fetch(`${api}/api/crm-auth/users/${login.id}`, { method: 'DELETE', headers: { 'X-Staff-Request': '1', Authorization: `Bearer ${ownerToken}` } }).catch(() => {})
+}
 
 export function reporter() {
   const results = []

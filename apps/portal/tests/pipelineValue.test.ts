@@ -26,6 +26,15 @@ describe('leadValue', () => {
     expect(leadValue(lead(), quotes, [], S)).toBe(7000)
   })
 
+  test('two sold quotes on the same day: the same one whatever order the list is in (server total = the board\'s cards)', () => {
+    const a = quote({ id: 'ea81', status: 'SOLD', date: '2026-10-26', finalPrice: 1003 })
+    const b = quote({ id: '295a', status: 'SOLD', date: '2026-10-26', finalPrice: 3015 })
+    const card = lead({ stage: 'Signed Contract' })
+    expect(leadValue(card, [a, b], [], S)).toBe(leadValue(card, [b, a], [], S))
+    const open = [quote({ id: 'x2', date: '2026-10-26', finalPrice: 10 }), quote({ id: 'x1', date: '2026-10-26', finalPrice: 20 })]
+    expect(leadValue(lead(), open, [], S)).toBe(leadValue(lead(), [...open].reverse(), [], S))
+  })
+
   test('on the same day a sent quote beats a draft', () => {
     const quotes = [quote({ id: 'a', status: 'DRAFT', finalPrice: 1 }), quote({ id: 'b', status: 'SENT', finalPrice: 2 })]
     expect(leadValue(lead(), quotes, [], S)).toBe(2)
