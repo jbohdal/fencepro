@@ -24,7 +24,7 @@ import fs from 'fs'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { plainZod } from '../lib/plainZod.js'
-import { CSS, esc, linkClosed, renderProposal, trackScript, acceptQuote, acceptSchema, signerOf, type Proposal } from './proposal.js'
+import { CSS, esc, linkClosed, renderProposal, proposalPage, trackScript, acceptQuote, acceptSchema, signerOf, type Proposal } from './proposal.js'
 import { signedNow } from './saved-quotes.js'
 import { startView, beatView, staffOf, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
 import { contractForQuote } from '../lib/contractPdf.js'
@@ -164,7 +164,9 @@ warrantyUpdatePublic.get('/:token', async (req, res) => {
   }
   // The photos marked Customer on the quote and its site visit, as the proposal shows them (lib/quoteMedia.ts).
   const photos = await proposalPhotos(r.q)
-  res.type('html').send(renderProposal(r.q, shown as Proposal, token, nonce, photos, installDay, notice))
+  // Its terms, the option the quote was made with selected, and no option twice, as on the proposal link.
+  const pv = await proposalPage(r.q, shown as Proposal)
+  res.type('html').send(renderProposal(r.q, pv.p, token, nonce, photos, installDay, notice, pv.view))
 })
 
 // ── Opens (the page's own script; lib/proposalViews.ts) ──

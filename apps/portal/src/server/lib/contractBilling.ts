@@ -43,6 +43,7 @@ import { approvedTotalCents } from './changeOrders.js'
 import { applyPayments, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
+import { plainStyleName } from './estimates.js'
 
 const err = (status: number, message: string, code?: string) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) })
 
@@ -572,7 +573,9 @@ export async function receiptPdfOf(r: { snapshot: unknown; voidedAt: Date | null
     const day = job ? await installDateOf(job).catch(() => null) : null
     installDay = day ? dayWords(day) : null
   }
-  return receiptPdf({ s, voided: !!r.voidedAt, dayWords: dayWords(s.paidOn), installDay })
+  // The fence in plain words ("White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"), never the style code the receipt was saved with.
+  const fenceStyle = s.fenceStyle ? await plainStyleName(s.fenceStyle) : ''
+  return receiptPdf({ s: { ...s, fenceStyle }, voided: !!r.voidedAt, dayWords: dayWords(s.paidOn), installDay })
 }
 
 /**

@@ -43,7 +43,6 @@ import type { Request, Response, NextFunction } from 'express'
 import prisma from './prisma.js'
 import { verifyStaffBearer, syncKeyMatches, type StaffIdentity } from './secrets.js'
 import { databaseNameOf } from './liveGuard.js'
-import { noteStaffDevice } from './staffDevices.js'
 import { cookieOnly } from './staffSession.js'
 
 export const DEV_DATABASE_NAME = 'ezbiz_dev'
@@ -113,8 +112,6 @@ export function requireLiveSession(req: Request, res: Response, next: NextFuncti
   sessionRefusal(payload, { read: isRead(req.method) }).then(refusal => {
     if (!refusal) {
       (req as any).staffSessionId = typeof payload.sid === 'string' ? payload.sid : null
-      // A proposal opened later on this same device is a staff view (lib/proposalViews.ts).
-      noteStaffDevice(req, payload.sub, payload.crmAccountId)
       next(); return
     }
     console.warn(`[session-refused] ${req.method} ${req.originalUrl.split('?')[0]} ${refusal} user=${payload.email ?? payload.sub} from ${clientIp(req)} device="${String(req.headers['user-agent'] ?? '').slice(0, 120)}"`)

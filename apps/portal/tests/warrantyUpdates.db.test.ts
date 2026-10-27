@@ -156,7 +156,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty updates (dev database)'
     expect(acc.status).toBe(200)
     const sold = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     expect(sold).toMatchObject({ status: 'SOLD', chosenOption: 1, finalPrice: 12900.91, fenceStyle: "WV-ND 6'x8' Privacy" })
-    expect(JSON.stringify(sold.proposal)).toBe(JSON.stringify(JSON.parse(before).proposal))
+    // The proposal as sent, plus the terms the customer read on the page, frozen at signing (lib/contractTerms.ts).
+    const { terms, ...asSent } = sold.proposal as any
+    expect(JSON.stringify(asSent)).toBe(JSON.stringify(JSON.parse(before).proposal))
+    expect(terms.map((x: any) => x.key)).toContain('payment_terms')
     const u = (await prisma.warrantyUpdate.findUnique({ where: { token: tok } }))!
     expect(u).toMatchObject({ acknowledgedBy: 'E2E Update Sent', acknowledgedHow: 'accepted', acknowledgedOption: 1 })
     const contract = pdfText((await raw(`/p/wu/${tok}/contract.pdf`)).buf)

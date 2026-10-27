@@ -11,7 +11,7 @@ import prisma from '../lib/prisma.js'
 import { CSS, esc } from './proposal.js'
 import { receiptPdfOf, dayWords, TOKEN_RE } from '../lib/contractBilling.js'
 import { moneyText } from '../lib/paymentMath.js'
-import { receiptName, LIEN_RELEASE_DRAFT_NOTE, type ReceiptSnapshot } from '../lib/receiptPdf.js'
+import { receiptName, LIEN_RELEASE_DRAFT_NOTE, phoneText, type ReceiptSnapshot } from '../lib/receiptPdf.js'
 
 export const receiptPublic = Router()
 
@@ -54,7 +54,9 @@ receiptPublic.get('/:token', async (req, res) => {
     return
   }
   const s = r.snapshot as unknown as ReceiptSnapshot
-  const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.company.name)}</p><p class="small">Payment receipt</p></div></header>`
+  // The company's phone to call, as the PDF has it.
+  const phone = phoneText(String(s.company?.phone || ''))
+  const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.company.name)}</p><p class="small">Payment receipt${phone ? ` · <a href="tel:${esc(String(s.company.phone).replace(/[^\d+]/g, ''))}" data-receipt-phone>${esc(phone)}</a>` : ''}</p></div></header>`
   const rows: Array<[string, number, boolean?]> = [
     ['Contract as signed', s.signedCents],
     ...(s.changeOrderCents ? [['Change orders', s.changeOrderCents] as [string, number]] : []),
@@ -75,7 +77,7 @@ receiptPublic.get('/:token', async (req, res) => {
     </tbody></table></section>
     ${s.paidInFull ? `<section class="done" data-receipt-paid-in-full><h2>Paid in full</h2><p>Thank you! Warranty: ${esc(s.warrantyName || 'as written on your contract')}. It starts on the install date.</p></section>` : ''}
     ${s.lienRelease && s.paidInFull ? `<section><h2>Final Release of Lien</h2><p class="small">${esc(LIEN_RELEASE_DRAFT_NOTE)} It is in the PDF.</p></section>` : ''}
-    <p><a class="btn" href="${esc(token)}.pdf" data-receipt-pdf>Download the receipt (PDF)</a></p>
+    <p><a class="btn linkbtn" href="${esc(token)}.pdf" data-receipt-pdf>Download the receipt (PDF)</a></p>
   </main>`
   res.type('html').send(page(`${receiptName(r.number)} - ${s.company.name}`, body))
 })

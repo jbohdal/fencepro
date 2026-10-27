@@ -11,6 +11,8 @@ import { pdfDocument } from '../pdfText.js'
 import prisma from '../prisma.js'
 import { suggestCounty } from '../addressIndex.js'
 import { countyOf, floridaDay } from './context.js'
+import { pricingModule, plainStyleName } from '../estimates.js'
+import { phoneText } from '../receiptPdf.js'
 
 export const PERMIT_STATUSES = ['not_needed', 'needed', 'applied', 'approved', 'inspection_scheduled', 'passed'] as const
 export type PermitStatus = typeof PERMIT_STATUSES[number]
@@ -97,8 +99,15 @@ export async function ensurePermit(accountId: string, jobId: string, by = 'autom
 
 // ── The packet ───────────────────────────────────────────────────────────────
 
+/** The contractor, from Settings → Company (only what is filled in there). */
+export interface Contractor { name: string; legalName: string; address: string; phone: string; email: string }
+
 interface PacketInput {
   company: string
+  /** The contractor block: the company's name, legal name, address, phone and email from Settings → Company. */
+  contractor?: Contractor
+  /** The fence in plain words ("White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"), never the style code. */
+  fenceText?: string
   job: any
   permit: any
   quote: any | null
@@ -116,8 +125,32 @@ export async function packetInputFor(accountId: string, jobId: string, opts: { l
     try { parcel = await lookupParcel(job.customerAddress) } catch (err) { console.warn('[permits] parcel lookup failed:', (err as Error).message) }
     if (parcel && permit.id && !permit.parcelId) await prisma.permit.update({ where: { id: permit.id }, data: { parcelId: parcel.parcel } }).catch(() => {})
   }
-  const account = await prisma.crmAccount.findUnique({ where: { id: accountId } }).catch(() => null) as any
-  return { company: account?.name || 'Getter Done Fence', job, permit: { ...permit, parcelId: permit.parcelId || parcel?.parcel || '' }, quote, parcel }
+  const contractor = await contractorOf(accountId)
+  const opt = quote?.proposal && quote.chosenOption != null ? (quote.proposal as any)?.options?.[quote.chosenOption] : null
+  const fenceText = await plainStyleName(opt?.fenceStyle || job.fenceStyle) || String(opt?.label || job.fenceStyle || '')
+  return { company: contractor.name, contractor, fenceText, job, permit: { ...permit, parcelId: permit.parcelId || parcel?.parcel || '' }, quote, parcel }
+}
+
+/**
+ * The company as Settings → Company has it: its name there first (the sign up
+ * name on the account, "GD Fence Pro" on the live copy, is not what customers
+ * and the county should read), then the account's name.
+ */
+export async function contractorOf(accountId: string): Promise<Contractor> {
+  const [b, account, m] = await Promise.all([
+    prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }).catch(() => null),
+    prisma.crmAccount.findUnique({ where: { id: accountId }, select: { name: true } }).catch(() => null),
+    pricingModule(),
+  ])
+  const co = ((b?.config as any)?.company ?? {}) as Record<string, unknown>
+  const s = (k: string) => String(co[k] ?? '').trim()
+  return {
+    name: s('name') || account?.name || 'Getter Done Fence',
+    legalName: s('legalName'),
+    address: m.companyAddressOf(co),
+    phone: s('phone'),
+    email: s('email'),
+  }
 }
 
 const money = (dollars: number) => '$' + Math.round(dollars || 0).toLocaleString('en-US')
@@ -138,10 +171,21 @@ export function renderPacket(p: PacketInput): Promise<Buffer> {
     doc.font('Helvetica-Bold').fontSize(20).fillColor('#111827').text('Fence permit packet')
     doc.font('Helvetica').fontSize(10).fillColor('#6b7280').text(`${p.company} · prepared ${floridaDay(new Date())}`)
 
+    // The contractor, from Settings → Company: only the lines filled in there.
+    const c = p.contractor
+    if (c) {
+      heading('Contractor')
+      row('Company', c.name)
+      if (c.legalName && c.legalName !== c.name) row('Legal name', c.legalName)
+      if (c.address) row('Address', c.address)
+      if (c.phone) row('Phone', phoneText(c.phone))
+      if (c.email) row('Email', c.email)
+    }
+
     heading('Owner and property')
     row('Owner', p.job.customerName)
     row('Property address', p.job.customerAddress)
-    row('Phone', p.job.customerPhone)
+    row('Phone', p.job.customerPhone ? phoneText(p.job.customerPhone) : '')
     row('Email', p.job.customerEmail)
     row('County', p.permit.county || 'Marion')
     row('Parcel ID', p.permit.parcelId || (p.parcel?.parcel ?? 'not found: look it up on the Property Appraiser site'))
@@ -152,7 +196,7 @@ export function renderPacket(p: PacketInput): Promise<Buffer> {
     const q = p.quote
     const opt = q?.proposal && q.chosenOption != null ? (q.proposal as any)?.options?.[q.chosenOption] : null
     const runs: number[] = Array.isArray(q?.runs) ? (q.runs as unknown[]).map(Number).filter(Number.isFinite) : []
-    row('Fence', opt?.fenceStyle || opt?.label || p.job.fenceStyle)
+    row('Fence', p.fenceText || opt?.label || opt?.fenceStyle || p.job.fenceStyle)
     row('Length', `${p.job.totalFeet || Math.round(runs.reduce((a, b) => a + b, 0))} ft in ${p.job.sections} sections`)
     row('Gates', `${p.job.walkGates} walk, ${p.job.dblGates} double`)
     row('Contract price', money(p.job.contractValue || q?.finalPrice || 0))

@@ -45,7 +45,7 @@ export default function ContractTemplatesSettings() {
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h3 data-settings-dup-title className="text-lg font-bold text-gray-900">Contract Templates</h3>
-          <p className="text-sm text-gray-500 mt-0.5">The terms below appear on every quote. Existing quotes keep their saved text; changes apply to new quotes going forward.</p>
+          <p className="text-sm text-gray-500 mt-0.5" data-contract-terms-where>The sections ticked "Show on quotes" show on the customer's proposal link, under the price and before they sign, and print on the signed contract PDF word for word, and on the printable quote templates. A proposal keeps the terms it was sent with, and a signed contract never changes: your changes apply to quotes saved from now on.</p>
           <p className="text-sm text-gray-600 mt-1" data-contract-warranty-moved>Proposals, signed contracts and warranty certificates take each option's warranty from Settings → Warranties (Lifetime for vinyl no dig, and so on). The Warranty section here shows only on the printable quote templates, and only for a quote without per option warranties.</p>
         </div>
         <div className="flex flex-wrap gap-2">

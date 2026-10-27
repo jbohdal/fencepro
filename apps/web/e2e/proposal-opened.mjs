@@ -11,7 +11,8 @@
 //   3. Staff: the card badge "Opened 1× · last …" (computer and phone), the push logged (dev: never delivered),
 //      the history with the option looked at longest and "reached the signature", Follow ups "Opened in the last 24h".
 //   4. Staff open the same link from the app (Open on the quote): "Staff view", the count unchanged; and in the same
-//      browser without the app's mark (the same device as a staff sign in): also a Staff view.
+//      browser without the app's mark (signed in to the app: its staff mark cookie on /p): also a Staff view. A look
+//      alike (another browser with the same address and browser name, never signed in): a customer's open, counted.
 //   5. A reopen 2+ days later (time moved back in the dev database): a second push logged; a reopen within 2 days: none.
 // Removes everything it made.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -264,11 +265,18 @@ try {
   await direct.goto(`${API}/p/${token}`); await direct.waitForSelector('.opt'); await sleep(3000)
   await other.close()
   const v3 = await until(() => { const v = views(quoteId); return v.length === 3 ? v : null }, 10000) || views(quoteId)
-  check('same browser, no mark: the device staff signed in from, a Staff view, not counted', v3.length === 3 && v3[2].staff === true && v3[2].staffHow === 'device' && (await quoteRow(quoteId))?.viewCount === 1, JSON.stringify(v3.map(v => [v.staff, v.staffHow])))
-  check('staff opens earn no push', effects(quoteId).length === 1)
+  check('same browser, no app mark: signed in to the app (its staff mark), a Staff view, not counted', v3.length === 3 && v3[2].staff === true && v3[2].staffHow === 'session' && (await quoteRow(quoteId))?.viewCount === 1, JSON.stringify(v3.map(v => [v.staff, v.staffHow])))
+  // A customer at the office's Wi-Fi with the same browser as that staff computer, never signed in: a customer (audit Oct 26, 2026).
+  const alike = await cr.newContext({ viewport: { width: 1280, height: 900 }, userAgent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 office-${stamp}` })
+  const ap = await alike.newPage(); watch(ap, 'look alike customer')
+  await ap.goto(`${API}/p/${token}`); await ap.waitForSelector('.opt'); await sleep(3000)
+  await alike.close()
+  const v4 = await until(() => { const v = views(quoteId); return v.length === 4 ? v : null }, 10000) || views(quoteId)
+  check('a look alike (same address and browser name as a staff sign in, no sign in): a customer\'s open, counted', v4.length === 4 && v4[3].staff === false && (await quoteRow(quoteId))?.viewCount === 2, JSON.stringify(v4.map(v => [v.staff, v.staffHow])))
+  check('staff opens earn no push (and a second open within 2 days none either)', effects(quoteId).length === 1)
   await openWindow()
   const h2 = await until(async () => { const h = await hist(); return /Staff view/.test(h) ? h : '' }, 10000)
-  check('history: our own opens show as Staff view, the badge still says 1×', /Staff view/.test(h2) && /Opened 1×/.test((await dp.locator('[data-card-window-opened]').textContent().catch(() => '')) || ''), h2.slice(0, 200))
+  check('history: our own opens show as Staff view, the badge counts the customers\' 2×', /Staff view/.test(h2) && /Opened 2×/.test((await dp.locator('[data-card-window-opened]').textContent().catch(() => '')) || ''), h2.slice(0, 200))
   await dp.locator('[data-history-item="proposal_staff"]').first().evaluate(el => el.scrollIntoView({ block: 'center' }))
   await shot(dp, 'dev-proposal-staff-view')
 
@@ -282,9 +290,9 @@ try {
   await customerReads(token, 0)
   await sleep(2000)
   check('a reopen 1 day later: no push', effects(quoteId).length === 2, effects(quoteId).join(' | '))
-  check('customer opens counted: 3 (staff never)', (await quoteRow(quoteId))?.viewCount === 3)
+  check('customer opens counted: 4 (staff never)', (await quoteRow(quoteId))?.viewCount === 4)
   const bLast = await board()
-  check('the board says 3×', bLast[card.id]?.opened?.count === 3)
+  check('the board says 4×', bLast[card.id]?.opened?.count === 4)
 
   // Settings: the switch is there and on.
   const sp = await desk.newPage(); watch(sp, 'settings')

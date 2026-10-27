@@ -243,8 +243,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the customer portal shows only w
     expect(contract.type).toBe('application/pdf')
     expect(contract.buf.subarray(0, 5).toString()).toBe('%PDF-')
     expect((await get(`/api/portal/certificates/${made.job}.pdf`)).buf.toString()).toBe('%PDF-1.4 certificate')
-    // The job: its status, install date and the steps before it as recorded (no crew, no notes); a new fence, a repair or a move (kind).
-    expect((await j('/projects'))[0]).toEqual({ id: made.job, style: expect.any(String), kind: 'new', status: 'scheduled', scheduledDate: '2026-11-03', address: '', steps: { locates: false, permit: 'not_yet', materials: false } })
+    // The job: its status, install date (the day it was installed once finished) and the steps before it as recorded (no crew, no notes); a new fence, a repair or a move (kind).
+    expect((await j('/projects'))[0]).toEqual({ id: made.job, style: expect.any(String), kind: 'new', status: 'scheduled', scheduledDate: '2026-11-03', installedOn: null, address: '', steps: { locates: false, permit: 'not_yet', materials: false } })
     // A quote not signed has no contract; another customer's quote or job: not found.
     expect((await get(`/api/portal/contracts/${ids.sent}.pdf`)).status).toBe(404)
     const other = await prisma.savedQuote.findFirst({ where: { accountId, crmContactId: { not: made.contact }, status: 'SOLD', deletedAt: null }, select: { id: true } })

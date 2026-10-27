@@ -7,6 +7,18 @@
 import { useState, useEffect } from 'react'
 import { login, acceptInvite, forgotPassword, resetPassword, type CrmUser } from './crmAuth'
 import { plainText } from './plainError'
+import { fetchCompany } from './portalApiClient'
+
+/** The company's name from Settings → Company (the server's public company line), "Getter Done Fence" until it answers. */
+function useCompanyName(): string {
+  const [name, setName] = useState('Getter Done Fence')
+  useEffect(() => {
+    let live = true
+    void fetchCompany().then(c => { if (live && c?.name?.trim()) setName(c.name.trim()) })
+    return () => { live = false }
+  }, [])
+  return name
+}
 
 /** Sign in problems in words; not reaching the server is almost always Tailscale. */
 function signInError(err: unknown): string {
@@ -53,6 +65,7 @@ function PasswordInput({
 
 export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => void }) {
   const [view, setView] = useState<View>('login')
+  const companyName = useCompanyName()
   // Not filled in from the browser's storage (answer 3 of the sign in plan): the phone's password manager does it.
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -133,9 +146,9 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       <div className="w-full max-w-sm">
         {/* Logo / Brand */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-orange-500 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">EZ</div>
-          <h1 className="text-2xl font-bold text-white">Getter Done Fence</h1>
-          <p className="text-gray-500 text-sm mt-1">Service Business Management Platform</p>
+          <img src="/logo.png" alt="" className="w-14 h-14 rounded-2xl bg-white object-contain mx-auto mb-4 p-1" data-login-logo />
+          <h1 className="text-2xl font-bold text-white" data-login-company>{companyName}</h1>
+          <p className="text-gray-400 text-sm mt-1">EZ Biz</p>
         </div>
 
         {/* Card */}
@@ -236,7 +249,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
           )}
         </div>
 
-        <p className="text-center text-gray-600 text-xs mt-6">Systems Syndicate</p>
+        <p className="text-center text-gray-500 text-xs mt-6" data-login-footer>{companyName} · EZ Biz</p>
       </div>
     </div>
   )

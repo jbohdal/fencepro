@@ -11,6 +11,7 @@ import { rawMessage } from '../src/server/lib/automations/gmail.js'
 import { smsLink } from '../src/server/lib/automations/steps.js'
 import { ruleSchema, STARTER_RULES } from '../src/server/lib/automations/types.js'
 import { renderPacket, lookupParcel, portalFor } from '../src/server/lib/automations/permits.js'
+import { pdfText } from './pdfText'
 
 const ctx = (over: Partial<EntityContext> = {}): EntityContext => ({
   board: 'sales', entityKind: 'card', entityId: 'c1', card: { stage: 'Signed Contract' }, job: null, stage: 'Signed Contract', stageLabel: 'Signed Contract',
@@ -125,5 +126,26 @@ describe('permits', () => {
     })
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-')
     expect(pdf.length).toBeGreaterThan(2000)
+  })
+  test('the packet: the company and contractor from Settings, the fence in plain words, a formatted phone', async () => {
+    const pdf = await renderPacket({
+      company: 'Getter Done Fence',
+      contractor: { name: 'Getter Done Fence', legalName: 'Getter Done LLC', address: '', phone: '3528442677', email: 'office@example.invalid' },
+      fenceText: 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig',
+      job: { customerName: 'Dave Diamond', customerAddress: '100 Pecan Dr, Ocala, FL 34472', customerPhone: '3525550111', customerEmail: 'd@x', fenceStyle: "WV-ND 6'x8' Privacy", totalFeet: 120, sections: 15, walkGates: 1, dblGates: 0, contractValue: 4800, createdAt: new Date() },
+      permit: { status: 'needed', county: 'Marion', parcelId: '', permitNumber: '' },
+      quote: null,
+      parcel: null,
+    })
+    const words = pdfText(pdf)
+    expect(words).toContain('Contractor')
+    expect(words).toContain('Getter Done LLC')
+    expect(words).toContain('(352) 844 2677')
+    expect(words).toContain('(352) 555 0111')
+    expect(words).toContain('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+    expect(words).not.toContain('WV-ND')
+    expect(words).not.toContain('GD Fence Pro')
+    // No address in Settings: no Address line.
+    expect(words).not.toMatch(/Address: -/)
   })
 })

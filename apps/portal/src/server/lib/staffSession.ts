@@ -51,7 +51,6 @@ import jwt from 'jsonwebtoken'
 import type { Request, Response, NextFunction } from 'express'
 import prisma from './prisma.js'
 import { resolveSecret } from './secrets.js'
-import { noteStaffDevice } from './staffDevices.js'
 
 export const STAFF_COOKIE = 'ezbiz_staff'
 export const STAFF_COOKIE_PATH = '/api'
@@ -121,6 +120,62 @@ function setCookie(req: Request, res: Response, value: string, maxAgeMs: number)
 
 export function clearStaffCookie(req: Request, res: Response): void {
   res.clearCookie(STAFF_COOKIE, { httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: STAFF_COOKIE_PATH })
+  res.clearCookie(STAFF_PAGES_COOKIE, { httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: STAFF_PAGES_PATH })
+}
+
+// ── The staff mark on the customer pages (/p) ────────────────────────────────
+//
+// The sign in cookie goes only to /api, so a customer page under /p (the
+// proposal link) cannot see it. A browser signed in to the app also gets
+// `ezbiz_staff_p` (Path=/p, HttpOnly, SameSite=Strict, Secure off localhost):
+// a signed note of the sign in session, never the session's own value, and no
+// use anywhere else. A proposal opened in that browser is a staff view
+// (lib/proposalViews.ts) for as long as that session lasts; signing out,
+// ending the session in Settings > Team or a password change ends it at once
+// (the session is looked up on every open). A customer's phone never has it,
+// however alike its network and browser look (audit Oct 26, 2026).
+
+export const STAFF_PAGES_COOKIE = 'ezbiz_staff_p'
+export const STAFF_PAGES_PATH = '/p'
+const PAGES_PURPOSE = 'staff-on-customer-pages'
+
+function cookieNamed(req: Pick<Request, 'headers'>, name: string): string {
+  const raw = String(req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(`${name}=`))
+  if (!raw) return ''
+  try { return decodeURIComponent(raw.slice(name.length + 1)) } catch { return '' }
+}
+
+/** The staff mark for this sign in session (signed; it names the session, it is not the session's key). */
+export function staffPagesToken(sessionId: string, userId: string): string {
+  return jwt.sign({ sid: sessionId, sub: userId, purpose: PAGES_PURPOSE }, jwtSecret(), { expiresIn: `${STAFF_MAX_DAYS}d` })
+}
+
+/** Set the mark when this browser does not have it for this session yet. */
+function markStaffPages(req: Request, res: Response, sessionId: string, userId: string, maxAgeMs: number): void {
+  const have = jwt.decode(cookieNamed(req, STAFF_PAGES_COOKIE)) as { sid?: string } | null
+  if (have?.sid === sessionId) return
+  res.cookie(STAFF_PAGES_COOKIE, staffPagesToken(sessionId, userId), { httpOnly: true, secure: secureFor(req), sameSite: 'strict', path: STAFF_PAGES_PATH, maxAge: Math.max(1000, maxAgeMs) })
+}
+
+/**
+ * The staff login whose session this request's mark names, while that session
+ * is still signed in (not ended, not run out, the login still active staff);
+ * else null.
+ */
+export async function staffOnCustomerPage(req: Pick<Request, 'headers'>, now = Date.now()): Promise<{ userId: string; accountId: string | null } | null> {
+  const token = cookieNamed(req, STAFF_PAGES_COOKIE)
+  if (!token || token.length > 2000) return null
+  let claims: { sid?: unknown; sub?: unknown; purpose?: unknown }
+  try { claims = jwt.verify(token, jwtSecret()) as any } catch { return null }
+  if (claims?.purpose !== PAGES_PURPOSE || typeof claims.sid !== 'string' || typeof claims.sub !== 'string') return null
+  const s = await prisma.crmUserSession.findUnique({
+    where: { id: claims.sid },
+    select: { userId: true, kind: true, revokedAt: true, expiresAt: true, createdAt: true, lastUsedAt: true, user: { select: { status: true, role: true, crmAccountId: true } } },
+  }).catch(() => null)
+  if (!s || s.userId !== claims.sub || s.kind !== 'cookie' || s.revokedAt) return null
+  if (sessionEndsAt(s).getTime() <= now) return null
+  if (!s.user || String(s.user.status) !== 'active' || ['customer', 'portal_customer'].includes(String(s.user.role))) return null
+  return { userId: s.userId, accountId: s.user.crmAccountId ?? null }
 }
 
 /** When a session ends if nothing more happens: 30 days after its last use, never after expiresAt. */
@@ -143,6 +198,7 @@ export async function startStaffSession(req: Request, res: Response, userId: str
     },
   })
   setCookie(req, res, value, STAFF_IDLE_DAYS * DAY)
+  markStaffPages(req, res, session.id, userId, STAFF_IDLE_DAYS * DAY)
   return { sessionId: session.id }
 }
 
@@ -251,7 +307,8 @@ export function staffCookieAuth(req: Request, res: Response, next: NextFunction)
     const { sessionId: _s, readOnly: _r, ...claims } = id
     void _s; void _r
     req.headers.authorization = `Bearer ${jwt.sign(claims, jwtSecret(), { expiresIn: '5m' })}`
-    noteStaffDevice(req, id.sub, id.crmAccountId)
+    // The staff mark for the customer pages (/p): set once per session in this browser.
+    if (!id.readOnly) markStaffPages(req, res, id.sessionId, id.sub, Math.min(STAFF_IDLE_DAYS * DAY, found.maxUntil.getTime() - Date.now()))
     const last = found.lastUsedAt?.getTime() ?? 0
     if (Date.now() - last > TOUCH_MS) {
       const now = new Date()

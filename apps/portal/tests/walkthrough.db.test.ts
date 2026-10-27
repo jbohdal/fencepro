@@ -156,6 +156,25 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('final walkthrough (dev database)
     expect((await call('GET', `/api/walkthroughs/${wid}`)).json.data.status).toBe('open')
   })
 
+  test('a retaken photo: the one it replaced is no longer the customer\'s, and the portal shows only the current one', async () => {
+    const old = `wt-wide-${wid.slice(0, 8)}`
+    const retake = `wt-wide2-${wid.slice(0, 8)}`
+    await uploaded(retake)
+    const r = await call('PUT', `/api/walkthroughs/${wid}/photos/wide`, { clientId: retake })
+    expect(r.status).toBe(200)
+    expect((await prisma.mediaItem.findUnique({ where: { clientId: old } }))!.visibility).toBe('internal')
+    expect((await prisma.mediaItem.findUnique({ where: { clientId: retake } }))!.visibility).toBe('customer')
+    // Photos taken before this fix (all still Customer): the portal leaves out every one a retake replaced.
+    const { replacedWalkthroughPhotos } = await import('../src/server/lib/walkthrough.js')
+    const caption = 'Final walkthrough: Wide shot of the whole fence'
+    const out = await replacedWalkthroughPhotos([
+      { clientId: old, jobId: jobA, caption }, { clientId: retake, jobId: jobA, caption },
+      { clientId: `wt-side1-${wid.slice(0, 8)}`, jobId: jobA, caption: 'Final walkthrough: Side 1' },
+      { clientId: 'not-a-walkthrough-photo', jobId: jobA, caption: 'Progress' },
+    ])
+    expect([...out]).toEqual([old])
+  })
+
   test('the homeowner link: runs out, can be turned off, read only once signed', async () => {
     let l = await call('POST', `/api/walkthroughs/${wid}/link`)
     const t1 = l.json.data.token

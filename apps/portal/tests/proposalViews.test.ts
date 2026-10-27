@@ -65,10 +65,9 @@ describe('staff detection', () => {
   test('any staff sign that matches makes it a staff view, the first one is named', () => {
     expect(staffDecision({})).toEqual({ staff: false, userId: null, how: null })
     expect(staffDecision({ preview: { userId: 'u1' } })).toEqual({ staff: true, userId: 'u1', how: 'preview' })
-    expect(staffDecision({ device: { userId: 'u2' } })).toEqual({ staff: true, userId: 'u2', how: 'device' })
     expect(staffDecision({ session: { userId: 'u3' } }).how).toBe('session')
     expect(staffDecision({ bearer: { userId: 'u0' }, preview: { userId: 'u1' } })).toEqual({ staff: true, userId: 'u0', how: 'bearer' })
-    expect(staffDecision({ preview: null, device: null, session: null }).staff).toBe(false)
+    expect(staffDecision({ preview: null, session: null }).staff).toBe(false)
   })
 })
 

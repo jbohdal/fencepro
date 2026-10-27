@@ -31,6 +31,7 @@ import { publicDoorUrl } from './publicDoor'
 import { formatPhone } from './phoneFormat'
 import { useEffect, useRef, useState } from 'react'
 import { SignaturePad } from './SignaturePad'
+import { projectSteps, FINISHED_STATUSES } from './portalSteps'
 import {
   fetchMe, login, verifyAndActivate, logout, resendPortalInvite, changePassword, fetchCompany,
   listPortalQuotes, listPortalProjects, listPortalInvoices, listPortalBilling, fetchPortalPapers, portalApiHref, listPortalChangeOrders, signPortalChangeOrder,
@@ -42,11 +43,12 @@ import {
 
 /** "Monday, Nov 2, 2026" for a YYYY-MM-DD install date (as typed otherwise). */
 /** The install line's words: a repair is "Repair scheduled for", a move "Fence move starts", a new fence "Install starts". */
-function workWords(kind: PortalProject['kind']): { starts: string; date: string } {
-  if (kind === 'repair') return { starts: 'Repair scheduled for', date: 'Repair date' }
-  if (kind === 'move') return { starts: 'Fence move starts', date: 'Fence move date' }
-  return { starts: 'Install starts', date: 'Install date' }
+function workWords(kind: PortalProject['kind']): { starts: string; date: string; done: string } {
+  if (kind === 'repair') return { starts: 'Repair scheduled for', date: 'Repair date', done: 'Repaired on' }
+  if (kind === 'move') return { starts: 'Fence move starts', date: 'Fence move date', done: 'Fence moved on' }
+  return { starts: 'Install starts', date: 'Install date', done: 'Installed on' }
 }
+
 
 function installDayWords(day: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '')
@@ -178,8 +180,16 @@ export default function CustomerPortalApp({ route }: { route: string }) {
 
 // ─────── Top navigation ───────
 
+/** The company's logo, as on the proposal and the papers (/p/logo.png); its first letter only if the logo cannot load. */
+function CompanyLogo({ company, accent, box, letter }: { company: PortalCompany; accent: string; box: string; letter: string }) {
+  const [ok, setOk] = useState(true)
+  if (ok) return <img src={publicDoorUrl('/p/logo.png')} alt={company.name || 'Logo'} className={`${box} block object-contain bg-white`} onError={() => setOk(false)} data-portal-logo />
+  return <div className={`${box} flex items-center justify-center text-white ${letter}`} style={{ backgroundColor: accent }}>{(company.name || 'F')[0]}</div>
+}
+
 function TopNav({ session, company, accent, onSignedOut }: { session: PortalAccount; company: PortalCompany; accent: string; onSignedOut: () => void }) {
   const [open, setOpen] = useState(false)
+
   const nav = [
     ['dashboard', 'Dashboard'],
     ['quotes', 'My Quotes'],
@@ -198,9 +208,7 @@ function TopNav({ session, company, accent, onSignedOut }: { session: PortalAcco
     <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-6">
         <a href="#/portal/dashboard" className="flex items-center gap-2 shrink-0">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold" style={{ backgroundColor: accent }}>
-            {(company.name || 'F')[0]}
-          </div>
+          <CompanyLogo company={company} accent={accent} box="w-9 h-9 rounded-xl" letter="font-bold" />
           <div className="hidden sm:block">
             <p className="font-bold text-gray-900 text-sm leading-tight">{company.name || 'Customer Portal'}</p>
             <p className="text-[10px] text-gray-400">Customer Portal</p>
@@ -287,9 +295,7 @@ function LoginPage({ company, accent, offline, onSignedIn }: { company: PortalCo
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4" style={{ ['--accent' as any]: accent }}>
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-white text-2xl font-bold mb-3" style={{ backgroundColor: accent }}>
-            {(company.name || 'F')[0]}
-          </div>
+          <CompanyLogo company={company} accent={accent} box="w-16 h-16 mx-auto rounded-2xl mb-3" letter="text-2xl font-bold" />
           <h1 className="text-2xl font-bold text-gray-900">{company.name || 'Customer Portal'}</h1>
           <p className="text-sm text-gray-500 mt-1">Customer Portal Sign-In</p>
           {company.portal?.welcomeMessage && (
@@ -395,9 +401,7 @@ function ActivatePage({ company, accent, onActivated }: { company: PortalCompany
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4" style={{ ['--accent' as any]: accent }}>
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-white text-2xl font-bold mb-3" style={{ backgroundColor: accent }}>
-            {(company.name || 'F')[0]}
-          </div>
+          <CompanyLogo company={company} accent={accent} box="w-16 h-16 mx-auto rounded-2xl mb-3" letter="text-2xl font-bold" />
           <h1 className="text-2xl font-bold text-gray-900">Welcome to your portal</h1>
           <p className="text-sm text-gray-500 mt-1">Set a password and you're in.</p>
         </div>
@@ -730,7 +734,15 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
                 <p className="text-xs text-gray-500">{j.address || ''}</p>
                 <p className="text-sm mt-1 font-medium" style={{ color: accent }}>{friendlyStage(j.status)}</p>
               </div>
-              {j.scheduledDate ? (
+              {FINISHED_STATUSES.includes(j.status) ? (
+                // Finished: the day it was installed, never "Install starts".
+                j.installedOn ? (
+                  <div className="text-right text-xs text-gray-500" data-portal-installed-on={j.installedOn}>
+                    <p>{workWords(j.kind).done}</p>
+                    <p className="font-bold text-gray-900">✓ {installDayWords(j.installedOn)}</p>
+                  </div>
+                ) : null
+              ) : j.scheduledDate ? (
                 <div className="text-right text-xs text-gray-500" data-portal-install-date={j.scheduledDate}>
                   <p>{workWords(j.kind).starts}</p>
                   <p className="font-bold text-gray-900">📅 {installDayWords(j.scheduledDate)}</p>
@@ -761,35 +773,6 @@ function ProjectsPage({ accent }: { session: PortalAccount; customer: PortalAcco
       })}
     </div>
   )
-}
-
-/** The project's steps, each done only when it is: the permit, 811 and materials as recorded, the rest by the job's status. */
-function projectSteps(j: PortalProject): Array<{ label: string; done: boolean; current: boolean }> {
-  const at = mapStatusToMilestone(j.status)
-  const st = j.steps
-  const before: Array<{ label: string; done: boolean }> = [
-    { label: 'Quote Accepted', done: true },
-    { label: 'Locates Marked (811)', done: st ? st.locates : at > 1 },
-    ...(st?.permit === 'not_needed' ? [] : [{ label: 'Permit Approved', done: st ? st.permit === 'done' : at > 2 }]),
-    { label: 'Materials Ordered', done: st ? st.materials : at > 3 },
-  ]
-  const after = [{ label: 'Installation Scheduled', done: at >= 4 && !!j.scheduledDate || at >= 5 }, { label: 'Installation Complete', done: at >= 6 }, { label: 'Invoice Sent', done: at >= 7 }, { label: 'Complete', done: at >= 8 }]
-  const steps = [...before, ...after]
-  // The current step: the first one not done.
-  const cur = steps.findIndex(s => !s.done)
-  return steps.map((s, i) => ({ ...s, current: i === cur }))
-}
-
-function mapStatusToMilestone(status: string | undefined): number {
-  switch (status) {
-    case 'staging': return 2
-    case 'scheduled': return 4
-    case 'in_progress': return 5
-    case 'completed': return 6
-    case 'invoiced': return 7
-    case 'paid': return 8
-    default: return 1
-  }
 }
 
 // ─────── Billing: payment schedule, invoices, payments, receipts, balance ───────
@@ -1051,6 +1034,9 @@ function PhotosPage({ accent, company }: { session: PortalAccount; customer: Por
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  // The photos and video the company shared (marked Customer), shown above the customer's own.
+  const [shared, setShared] = useState<PortalMediaRow[]>([])
+  useEffect(() => { void listPortalMedia().then(r => setShared(r ?? [])) }, [])
 
   async function reload() {
     setLoading(true)
@@ -1100,11 +1086,14 @@ function PhotosPage({ accent, company }: { session: PortalAccount; customer: Por
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-sm text-red-700">{error}</div>
       )}
-      <SharedMedia accent={accent} companyName={company.name} />
+      <SharedMedia accent={accent} companyName={company.name} items={shared} />
       {loading ? (
         <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
       ) : photos.length === 0 ? (
-        <EmptyState emoji="📷" title="No photos yet" body="Tap Upload Photo above to share photos with us." />
+        // "No photos yet" only when there are none at all; under the company's photos, a line about sending your own.
+        shared.length === 0
+          ? <EmptyState emoji="📷" title="No photos yet" body="Tap Upload Photo above to share photos with us." />
+          : <p className="text-sm text-gray-500" data-portal-own-photos-none>Photos you send us show here. Tap Upload Photo above.</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {photos.map((p, i) => (
@@ -1350,9 +1339,7 @@ function money(cents: number): string {
 }
 
 /** Photos and video from the company, with their captions (only items marked Customer). */
-function SharedMedia({ accent, companyName }: { accent: string; companyName: string }) {
-  const [items, setItems] = useState<PortalMediaRow[]>([])
-  useEffect(() => { listPortalMedia().then(r => setItems(r ?? [])) }, [])
+function SharedMedia({ accent, companyName, items }: { accent: string; companyName: string; items: PortalMediaRow[] }) {
   if (items.length === 0) return null
   return (
     <section className="space-y-3" data-portal-media>

@@ -172,6 +172,33 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed documents (dev database)'
     expect(f).toMatchObject({ crmCustomerId: contactId, fileKey: d.fileKey, fileKind: 'contract', source: 'system_generated', isVisibleToCustomer: true, mimeType: 'application/pdf' })
   })
 
+  test('the terms the customer read are frozen at signing and print on every copy, with the IP; a later edit in Settings changes neither', async () => {
+    const saved = (await prisma.savedQuote.findUnique({ where: { id: quoteId } }))!
+    const terms = (saved.proposal as any).terms as Array<{ key: string; title: string; text: string }>
+    // Sent before terms were frozen: Settings' terms (the defaults here, never saved) frozen when it was signed, all but the warranty.
+    expect(terms.map(x => x.key)).toEqual(['payment_terms', 'scope_exclusions', 'property_access', 'permits', 'cancellation', 'dispute_resolution'])
+    const stored = pdfText(fs.readFileSync(path.resolve(UPLOAD, (await prisma.signedDocument.findUniqueOrThrow({ where: { id: docId } })).fileKey)))
+    expect(stored).toContain('Cancellation Policy')
+    expect(stored).toContain(terms.find(x => x.key === 'cancellation')!.text)
+    // Settings → Contract Templates edited after signing.
+    await prisma.businessState.update({ where: { accountId }, data: { contractSections: [{ key: 'cancellation', title: 'Cancellation Policy', body: 'E2E changed later: no cancellations.', visible: true }] as any } })
+    const copy = await fetch(`${base}/p/${saved.shareToken}/contract.pdf`)
+    expect(copy.status).toBe(200)
+    const words = pdfText(Buffer.from(await copy.arrayBuffer()))
+    expect(words).toContain(terms.find(x => x.key === 'cancellation')!.text)
+    expect(words).not.toContain('E2E changed later')
+    // The customer's copy has the IP too, not only the stored one.
+    expect(words).toContain('IP address 203.0.113.7')
+    // The page itself shows the terms as signed.
+    const page = await (await fetch(`${base}/p/${saved.shareToken}`)).text()
+    expect(page).toContain('data-proposal-terms')
+    expect(page).not.toContain('E2E changed later')
+    // An unsigned proposal sent before terms were frozen shows today's terms.
+    const fresh = await sentQuote('E2E Signed Terms Today')
+    expect(await (await fetch(`${base}/p/${fresh.shareToken}`)).text()).toContain('E2E changed later: no cancellations.')
+    await prisma.businessState.update({ where: { accountId }, data: { contractSections: [] as any } })
+  })
+
   test('a repeat accept, a second link accept and three filings at once make no second one', async () => {
     const q = (await prisma.savedQuote.findUnique({ where: { id: quoteId } }))!
     expect((await post(`/p/${q.shareToken}/accept`, { option: 1, name: 'Pat E2E Signer', signature: SIG }, '203.0.113.7')).status).toBe(200)

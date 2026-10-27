@@ -128,7 +128,7 @@ export interface PortalQuote {
   hasContract: boolean
 }
 /** steps: the steps before the install as recorded on the job (811 locates, permit, materials). */
-export interface PortalProject { id: string; style: string; /** A new fence, a repair or a fence move. */ kind?: 'new' | 'repair' | 'move'; status: string; scheduledDate: string; address: string; steps?: { locates: boolean; permit: 'done' | 'not_needed' | 'not_yet'; materials: boolean } }
+export interface PortalProject { id: string; style: string; /** A new fence, a repair or a fence move. */ kind?: 'new' | 'repair' | 'move'; status: string; scheduledDate: string; /** YYYY-MM-DD the fence was installed, once the job is finished. */ installedOn?: string | null; address: string; steps?: { locates: boolean; permit: 'done' | 'not_needed' | 'not_yet'; materials: boolean } }
 export interface PortalInvoice { id: string; invoiceNumber: string; title: string; status: string; dueDate: string; issuedDate: string; totalCents: number; amountPaidCents: number; balanceDueCents: number }
 /** A job's payment schedule: the contract, each invoice with what is paid and due, each payment with its receipt. */
 export interface PortalBilling {

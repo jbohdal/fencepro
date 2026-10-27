@@ -14,19 +14,18 @@
  * open. The address is never stored, only a keyed hash of it.
  *
  * Staff opens are recorded, marked "Staff view", never counted in viewCount
- * and never pushed. Staff is told apart by (first that matches):
+ * and never pushed. Staff is told apart only by a staff sign in (first that matches):
  *   1. a staff sign in on the request (Bearer token);
  *   2. the app's own preview link: the app adds ?sp=<signed, 15 minute token>
  *      when staff tap Open on a quote (routes/saved-quotes.ts share-token);
- *   3. the same device: the address and browser a staff login used the app
- *      from in the last day (lib/staffDevices.ts, in memory);
- *   4. the same device as a staff sign in session in the database (address and
- *      browser saved at sign in), for after a restart.
- * Limits: 3 and 4 need the same address and the same browser name; a staff
- * phone on another network (cell data vs the office Wi-Fi), or a different
- * browser than the one used for the app, is not recognised unless the link was
- * opened from the app (2). Two people on one Wi-Fi with the same phone model
- * and the same iOS version look like one device.
+ *   3. the staff mark on /p: a browser signed in to the app carries a signed
+ *      note of its sign in session (lib/staffSession.ts, ezbiz_staff_p), good
+ *      while that session is signed in.
+ * Never by likeness: an open from the same network address and the same phone
+ * model and browser as a staff login is a customer's open (audit Oct 26, 2026:
+ * a customer on the Salesman's Wi-Fi with the same iPhone was filed as her
+ * "Staff view, not counted"). A staff phone that never signed in to the app in
+ * that browser and opens the link outside the app counts as an open.
  *
  * The push (to the card's owner, through web push like the 7 am follow up
  * push): on the first customer open, and on an open two or more days after the
@@ -41,7 +40,8 @@ import jwt from 'jsonwebtoken'
 import type { Request } from 'express'
 import prisma from './prisma.js'
 import { resolveSecret, verifyStaffBearer } from './secrets.js'
-import { clientIpOf, keyedHash, recentStaffOn } from './staffDevices.js'
+import { clientIpOf, keyedHash } from './staffDevices.js'
+import { staffOnCustomerPage } from './staffSession.js'
 import {
   BEAT_WINDOW_MS, REUSE_MS, deviceOf, isBot, mergeBeat, openTrigger, staffDecision,
   type Beat, type StaffHow,
@@ -54,7 +54,6 @@ import { followUpStagesFor } from './followUps.js'
 const secret = () => resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 const PREVIEW_PURPOSE = 'proposal-preview'
 export const PREVIEW_MINUTES = 15
-const SESSION_MATCH_DAYS = 14
 
 // ── The app's preview link ───────────────────────────────────────────────────
 
@@ -86,16 +85,9 @@ export async function staffOf(req: Request, quote: { id: string; accountId: stri
   if (bearer && await inAccount(bearer.sub, quote.accountId)) return staffDecision({ bearer: { userId: bearer.sub } })
   const preview = readPreviewToken(previewToken, quote.id)
   if (preview && await inAccount(preview.userId, quote.accountId)) return staffDecision({ preview })
-  const ip = clientIpOf(req), ua = String(req.headers['user-agent'] || '')
-  const recent = recentStaffOn(ip, ua, now.getTime())
-  if (recent && (!recent.accountId || recent.accountId === quote.accountId)) return staffDecision({ device: recent })
-  if (ip && ua) {
-    const s = await prisma.crmUserSession.findFirst({
-      where: { ipAddress: ip, userAgent: ua, revokedAt: null, expiresAt: { gt: now }, createdAt: { gt: new Date(now.getTime() - SESSION_MATCH_DAYS * 86_400_000) }, user: { crmAccountId: quote.accountId } },
-      orderBy: { createdAt: 'desc' }, select: { userId: true },
-    }).catch(() => null)
-    if (s) return staffDecision({ session: { userId: s.userId } })
-  }
+  // The staff mark this browser got when it was signed in to the app (lib/staffSession.ts), never the address or browser name.
+  const mark = await staffOnCustomerPage(req, now.getTime())
+  if (mark && mark.accountId === quote.accountId) return staffDecision({ session: { userId: mark.userId } })
   return staffDecision({})
 }
 

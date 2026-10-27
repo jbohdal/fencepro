@@ -75,6 +75,15 @@ interface EstimateModule {
   planTallVinylParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { items: unknown[]; added: string[] }
   planChainDigSetPipesAndTies(state:{ fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; renamed: Array<{ from: string; to: string }>; kitLines: Array<{ kitSet: string; kit: string; part: string }>; ties: string[]; skipped: string[] }
   planChainGateKits(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; updated: string[]; skipped: string[] }
+  /** Contract terms on a proposal (web/src/contractTerms.ts). */
+  stampTerms(proposal: unknown, savedSections: unknown, savedProposal: unknown, frozen: boolean): unknown
+  proposalTerms(savedSections: unknown): Array<{ key: string; title: string; text: string }>
+  frozenTerms(proposal: unknown): Array<{ key: string; title: string; text: string }> | null
+  companyAddressOf(company: unknown): string
+  /** Which proposal options are shown, and which starts selected (web/src/proposalOptions.ts). */
+  sameFenceAs(options: unknown[] | null | undefined): number[]
+  shownOptions(options: unknown[] | null | undefined): number[]
+  startingOption(options: unknown[] | null | undefined, quote: { fenceStyle?: string | null; finalPrice?: number | null }, recommended: number): number
 }
 
 /**

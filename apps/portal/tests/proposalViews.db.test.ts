@@ -2,8 +2,10 @@
  * Proposal opens against the dev database (DEV_DB=1 and ezbiz_dev only), on a
  * company made for the test and removed after:
  *   - a customer's open is recorded and counted once (a reload is the same open)
- *   - staff opens (the app's preview link, a device staff used) are recorded,
- *     marked, never counted and never pushed
+ *   - staff opens (the app's preview link, the staff mark of a signed in
+ *     browser) are recorded, marked, never counted and never pushed; an open
+ *     from the same address and browser as a staff sign in, without the mark,
+ *     is a customer's
  *   - heartbeats: time per option, the signature reached
  *   - the push: first open and a reopen after 2+ days, each once; none within
  *     2 days; none when turned off in Settings; on the dev copy logged only
@@ -19,14 +21,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal opens (dev database)', 
   let prisma: any
   let V: typeof import('../src/server/lib/proposalViews.js')
   let F: typeof import('../src/server/lib/followUps.js')
-  let D: typeof import('../src/server/lib/staffDevices.js')
+  let S: typeof import('../src/server/lib/staffSession.js')
   const tag = `pv-${Date.now().toString(36)}`
   let accountId = '', contactId = '', quoteId = ''
   const u: Record<string, { id: string; name: string; email: string }> = {}
   const cardId = `${tag}-card`
   const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1 test'
   const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15 test'
-  const req = (ua: string, ip: string) => ({ headers: { 'user-agent': ua }, ip, socket: {} }) as any
+  const req = (ua: string, ip: string, cookie = '') => ({ headers: { 'user-agent': ua, ...(cookie ? { cookie } : {}) }, ip, socket: {} }) as any
   const quote = async () => prisma.savedQuote.findUnique({ where: { id: quoteId } })
   const views: string[] = []
   const back = async (days: number) => {
@@ -40,7 +42,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal opens (dev database)', 
     prisma = (await import('../src/server/lib/prisma.js')).default
     V = await import('../src/server/lib/proposalViews.js')
     F = await import('../src/server/lib/followUps.js')
-    D = await import('../src/server/lib/staffDevices.js')
+    S = await import('../src/server/lib/staffSession.js')
     const a = await prisma.crmAccount.create({ data: { name: `Test ${tag}`, status: 'active' } })
     accountId = a.id
     for (const [k, role, last] of [['owner', 'super_admin', 'Owner'], ['a', 'sales_rep', 'Alpha'], ['b', 'sales_rep', 'Bravo']] as const) {
@@ -60,8 +62,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal opens (dev database)', 
     quoteId = q.id
   })
   afterAll(async () => {
-    D?.forgetStaffDevices()
     if (!accountId) return
+    await prisma.crmUserSession.deleteMany({ where: { user: { crmAccountId: accountId } } })
     await prisma.proposalView.deleteMany({ where: { accountId } })
     if (quoteId) await prisma.automationEffect.deleteMany({ where: { key: { startsWith: `proposal-opened:${quoteId}:` } } })
     await prisma.notification.deleteMany({ where: { recipientId: { startsWith: tag } } })
@@ -105,20 +107,27 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal opens (dev database)', 
     expect(row.reachedSignature).toBe(true)
   })
 
-  test('staff opens: the app\'s preview link and a device staff used; marked, not counted, never pushed', async () => {
+  test('staff opens: the app\'s preview link and a signed in browser\'s staff mark; marked, not counted, never pushed; a look alike is a customer', async () => {
     const preview = V.makePreviewToken(u.owner.id, quoteId)
     const s1 = await V.startView(req(MAC, '203.0.113.9'), await quote(), preview)
     expect(s1.staff).toBe(true)
     expect(s1.push).toBe(false)
-    D.noteStaffDevice(req(MAC + ' office', '203.0.113.10'), u.a.id, accountId)
-    const s2 = await V.startView(req(MAC + ' office', '203.0.113.10'), await quote(), undefined)
+    // The Salesman's sign in session, from the office Wi-Fi on her browser.
+    const session = await prisma.crmUserSession.create({ data: { userId: u.a.id, tokenHash: `ck1:${tag}-a`, kind: 'cookie', lastUsedAt: new Date(), ipAddress: '203.0.113.10', userAgent: MAC + ' office', expiresAt: new Date(Date.now() + 90 * 86_400_000) } })
+    const mark = `${S.STAFF_PAGES_COOKIE}=${encodeURIComponent(S.staffPagesToken(session.id, u.a.id))}`
+    const s2 = await V.startView(req(MAC + ' office', '203.0.113.10', `other=1; ${mark}`), await quote(), undefined)
     expect(s2.staff).toBe(true)
     const rows = await prisma.proposalView.findMany({ where: { id: { in: [s1.id, s2.id] } }, orderBy: { startedAt: 'asc' } })
-    expect(rows.map((r: any) => [r.staffHow, r.staffUserId, r.pushTrigger])).toEqual([['preview', u.owner.id, null], ['device', u.a.id, null]])
+    expect(rows.map((r: any) => [r.staffHow, r.staffUserId, r.pushTrigger])).toEqual([['preview', u.owner.id, null], ['session', u.a.id, null]])
     expect((await quote()).viewCount).toBe(1)
-    // A preview mark made for another quote is not staff here.
-    const other = await V.startView(req(MAC, '203.0.113.11'), await quote(), V.makePreviewToken(u.owner.id, 'another-quote'))
+    // A customer on the same Wi-Fi with the same phone and browser as her sign in (no mark), holding a preview mark made for another quote: a customer.
+    const other = await V.startView(req(MAC + ' office', '203.0.113.10'), await quote(), V.makePreviewToken(u.owner.id, 'another-quote'))
     expect(other.staff).toBe(false)
+    // A forged or ended mark is not staff: signed with another key, or its session signed out.
+    expect(await S.staffOnCustomerPage(req(MAC, '203.0.113.10', `${S.STAFF_PAGES_COOKIE}=not-a-token`))).toBeNull()
+    expect(await S.staffOnCustomerPage(req(MAC, '203.0.113.10', mark))).toEqual({ userId: u.a.id, accountId })
+    await prisma.crmUserSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+    expect(await S.staffOnCustomerPage(req(MAC, '203.0.113.10', mark))).toBeNull()
     // ...and that second customer open, minutes after the first, earns no push.
     expect(other.push).toBe(false)
     expect((await quote()).viewCount).toBe(2)
