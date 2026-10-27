@@ -10,6 +10,8 @@
  */
 
 import { sendJson } from './syncHttp'
+import { newId } from './recordSync'
+import { CHANGED_EVENT as FOLLOW_UPS_CHANGED } from './followUpStore'
 import { refreshJobs } from './jobStore'
 import { reloadSchedule } from './scheduleStore'
 import { plainError } from './plainError'
@@ -105,5 +107,19 @@ export const previewRainDay = (date: Ymd, shift = 1) => call<RainMove[]>('POST',
 export async function applyRainDay(date: Ymd, shift: number, reason: string): Promise<Answer<RainMove[]>> {
   const r = await call<RainMove[]>('POST', '/rain-day', { date, shift, reason })
   if (r.ok) await readAgain()
+  return r
+}
+
+/** What an install text is about: booked, moved, taken off the schedule, or moved by a rain day. */
+export type InstallTextKind = 'scheduled' | 'moved' | 'off' | 'rain'
+
+/**
+ * "Did you send the text?" Yes: the install text goes in the customer's History
+ * (and the card's), like a card text. Nothing is sent by the app. The id makes
+ * a second tap one row; histories on screen read again.
+ */
+export async function noteInstallTexted(jobId: string, what: InstallTextKind, to: string, id: string = newId()): Promise<Answer<unknown>> {
+  const r = await call<unknown>('POST', `/install/${encodeURIComponent(jobId)}/texted`, { id, what, to, at: new Date().toISOString() })
+  if (r.ok) { try { window.dispatchEvent(new CustomEvent(FOLLOW_UPS_CHANGED)) } catch { /* no window */ } }
   return r
 }

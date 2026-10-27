@@ -10,12 +10,15 @@
 //      deposit, materials; a holiday when the start is moved to Thanksgiving),
 //      says the crew days in words, and books with "Schedule anyway"; the
 //      summary says what happened with Google Calendar. The text is prepared
-//      word for word and only opens on this phone. The month fits at 1440 and
+//      word for word and only opens on this phone. Opened, it asks "Did you
+//      send the text?" (with Copy, as a computer may not send texts); Yes keeps
+//      it in the customer's History and the card's. The month fits at 1440 and
 //      1280 wide (no sideways scroll), with the cards on it.
 //   3. Phone (WebKit): Ready to schedule tab, tap B: a day A's crew already
 //      has is warned (double booking, still allowed); another day books it.
 //      B has no yes to texts and still gets Open the text to send (a text the
-//      office sends from its own phone needs no yes).
+//      office sends from its own phone needs no yes). Opened and answered No:
+//      nothing goes in B's History.
 //   4. The crew packet lists the crew days, Dispatch shows each (date picker),
 //      the customer portal shows the install date and only the steps really
 //      done, the pipeline card face shows "Install Thu 3/4", the Operations
@@ -23,7 +26,8 @@
 //   5. Friday switched off: A's Friday still shows, with "Friday is not a work
 //      day any more"; its Move window does not tick weekends and books Thu, Mon.
 //   6. Reschedule by drag asks, then offers the "moved" text.
-//   7. Rain day: nothing until the day is picked; preview; confirm; moved.
+//   7. Rain day: nothing until the day is picked; preview; confirm; moved;
+//      A's rain day text opened and Yes: in A's History.
 //   8. Take off the schedule: back to its stage (Awaiting Locates), crew and
 //      dates cleared, its estimate (5) kept, the "date is being changed" text
 //      prepared; the portal says "Install date: to be set".
@@ -77,6 +81,8 @@ const W = {
   b: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Ray', last: `E2E Phone ${stamp}`, phone: '3525550162', addr: ADDR2, runs: [96], walk: 0, jobId: '', consent: false },
 }
 const nameOf = x => `${x.first} ${x.last}`
+/** The texts logged as sent in a customer's (or a card's) History: [title, detail]. */
+const sentTexts = async q => ((await call('GET', `/api/follow-ups/history?${new URLSearchParams(q)}`)).json.data || []).filter(i => i.kind === 'text' && i.title === 'Text sent').map(i => [i.title, i.detail])
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 const browsers = []
 
@@ -104,6 +110,8 @@ async function browserPage(kind, viewport) {
   browsers.push(br)
   const ctx = await br.newContext(phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true } : { viewport: viewport || { width: 1440, height: 950 } })
   await signInByCookie(ctx, { api: API })
+  // A call another test started with the same login ("How'd it go?" on opening the app) is not this test's.
+  await ctx.route('**/api/follow-ups/pending', r => (r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true,"data":null}' }) : r.continue()))
   // A text hands off to the phone's own texting app: the link is recorded, nothing leaves.
   await ctx.addInitScript(() => {
     window.__sms = []
@@ -217,8 +225,19 @@ try {
   check('computer: the summary says what happened with Google Calendar', /Google Calendar/.test(await p.locator('[data-install-summary]').innerText()), await p.locator('[data-install-summary]').innerText())
   const href = await p.locator('[data-install-text-open]').getAttribute('href')
   check('computer: the text only opens on this phone (sms: link)', href === `sms:${W.a.phone}?body=${encodeURIComponent(body)}`)
+  check('computer: nothing in A\'s History before the text is opened', (await sentTexts({ customerId: W.a.contactId })).length === 0)
+  await p.locator('[data-install-text-open]').click()
+  const askA = p.locator('[data-install-text-ask]')
+  await askA.waitFor({ timeout: 5000 })
+  check('computer: opened, it asks "Did you send the text?", with Copy the text (a computer may not send texts)', /Did you send the text\?/.test(await askA.innerText()) && (await askA.locator('[data-install-text-copy]').count()) === 1)
+  await shot(p, 'computer-did-you-send-the-text')
+  await askA.locator('[data-install-text-sent]').click()
+  await p.locator('[data-install-text-logged]').waitFor({ timeout: 10000 })
+  const wantA = [['Text sent', `Install date text to (${W.a.phone.slice(0, 3)}) ${W.a.phone.slice(3, 6)} ${W.a.phone.slice(6)}.`]]
+  const histA = await sentTexts({ customerId: W.a.contactId }), cardHistA = await sentTexts({ cardId: W.a.cardId })
+  check('computer: Yes keeps the text in the customer\'s History and the card\'s, once', JSON.stringify(histA) === JSON.stringify(wantA) && JSON.stringify(cardHistA) === JSON.stringify(wantA), JSON.stringify({ histA, cardHistA }))
   await p.locator('[data-install-text-skip]').click(); await sleep(800)
-  check('computer: no text was sent', desk.sends.length === 0 && (await p.evaluate(() => window.__sms.length)) === 0, desk.sends.join(' | '))
+  check('computer: no text was sent (the link only went to this phone\'s texting app)', desk.sends.length === 0 && JSON.stringify(await p.evaluate(() => window.__sms)) === JSON.stringify([href]), desk.sends.join(' | '))
   const jobA = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
   check('computer: A is Scheduled, start, end, crew, crew days', jobA?.opsStage === 'scheduled' && jobA?.scheduledDate === planA[0] && jobA?.scheduledEndDate === planA[1] && jobA?.crewAssigned === crews[0].name, JSON.stringify(jobA && [jobA.opsStage, jobA.scheduledDate, jobA.scheduledEndDate, jobA.crewAssigned]))
   await until(async () => (await p.locator(`[data-install-entry="${W.a.jobId}"]`).count()) === daysA)
@@ -266,6 +285,10 @@ try {
   check('phone: B has no yes to texts and is still offered the text (framed, with STOP), no block, no "call them"',
     hrefB.startsWith(`sms:${W.b.phone}?body=`) && /Reply%20STOP%20to%20opt%20out/.test(hrefB) && (await q.locator('[data-install-text-blocked], [data-install-text-call]').count()) === 0, hrefB.slice(0, 120))
   await shot(q, 'phone-text-offered-without-a-yes')
+  await q.locator('[data-install-text-open]').tap()
+  await q.locator('[data-install-text-ask]').waitFor({ timeout: 5000 })
+  await q.locator('[data-install-text-not-sent]').tap(); await sleep(800)
+  check('phone: B\'s text opened, "Did you send the text?" No: nothing in B\'s History', (await q.locator('[data-install-text-ask], [data-install-text-logged]').count()) === 0 && (await sentTexts({ customerId: W.b.contactId })).length === 0)
   await q.locator('[data-install-text-skip]').tap(); await sleep(500)
 
   // ── 4. Packet, Dispatch, portal, pipeline, Operations ──
@@ -311,6 +334,8 @@ try {
   await shot(p, 'computer-pipeline-card-install-date')
   await p.goto(`${APP}/pipeline?card=${W.a.cardId}`)
   const cw = await until(async () => (await p.locator(`[data-card-install-job="${W.a.jobId}"]`).count()) > 0, 30000)
+  const cardHist = await until(async () => { const t = await p.locator('[data-card-history] [data-history-item="text"]').allInnerTexts(); return t.some(x => /Text sent/.test(x) && /Install date text/.test(x)) ? t : null }, 15000)
+  check('pipeline card window: History shows the install text as sent', !!cardHist, JSON.stringify(cardHist))
   const order = cw ? await p.evaluate(() => { const i = document.querySelector('[data-card-install]'); const pay = document.querySelector('[data-card-payments]'); return !pay || !!(i && (i.compareDocumentPosition(pay) & Node.DOCUMENT_POSITION_FOLLOWING)) }) : false
   check('pipeline card window: Install section (Move install), above Payments', !!cw && order && (await p.locator(`[data-card-install-job="${W.a.jobId}"] [data-schedule-install-button]`).innerText()).includes('Move install'))
 
@@ -409,6 +434,12 @@ try {
     await shot(p2, 'rain-day-confirm')
     await rd.locator('[data-rain-confirm]').click()
     await p2.waitForSelector('[data-rain-day="done"]', { timeout: 20000 })
+    const rainA = rd.locator(`[data-rain-move="${W.a.jobId}"]`)
+    await rainA.locator('[data-install-text-open]').click()
+    await rainA.locator('[data-install-text-sent]').click()
+    await rainA.locator('[data-install-text-logged]').waitFor({ timeout: 10000 })
+    const rainHist = await sentTexts({ customerId: W.a.contactId })
+    check('rain day: A\'s text opened and Yes: "Rain day: new install date" in A\'s History', rainHist.length === 2 && rainHist.some(([, d]) => d.startsWith('Rain day: new install date text to')) && (await sentTexts({ customerId: W.b.contactId })).length === 0, JSON.stringify(rainHist))
     const after = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
     check(`rain day: ${RAIN} moved one crew day`, after?.scheduledDate === fill(plus(RAIN, 1), 1, week)[0] && after?.scheduledEndDate === fill(plus(movedPlan[1], 1), 1, week)[0], JSON.stringify(after && [after.scheduledDate, after.scheduledEndDate]))
     await p2.locator('[data-rain-close]').click()
@@ -467,6 +498,8 @@ try {
       DELETE FROM "PortalAccount" WHERE "crmCustomerId" IN (${contacts});
       DELETE FROM "Notification" WHERE body LIKE ${lit(`%e2e-sched-${stamp}%`)};
       DELETE FROM "CrmTextConsent" WHERE "crmContactId" IN (${contacts});
+      DELETE FROM "CrmAuditLog" WHERE "entityType" = 'CallLog' AND "entityId" IN (SELECT id FROM "CallLog" WHERE "crmContactId" IN (${contacts}) OR "cardId" IN (${lit(W.a.cardId)}, ${lit(W.b.cardId)}));
+      DELETE FROM "CallLog" WHERE "crmContactId" IN (${contacts}) OR "cardId" IN (${lit(W.a.cardId)}, ${lit(W.b.cardId)});
       COMMIT;`)
     const pl = (await call('GET', '/api/pipeline')).json
     const mine = (pl?.data?.leads ?? []).filter(l => [W.a.contactId, W.b.contactId].includes(l.customerId) || [W.a.cardId, W.b.cardId].includes(l.id)).map(l => l.id)
@@ -475,7 +508,7 @@ try {
     sql(`DELETE FROM "DeletionLog" WHERE "entityId" IN (${contacts}); DELETE FROM "CrmContact" WHERE id IN (${contacts})`)
     // Schedule Settings exactly as they were.
     sql(`UPDATE "ScheduleSettings" SET "workDays" = ${lit(settingsBefore)}::jsonb, version = version + 1, "updatedAt" = now() WHERE "accountId" = ${lit(ACCOUNT)}`)
-    const left = Number(sql(`SELECT (SELECT count(*) FROM "SavedJob" WHERE id IN (${jobs})) + (SELECT count(*) FROM "ScheduledGridJob" WHERE "stagingJobId" IN (${jobs})) + (SELECT count(*) FROM "CrmContact" WHERE id IN (${contacts})) + (SELECT count(*) FROM "SavedQuote" WHERE id IN (${quotes}))`))
+    const left = Number(sql(`SELECT (SELECT count(*) FROM "CallLog" WHERE "crmContactId" IN (${contacts})) + (SELECT count(*) FROM "SavedJob" WHERE id IN (${jobs})) + (SELECT count(*) FROM "ScheduledGridJob" WHERE "stagingJobId" IN (${jobs})) + (SELECT count(*) FROM "CrmContact" WHERE id IN (${contacts})) + (SELECT count(*) FROM "SavedQuote" WHERE id IN (${quotes}))`))
     const back = sql(`SELECT "workDays"::text FROM "ScheduleSettings" WHERE "accountId" = ${lit(ACCOUNT)}`) === settingsBefore
     check('cleaned up, and Schedule Settings back exactly as they were', left === 0 && back, `${left} left; settings ${back ? 'same' : 'DIFFERENT'}`)
   } catch (e) { check('cleaned up', false, String(e?.message || e).slice(0, 300)) }

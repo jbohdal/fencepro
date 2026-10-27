@@ -360,7 +360,7 @@ function PhotosBlock({ t, onTicket }: { t: Ticket; onTicket: (r: Awaited<ReturnT
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-xs font-semibold border rounded-full px-2 py-1 ${CONSENT_STYLE[t.textConsent.state]}`} data-ticket-consent={t.textConsent.state}>Texts: {t.textConsent.words}</span>
           </div>
-          {t.textConsent.state === 'no' && <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-2" data-ticket-consent-warning>This customer said no to texts. Call them instead, or text only if they asked you to just now.</p>}
+          {t.textConsent.state === 'no' && <p className="text-xs text-gray-500" data-ticket-consent-warning>This customer said no to texts. Call them instead, or text only if they asked you to just now.</p>}
           <button type="button" className="btn btn-primary w-full h-12" disabled={busy} onClick={ask} data-ask-photos><Camera size={18} aria-hidden="true" /> {t.link?.open ? 'Ask for photos again' : 'Ask for photos'}</button>
           {t.link && (
             <div className="text-xs text-gray-600 space-y-1" data-ticket-link={t.link.open ? 'open' : 'expired'}>

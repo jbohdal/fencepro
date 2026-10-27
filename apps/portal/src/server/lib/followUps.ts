@@ -353,6 +353,33 @@ export async function logCall(accountId: string, user: { id: string; name: strin
   }, { timeout: 15_000 })
 }
 
+/**
+ * A text the office sent from its own phone that is not an answer to a follow
+ * up (an install date, a move, a rain day): kept as a CallLog row (channel
+ * text, outcome "sent") so it shows in the customer's History and the card's,
+ * like a card text. It changes no follow up and is not counted in the report.
+ * The id comes from the phone: sent again, it is one row.
+ */
+export async function logSentText(accountId: string, user: { id: string; name: string }, input: { id: string; crmContactId: string | null; cardId: string | null; stage?: string; note: string; at?: string | null }): Promise<{ log: any; already: boolean }> {
+  const now = new Date()
+  const at = input.at && !Number.isNaN(Date.parse(input.at)) && Date.parse(input.at) <= now.getTime() + 5 * 60_000 ? new Date(input.at) : now
+  const had = await prisma.callLog.findUnique({ where: { id: input.id } })
+  if (had) {
+    if (had.accountId !== accountId) throw Object.assign(new Error('That id is taken.'), { status: 409 })
+    return { log: had, already: true }
+  }
+  const log = await prisma.callLog.create({
+    data: {
+      id: input.id, accountId, cardId: input.cardId, crmContactId: input.crmContactId, userId: user.id, userName: user.name,
+      channel: 'text', outcome: SENT_TEXT, note: input.note.trim().slice(0, 1000), stage: input.stage ?? '', at,
+    },
+  })
+  return { log, already: false }
+}
+
+/** The outcome of a text logged as sent (logSentText), not an answer to a follow up. */
+export const SENT_TEXT = 'sent'
+
 /** One tap to change the next follow up (null clears it), or "keep" to start the steps again. */
 export async function changeNext(accountId: string, userId: string, cardId: string, change: { dueOn?: string | null; keep?: boolean }): Promise<FollowUpState> {
   const today = floridaDay(new Date())
@@ -519,7 +546,7 @@ export function arrivalContact(leadSource: string | null | undefined, createdAt:
 const money = (dollars: number) => '$' + Math.round(dollars || 0).toLocaleString('en-US')
 const OUTCOME_WORDS: Record<string, string> = {
   no_answer: 'No answer', voicemail: 'Left voicemail', deciding: 'Talked, still deciding', not_now: 'Talked, not now',
-  booked: 'Booked appointment', signed: 'Signed', lost: 'Lost',
+  booked: 'Booked appointment', signed: 'Signed', lost: 'Lost', sent: 'Sent',
 }
 const LOST_WORDS: Record<string, string> = { price: 'price', competitor: 'went with someone else', not_needed: 'no longer needed', other: 'other' }
 const APPT_WORDS: Record<string, string> = { estimate: 'Estimate', follow_up: 'Follow up visit', contract_signing: 'Contract signing', install: 'Install', service: 'Service', warranty: 'Warranty', call_back: 'Call back', other: 'Appointment' }
@@ -550,7 +577,7 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     const outcome = OUTCOME_WORDS[c.outcome] ?? c.outcome
     const extra = c.outcome === 'lost' && c.lostReason ? ` (${LOST_WORDS[c.lostReason] ?? c.lostReason})` : ''
     const next = c.nextFollowUpOn ? ` Next follow up ${c.nextFollowUpOn}.` : ''
-    items.push({ at: c.at.toISOString(), kind: c.channel === 'text' ? 'text' : 'call', title: `${what}: ${outcome}${extra}`, detail: `${c.note ? c.note + ' ' : ''}${next}`.trim(), by: c.userName })
+    items.push({ at: c.at.toISOString(), kind: c.channel === 'text' ? 'text' : 'call', title: c.outcome === SENT_TEXT ? `${what} sent` : `${what}: ${outcome}${extra}`, detail: `${c.note ? c.note + ' ' : ''}${next}`.trim(), by: c.userName })
   }
   if (customerId) {
     // A lead that phoned in or walked in: that call or visit is their first contact (round 3, Oct 26 2026:
@@ -662,14 +689,15 @@ export async function followUpReport(accountId: string, viewer: { id: string; ro
   // A day either side, then exactly the Florida days from `from` to `to`.
   const start = new Date(`${addDays(from, -1)}T00:00:00Z`), end = new Date(`${addDays(to, 2)}T00:00:00Z`)
   const inRange = (d: Date) => { const day = floridaDay(d); return day >= from && day <= to }
-  const calls = (await prisma.callLog.findMany({ where: { accountId, at: { gte: start, lt: end } }, select: { userId: true, userName: true, cardId: true, outcome: true, at: true, dueOn: true } })).filter(c => inRange(c.at))
+  // Texts logged as sent (an install date) are not follow ups: not counted.
+  const calls = (await prisma.callLog.findMany({ where: { accountId, at: { gte: start, lt: end }, outcome: { not: SENT_TEXT } }, select: { userId: true, userName: true, cardId: true, outcome: true, at: true, dueOn: true } })).filter(c => inRange(c.at))
   // Cards signed in the period: an answer "Signed", or the card moved into the Signed stage.
   const moved = (await prisma.automationEvent.findMany({ where: { accountId, type: 'card_entered', board: 'sales', occurredAt: { gte: start, lt: end } }, select: { entityId: true, data: true, occurredAt: true } })).filter(e => inRange(e.occurredAt))
   const signedAt = new Map<string, Date>()
   for (const e of moved) if ((e.data as any)?.stage === st.signed) { const was = signedAt.get(e.entityId); if (!was || e.occurredAt < was) signedAt.set(e.entityId, e.occurredAt) }
   for (const c of calls) if (c.outcome === 'signed' && c.cardId) { const was = signedAt.get(c.cardId); if (!was || c.at < was) signedAt.set(c.cardId, c.at) }
   const signedCards = [...signedAt.keys()]
-  const touchRows = signedCards.length ? await prisma.callLog.findMany({ where: { accountId, cardId: { in: signedCards } }, select: { cardId: true, at: true, outcome: true } }) : []
+  const touchRows = signedCards.length ? await prisma.callLog.findMany({ where: { accountId, cardId: { in: signedCards }, outcome: { not: SENT_TEXT } }, select: { cardId: true, at: true, outcome: true } }) : []
   const ownerOfCard = new Map(rows.map(r => [r.cardId, r.ownerId]))
 
   const all = seesEveryone(viewer.role)

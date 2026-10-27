@@ -124,7 +124,7 @@ export default function DispatchPage() {
   const [mapReady, setMapReady] = useState(false)
   const [geocodedJobs, setGeocodedJobs] = useState<Map<string, { lat: number; lng: number }>>(new Map())
   const [dragJob, setDragJob] = useState<Job | null>(null)
-  const [done, setDone] = useState<{ text: PreparedText; title: string; summary: string } | null>(null)
+  const [done, setDone] = useState<{ text: PreparedText; title: string; summary: string; what: 'scheduled' | 'moved' } | null>(null)
 
   // The map: OpenStreetMap tiles drawn by Leaflet, free and with no key (as on Appointments).
   const mapRef = useRef<L.Map | null>(null)
@@ -375,7 +375,7 @@ export default function DispatchPage() {
     setJobs(getJobs())
     setSelectedJobId(jobId)
     // The customer's text, prepared and shown: sent from this phone, or not.
-    setDone({ text: r.data.text, title: r.data.rescheduled ? 'Install moved' : 'Install scheduled', summary: `${r.data.text.customerName}: ${r.data.days.length} crew day${r.data.days.length === 1 ? '' : 's'} from ${r.data.days[0]}, ${r.data.crew.name}. ${r.data.calendar}` })
+    setDone({ text: r.data.text, title: r.data.rescheduled ? 'Install moved' : 'Install scheduled', what: r.data.rescheduled ? 'moved' : 'scheduled', summary: `${r.data.text.customerName}: ${r.data.days.length} crew day${r.data.days.length === 1 ? '' : 's'} from ${r.data.days[0]}, ${r.data.crew.name}. ${r.data.calendar}` })
   }
 
   function handleDropOnTimeline(crewId: string, date: string) {
@@ -575,7 +575,7 @@ export default function DispatchPage() {
           </div>
         </div>
       </div>
-      {done && <InstallTextSheet text={done.text} title={done.title} summary={done.summary} onClose={() => setDone(null)} />}
+      {done && <InstallTextSheet text={done.text} what={done.what} title={done.title} summary={done.summary} onClose={() => setDone(null)} />}
     </div>
   )
 }

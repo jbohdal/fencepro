@@ -2740,7 +2740,7 @@ model CallLog {
   userName       String   @default("")
   /// call | text | other
   channel        String   @default("call")
-  /// no_answer | voicemail | deciding | not_now | booked | signed | lost
+  /// no_answer | voicemail | deciding | not_now | booked | signed | lost, or sent (a text logged as sent, not a follow up answer: lib/followUps.ts logSentText)
   outcome        String
   /// price | competitor | not_needed | other (outcome lost only)
   lostReason     String?
