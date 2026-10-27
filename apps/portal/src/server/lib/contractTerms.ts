@@ -22,10 +22,11 @@ async function settingsOf(accountId: string): Promise<{ sections: unknown; compa
   return { sections: b?.contractSections ?? null, company: (b?.config as any)?.company ?? null }
 }
 
-/** Today's terms from Settings → Contract Templates, as a proposal shows them. */
-export async function currentTerms(accountId: string): Promise<Term[]> {
+/** Today's terms from Settings → Contract Templates, as a proposal shows them (a repair's say repair: termsForRepair). */
+export async function currentTerms(accountId: string, opts: { repair?: boolean } = {}): Promise<Term[]> {
   const [m, s] = await Promise.all([pricingModule(), settingsOf(accountId)])
-  return m.proposalTerms(s.sections)
+  const terms: Term[] = m.proposalTerms(s.sections)
+  return opts.repair ? termsForRepair(terms) : terms
 }
 
 /** The company's address from Settings → Company ('' when it is not filled in). */
@@ -43,15 +44,24 @@ export async function termsOn(proposal: unknown): Promise<Term[] | null> {
 export const STOCK_SCOPE_OPENING = 'Installation is per plan and scope above.'
 export const REPAIR_SCOPE_OPENING = 'Repair work is per the items listed above.'
 
+/** The stock phrase of Settings → Contract Templates' Property and Access, and what a repair's says. */
+export const STOCK_ACCESS_DAY = 'on the day of installation'
+export const REPAIR_ACCESS_DAY = 'on the day of the repair'
+
 /**
  * A repair's terms: the stock opening of Scope and Exclusions, "Installation
  * is per plan and scope above.", reads "Repair work is per the items listed
- * above." (recheck Oct 27 2026: a signed repair contract said Installation).
- * The rest of the section, and any words Jonathan typed in its place, stay as
- * they are.
+ * above." (recheck Oct 27 2026: a signed repair contract said Installation),
+ * and Property and Access's "on the day of installation" reads "on the day of
+ * the repair" (round 6 review, Oct 27 2026). The rest of each section, and any
+ * words Jonathan typed in their place, stay as they are.
  */
 export function termsForRepair(terms: Term[]): Term[] {
-  return terms.map(t => (t.key === 'scope_exclusions' && t.text.startsWith(STOCK_SCOPE_OPENING) ? { ...t, text: REPAIR_SCOPE_OPENING + t.text.slice(STOCK_SCOPE_OPENING.length) } : t))
+  return terms.map(t => {
+    if (t.key === 'scope_exclusions' && t.text.startsWith(STOCK_SCOPE_OPENING)) return { ...t, text: REPAIR_SCOPE_OPENING + t.text.slice(STOCK_SCOPE_OPENING.length) }
+    if (t.key === 'property_access' && t.text.includes(STOCK_ACCESS_DAY)) return { ...t, text: t.text.split(STOCK_ACCESS_DAY).join(REPAIR_ACCESS_DAY) }
+    return t
+  })
 }
 
 /**

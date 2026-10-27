@@ -40,7 +40,7 @@ describe('the proposal link of a quote already sold in the app', () => {
     expect(html).not.toContain('$7,924')
     expect(html).toContain('<h2>Your fence</h2>')
     expect(html).toContain('data-sold-option>Your fence')
-    expect(html).toContain('data-sold-note>Your fence was signed with us for <b>No dig</b> at <b>$7,363</b>.')
+    expect(html).toContain('data-sold-note>Your fence was agreed with us for <b>No dig</b> at <b>$7,363</b>.')
     expect(html).toContain('To change to a different option, please call us at')
     expect(html).toContain('(352) 844 2677')
     expect(html).toContain('>Accept my fence</button>')
@@ -56,7 +56,7 @@ describe('the proposal link of a quote already sold in the app', () => {
   test('sold for a fence no longer on the proposal: no options, nothing to sign, the fence as signed and call us', () => {
     const html = renderProposal(q, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [], sold: -1, soldLabel: 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig' })
     expect(html).toContain('data-already-signed')
-    expect(html).toContain('Your fence was already signed with us for <b>White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig</b> at <b>$7,363</b>. To make a change, please call us at')
+    expect(html).toContain('Your fence was already agreed with us for <b>White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig</b> at <b>$7,363</b>. To make a change, please call us at')
     expect(html).not.toContain('id="accept"')
     expect(html).not.toContain('id="sig"')
     expect(html).not.toContain("getElementById('go')")
@@ -106,7 +106,7 @@ describe('the proposal link once the customer signed it', () => {
     expect(html.indexOf('data-refused')).toBeLessThan(html.indexOf('data-accepted'))
     expect(html).toContain("history.replaceState(null,'',location.pathname+location.hash)")
     const sold = renderProposal(q, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [], sold: 1, refused: true })
-    expect(sold).toMatch(/Your fence was already signed for No dig\. To change it, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\./)
+    expect(sold).toMatch(/Your fence was already agreed with us for No dig\. To change it, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\./)
     // Refused on a page opened before: the page reloads to show what stands, not an error under the button.
     expect(sold).toContain("else if(j.reload){location.replace(location.pathname+'?refused=1')}")
   })
@@ -114,7 +114,7 @@ describe('the proposal link once the customer signed it', () => {
 
 describe('what a customer is told when a signing is refused', () => {
   test('the fence that stands and the number to call', () => {
-    expect(refusalText('signed', 'Tan no dig', '3527894314')).toBe('Your fence was already signed for Tan no dig. To change it, please call us at (352) 789 4314.')
+    expect(refusalText('signed', 'Tan no dig', '3527894314')).toBe('Your fence was already agreed with us for Tan no dig. To change it, please call us at (352) 789 4314.')
     expect(refusalText('accepted', 'No dig', '(352) 844-2677')).toBe('This proposal was already accepted for No dig. To make a change, please call us at (352) 844 2677.')
     expect(refusalText('accepted', '', '')).toBe('This proposal was already accepted. To make a change, please call us.')
   })
