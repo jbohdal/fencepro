@@ -236,8 +236,14 @@ async function flowA(dev, signal, proxy) {
   let closedAfter = -1
   for (let i = 0; i < 20; i++) { if ((await page.locator('[data-quote-builder]').count()) === 0) { closedAfter = i * 250; break } await sleep(250) }
   check('the quote builder closed after Save', closedAfter >= 0, `${closedAfter} ms, at ${new URL(page.url()).pathname}${new URL(page.url()).search}; save form open: ${await page.locator('[data-save-submit]').count()}`)
-  // Back to the board, where the top bar is.
-  await page.locator('[data-card-window] button[aria-label="Close"]').click(); await sleep(500)
+  // A quote saved from the card's New quote opens the quote's window on Quotes with its Send box, not the card
+  // again (1cc4784, Oct 26 2026: "a quote saved at the visit moves the card on and opens Send"), with or without signal.
+  const drawer = await page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).then(() => true, () => false)
+  check('after Save, the quote\'s window opens to send it (not back on the card)', drawer && new URL(page.url()).searchParams.has('qv') && (await page.locator('[data-card-window]').count()) === 0, page.url())
+  // Back to the board, where the top bar is: close the quote's window, then the Pipeline tab.
+  await page.locator('[data-quote-drawer] button[aria-label="Close"]').click(); await sleep(500)
+  await page.locator('[data-tabbar] button', { hasText: 'Pipeline' }).click()
+  await page.waitForSelector('[data-kanban-col]', { timeout: 30000 }); await sleep(500)
   if (signal === 'none') {
     check('no signal: the top bar shows what is waiting', (await badge(page)) === 'waiting', String(await badge(page)))
     await page.locator('[data-sync-badge]').click(); await sleep(500)
