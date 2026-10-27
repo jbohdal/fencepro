@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { locateOf, locateStatus, locateWords, locateWarnings, locateShortWarning, cleanLocate, locateFromPacket, locateFields } from '../src/server/lib/locates.js'
+import { locateOf, locateStatus, locateWords, locateWarnings, locateShortWarning, cleanLocate, locateFromPacket, locateFields, locateStartWarning } from '../src/server/lib/locates.js'
 import { scheduleWarnings, locatesWords } from '../src/server/lib/installDays.js'
 
 const rec = (r: Partial<ReturnType<typeof locateOf>>) => ({ ticket: null, calledDate: null, goodDate: null, expDate: null, ...r })
@@ -86,5 +86,26 @@ describe('a crew packet\'s typed locate, moved onto the job', () => {
     expect(locateFromPacket(rec({ ticket: '111', goodDate: '2026-10-20' }), { locateTicket: '294610232', locateDate: '2026-10-24' })).toBeNull()
     expect(locateFromPacket(rec({ ticket: '111' }), { locateTicket: '294610232', locateDate: '2026-10-24' })).toEqual(rec({ ticket: '111', goodDate: '2026-10-24' }))
     expect(locateFromPacket(rec({}), { locateTicket: ' ', locateDate: null })).toBeNull()
+  })
+})
+
+describe('what the crew is told before digging (audit Oct 26 2026: Start went through two days before good to dig)', () => {
+  const today = '2026-10-26'
+  it('before good to dig: the day it is clear', () => {
+    expect(locateStartWarning(rec({ ticket: '294610232', goodDate: '2026-10-29' }), today)).toBe('811 is not clear to dig until 10/29/2026. Do not dig before then.')
+  })
+  it('expired: a new ticket first', () => {
+    expect(locateStartWarning(rec({ ticket: '1', goodDate: '2026-10-01', expDate: '2026-10-25' }), today)).toMatch(/expired 10\/25\/2026\. Do not dig until the office has a new ticket/)
+  })
+  it('none on the job, or called with no good to dig date', () => {
+    expect(locateStartWarning(rec({}), today)).toMatch(/no 811 locate on this job/)
+    expect(locateStartWarning(rec({ calledDate: '2026-10-24' }), today)).toMatch(/no good to dig date/)
+  })
+  it('clear to dig (from today, and until its last day): nothing', () => {
+    expect(locateStartWarning(rec({ ticket: '1', goodDate: today }), today)).toBeNull()
+    expect(locateStartWarning(rec({ ticket: '1', goodDate: '2026-10-20', expDate: today }), today)).toBeNull()
+  })
+  it('a repair with no new posts needs no ticket: nothing', () => {
+    expect(locateStartWarning(rec({}), today, false)).toBeNull()
   })
 })

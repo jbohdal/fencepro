@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Navigation, Phone, FileText, Play, Square, Camera, CheckCircle2 } from 'lucide-react'
+import { Navigation, Phone, FileText, Play, Square, Camera, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { getJobs } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
@@ -110,6 +110,9 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
 
   async function tap(kind: 'start' | 'finish', wholeJob = false) {
     if (wholeJob && !window.confirm(`Finished the whole job for ${job.customerName}? The office is told the install is done.`)) return
+    // Start while 811 is not clear: he is asked, and the office sees on the job that he was warned.
+    const warn = kind === 'start' ? info?.locate?.warning : null
+    if (warn && !window.confirm(`${warn}\n\nStart anyway? The office will see that you started before 811 was clear.`)) return
     setBusy(true)
     const r = await markInstall(job.id, kind, wholeJob)
     setBusy(false)
@@ -138,8 +141,15 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
         <p className="text-sm text-gray-600">{[d.crew, d.days > 1 ? `day ${d.dayNo} of ${d.days}` : ''].filter(Boolean).join(' · ')}</p>
         {facts.length > 0 && <p className="text-sm text-gray-600" data-install-facts>{facts.join(' · ')}</p>}
         {/* The job's 811 locate, the same record as the office's (the packet shows it in full). */}
-        {info?.locate && <p className="text-sm text-gray-700" data-install-locate={info.locate.status}>811{info.locate.ticket ? ` ticket ${info.locate.ticket}` : ''}: {info.locate.text}</p>}
+        {info?.locate && <p className={`text-sm ${info.locate.status === 'clear' ? 'text-green-800' : info.locate.warning ? 'text-red-800 font-semibold' : 'text-gray-700'}`} data-install-locate={info.locate.status}>811{info.locate.ticket ? ` ticket ${info.locate.ticket}` : ''}: {info.locate.text}</p>}
       </div>
+
+      {/* Not clear to dig yet, or expired: said plainly before he taps Start (audit Oct 26 2026). A warning, not a block. */}
+      {info?.locate?.warning && !jobDone && (
+        <p className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm font-semibold text-red-900" role="alert" data-install-locate-warn>
+          <AlertTriangle size={16} className="inline -mt-0.5" aria-hidden="true" /> {info.locate.warning}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <a className={`btn btn-secondary min-h-[48px] ${job.customerAddress ? '' : 'pointer-events-none opacity-50'}`} href={job.customerAddress ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.customerAddress)}` : undefined} target="_blank" rel="noreferrer" data-install-navigate>
