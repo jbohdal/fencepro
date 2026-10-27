@@ -28,7 +28,7 @@ import { loadPipelineStages } from '../pipelineStages.js'
 import { buildContext, cardForJob, evalConditions, floridaDay, jobForCard, loadLeads, opsStageOfJob, type EntityContext } from './context.js'
 import { loadOpsStages } from '../opsStages.js'
 import { describeSteps, runStep, type DryStep } from './steps.js'
-import { MAX_ATTEMPTS, RETRY_BACKOFF_MS, SAME_STAGE_WINDOW_MS, STARTER_RULES, STARTER_STAGE_RULES, ruleSchema, stepSchema, triggerSchema, conditionSchema, type Board, type Condition, type Step, type Trigger } from './types.js'
+import { JOB_WAIT_BACKOFF_MS, JOB_WAIT_MAX_MS, JOB_WAIT_NOTE, MAX_ATTEMPTS, RETRY_BACKOFF_MS, SAME_STAGE_WINDOW_MS, STARTER_RULES, STARTER_STAGE_RULES, ruleSchema, stepSchema, triggerSchema, conditionSchema, type Board, type Condition, type Step, type Trigger } from './types.js'
 import { sendPush } from './push.js'
 import { isQuietImportCard } from '../importCards.js'
 import { followUpMorningPush } from '../followUps.js'
@@ -194,6 +194,12 @@ export async function cancelRunsLeftBehind(accountId: string, board: Board, enti
   return n
 }
 
+/** How long a run waiting for its job waits before it looks again: 1 min, 5 min, 15 min, then every hour (JOB_WAIT_BACKOFF_MS). */
+export function jobWaitAfter(waitedMs: number): number {
+  const [a, b, c, d] = JOB_WAIT_BACKOFF_MS
+  return waitedMs < a ? a : waitedMs < a + b ? b : waitedMs < a + b + c ? c : d
+}
+
 /** Run a queued run as far as it can go now. Returns its status after. */
 export async function executeRun(runId: string, now = new Date()): Promise<string> {
   // Take it: only one worker, and only when it is due.
@@ -247,10 +253,24 @@ export async function executeRun(runId: string, now = new Date()): Promise<strin
       await save(run, { stepIndex: i + 1, attempts: 0, lastError: null, status: 'running' }, [entry(i, 'done', out.detail, out.link ? { link: out.link } : {})])
     } catch (err) {
       const reason = String((err as Error)?.message || err).slice(0, 500)
+      // No job for the card yet (it is made a moment after the card reaches the stage): wait for it, never a failure
+      // to Run again (WaitForJobError in types.ts). Woken when a job is made; up to JOB_WAIT_MAX_MS.
+      if ((err as any)?.waitForJob) {
+        const waits = log.filter(l => l.step === i && l.result === 'waiting for job')
+        const since = waits.length ? new Date(waits[0].at).getTime() : now.getTime()
+        const waited = now.getTime() - since
+        if (waited < JOB_WAIT_MAX_MS) {
+          const until = new Date(now.getTime() + jobWaitAfter(waited))
+          const note = waits.length ? [] : [entry(i, 'waiting for job', `${reason} This step runs by itself as soon as the job is made.`)]
+          await save(run, { status: 'waiting', stepIndex: i, nextRunAt: until, lastError: JOB_WAIT_NOTE }, note)
+          return 'waiting'
+        }
+      }
       const attempts = run.attempts + 1
-      if ((err as any)?.permanent || attempts >= MAX_ATTEMPTS) {
-        await save(run, { status: 'failed', attempts, lastError: reason }, [entry(i, 'failed', reason)])
-        await tellFailure(rule, run, ctx, i, step, reason)
+      if ((err as any)?.permanent || (err as any)?.waitForJob || attempts >= MAX_ATTEMPTS) {
+        const why = (err as any)?.waitForJob ? `${reason} No job was made for it in ${JOB_WAIT_MAX_MS / 86_400_000} days.` : reason
+        await save(run, { status: 'failed', attempts, lastError: why }, [entry(i, 'failed', why)])
+        await tellFailure(rule, run, ctx, i, step, why)
         return 'failed'
       }
       const wait = RETRY_BACKOFF_MS[attempts - 1]

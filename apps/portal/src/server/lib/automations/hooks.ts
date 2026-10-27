@@ -12,6 +12,8 @@ import { loadOpsStages } from '../opsStages.js'
 import { stageOfJob } from '../opsStageModel.js'
 import { loadPipelineStages } from '../pipelineStages.js'
 import { roleStageId, isSoldStage, stageById } from '../pipelineStageModel.js'
+import prisma from '../prisma.js'
+import { JOB_WAIT_NOTE } from './types.js'
 
 type Db = Parameters<typeof recordEvent>[1]
 
@@ -55,7 +57,17 @@ export async function recordCardMoves(accountId: string, before: any[], after: a
 }
 
 /** Operations: a job save that changes the stage it shows in, and a payment marked on the job. */
+/**
+ * A job was made: runs waiting for their card's job ("Signed Contract" steps that need the job, WaitForJobError
+ * in types.ts) look again now instead of at their next try. A run whose card still has no job waits on.
+ */
+export async function wakeJobWaiters(accountId: string, db?: Db): Promise<number> {
+  const r = await ((db ?? prisma) as any).automationRun.updateMany({ where: { accountId, status: 'waiting', lastError: JOB_WAIT_NOTE }, data: { nextRunAt: new Date() } })
+  return r.count
+}
+
 export async function recordJobChanges(accountId: string, before: any | null, after: any, db?: Db): Promise<void> {
+  if (!before) await wakeJobWaiters(accountId, db)
   const at = new Date(after.updatedAt ?? Date.now()).getTime()
   // By stage id (Settings > Operations Stages), so a renamed stage is the same stage.
   const { stages } = await loadOpsStages(accountId, db ?? undefined)

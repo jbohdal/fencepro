@@ -11,7 +11,7 @@ import prisma from './prisma.js'
 import { isUniqueViolation } from './once.js'
 import { ensureJobChecklist } from './seeds.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
-import { recordCardMoves, recordProposalAccepted } from './automations/hooks.js'
+import { recordCardMoves, recordProposalAccepted, wakeJobWaiters } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
 import { firstStage } from './opsStageModel.js'
 import { loadPipelineStages } from './pipelineStages.js'
@@ -125,6 +125,8 @@ export async function ensureJobForAcceptedQuote(q: {
     return jobId
   }
   await ensureJobChecklist(q.accountId, job.id).catch(err => console.error('[proposal] checklist:', err))
+  // A "Signed Contract" automation that reached the card first and waits for its job runs now (lib/automations/hooks.ts).
+  await wakeJobWaiters(q.accountId).catch(err => console.error('[proposal] wake automations:', err))
   console.log(`[proposal] job ${job.id} created for accepted quote ${q.id}`)
   return job.id
 }

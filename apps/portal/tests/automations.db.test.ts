@@ -459,4 +459,50 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     expect(r.json.data.conditions[0].field).toBe('price')
     expect(await count()).toEqual(before)
   })
+
+  // Audit Oct 26 2026: the "Signed Contract" rule's permit packet step failed with "There is no job for this
+  // card yet" when it ran before the job was saved, and someone had to press Run again. It waits for the job.
+  test('a step that needs the job, before the job is made: the run waits (no failure), and runs when the job is made', async () => {
+    const c2 = await prisma.crmContact.create({ data: { accountId, firstName: 'Testy', lastName: `${tag} nojob`, email: 'testy@example.com', phone: '352-555-0100', serviceAddress: '100 Pecan Dr, Ocala, FL 34472', city: 'Ocala', tags: ['Residential'] } as any })
+    try {
+      const rule = await makeRule({ name: 'needs the job', board: 'sales', trigger: { type: 'card_entered', stage: 'Estimating', settleMinutes: 2, onlyWhileInStage: false }, steps: [{ type: 'permit_packet', assignTo: '' }] })
+      const card = await addCard('First Contact', { customerId: c2.id })
+      await move(card, 'Estimating')
+      await Q.tick(new Date(), { scan: false })
+      await Q.tick(later(3 * MIN), { scan: false })
+      let [run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.status).toBe('waiting')
+      expect(run.lastError).toBe('Waiting for the job to be made for this card.')
+      const log = () => (run.log as any[]).map(l => l.result)
+      expect(log()).toContain('waiting for job')
+      expect(log()).not.toContain('failed')
+      // Looked at again later and still no job: still waiting, no failure, no notification.
+      await Q.tick(later(10 * MIN), { scan: false })
+      ;[run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.status).toBe('waiting')
+      expect(run.attempts).toBe(0)
+      expect(await prisma.notification.count({ where: { title: { contains: `${tag} needs the job` } } })).toBe(0)
+      // The job is made: the run is woken (due now) and the step is done.
+      const j = await call('POST', '/api/saved-jobs', { customerName: `Testy ${tag} nojob`, customerAddress: '100 Pecan Dr, Ocala, FL 34472', crmContactId: c2.id, fenceStyle: 'WV-6ft Privacy', sections: 12, contractValue: 4800, status: 'staging' })
+      expect(j.status).toBe(201)
+      jobIds.push(j.json.data.id)
+      ;[run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.nextRunAt.getTime()).toBeLessThanOrEqual(Date.now())
+      await Q.tick(later(11 * MIN), { scan: false })
+      ;[run] = (await runsOf(rule.id)).filter(r => r.entityId === card)
+      expect(run.status).toBe('succeeded')
+      expect(run.lastError).toBeNull()
+      expect(await prisma.permit.count({ where: { jobId: j.json.data.id } })).toBe(1)
+    } finally {
+      await prisma.crmContact.deleteMany({ where: { id: c2.id } })
+    }
+  })
+
+  test('waiting for the job: looks again after 1, 5 and 15 minutes, then every hour', () => {
+    expect(Q.jobWaitAfter(0)).toBe(1 * MIN)
+    expect(Q.jobWaitAfter(1 * MIN)).toBe(5 * MIN)
+    expect(Q.jobWaitAfter(6 * MIN)).toBe(15 * MIN)
+    expect(Q.jobWaitAfter(21 * MIN)).toBe(60 * MIN)
+    expect(Q.jobWaitAfter(600 * MIN)).toBe(60 * MIN)
+  })
 })

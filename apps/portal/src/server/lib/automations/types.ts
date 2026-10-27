@@ -90,6 +90,23 @@ export class PermanentStepError extends Error {
   permanent = true
 }
 
+/**
+ * A step that needs the card's job, run before the job is made: the card
+ * reached Signed Contract a moment before the job was saved (the phone saves
+ * the job after the move; the proposal link makes it after the signature).
+ * Not a failure (audit Oct 26 2026: "There is no job for this card yet" made
+ * the owner press Run again): the run waits for the job, is woken when any
+ * job is made (hooks.ts wakeJobWaiters) and looks again on JOB_WAIT_BACKOFF_MS,
+ * then every hour, for up to JOB_WAIT_MAX_MS; only then it fails.
+ */
+export class WaitForJobError extends Error {
+  waitForJob = true
+}
+/** The run's lastError while it waits for its job (how the wake up finds it; not shown as an error). */
+export const JOB_WAIT_NOTE = 'Waiting for the job to be made for this card.'
+export const JOB_WAIT_BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000]
+export const JOB_WAIT_MAX_MS = 3 * 24 * 3600_000
+
 /** Jonathan's starter rules; all switched off until he turns them on. Sales stages by their permanent ids (the start stages' old names). */
 export const STARTER_RULES: Array<RuleInput & { starter: string }> = [
   {

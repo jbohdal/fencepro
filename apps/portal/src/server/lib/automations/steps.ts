@@ -19,7 +19,7 @@ import { applyPipelineDelta } from '../pipelineDelta.js'
 import { fillTemplate, floridaDay, proposalLinkFor, loadLeads, opsStageName, type EntityContext } from './context.js'
 import { loadOpsStages } from '../opsStages.js'
 import { fieldsForStage, stageOfJob } from '../opsStageModel.js'
-import { PermanentStepError, type Step } from './types.js'
+import { PermanentStepError, WaitForJobError, type Step } from './types.js'
 import { checkJobMove, checkPipelineMoves } from './stageRules.js'
 import { recordCardMoves, recordJobChanges } from './hooks.js'
 import { emailSenderFor, GMAIL_NOT_CONNECTED, gmailStatus, HELD_EMAIL_ID } from './gmail.js'
@@ -207,7 +207,7 @@ export async function runStep(r: StepRun): Promise<StepOutcome> {
       return moveCard(r, s.stage)
     case 'add_checklist': {
       const jobId = e.job?.id
-      if (!jobId) throw new PermanentStepError('There is no job for this card yet, so there is no checklist to add to.')
+      if (!jobId) throw new WaitForJobError('There is no job for this card yet, so there is no checklist to add to.')
       const items = s.items.map(fill)
       await updateBusiness(r.accountId, effectKey(r, 'checklist'), r.runId, cur => {
         const map = { ...((cur.jobChecklists as Record<string, any[]>) ?? {}) }
@@ -225,7 +225,7 @@ export async function runStep(r: StepRun): Promise<StepOutcome> {
     case 'request_signature': {
       let link = ''
       if (s.what === 'walkthrough') {
-        if (!e.job) throw new PermanentStepError('There is no job for this card yet, so there is no walkthrough to sign.')
+        if (!e.job) throw new WaitForJobError('There is no job for this card yet, so there is no walkthrough to sign.')
         const api = await walkthroughApi()
         if (!api) throw new PermanentStepError(WALKTHROUGH_MISSING)
         const w: any = await api.startWalkthrough(r.accountId, e.job.id, 'automation')
@@ -242,7 +242,7 @@ export async function runStep(r: StepRun): Promise<StepOutcome> {
       return preparedText(r, 'text', body, '')
     }
     case 'start_walkthrough': {
-      if (!e.job) throw new PermanentStepError('There is no job for this card yet, so a walkthrough cannot be started.')
+      if (!e.job) throw new WaitForJobError('There is no job for this card yet, so a walkthrough cannot be started.')
       const api = await walkthroughApi()
       if (!api) throw new PermanentStepError(WALKTHROUGH_MISSING)
       const { already } = await onceInDb(effectKey(r, 'walkthrough'), r.runId, async () => {
@@ -307,7 +307,7 @@ async function moveCard(r: StepRun, stage: string): Promise<StepOutcome> {
 
 async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome> {
   const job = r.entity.job
-  if (!job) throw new PermanentStepError('There is no job for this card yet, so there is nothing to invoice.')
+  if (!job) throw new WaitForJobError('There is no job for this card yet, so there is nothing to invoice.')
   // The contract value already holds the approved change orders (quote price + change orders, lib/changeOrders.ts).
   const totalCents = Math.round(Number(job.contractValue || 0) * 100) || (Math.round(Number(job.quotePrice || 0) * 100) + Math.round(Number(job.changeOrderTotal || 0) * 100))
   const paidCents = Math.round(Number(job.amountPaid || 0) * 100)
@@ -338,7 +338,7 @@ async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome>
 
 async function permitPacket(r: StepRun, assignTo: string): Promise<StepOutcome> {
   const job = r.entity.job
-  if (!job) throw new PermanentStepError('There is no job for this card yet, so there is no permit packet to make.')
+  if (!job) throw new WaitForJobError('There is no job for this card yet, so there is no permit packet to make.')
   const permit = await ensurePermit(r.accountId, job.id)
   // A repair starts Not needed (permits.ts defaultPermitStatus): no packet and no "File the fence permit" task
   // unless the office set it to Needed (or further) on the job's Permit panel (Oct 26 2026).
