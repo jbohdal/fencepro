@@ -51,6 +51,8 @@ import {
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
+import { salesmanSwitchDefault, seesCommission } from './salesmanCommission'
+import { getBookingTeam } from './bookingTeamStore'
 import { toast } from './toast'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
 import { minimumPrice, wholeDollarRecord, adjustmentRecord, isNewMin, type QuoteJobRequest } from './quoteJob'
@@ -505,7 +507,8 @@ export default function QuoteBuilder({
   const [tearOutGates, setTearOutGates] = useState(init?.tearOutGates ?? 0)
   const [adjLaborHrs, setAdjLaborHrs]   = useState(init?.adjLaborHrs ? String(init.adjLaborHrs) : '')
   const [priceAdjust, setPriceAdjust]   = useState(init?.priceAdjust ?? 0)
-  const [hasSalesman, setHasSalesman]   = useState(init?.hasSalesman ?? false)
+  // On for a new quote by a Salesman (or for her customer); a saved quote keeps its own (Oct 27 2026, salesmanCommission.ts).
+  const [hasSalesman, setHasSalesman]   = useState(() => salesmanSwitchDefault(init as any, signedInRole(), getBookingTeam()))
   // Pricing choices for this quote. A saved quote reopens with the choices it
   // was saved with; a new quote starts from Settings → Pricing.
   const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
@@ -613,6 +616,8 @@ export default function QuoteBuilder({
   // Salesman or Installer gets prices only: the server prices it (quoteJob.ts)
   // and their phone never receives a cost (Jonathan, Oct 2026).
   const internal = seesCosts(signedInRole())
+  // The commission is not shown to a Salesman (Jonathan, Oct 27 2026): her cost view reads as it did without it.
+  const showCommission = seesCommission(signedInRole(), internal)
   // Whole dollar prices (Oct 21 2026): a quote sent, sold or accepted before keeps its cents exactly as the
   // customer saw or signed them; a sent one that is changed here is priced to the whole dollar like any new price.
   const [keptCents] = useState(() => !!init?.id && keepsCents(init as any))
@@ -773,6 +778,9 @@ export default function QuoteBuilder({
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
   const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
+  // What a Salesman sees: the margin before the commission (it is not shown to her, Oct 27 2026). The quote saves the real one.
+  const viewGrossMargin = showCommission ? grossMargin : Math.round((grossMargin + commAmt) * 100) / 100
+  const viewGmPct   = showCommission ? gmPct : (adjPrice > 0 ? viewGrossMargin / adjPrice : 0)
   // The ± dollar adjustment: the price without it (the proposal's list price), the amount applied, a reduction refused (under cost).
   const listPrice   = !internal ? (sv?.listPrice ?? adjPrice) : work ? work.listCents / 100 : newMin ? minimum.listPrice : priced.listPrice
   const adjApplied  = !internal ? (sv?.adjustmentCents ?? 0) : work ? work.adjustmentCents : newMin ? minimum.adjustmentCents : priced.adjustmentCents
@@ -782,7 +790,7 @@ export default function QuoteBuilder({
   const materialCost = work ? work.materialCents / 100 : newFenceMaterial
   const gmGood      = cfg.margins?.good ?? 0.34
   const gmWarn      = cfg.margins?.warning ?? 0.27
-  const gmColor     = gmPct >= gmGood ? 'text-green-600' : gmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
+  const gmColor     = viewGmPct >= gmGood ? 'text-green-600' : viewGmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
   const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
   totalsRef.current = { footage: totalFootage, sections, price: adjPrice }
   // What the quote prices at today, as it opened (before any change): a sent quote compares it with the price sent.
@@ -831,14 +839,14 @@ export default function QuoteBuilder({
     ...work.warnings,
     ...(matchWarning ? [matchWarning] : []),
     ...(work.needs811 ? ['New posts go in the ground: an 811 locate ticket is needed before digging. It goes on the crew packet.'] : []),
-    ...[internal && work.costCents > 0 && !work.minimumApplied ? marginCheck(work.gmPct, cfg.margins?.good ?? 0.34, adjPrice) : null].filter((x): x is string => !!x),
+    ...[internal && work.costCents > 0 && !work.minimumApplied ? marginCheck(viewGmPct, cfg.margins?.good ?? 0.34, adjPrice) : null].filter((x): x is string => !!x),
   ] : [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
     // Pricing notes only once a style is picked (before that there is nothing to price).
     ...(style ? materials.warnings : []),
     ...(style ? priced.notes : []),
-    ...[internal && style && sections > 0 ? marginCheck(priced.gmPct, cfg.margins?.good ?? 0.34, priced.price) : null,
+    ...[internal && style && sections > 0 ? marginCheck(showCommission ? priced.gmPct : (priced.price > 0 ? (priced.grossMargin + priced.commissionAmt) / priced.price : 0), cfg.margins?.good ?? 0.34, priced.price) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
   ]
 
@@ -1503,7 +1511,7 @@ export default function QuoteBuilder({
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-medium text-gray-700">Salesman on this job?</p>
-                {internal && <p className="text-xs text-gray-400">
+                {showCommission && <p className="text-xs text-gray-400">
                   {commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}
                 </p>}
               </div>
@@ -1543,7 +1551,7 @@ export default function QuoteBuilder({
                 {work?.minimumApplied && internal && <p className="text-blue-200 text-xs mt-1 font-semibold" data-price-minimum>Minimum job price applied (internal)</p>}
                 {newMin && internal && <p className="text-blue-200 text-xs mt-1 font-semibold" data-price-minimum>Minimum job price applied (internal)</p>}
                 {!work && totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
-                {commAmt > 0 && <p className="text-gray-400 text-xs mt-1">Commission: {fmt(commAmt)}</p>}
+                {showCommission && commAmt > 0 && <p className="text-gray-400 text-xs mt-1" data-commission>Commission: {fmt(commAmt)}</p>}
                 {compare && !work && (
                   <p className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700" data-width-compare>
                     Same job at 6 ft wide: {fmt(compare.at6)}  |  at 8 ft wide: {fmt(compare.at8)}
@@ -1641,7 +1649,7 @@ export default function QuoteBuilder({
               )}
 
               {work && internal && <WorkBreakdown work={work} />}
-              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={commAmt} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} category={style?.category ?? null} />}
+              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={showCommission ? commAmt : 0} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} category={style?.category ?? null} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -1693,18 +1701,18 @@ export default function QuoteBuilder({
                 )}
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Gross Margin</span>
-                  <span className={`text-2xl font-bold ${gmColor}`}>{(gmPct * 100).toFixed(1)}%</span>
+                  <span className={`text-2xl font-bold ${gmColor}`}>{(viewGmPct * 100).toFixed(1)}%</span>
                 </div>
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-xs text-gray-400">Margin $</span>
-                  <span className={`text-sm font-semibold ${gmColor}`}>{fmt(grossMargin)}</span>
+                  <span className={`text-sm font-semibold ${gmColor}`}>{fmt(viewGrossMargin)}</span>
                 </div>
                 <div className="mt-2">
                   <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full transition-all ${gmPct >= gmGood ? 'bg-green-500' : gmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(gmPct * 100, 100))}%` }} />
+                    <div className={`h-1.5 rounded-full transition-all ${viewGmPct >= gmGood ? 'bg-green-500' : viewGmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(viewGmPct * 100, 100))}%` }} />
                   </div>
                   <p className={`text-xs mt-1 ${gmColor}`}>
-                    {gmPct >= gmGood ? '✓ Above target' : gmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
+                    {viewGmPct >= gmGood ? '✓ Above target' : viewGmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
                   </p>
                 </div>
               </div>
@@ -1854,7 +1862,7 @@ export default function QuoteBuilder({
                   </label>
                   {adjRefused && <p className="text-xs font-semibold text-red-700" data-adjust-refused>Taking {fmt(Math.abs(adjWantedCents) / 100)} off would put the price under cost, so it is not applied.</p>}
                   {adjApplied !== 0 && (() => {
-                    const profitOf = (price: number, rounding: number, adj: number) => splitDollars({ price, materials: materialCost, labor: laborCost + tearOutCost, commission: commAmt, overheadPct: overheadNow, roundingCents: rounding, adjustmentCents: adj }).find(x => x.part === 'profit')!.dollars
+                    const profitOf = (price: number, rounding: number, adj: number) => splitDollars({ price, materials: materialCost, labor: laborCost + tearOutCost, commission: showCommission ? commAmt : 0, overheadPct: overheadNow, roundingCents: rounding, adjustmentCents: adj }).find(x => x.part === 'profit')!.dollars
                     const netAfter = profitOf(adjPrice, roundingCents, adjApplied)
                     const netBefore = profitOf(listPrice, roundingCents, 0)
                     const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size : (work ? 1 : 0)
@@ -1864,9 +1872,9 @@ export default function QuoteBuilder({
                         <div className="flex justify-between"><span className="text-gray-600">{adjApplied < 0 ? 'Discount' : 'Adjustment'} <span className="text-xs text-gray-400">(out of profit)</span></span><span className={`tabular-nums font-semibold ${adjApplied < 0 ? 'text-red-600' : 'text-green-700'}`} data-adjust-amount>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)}</span></div>
                         <div className="flex justify-between font-semibold"><span>Final price</span><span className="tabular-nums" data-adjust-final-price>{fmt(adjPrice)}</span></div>
                         {internal && <>
-                          <div className="flex justify-between border-t border-gray-200 pt-1 mt-1"><span className="text-gray-600">Margin after</span><span className={`tabular-nums font-semibold ${gmColor}`} data-adjust-margin>{(gmPct * 100).toFixed(1)}%</span></div>
+                          <div className="flex justify-between border-t border-gray-200 pt-1 mt-1"><span className="text-gray-600">Margin after</span><span className={`tabular-nums font-semibold ${gmColor}`} data-adjust-margin>{(viewGmPct * 100).toFixed(1)}%</span></div>
                           <div className="flex justify-between"><span className="text-gray-600">Net profit after</span><span className={`tabular-nums font-semibold ${netAfter < 0 ? 'text-red-700' : 'text-gray-900'}`} data-adjust-profit>{fmt(netAfter)}</span></div>
-                          <p className="text-xs text-gray-500" data-adjust-gave>{adjApplied < 0 ? `You give up ${fmt(netBefore - netAfter)} of profit.` : `${fmt(netAfter - netBefore)} more profit.`} Overhead and commission stay on {fmt(listPrice)}.</p>
+                          <p className="text-xs text-gray-500" data-adjust-gave>{adjApplied < 0 ? `You give up ${fmt(netBefore - netAfter)} of profit.` : `${fmt(netAfter - netBefore)} more profit.`} {showCommission ? 'Overhead and commission stay' : 'Overhead stays'} on {fmt(listPrice)}.</p>
                         </>}
                         {optionCount > 1 && <p className="text-xs font-semibold text-amber-800" data-adjust-every-option>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)} on every option on the proposal.</p>}
                         <p className="text-xs text-gray-500" data-adjust-customer-sees>{showDiscount && adjApplied < 0 ? 'The customer sees the list price, the discount and the final price.' : 'The customer sees the final price only.'}</p>

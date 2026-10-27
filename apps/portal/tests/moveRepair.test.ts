@@ -100,6 +100,17 @@ describe('move (spec 2 a to h)', () => {
     expect(r.needs811).toBe(true)
     expect(r.pullSheet.every(i => !/Tear Out/.test(i.item))).toBe(true)
   })
+  test('Jonathan, Oct 27 2026: careful removal is 1.5 × the install rate, the same per section rate the reinstall uses, in every labor mode', () => {
+    for (const p of [PRICING, { ...PRICING, subUnit: 'foot' as const, subRateByCategory: { Vinyl: 4 } }, { ...PRICING, laborMode: 'hourly' as const }]) {
+      const r = priceMove({ ...common(style(WV)), pricing: p }, mv({}), straight(100))
+      // Each line is rounded to the cent once, so within a cent (hourly: $25 ÷ 1.2 sections an hour).
+      expect(Math.abs(cents(r, 'removal') - cents(r, 'reinstall') * 1.5)).toBeLessThanOrEqual(1)
+      expect(cents(r, 'removal')).toBeGreaterThan(0)
+    }
+    // A Settings value is used as saved (live held 0.3 from Oct 19 to Oct 27 2026; the fix is in Settings, not here).
+    const low = priceMove({ ...common(style(WV)), settings: moveRepairSettings({ moveRepair: { removalMultiplier: 0.3 } }) }, mv({}), straight(100))
+    expect(cents(low, 'removal')).toBe(Math.round(17 * 24 * 0.3 * 100))
+  })
   test('gates: rehung with new hinges and latch; "Replace gate" uses the whole gate kit; removal at the gate rate × 1.5', () => {
     const r = priceMove(common(style(WV)), mv({ oldWalkGates: 1 }), straight(100, 1))
     expect(cents(r, 'removalWalk')).toBe(1500)          // $10 × 1.5
