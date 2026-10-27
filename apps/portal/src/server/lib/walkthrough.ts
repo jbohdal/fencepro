@@ -150,6 +150,26 @@ function photoIds(w: WalkthroughRow, punch: PunchRow[]): string[] {
   ].filter((x): x is string => !!x)
 }
 
+/** A photo taken for the walkthrough (its caption, as the app writes it: web/src/FinalWalkthrough.tsx). */
+export const isWalkthroughCaption = (caption: string | null | undefined) => /^Final walkthrough:/.test(String(caption ?? ''))
+
+/**
+ * Walkthrough photos a retake replaced: taken for a job's walkthrough, but no
+ * longer its photo for any slot, checklist item or fix. Only the current photo
+ * of each is shown to the customer (audit Oct 26, 2026: the portal showed
+ * "Side: Left return" seven times).
+ */
+export async function replacedWalkthroughPhotos(items: Array<{ clientId: string; jobId: string | null; caption: string }>): Promise<Set<string>> {
+  const taken = items.filter(m => m.jobId && isWalkthroughCaption(m.caption))
+  if (!taken.length) return new Set()
+  const ws = await prisma.walkthrough.findMany({ where: { jobId: { in: [...new Set(taken.map(m => m.jobId!))] } } })
+  if (!ws.length) return new Set()
+  const punch = await prisma.walkthroughPunchItem.findMany({ where: { walkthroughId: { in: ws.map(w => w.id) } } })
+  const current = new Set(ws.flatMap(w => photoIds(w, punch.filter(p => p.walkthroughId === w.id))))
+  const hasWalkthrough = new Set(ws.map(w => w.jobId))
+  return new Set(taken.filter(m => hasWalkthrough.has(m.jobId!) && !current.has(m.clientId)).map(m => m.clientId))
+}
+
 const punchLike = (p: PunchRow): PunchLike => ({ id: p.id, label: p.label, status: p.status === 'fixed' ? 'fixed' : 'open', fixPhotoClientId: p.fixPhotoClientId })
 
 /** What is still needed before it can be finished (empty: ready). */

@@ -168,14 +168,18 @@ walkthroughStaff.put('/:id/photos/:key', async (req: any, res) => {
   try {
     const b = z.object({ clientId: cid, label: z.string().max(300).optional(), kind: z.enum(['side', 'gate', 'wide']).optional() }).parse(req.body)
     const key = String(req.params.key)
+    let replaced: string | null = null
     await mutate(req.user.crmAccountId, await wid(req), async (w, tx) => {
       const list = slots(w)
       const at = list.findIndex(s => s.key === key)
       if (w.status !== 'open') { if (at >= 0 && list[at].clientId === (b.clientId ?? null)) return; throw finished() }
+      replaced = at >= 0 && list[at].clientId && list[at].clientId !== (b.clientId ?? null) ? list[at].clientId : null
       if (at >= 0) list[at] = { ...list[at], clientId: b.clientId ?? null }
       else if (b.label && b.kind) list.splice(Math.max(0, list.length - 1), 0, { key, label: b.label, kind: b.kind, clientId: b.clientId ?? null })
       else throw Object.assign(new Error('That photo is not on this walkthrough'), { status: 404 })
       await tx.walkthrough.update({ where: { id: w.id }, data: { photos: list as any } })
+      // Retaken: the photo it replaced is no longer shown to the customer (the office still has it, Internal).
+      if (replaced) await tx.mediaItem.updateMany({ where: { clientId: replaced, accountId: w.accountId, visibility: 'customer' }, data: { visibility: 'internal' } })
     })
     res.json({ success: true, data: await settle(req, await wid(req)) })
   } catch (err) { fail(res, err, 'save the photo') }

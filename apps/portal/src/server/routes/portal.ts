@@ -39,6 +39,7 @@
 
 import { workKindOf } from '../lib/installDays.js'
 import { serializeMedia } from '../lib/media.js'
+import { replacedWalkthroughPhotos } from '../lib/walkthrough.js'
 import { Router, type Request, type Response } from 'express'
 import crypto from 'crypto'
 import fs from 'fs'
@@ -83,6 +84,7 @@ import { changeOrdersForContact, signByCustomer, customerView, contractAround } 
 import { quotesOf, jobsOf, quoteRowOf, planOf, isSigned, papersOf, billingOf } from '../lib/portalCustomer.js'
 import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
 import { plainStyleName } from '../lib/estimates.js'
+import { installDateOf, nyDay } from '../lib/warranties.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
 
 // File storage helpers
@@ -597,6 +599,18 @@ router.get('/site-plans/:quoteId.svg', requirePortalAuth, async (req: PortalAuth
   }
 })
 
+/** A job whose fence is in: completed, invoiced or paid. */
+const FINISHED_JOB = ['completed', 'invoiced', 'paid']
+
+/** The steps before the install, from the job's records only (YYYY-MM-DD `today` in Ocala). */
+export function projectStepsOf(j: { locatesDate: string | null; permit: string | null; materialsStatus: string }, today: string): { locates: boolean; permit: 'done' | 'not_needed' | 'not_yet'; materials: boolean } {
+  return {
+    locates: !!j.locatesDate && /^\d{4}-\d{2}-\d{2}$/.test(j.locatesDate) && j.locatesDate <= today,
+    permit: j.permit === 'not_needed' ? 'not_needed' : ['approved', 'inspection_scheduled', 'passed'].includes(j.permit ?? '') ? 'done' : 'not_yet',
+    materials: ['ordered', 'received', 'loaded'].includes(j.materialsStatus),
+  }
+}
+
 router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) => {
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
@@ -605,19 +619,20 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
     // The job's status and install date for the customer: never the crew, notes or anything of the office's.
     // The steps before the install, from what is really recorded on the job (never shown done when they are not).
     const permits = await prisma.permit.findMany({ where: { jobId: { in: jobs.map(j => j.id) } }, select: { jobId: true, status: true } })
-    const installed = (st: string) => ['in_progress', 'completed', 'invoiced', 'paid'].includes(st)
+    const today = nyDay(new Date())
     // A repair or a fence move says so ("Repair scheduled for ..."), from the job's quote's work.
     const quoteIds = jobs.map(j => j.quoteId).filter((x): x is string => !!x)
     const works = quoteIds.length ? await prisma.savedQuote.findMany({ where: { id: { in: quoteIds }, accountId: c.accountId, deletedAt: null }, select: { id: true, work: true } }) : []
     res.json({ success: true, data: await Promise.all(jobs.map(async j => {
       const permit = permits.find(p => p.jobId === j.id)?.status ?? null
-      const steps = {
-        locates: installed(j.status) || !!j.locatesDate,
-        permit: permit === 'not_needed' ? 'not_needed' : installed(j.status) || ['approved', 'inspection_scheduled', 'passed'].includes(permit ?? '') ? 'done' : 'not_yet',
-        materials: installed(j.status) || ['ordered', 'received', 'loaded'].includes(j.materialsStatus),
-      }
+      // Ticked only from the job's records, whatever its status (audit Oct 26, 2026: a finished job ticked
+      // "Materials Ordered" with nothing ordered): 811 marked once the good to dig day has come, the permit
+      // approved or later, the materials ordered or later.
+      const steps = projectStepsOf({ locatesDate: j.locatesDate, permit, materialsStatus: j.materialsStatus }, today)
       const kind = workKindOf(works.find(w => w.id === j.quoteId)?.work)
-      return { id: j.id, style: await plainStyleName(j.fenceStyle), kind, status: j.status, scheduledDate: j.scheduledDate, address: j.customerAddress, steps }
+      // Finished: the day it was installed (the warranty's start, lib/warranties.ts).
+      const installedOn = FINISHED_JOB.includes(j.status) ? await installDateOf(j) : null
+      return { id: j.id, style: await plainStyleName(j.fenceStyle), kind, status: j.status, scheduledDate: j.scheduledDate, installedOn, address: j.customerAddress, steps }
     })) })
   } catch (err) {
     console.error('[portal-projects]', err)
@@ -947,8 +962,10 @@ router.get('/media', requirePortalAuth, async (req: PortalAuthRequest, res) => {
       where: { deletedAt: null, visibility: 'customer', OR: [{ customerId }, ...(quotes.length ? [{ quoteKey: { in: quotes.map(q => q.id) } }] : [])] },
       orderBy: { takenAt: 'asc' },
     })
+    // A walkthrough photo a retake replaced: only the current one of each (lib/walkthrough.ts).
+    const replaced = await replacedWalkthroughPhotos(items)
     // Only what a customer should see: no who took it or where they stood.
-    res.json({ success: true, data: items.map(m => { const x = serializeMedia(m); return { id: x.id, kind: x.kind, caption: x.caption, category: x.category, takenAt: x.takenAt, url: x.markupUrl ?? x.url, originalUrl: x.url, previewUrl: x.previewUrl, thumbUrl: x.thumbUrl } }) })
+    res.json({ success: true, data: items.filter(m => !replaced.has(m.clientId)).map(m => { const x = serializeMedia(m); return { id: x.id, kind: x.kind, caption: x.caption, category: x.category, takenAt: x.takenAt, url: x.markupUrl ?? x.url, originalUrl: x.url, previewUrl: x.previewUrl, thumbUrl: x.thumbUrl } }) })
   } catch (err) {
     console.error('[portal-media]', err)
     res.status(500).json({ success: false, error: 'LIST_FAILED' })
