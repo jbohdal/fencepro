@@ -123,7 +123,12 @@ export async function receivables(accountId: string, today = floridaDay(new Date
   return out.sort((x, y) => y.daysOver - x.daysOver || x.customerName.localeCompare(y.customerName))
 }
 
-export interface ReceivedPaymentRow { id: string; jobId: string; customerName: string; amountCents: number; paidOn: string; method: string }
+export interface ReceivedPaymentRow {
+  id: string; jobId: string; customerName: string; amountCents: number; paidOn: string; method: string
+  /** For the Billing page's Payments list: who, which job, the check or reference, and the receipt (staff PDF). */
+  customerId: string | null; address: string; fenceStyle: string; checkNumber: string | null; reference: string | null
+  receipt: { id: string; number: number } | null
+}
 
 /**
  * Every payment received (not voided) on the payment schedules: the cash
@@ -132,12 +137,21 @@ export interface ReceivedPaymentRow { id: string; jobId: string; customerName: s
  * payments count.
  */
 export async function paymentsReceived(accountId: string): Promise<ReceivedPaymentRow[]> {
-  const [payments, jobs] = await Promise.all([
-    prisma.contractPayment.findMany({ where: { accountId, voidedAt: null }, select: { id: true, jobId: true, amountCents: true, paidOn: true, method: true }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
-    prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, customerName: true } }),
+  const [payments, jobs, receipts] = await Promise.all([
+    prisma.contractPayment.findMany({ where: { accountId, voidedAt: null }, select: { id: true, jobId: true, amountCents: true, paidOn: true, method: true, checkNumber: true, reference: true, crmContactId: true }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
+    prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, customerName: true, crmContactId: true, customerAddress: true, fenceStyle: true } }),
+    prisma.receipt.findMany({ where: { accountId, voidedAt: null }, select: { id: true, number: true, paymentId: true } }),
   ])
   const byJob = new Map(jobs.map(j => [j.id, j]))
-  return payments.filter(p => byJob.has(p.jobId)).map(p => ({ id: p.id, jobId: p.jobId, customerName: byJob.get(p.jobId)!.customerName, amountCents: p.amountCents, paidOn: p.paidOn, method: p.method }))
+  const receiptOf = new Map(receipts.map(r => [r.paymentId, { id: r.id, number: r.number }]))
+  return payments.filter(p => byJob.has(p.jobId)).map(p => {
+    const j = byJob.get(p.jobId)!
+    return {
+      id: p.id, jobId: p.jobId, customerName: j.customerName, amountCents: p.amountCents, paidOn: p.paidOn, method: p.method,
+      customerId: j.crmContactId ?? p.crmContactId ?? null, address: j.customerAddress, fenceStyle: j.fenceStyle,
+      checkNumber: p.checkNumber, reference: p.reference, receipt: receiptOf.get(p.id) ?? null,
+    }
+  })
 }
 
 // ── Milestones ──────────────────────────────────────────────────────────────

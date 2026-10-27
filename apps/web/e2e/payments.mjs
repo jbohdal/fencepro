@@ -41,7 +41,9 @@ const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const CDP = process.env.CDP_URL || ''
 const SHOTS = process.env.E2E_SHOTS || ''
 const NAME = CDP ? 'android' : 'webkit'
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// A dev server on this machine (the shared 4001, or a worktree's own port); devOnly.mjs already refuses live (4000).
+const DEV_URL = /^http:\/\/(localhost|127\.0\.0\.1):(?!4000\b)\d+/
+if (!DEV_URL.test(APP) || !DEV_URL.test(API)) { console.error('Refusing to run: a dev server on this machine only (e.g. localhost:4001).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -278,6 +280,17 @@ try {
   await page.goto(`${APP}/pipeline?card=${cardId}`)
   check('card window: Payments', !!(await until(async () => await page.locator(`[data-card-payments] [data-payment-schedule="${jobId}"]`).isVisible(), 20000)))
   await shot(page, '6-card-window')
+  // Billing > Payments: every payment received on the schedule (not the voided one), each with its receipt (audit fix Oct 27 2026).
+  await openPage()
+  await page.goto(`${APP}/billing`)
+  await tap(page.getByRole('button', { name: 'Payments', exact: true }))
+  await page.waitForSelector('[data-billing-payments] [data-payments-total]', { timeout: 20000 })
+  const live = sql(`SELECT count(*) FROM "ContractPayment" WHERE "jobId" = '${jobId}' AND "voidedAt" IS NULL`)
+  const rows = page.locator(`[data-billing-payment]:has([data-payment-job="${jobId}"])`)
+  check('Billing > Payments: this job\'s payments, the voided one left out, each with its receipt', String(await rows.count()) === live && await rows.locator('[data-payment-receipt]').count() === Number(live), `${await rows.count()} shown, ${live} not voided`)
+  const total = Number(await page.locator('[data-payments-total]').getAttribute('data-payments-total'))
+  const cash = (await call('GET', '/api/payments/received')).json.data.reduce((t, r) => t + r.amountCents, 0)
+  check('Billing > Payments: the total is at least the cash the P&L counts from the schedules', total >= cash, `${total} vs ${cash}`)
   check('no page errors', errors.length === 0, errors.join(' | '))
   if (!CDP) await ctx.close(); else await page.close()
 } finally {

@@ -25,7 +25,11 @@ export interface Receivable {
 }
 
 /** A payment received on a schedule (portal lib/jobTruth.ts paymentsReceived). */
-export interface ReceivedRow { id: string; jobId: string; customerName: string; amountCents: number; paidOn: string; method: string }
+export interface ReceivedRow {
+  id: string; jobId: string; customerName: string; amountCents: number; paidOn: string; method: string
+  customerId: string | null; address: string; fenceStyle: string; checkNumber: string | null; reference: string | null
+  receipt: { id: string; number: number } | null
+}
 
 function useServerList<T>(path: string, failWords: string): { rows: T[] | null; error: string } {
   const [rows, setRows] = useState<T[] | null>(null)

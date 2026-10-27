@@ -90,8 +90,13 @@ export function legacyPaymentsReceived(
   invoices: Array<{ id: string; adoptedJobId?: string; status?: string }>,
   payments: Array<{ invoiceId: string; amountCents: number; paymentDate: string }>,
 ): ReceivedPayment[] {
+  return legacyPaymentsCounted(invoices, payments).map(p => ({ paidOn: String(p.paymentDate || '').slice(0, 10), amountCents: p.amountCents }))
+}
+
+/** The hand-made Billing payments themselves that count as received (legacyPaymentsReceived): the Billing page lists them. */
+export function legacyPaymentsCounted<P extends { invoiceId: string }>(invoices: Array<{ id: string; adoptedJobId?: string; status?: string }>, payments: P[]): P[] {
   const skip = new Set(invoices.filter(i => i.adoptedJobId || i.status === 'void').map(i => i.id))
-  return payments.filter(p => !skip.has(p.invoiceId)).map(p => ({ paidOn: String(p.paymentDate || '').slice(0, 10), amountCents: p.amountCents }))
+  return payments.filter(p => !skip.has(p.invoiceId))
 }
 
 // ── Receivables ─────────────────────────────────────────────────────────────
