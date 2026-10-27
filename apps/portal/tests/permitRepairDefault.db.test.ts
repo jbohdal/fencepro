@@ -90,6 +90,32 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a repair job\'s permit starts No
     expect((await ensurePermit(accountId, jobId)).status).toBe('needed')
   })
 
+  test('one source: with no permit record, Advance (the board summary), the Schedule window and the stage check all read a repair as Not needed; a new fence stays Not set', async () => {
+    const { milestoneSummary } = await import('../src/server/lib/jobTruth.js')
+    const { jobScheduleFacts } = await import('../src/server/lib/installScheduling.js')
+    const { permitStatusesOf } = await import('../src/server/lib/permitStatus.js')
+    const { missingFor } = await import('../src/server/lib/automations/stageRules.js')
+    const repair = await jobOfKind('repair')
+    const fence = await jobOfKind(null)
+    expect(await prisma.permit.count({ where: { jobId: { in: [repair, fence] } } })).toBe(0)
+
+    const quoteOf = async (id: string) => (await prisma.savedJob.findUnique({ where: { id }, select: { quoteId: true } }))!.quoteId
+    const st = await permitStatusesOf(accountId, [{ id: repair, quoteId: await quoteOf(repair) }, { id: fence, quoteId: await quoteOf(fence) }])
+    expect([st.get(repair), st.get(fence)]).toEqual(['not_needed', null])
+
+    const sum = await milestoneSummary(accountId)
+    expect([sum[repair]?.permitOk, sum[fence]?.permitOk]).toEqual([true, false])
+    expect((await jobScheduleFacts(accountId, repair))?.permitStatus).toBe('not_needed')
+    expect((await jobScheduleFacts(accountId, fence))?.permitStatus).toBe(null)
+    const rj = await prisma.savedJob.findUnique({ where: { id: repair } })
+    expect(await missingFor(accountId, ['permit_approved'], rj, null)).toEqual([])
+
+    // The office sets the repair's permit to Needed: every reader follows the record.
+    await call('PUT', `/api/automations/permits/${repair}`, { status: 'needed', county: 'Marion' })
+    expect((await milestoneSummary(accountId))[repair]?.permitOk).toBe(false)
+    expect((await jobScheduleFacts(accountId, repair))?.permitStatus).toBe('needed')
+  })
+
   test('a new fence and a fence move: Needed, as before', async () => {
     for (const kind of [null, 'move'] as const) {
       const jobId = await jobOfKind(kind)

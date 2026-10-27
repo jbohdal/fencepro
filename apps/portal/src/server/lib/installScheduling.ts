@@ -33,6 +33,7 @@ import { softDeleteLogged, type Actor } from './deletion.js'
 import { logScheduleChange, scheduleWords } from './jobActivity.js'
 import { staffLogins, loginByName } from './appointmentRep.js'
 import { floridaDay } from './automations/context.js'
+import { permitStatusesOf, permitStatusOf } from './permitStatus.js'
 import { calendarStatus } from './calendarSync/index.js'
 import {
   crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, workKindOf, customerPhoneToGive, isYmd,
@@ -115,7 +116,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
   const [{ stages }, quotes, permits, invoices, payments, grid, m, data] = await Promise.all([
     loadOpsStages(accountId),
     prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, id: { in: quoteIds } } }),
-    prisma.permit.findMany({ where: { accountId, jobId: { in: ids } } }),
+    permitStatusesOf(accountId, jobs),
     prisma.contractInvoice.findMany({ where: { accountId, jobId: { in: ids }, kind: 'deposit', voidedAt: null } }),
     prisma.contractPayment.findMany({ where: { accountId, jobId: { in: ids }, voidedAt: null }, select: { jobId: true, amountCents: true } }),
     prisma.scheduledGridJob.findMany({ where: { accountId, deletedAt: null, stagingJobId: { in: ids } }, select: { stagingJobId: true, date: true } }),
@@ -142,7 +143,7 @@ async function factsFor(accountId: string, jobs: Json[]): Promise<ReadyJob[]> {
       stage, stageName: stageById(stages, stage)?.name ?? stage,
       scheduledDate: j.scheduledDate, scheduledEndDate: j.scheduledEndDate, crewAssigned: j.crewAssigned,
       bookedDays: grid.filter(g => g.stagingJobId === j.id && isYmd(g.date)).map(g => g.date).sort(),
-      permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
+      permitStatus: permits.get(j.id) ?? null,
       locatesDate: j.locatesDate || null, locatesExpDate: j.locatesExpDate || null, locateTicket: j.locateTicket || null, locateCalledDate: j.locateCalledDate || null,
       deposit, depositCents, depositPaidCents, materialsStatus: j.materialsStatus, allowWeekend: weekend.has(j.id),
     })
@@ -360,11 +361,11 @@ export async function unscheduleInstall(accountId: string, actor: Actor, jobId: 
   if (!existing) throw new ScheduleError(404, 'That job is not there any more. Reload and try again.')
   const [{ stages }, settings, meta, permit] = await Promise.all([
     loadOpsStages(accountId), settingsOf(accountId), installMetaOf(accountId, jobId),
-    prisma.permit.findUnique({ where: { jobId }, select: { status: true } }),
+    permitStatusOf(accountId, existing),
   ])
   const was = stageOfJob(stages, existing as Json)
   const kept = meta?.prevStage && stageById(stages, meta.prevStage) && phaseOf(stages, meta.prevStage) !== 'scheduled' ? meta.prevStage : null
-  const back = phaseOf(stages, was) === 'scheduled' ? (kept ?? waitingStageFor(stages, existing, permit?.status ?? null)) : null
+  const back = phaseOf(stages, was) === 'scheduled' ? (kept ?? waitingStageFor(stages, existing, permit)) : null
   const update: Json = { ...(back ? fieldsForStage(stages, back, existing as Json, floridaDay(new Date())) ?? {} : {}), scheduledDate: '', scheduledEndDate: null, crewAssigned: '' }
   // Going back to a stage changes nothing else on the job: the materials and drawing stay as recorded.
   if (back) { update.opsStage = back; delete update.materialsStatus; delete update.drawingComplete }

@@ -87,6 +87,7 @@ import { plainStyleName } from '../lib/estimates.js'
 import { installDateOf, nyDay } from '../lib/warranties.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
 import { inboxFrom } from '../lib/portalInbox.js'
+import { permitStatusesOf } from '../lib/permitStatus.js'
 
 // File storage helpers
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -619,13 +620,13 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
     const jobs = await jobsOf(c)
     // The job's status and install date for the customer: never the crew, notes or anything of the office's.
     // The steps before the install, from what is really recorded on the job (never shown done when they are not).
-    const permits = await prisma.permit.findMany({ where: { jobId: { in: jobs.map(j => j.id) } }, select: { jobId: true, status: true } })
+    const permits = await permitStatusesOf(c.accountId, jobs)
     const today = nyDay(new Date())
     // A repair or a fence move says so ("Repair scheduled for ..."), from the job's quote's work.
     const quoteIds = jobs.map(j => j.quoteId).filter((x): x is string => !!x)
     const works = quoteIds.length ? await prisma.savedQuote.findMany({ where: { id: { in: quoteIds }, accountId: c.accountId, deletedAt: null }, select: { id: true, work: true } }) : []
     res.json({ success: true, data: await Promise.all(jobs.map(async j => {
-      const permit = permits.find(p => p.jobId === j.id)?.status ?? null
+      const permit = permits.get(j.id) ?? null
       // Ticked only from the job's records, whatever its status (audit Oct 26, 2026: a finished job ticked
       // "Materials Ordered" with nothing ordered): 811 marked once the good to dig day has come, the permit
       // approved or later, the materials ordered or later.
