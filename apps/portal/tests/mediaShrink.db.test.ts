@@ -28,6 +28,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('media shrink (dev database)', as
   })
 
   test('a finished job: video keeps its viewing copy only, photo to 2400 px, markup untouched; a recent job is left alone', async () => {
+    // The dev copy carries live's setting (Never since Oct 26): this test is about the 90 day default.
+    const state0 = (await prisma.businessState.findUnique({ where: { accountId: account.id }, select: { config: true } }))!
+    const config0 = (state0.config ?? {}) as any
+    await prisma.businessState.update({ where: { accountId: account.id }, data: { config: { ...config0, media: { ...(config0.media ?? {}), shrinkAfterDays: 90 } } } })
+    try {
     const photo = path.join(dir, 'big.jpg'), markup = path.join(dir, 'big.markup.png'), video = path.join(dir, 'clip.mov'), preview = path.join(dir, 'clip.preview.mp4')
     ff('-f', 'lavfi', '-i', 'testsrc2=size=4000x3000', '-frames:v', '1', '-q:v', '2', photo)
     ff('-f', 'lavfi', '-i', 'testsrc2=size=4000x3000', '-frames:v', '1', markup)
@@ -67,6 +72,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('media shrink (dev database)', as
     await shrinkDueMedia()
     expect((await prisma.mediaItem.findUnique({ where: { id: f.id } }))!.shrunkAt).toBeNull()
     await prisma.savedJob.delete({ where: { id: recent.id } })
+    } finally {
+      await prisma.businessState.update({ where: { accountId: account.id }, data: { config: config0 } })
+    }
   }, 120_000)
 
   test('Make smaller after: Never leaves a long finished job\'s originals alone', async () => {
