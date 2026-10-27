@@ -564,7 +564,7 @@ export function noteAuthorName(n: { createdBy?: string | null; createdById?: str
 }
 
 /** Calls, texts, emails, quotes sent, proposal opens, appointments and notes, newest first. */
-export async function customerHistory(accountId: string, opts: { customerId?: string | null; cardId?: string | null }): Promise<HistoryItem[]> {
+export async function customerHistory(accountId: string, opts: { customerId?: string | null; cardId?: string | null; prices?: boolean }): Promise<HistoryItem[]> {
   const { customerId, cardId } = opts
   if (!customerId && !cardId) return []
   const items: HistoryItem[] = []
@@ -645,6 +645,9 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     // Change orders (lib/changeOrderHistory.ts): made, sent, approved verbally, signed, approved, voided.
     const { changeOrderItems } = await import('./changeOrderHistory.js')
     items.push(...await changeOrderItems(accountId, quotes.map(q => q.id)))
+    // Payments, scheduling, install Start and Finish, and the final walkthrough of their jobs (lib/jobActivity.ts).
+    const { jobActivityItems } = await import('./jobActivity.js')
+    items.push(...await jobActivityItems(accountId, customerId, quotes.map(q => q.id), { prices: opts.prices !== false }))
   }
   // Emails and prepared texts sent by automations for this card.
   if (cardId) {

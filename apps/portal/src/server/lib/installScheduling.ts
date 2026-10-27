@@ -30,6 +30,7 @@ import { stageOfJob, phaseOf, stageById, firstStageFor, fieldsForStage, waitingS
 import { checkJobMove } from './automations/stageRules.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { softDeleteLogged, type Actor } from './deletion.js'
+import { logScheduleChange, scheduleWords } from './jobActivity.js'
 import { staffLogins, loginByName } from './appointmentRep.js'
 import { floridaDay } from './automations/context.js'
 import { calendarStatus } from './calendarSync/index.js'
@@ -287,6 +288,10 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
     return row
   })
   const rescheduled = isYmd(existing.scheduledDate)
+  // Kept on the job's activity (the customer page's Activity; lib/jobActivity.ts), unless nothing changed.
+  if (existing.scheduledDate !== start || (existing.scheduledEndDate ?? start) !== end || existing.crewAssigned !== crew.name) {
+    await logScheduleChange(existing.id, scheduleWords(rescheduled ? 'moved' : 'scheduled', { start, end, crew: crew.name, was: rescheduled ? existing.scheduledDate : undefined }), { userId: actor.userId, name: actor.name })
+  }
   return {
     calendar: await calendarWords(accountId),
     job, days, crew: { id: crew.id, name: crew.name },
@@ -373,6 +378,7 @@ export async function unscheduleInstall(accountId: string, actor: Actor, jobId: 
     await bumpBoard(tx, accountId, settings)
     return row
   })
+  if (isYmd(existing.scheduledDate)) await logScheduleChange(existing.id, scheduleWords('off', { was: existing.scheduledDate }), { userId: actor.userId })
   return { job, text: await textFor(accountId, job, 'off', existing.scheduledDate), stageName: stageById(stages, job.opsStage)?.name ?? job.opsStage }
 }
 
@@ -447,6 +453,7 @@ export async function applyRainDay(accountId: string, from: Ymd, shift: number, 
   if (!moves.length) return []
   const keyOf = (r: Json) => r.stagingJobId ? `job:${r.stagingJobId}` : `name:${String(r.clientName).trim().toLowerCase()}`
   const flaggedAt = new Date()
+  const rained: Array<{ jobId: string; body: string }> = []
   await prisma.$transaction(async tx => {
     for (const m of moves) for (const d of m.days) await tx.scheduledGridJob.update({ where: { id: d.id }, data: { date: d.to } })
     for (const m of moves) {
@@ -455,11 +462,14 @@ export async function applyRainDay(accountId: string, from: Ymd, shift: number, 
         const sample = rows.find(r => r.stagingJobId === m.jobId)
         const after = rows.filter(r => sample && keyOf(r) === keyOf(sample)).map(r => moved.get(r.id) ?? r.date).sort()
         if (after.length) await tx.savedJob.updateMany({ where: { id: m.jobId, accountId }, data: { scheduledDate: after[0], scheduledEndDate: after[after.length - 1] } })
+        // Kept on the job's activity (lib/jobActivity.ts).
+        if (after.length && m.startTo !== m.startFrom) rained.push({ jobId: m.jobId, body: scheduleWords('rain', { was: m.startFrom, start: after[0], end: after[after.length - 1] }) })
       }
       await tx.scheduleRainDay.create({ data: { accountId, jobId: m.days[0].id, clientName: m.customerName, originalDate: m.startFrom, rescheduleDate: m.startTo, reason: m === moves[0] ? reason : `${reason} (rain day ${from}, everything after it moved)`, flaggedAt } })
     }
     await bumpBoard(tx, accountId, settings)
   })
+  for (const r of rained) await logScheduleChange(r.jobId, r.body, { name: 'Rain day' })
   return withTexts(accountId, moves)
 }
 

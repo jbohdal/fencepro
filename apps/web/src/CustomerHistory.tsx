@@ -1,7 +1,9 @@
 /**
  * One history for a customer, newest first: calls with answers, texts,
- * emails, quotes sent, proposal opens, appointments, notes, warranty updates
- * and change orders (GET /api/follow-ups/history, lib/followUps.ts
+ * emails, quotes sent, proposal opens, appointments, notes, warranty updates,
+ * change orders, and their jobs: payments, scheduling, install Start and
+ * Finish, the final walkthrough (lib/jobActivity.ts) (GET
+ * /api/follow-ups/history, lib/followUps.ts
  * customerHistory). Answers still waiting for signal show on top, "Saving…".
  *
  * Used by the pipeline card window (History, the last 8 with Show all) and the
@@ -18,7 +20,7 @@ import { CUSTOMER_SAVED_EVENT } from './customerStore'
 
 export interface HistoryItem { at: string; kind: string; title: string; detail: string; by: string; saving?: boolean }
 
-const KIND_DOT: Record<string, string> = { visit: 'bg-teal-600', call: 'bg-green-500', text: 'bg-blue-500', email: 'bg-indigo-500', quote: 'bg-purple-500', proposal_opened: 'bg-amber-500', proposal_staff: 'bg-gray-300', appointment: 'bg-cyan-600', note: 'bg-gray-400' }
+const KIND_DOT: Record<string, string> = { visit: 'bg-teal-600', call: 'bg-green-500', text: 'bg-blue-500', email: 'bg-indigo-500', quote: 'bg-purple-500', proposal_opened: 'bg-amber-500', proposal_staff: 'bg-gray-300', appointment: 'bg-cyan-600', note: 'bg-gray-400', payment: 'bg-emerald-600', schedule: 'bg-sky-600', install: 'bg-orange-500', walkthrough: 'bg-lime-600', job: 'bg-gray-500' }
 
 /** Kinds that are a contact with the customer (the customer page's "Last contact"); a visit is a walk-in at the counter. */
 export const CONTACT_KINDS = new Set(['call', 'text', 'email', 'visit'])

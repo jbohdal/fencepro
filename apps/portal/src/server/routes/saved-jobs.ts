@@ -23,6 +23,7 @@ import prisma from '../lib/prisma.js'
 import { DeleteError, deleteRecord, setArchived } from '../lib/deletion.js'
 import { ensureJobChecklist } from '../lib/seeds.js'
 import { audit } from '../lib/auditLog.js'
+import { logScheduleChange, scheduleWords } from '../lib/jobActivity.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { syncCalendarAfterWrite } from '../lib/calendarSync/index.js'
@@ -365,6 +366,13 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       return row
     })
     await audit(req, 'update', 'SavedJob', updated.id, { oldValues: existing, newValues: updated })
+    // Its install day changed here (an older screen): kept on the job's activity (lib/jobActivity.ts).
+    if ((existing.scheduledDate || '') !== (updated.scheduledDate || '')) {
+      const ymd = (x: string) => /^\d{4}-\d{2}-\d{2}$/.test(x)
+      const words = !ymd(updated.scheduledDate || '') ? (ymd(existing.scheduledDate || '') ? scheduleWords('off', { was: existing.scheduledDate }) : '')
+        : scheduleWords(ymd(existing.scheduledDate || '') ? 'moved' : 'scheduled', { start: updated.scheduledDate, end: updated.scheduledEndDate, crew: updated.crewAssigned, was: ymd(existing.scheduledDate || '') ? existing.scheduledDate : undefined })
+      if (words) await logScheduleChange(updated.id, words, { userId: req.user.id ?? null })
+    }
     // The payment schedule: made if the quote is signed now, and the Final due on the install date (lib/contractBilling.ts).
     await afterJobSaved(req.user.crmAccountId, updated.id, { userId: req.user.id ?? null, name: req.user.email ?? '' })
     await cardFollowsJob(req.user.crmAccountId, updated.id)

@@ -22,7 +22,7 @@ import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
 import { resolveSecret } from '../lib/secrets.js'
-import { requireCan, roleOf } from '../lib/permissions.js'
+import { requireCan, roleOf, can } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
@@ -161,7 +161,8 @@ router.get('/history', async (req: any, res) => {
       const c = await prisma.crmContact.findFirst({ where: { id: customerId, accountId: req.user.crmAccountId, deletedAt: null }, select: { id: true } }).catch(() => null)
       if (!c) { res.json({ success: true, data: await customerHistory(req.user.crmAccountId, { cardId }) }); return }
     }
-    res.json({ success: true, data: await customerHistory(req.user.crmAccountId, { customerId, cardId }) })
+    // A login that does not see prices (the Installer) gets the payments without their amounts.
+    res.json({ success: true, data: await customerHistory(req.user.crmAccountId, { customerId, cardId, prices: can(roleOf(req), 'prices.view') }) })
   } catch (err) { fail(res, err, 'load the history') }
 })
 
