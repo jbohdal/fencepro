@@ -679,7 +679,7 @@ export default function QuotesPage({
       </div>
 
       <div className="text-xs text-gray-400 mt-2 text-right">
-        {filtered.length} of {localQuotes.length} quotes
+        {filtered.length} of {myQuotes.length} quotes
       </div>
 
       {selectedQuote && (
