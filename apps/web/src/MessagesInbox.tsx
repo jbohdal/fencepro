@@ -22,6 +22,10 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
   const [threads, setThreads] = useState<InboxThread[]>([])
   const [totalUnread, setTotalUnread] = useState(0)
   const [loading, setLoading] = useState(false)
+  // The customers with a message unread or not answered yet: the badge (audit Oct 26 2026: "All caught up" while a
+  // message read on another screen still waited for a reply).
+  const needsYou = threads.filter(t => t.unreadCustomerCount > 0 || t.waitingReply).length
+  const waiting = threads.filter(t => t.waitingReply).length
 
   async function load() {
     try {
@@ -60,9 +64,9 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
-        {totalUnread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
-            {totalUnread > 99 ? '99+' : totalUnread}
+        {needsYou > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 bg-orange-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center" data-messages-badge={needsYou}>
+            {needsYou > 99 ? '99+' : needsYou}
           </span>
         )}
       </>}>
@@ -70,8 +74,11 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold text-gray-900">Customer Messages</p>
-              <p className="text-[10px] text-gray-400">
-                {totalUnread > 0 ? `${totalUnread} unread from ${threads.filter(t => t.unreadCustomerCount > 0).length} customer${threads.filter(t => t.unreadCustomerCount > 0).length === 1 ? '' : 's'}` : 'All caught up'}
+              <p className="text-xs text-gray-600" data-messages-summary>
+                {[
+                  totalUnread > 0 ? `${totalUnread} unread from ${threads.filter(t => t.unreadCustomerCount > 0).length} customer${threads.filter(t => t.unreadCustomerCount > 0).length === 1 ? '' : 's'}` : '',
+                  waiting > 0 ? `${waiting} waiting for a reply` : '',
+                ].filter(Boolean).join(' · ') || 'All caught up'}
               </p>
             </div>
             <button onClick={() => load()} className="text-xs text-orange-600 hover:underline">Refresh</button>
@@ -86,11 +93,12 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
                 {threads.map(t => {
                   const name = lookupCustomerName(t.crmCustomerId)
                   const isUnread = t.unreadCustomerCount > 0
+                  const flagged = isUnread || !!t.waitingReply
                   return (
-                    <button key={t.crmCustomerId} onClick={() => handleThreadClick(t)}
-                      className={`block w-full text-left px-4 py-3 transition-colors ${isUnread ? 'bg-orange-50 hover:bg-orange-100' : 'bg-white hover:bg-gray-50'}`}>
+                    <button key={t.crmCustomerId} onClick={() => handleThreadClick(t)} data-messages-thread={t.crmCustomerId} data-waiting={t.waitingReply ? 'yes' : 'no'}
+                      className={`block w-full text-left px-4 py-3 transition-colors ${flagged ? 'bg-orange-50 hover:bg-orange-100' : 'bg-white hover:bg-gray-50'}`}>
                       <div className="flex items-start gap-2">
-                        {isUnread && <span className="w-2 h-2 bg-orange-500 rounded-full mt-1.5 shrink-0" />}
+                        {flagged && <span className="w-2 h-2 bg-orange-500 rounded-full mt-1.5 shrink-0" />}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline justify-between gap-2">
                             <p className={`text-sm truncate ${isUnread ? 'text-gray-900 font-semibold' : 'text-gray-700 font-medium'}`}>{name}</p>
@@ -100,9 +108,13 @@ export default function MessagesInbox({ onNavigateToCustomer }: { onNavigateToCu
                             <span className="text-gray-400">{t.lastSender === 'staff' ? 'You: ' : ''}</span>
                             {t.lastBody}
                           </p>
-                          {isUnread && (
+                          {isUnread ? (
                             <span className="inline-block mt-1 text-[10px] bg-orange-500 text-white font-semibold rounded-full px-1.5 py-0.5">
                               {t.unreadCustomerCount} new
+                            </span>
+                          ) : t.waitingReply && (
+                            <span className="inline-block mt-1 text-[10px] bg-orange-100 text-orange-900 font-semibold rounded-full px-1.5 py-0.5">
+                              Waiting for a reply
                             </span>
                           )}
                         </div>

@@ -128,10 +128,16 @@ try {
   {
     const { ctx, page } = await signedIn(crew, true)
     page.on('response', r => { if (/\/api\/change-orders/.test(r.url()) && r.status() === 403) forbidden.push(r.url()) })
+    // These test jobs have no 811 locate: Start warns and asks (audit Oct 26 2026); the crew goes ahead.
+    const asked811 = []
+    page.on('dialog', d => { if (/811/.test(d.message())) { asked811.push(d.message()); d.accept().catch(() => {}) } })
     await go(page, '/my-installs')
     const a = page.locator(`[data-installs-today] [data-install-card="${A.jobId}"]`)
     await a.locator('[data-install-start]').waitFor({ timeout: 20000 }).catch(() => {})
+    check('installer: a job with no 811 locate says so on the card', /no 811 locate/i.test(await a.locator('[data-install-locate-warn]').innerText().catch(() => '')))
     await a.locator('[data-install-start]').tap()
+    await until(async () => asked811.length > 0 || null, 5000)
+    check('installer: Start asks before digging with no 811 locate (a warning, he can go ahead)', /Start anyway/.test(asked811[0] ?? ''), asked811[0] ?? 'not asked')
     await a.locator('[data-install-finish-job]').waitFor({ timeout: 15000 }).catch(() => {})
     await a.locator('[data-install-finish-job]').tap()
     const doneText = await until(async () => { const t = await a.locator('[data-install-job-done]').innerText(); return t ? t : null }, 15000)

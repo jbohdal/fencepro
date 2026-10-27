@@ -197,3 +197,78 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('visit photos on a new fence prop
     expect(facts.get(job.id)?.photos).toBe(2)
   })
 })
+
+describe('the installer sees the photos he took (audit Oct 26 2026: his screen stayed at "(0)")', () => {
+  test('an installer\'s upload is the crew\'s; his list includes what he took himself', async () => {
+    const { mediaSourceFor, crewMediaWhere } = await import('../src/server/routes/media.js')
+    expect(mediaSourceFor('field_crew')).toBe('crew')
+    for (const r of ['super_admin', 'office_staff', 'sales_rep', null]) expect(mediaSourceFor(r)).toBe('staff')
+    expect(crewMediaWhere('u1').OR).toContainEqual({ takenById: 'u1' })
+    expect(crewMediaWhere(null).OR).not.toContainEqual({ takenById: 'u1' })
+  })
+})
+
+describe.skipIf(!process.env.DEV_DB || !onDev)('the installer uploads a photo on his install and sees it (dev database)', async () => {
+  const { default: prisma } = await import('../src/server/lib/prisma.js')
+  const { default: mediaRoutes } = await import('../src/server/routes/media.js')
+  const { resolveSecret } = await import('../src/server/lib/secrets.js')
+  const { makePng } = await import('./fixtures/png.js')
+  const account = (await prisma.crmAccount.findFirst({ orderBy: { createdAt: 'asc' } }))!
+  const tag = `e2e-qm3-${Date.now()}`
+  const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
+  const crewId = crypto.randomUUID(), otherCrewId = crypto.randomUUID()
+  const tok = (sub: string, role: string) => jwt.sign({ sub, email: `${tag}-${role}@example.invalid`, role, crmAccountId: account.id }, secret, { expiresIn: '10m' })
+  const app = express()
+  app.use('/api/media', mediaRoutes)
+  const server = app.listen(0)
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const made: { job?: string; media: string[] } = { media: [] }
+  afterAll(async () => {
+    server.close()
+    await prisma.mediaItem.deleteMany({ where: { OR: [{ id: { in: made.media } }, { clientId: { startsWith: tag } }] } })
+    await prisma.mediaUpload.deleteMany({ where: { clientId: { startsWith: tag } } })
+    if (made.job) await prisma.savedJob.deleteMany({ where: { id: made.job } })
+  })
+
+  test('Choose from gallery: saved once, listed for him at once, still never another login\'s Internal photo', async () => {
+    const job = await prisma.savedJob.create({ data: { accountId: account.id, customerName: `E2E Crew photos ${tag}` } as any })
+    made.job = job.id
+    const crew = tok(crewId, 'field_crew')
+    const png = makePng()
+    const clientId = `${tag}-p1`
+    const h = { Authorization: `Bearer ${crew}` }
+    const meta = { kind: 'photo', mime: 'image/png', jobId: job.id, category: 'Progress', takenAt: new Date().toISOString() }
+    const start = await fetch(`${base}/api/media/uploads`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, size: png.length, meta }) })
+    expect(start.status).toBe(200)
+    expect((await fetch(`${base}/api/media/uploads/${clientId}?offset=0`, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/octet-stream' }, body: png })).status).toBe(200)
+    const fin = await fetch(`${base}/api/media/uploads/${clientId}/finish`, { method: 'POST', headers: h }).then(r => r.json()) as any
+    expect(fin.success).toBe(true)
+    made.media.push(fin.data.id)
+    const row = await prisma.mediaItem.findUnique({ where: { id: fin.data.id } })
+    expect(row?.source).toBe('crew')
+    expect(row?.visibility).toBe('internal')
+    expect(row?.takenById).toBe(crewId)
+
+    // Another login's Internal photo on the same job (a supplier invoice): not his.
+    const office = await prisma.mediaItem.create({ data: { accountId: account.id, clientId: `${tag}-office`, kind: 'photo', mime: 'image/jpeg', path: '/nonexistent.jpg', takenAt: new Date(), status: 'ready', jobId: job.id, visibility: 'internal', source: 'staff', takenById: crypto.randomUUID() } as any })
+    made.media.push(office.id)
+    // An Internal photo he took before this fix (saved as staff): his own, so shown.
+    const before = await prisma.mediaItem.create({ data: { accountId: account.id, clientId: `${tag}-before`, kind: 'photo', mime: 'image/jpeg', path: '/nonexistent.jpg', takenAt: new Date(), status: 'ready', jobId: job.id, visibility: 'internal', source: 'staff', takenById: crewId } as any })
+    made.media.push(before.id)
+
+    const mine = await fetch(`${base}/api/media?jobId=${job.id}`, { headers: h }).then(r => r.json()) as any
+    const seen = new Set((mine.data ?? []).map((m: any) => m.id))
+    expect(seen.has(fin.data.id)).toBe(true)
+    expect(seen.has(before.id)).toBe(true)
+    expect(seen.has(office.id)).toBe(false)
+    // Another installer sees the crew's photo (it is the crew's), not another login's Internal one.
+    const other = await fetch(`${base}/api/media?jobId=${job.id}`, { headers: { Authorization: `Bearer ${tok(otherCrewId, 'field_crew')}` } }).then(r => r.json()) as any
+    const otherSeen = new Set((other.data ?? []).map((m: any) => m.id))
+    expect(otherSeen.has(fin.data.id)).toBe(true)
+    expect(otherSeen.has(office.id)).toBe(false)
+    // Sent again (the answer was lost): the same photo, not a second one.
+    const again = await fetch(`${base}/api/media/uploads`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, size: png.length, meta }) }).then(r => r.json()) as any
+    expect(again.data.done).toBe(true)
+    expect(await prisma.mediaItem.count({ where: { clientId } })).toBe(1)
+  })
+})

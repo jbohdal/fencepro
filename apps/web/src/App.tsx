@@ -74,7 +74,8 @@ import { applyQuoteSaved } from './appointmentPipeline'
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
-import { setSignedInRole, isFullRole, can, isCrewLogin } from './permissions'
+import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole } from './permissions'
+import { roleName } from './teamRoles'
 import { REFUSED_EVENT } from './outbox'
 import StageBlockedNotice from './StageBlockedNotice'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
@@ -195,9 +196,9 @@ function tabsFor(role: UserRole): Array<[string, LucideIcon, string]> {
 const ROLE_LABELS: Record<UserRole, string> = {
   owner: 'Owner',
   admin: 'Admin',
-  salesman: 'Sales',
+  salesman: 'Salesman',
   ops_manager: 'Office',
-  shop: 'Shop / Yard',
+  shop: 'Installer',
 }
 
 /* ───────── helpers ───────── */
@@ -1005,7 +1006,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
                   <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
                 ))}
-              </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{ROLE_LABELS[role]}</p>}
+              </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{roleName(signedInRole()) || ROLE_LABELS[role]}</p>}
             </div>
           </div>
           <button onClick={() => { setMobileMenuOpen(false); setShowMyProfile(true) }} data-my-profile-open className="mt-2 w-full text-xs text-[#9C8FB5] hover:text-white text-left py-1">
@@ -1100,7 +1101,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                   {(Object.entries(ROLE_LABELS) as [UserRole, string][]).map(([k, v]) => (
                     <option key={k} value={k} className="bg-gray-900 text-gray-300">{v}</option>
                   ))}
-                </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{ROLE_LABELS[role]}</p>}
+                </select> : <p className="text-[#CFC4E2] text-xs" data-role-label>{roleName(signedInRole()) || ROLE_LABELS[role]}</p>}
               </div>
             </div>
           )}

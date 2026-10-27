@@ -42,7 +42,7 @@ import {
   type ReadyJob, type PreparedText, type RainMove, type InstallTextKind,
 } from './installScheduleApi'
 import {
-  crewDaysOfWeek, installDays, isCrewDay, nextCrewDay, plusDays, scheduleWarnings, permitWords, locatesWords, usDate, phoneWords, PERMIT_ISSUED,
+  crewDaysOfWeek, installDays, isCrewDay, nextCrewDay, plusDays, scheduleWarnings, permitWords, locatesWords, usDate, phoneWords, PERMIT_ISSUED, firstInstallDay,
   crewConflicts, holidayOn, weekWords, shortDayWords,
 } from '../../portal/src/server/lib/installDays'
 
@@ -54,10 +54,9 @@ const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const shortDay = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return `${WEEKDAY[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${m}/${dd}` }
 const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cents / 100)
 
-/** The first crew day after today: where a new booking starts unless a day is picked. */
-export function firstOpenDay(): string {
-  const days = crewDaysOfWeek(loadSchedule().settings.workDays)
-  return nextCrewDay(plusDays(businessDate(new Date()), 1), days)
+/** The first crew day after today, and not before the job's 811 good to dig date: where a new booking starts unless a day is picked. */
+export function firstOpenDay(goodDate?: string | null): string {
+  return firstInstallDay(businessDate(new Date()), crewDaysOfWeek(loadSchedule().settings.workDays), goodDate)
 }
 
 // What the job is in a line (a repair says its work): monthEntries.ts, shared with the month and the day.
@@ -213,7 +212,7 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
       if (!r.ok) { setError(r.error); return }
       const f = r.data
       setFacts(f)
-      setStart(s => s || f.scheduledDate || firstOpenDay())
+      setStart(s => s || f.scheduledDate || firstOpenDay(f.locatesDate))
       const booked = f.bookedDays.length
       setDays(booked || f.crewDays || 1)
       setCrew(crews.find(c => c.name === f.crewAssigned || c.id === f.crewAssigned)?.id ?? crews[0]?.id ?? '')

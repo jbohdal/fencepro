@@ -33,6 +33,7 @@ import {
   contactSelect, toClient, locate, pinAddress,
 } from '../lib/appointments.js'
 import { plainZod } from '../lib/plainZod.js'
+import { forCrew, hidesPrices, staffRoleOf } from '../lib/costRedact.js'
 import { suggest } from '../lib/addressIndex.js'
 import { withReps, assignedUserIdFor, bookingTeam, bookableMember } from '../lib/appointmentRep.js'
 
@@ -40,6 +41,15 @@ const router = Router()
 
 // Every appointment change goes to Google Calendar, in the background.
 router.use(syncCalendarAfterWrite as any)
+
+// The Installer reads the customer's notes with any dollar amount left out (lib/costRedact.ts forCrew).
+router.use((req: any, res: any, next: any) => {
+  if (!hidesPrices(staffRoleOf(req))) { next(); return }
+  const json = res.json.bind(res)
+  const safe = (a: any) => (a && typeof a === 'object' && typeof a.customerNotes === 'string' ? { ...a, customerNotes: forCrew(a.customerNotes) } : a)
+  res.json = (body: any) => json(body && body.data ? { ...body, data: Array.isArray(body.data) ? body.data.map(safe) : safe(body.data) } : body)
+  next()
+})
 
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 const BOTPRESS_WEBHOOK_SECRET = process.env.BOTPRESS_WEBHOOK_SECRET || ''

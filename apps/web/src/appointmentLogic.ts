@@ -89,6 +89,8 @@ export interface Appointment {
   customerName: string
   customerPhone: string
   customerEmail: string
+  /** The customer record's notes (typed in Add lead), from the server; absent on one booked on this phone just now. */
+  customerNotes?: string
 }
 
 /* ── Settings ────────────────────────────────────────────────────────────── */

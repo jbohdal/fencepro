@@ -13,6 +13,7 @@ import { refreshBookingTeam } from './bookingTeamStore'
 import ConfirmByTyping from './ConfirmByTyping'
 import { plainText } from './plainError'
 import { inviteStepsText, INVITE_STEP_1_LINES } from '../../portal/src/server/lib/inviteSteps'
+import { TEAM_ROLES, ROLE_NAMES, roleName } from './teamRoles'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
@@ -38,13 +39,8 @@ interface Session {
 
 const when = (d?: string | null) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 
-const ROLES = [
-  { value: 'admin', label: 'Admin', desc: 'Full access to all features', color: 'bg-red-100 text-red-700' },
-  { value: 'manager', label: 'Manager', desc: 'Everything except the team, system tools and deleting (archives instead)', color: 'bg-purple-100 text-purple-700' },
-  { value: 'sales_rep', label: 'Salesman', desc: 'Leads, customers, quotes and proposals, notes, appointments, moving pipeline cards, photos. No settings, prices, team or deleting. Archives customers and cards.', color: 'bg-blue-100 text-blue-700' },
-  { value: 'field_crew', label: 'Field Crew', desc: 'Jobs, photos, notes, walkthroughs, checklists. No quotes, settings, prices or deleting.', color: 'bg-green-100 text-green-700' },
-  { value: 'office_staff', label: 'Office Staff', desc: 'Customers, leads, the pipeline, quotes and proposals, portal messages, jobs, schedule, billing, stock. Prices only: never a cost or margin. No settings, prices, team, or deleting customers, quotes or jobs (archives them instead).', color: 'bg-orange-100 text-orange-700' },
-]
+// One set of role names and descriptions for the app (teamRoles.ts).
+const ROLES = TEAM_ROLES
 
 const STATUS_BADGES: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
@@ -141,7 +137,7 @@ export default function TeamManagementPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:gap-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLES.find(r => r.value === user.role)?.color || 'bg-gray-100 text-gray-700'}`}>
-                      {user.role === 'super_admin' ? 'Super Admin' : ROLES.find(r => r.value === user.role)?.label || user.role}
+                      {roleName(user.role)}
                     </span>
                     <span data-user-status={user.id} className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGES[user.status] || 'bg-gray-100 text-gray-500'}`}>
                       {user.status}
@@ -458,7 +454,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
           <label className="block text-xs text-gray-500 mb-1">Role</label>
           <select value={role} onChange={e => setRole(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={user.role === 'super_admin'}>
-            {user.role === 'super_admin' && <option value="super_admin">Super Admin</option>}
+            {user.role === 'super_admin' && <option value="super_admin">{ROLE_NAMES.super_admin}</option>}
             {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>

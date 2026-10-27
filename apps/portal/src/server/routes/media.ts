@@ -203,11 +203,25 @@ async function finishUpload(req: any, res: any, clientId: string): Promise<void>
       lat: meta.lat ?? null, lng: meta.lng ?? null, accuracyM: meta.accuracyM ?? null, heading: meta.heading ?? null,
       caption: meta.caption ?? '', category: meta.category ?? 'Site walk', visibility: meta.visibility ?? 'internal',
       pin: meta.pin ?? undefined,
+      // Taken by the installer in the app: the crew's, as from the crew packet, so his own list and the packet show it.
+      source: mediaSourceFor(roleOf(req)),
     },
   }); await recordPhotoUploaded(u.accountId, made, tx); return made })
   await prisma.mediaUpload.delete({ where: { clientId } }).catch(() => {})
   processMediaQueue().catch(err => console.error('[media] queue:', err))
   res.json({ success: true, data: serializeMedia(item) })
+}
+
+/** Who a photo is from: an installer's (Field Crew) upload is the crew's, like one sent from the crew packet. */
+export const mediaSourceFor = (role: string | null | undefined): 'crew' | 'staff' => (role === 'field_crew' ? 'crew' : 'staff')
+
+/**
+ * What the installer may see: what is shared with the crew (Crew or Customer), what the crew sent, and what he
+ * took himself (audit Oct 26 2026: his uploads were saved Internal, so his screen stayed at "(0)" and he uploaded
+ * them again). Never another person's Internal photo: it can be a supplier invoice with prices.
+ */
+export function crewMediaWhere(userId: string | null | undefined): { OR: any[] } {
+  return { OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }, ...(userId ? [{ takenById: String(userId) }] : [])] }
 }
 
 // ── List: a quote's (and its customer's visit photos), a job's (and its quote's, with the visit's), a customer's (and their quotes' and jobs') ──
@@ -236,7 +250,7 @@ router.get('/', async (req: any, res) => {
   if (or.length === 0) { res.status(400).json({ success: false, error: 'quoteKey, jobId or customerId is required' }); return }
   // The installer sees only what is shared with the crew (Crew or Customer, or his own): an Internal photo can be a
   // supplier invoice with prices on it (FEATURES 9ae: the installer sees no price).
-  const crewOnly = roleOf(req) === 'field_crew' ? [{ OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }] : []
+  const crewOnly = roleOf(req) === 'field_crew' ? [crewMediaWhere(req.user.id)] : []
   const items = await prisma.mediaItem.findMany({ where: { accountId, deletedAt: null, AND: [{ OR: or }, ...crewOnly] }, orderBy: { takenAt: 'asc' } })
   res.json({ success: true, data: items.map(m => serializeMedia(m)) })
 })

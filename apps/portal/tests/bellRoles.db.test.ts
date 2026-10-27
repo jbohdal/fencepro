@@ -70,4 +70,40 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the bell by role (dev database)'
     expect(await seen('sales')).toEqual(['about job A', 'to Sally'])
     expect(await seen('crew')).toEqual(['about job A'])
   })
+
+  test('the office\'s notices about a job (permit reminder, failed automation) never reach the Salesman or the Installer (audit Oct 26 2026)', async () => {
+    const titles = async (who: string) => {
+      const r = await fetch(`${base}/api/automations/notifications`, { headers: { Authorization: `Bearer ${users[who].token}` } }).then(r => r.json())
+      return (r.data.notifications as any[]).filter(n => n.jobId === jobs.sally).map(n => n.title as string)
+    }
+    const add = async (data: any) => { const n = await prisma.notification.create({ data: { body: '', jobId: jobs.sally, ...data } }); ids.push(n.id) }
+    // As made now (marked the office's), and as made before (by their words).
+    await add({ title: `Permit still Needed: Job A ${tag}`, type: 'warning', recipientRole: 'office' })
+    await add({ title: `Permit still Applied: Job A ${tag}`, type: 'warning' })
+    await add({ title: `Automation failed: ${tag}`, type: 'error', recipientRole: 'office' })
+    await add({ title: `Automation failed (old): ${tag}`, type: 'error' })
+    const office = await titles('office')
+    expect(office.filter(t => t.includes('Permit still') || t.startsWith('Automation failed'))).toHaveLength(4)
+    for (const who of ['sales', 'crew']) {
+      const t = await titles(who)
+      expect(t.some(x => x.includes('Permit still') || x.startsWith('Automation failed'))).toBe(false)
+      expect(t).toContain(`${tag} about job A`)
+    }
+  })
+
+  test('a permit reminder takes the place of the last one for the job: one on the bell, the office\'s', async () => {
+    const { permitReminders } = await import('../src/server/lib/automations/queue.js')
+    const job = (await prisma.savedJob.create({ data: { accountId, customerName: `Permit job ${tag}`, customerAddress: '1 Test St', status: 'staging' } as any })).id
+    const permit = await prisma.permit.create({ data: { accountId, jobId: job, status: 'needed' } })
+    await prisma.$executeRaw`UPDATE "Permit" SET "updatedAt" = now() - interval '10 days' WHERE id = ${permit.id}`
+    const day = 86_400_000
+    await permitReminders(new Date(), accountId)
+    await permitReminders(new Date(Date.now() + 4 * day), accountId)
+    const rows = await prisma.notification.findMany({ where: { jobId: job } })
+    ids.push(...rows.map(r => r.id))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ title: `Permit still Needed: Permit job ${tag}`, recipientRole: 'office' })
+    await prisma.automationEffect.deleteMany({ where: { key: { startsWith: `permit-reminder:${permit.id}:` } } })
+    await prisma.permit.delete({ where: { id: permit.id } })
+  })
 })

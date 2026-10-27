@@ -18,6 +18,8 @@
 import { can, isCrewLogin } from './permissions'
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
+import { laneOf, styleChoices, filterStyleName, UNSCHEDULED_LANE } from './opsBoardLanes'
+const opsStyleName = (code: string) => filterStyleName(code, styleLabel)
 import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -97,7 +99,7 @@ const TODAY_HIGHLIGHT_KEY = 'fencepro_ops_highlight_today' as const
 type SortMode = 'scheduled' | 'value' | 'name' | 'days_in_stage'
 type ViewMode = 'board' | 'list'
 
-const UNSCHEDULED_KEY = '__unscheduled__'
+const UNSCHEDULED_KEY = UNSCHEDULED_LANE
 
 /** A crew's name (Schedule > Settings), never its id. */
 const crewLabel = crewName
@@ -206,7 +208,7 @@ export default function OperationsBoard() {
       }
       if (stageFilter && j.opsStage !== stageFilter) return false
       if (crewFilter && crewLabel(j.crewAssigned) !== crewFilter) return false
-      if (styleFilter && j.fenceType !== styleFilter) return false
+      if (styleFilter && opsStyleName(j.fenceType) !== styleFilter) return false
       if (!search) return true
       const q = search.toLowerCase()
       return (
@@ -348,7 +350,7 @@ export default function OperationsBoard() {
   const analytics = useMemo(() => {
     const active = jobs.filter(j => !isDoneStage(j.opsStage) && stagePhase(j.opsStage) !== 'on_hold')
     const scheduledThisWeek = jobs.filter(j => withinNDays(j.scheduledDate, 7)).length
-    const unscheduledCount = active.filter(j => !j.scheduledDate).length
+    const unscheduledCount = active.filter(j => laneOf(stages, j) === UNSCHEDULED_KEY).length
     const avgValue = active.length ? active.reduce((s, j) => s + (j.contractValue || 0), 0) / active.length : 0
     // On-time rate: completed jobs in last 30d completed by/before scheduledDate
     const recentCompleted = jobs.filter(j => j.rawJob?.status === 'completed' && j.rawJob?.completedDate && daysSince(j.rawJob.completedDate) <= 30)
@@ -370,11 +372,12 @@ export default function OperationsBoard() {
     jobs.forEach(j => j.crewAssigned && set.add(crewLabel(j.crewAssigned)))
     return Array.from(set)
   }, [jobs])
-  const styleOptions = useMemo(() => {
-    const set = new Set<string>()
-    jobs.forEach(j => j.fenceType && set.add(j.fenceType))
-    return Array.from(set)
-  }, [jobs])
+  // The plain style names of the jobs on the board now (finished ones only with Completed ticked), not every old
+  // import code (opsBoardLanes.ts).
+  const styleOptions = useMemo(() => styleChoices(jobs.filter(j => showCompleted || fromLink || !(isDoneStage(j.opsStage)
+    && j.rawJob && daysSince(j.rawJob.completedDate || j.rawJob.updatedAt) > 2)).map(j => j.fenceType), opsStyleName), [jobs, showCompleted, fromLink])  // eslint-disable-line react-hooks/exhaustive-deps
+  // A style remembered from before (an old code, or one no job has now) is not left filtering everything out.
+  useEffect(() => { if (styleFilter && !styleOptions.includes(styleFilter)) setStyleFilter('') }, [styleOptions, styleFilter])
 
   /* ── csv export ── */
   function exportCSV(rows: UnifiedJob[]) {
@@ -428,12 +431,9 @@ export default function OperationsBoard() {
   }, [stages, jobs])
 
   function laneJobs(laneKey: string): UnifiedJob[] {
-    if (laneKey === UNSCHEDULED_KEY) {
-      return sortJobs(filtered.filter(j => !j.scheduledDate && !isDoneStage(j.opsStage)))
-    }
-    // exclude unscheduled from the regular lanes (they're shown only in the Unscheduled lane); a finished job is in its
-    // stage's lane with or without a date (Oct 25 2026: a job completed with no install date was in no column).
-    return sortJobs(filtered.filter(j => j.opsStage === laneKey && (j.scheduledDate || isDoneStage(j.opsStage))))
+    // A job is in its stage's column; Unscheduled has only the jobs whose stage says they have an install date and
+    // have none (opsBoardLanes.ts; audit Oct 26 2026: Awaiting Locates read 0 with its jobs under "Unscheduled 12").
+    return sortJobs(filtered.filter(j => laneOf(stages, j) === laneKey))
   }
 
   const columns: KanbanColumn<UnifiedJob>[] = laneOrder.map(lane => {
@@ -570,8 +570,8 @@ export default function OperationsBoard() {
         />
       )}
 
-      {/* Mobile FAB */}
-      {isMobile && (
+      {/* Mobile FAB: the office's; the Installer never makes a job (audit Oct 26 2026: an orange "+ New Job" on his phone). */}
+      {isMobile && !isCrewLogin() && (
         <button
           onClick={() => toast.info('New Job', 'Create a quote and mark it as Sold to add it to the operations board.')}
           className="fixed bottom-6 right-6 max-md:bottom-[calc(84px+env(safe-area-inset-bottom))] max-md:right-4 z-30 w-14 h-14 rounded-full bg-orange-500 hover:bg-orange-600 text-white text-3xl font-light shadow-2xl flex items-center justify-center"
@@ -780,7 +780,7 @@ function ControlsBar({
             </select>
             <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All styles</option>
-              {styleOptions.map(c => <option key={c} value={c}>{styleLabel(c)}</option>)}
+              {styleOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="scheduled">Sched. date</option>
@@ -826,7 +826,7 @@ function ControlsBar({
         </select>
         <select value={styleFilter} onChange={e => onStyleFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All styles</option>
-          {styleOptions.map(c => <option key={c} value={c}>{styleLabel(c)}</option>)}
+          {styleOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <select value={sortMode} onChange={e => onSortChange(e.target.value as SortMode)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="scheduled">Sort: Scheduled</option>

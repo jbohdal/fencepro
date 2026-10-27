@@ -212,4 +212,33 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     const card = await call('GET', `/api/install-packets/crew/${job}`, undefined, crew)
     expect(card.json.data.locate).toMatchObject({ ticket: '555000111', status: 'called' })
   })
+
+  test('811 not clear yet: the card and the packet warn, Start still goes through and the job keeps that he was warned (audit Oct 26 2026)', async () => {
+    const { job } = await soldJob('Dana', [today])
+    const good = plus(today, 3)
+    expect((await call('PUT', `/api/saved-jobs/${job}/locate`, { ticket: '294610299', calledDate: today, goodDate: good, expDate: plus(today, 30) })).status).toBe(200)
+    const words = `811 is not clear to dig until ${good.slice(5, 7)}/${good.slice(8, 10)}/${good.slice(0, 4)}. Do not dig before then.`
+    const card = await call('GET', `/api/install-packets/crew/${job}`, undefined, crew)
+    expect(card.json.data.locate).toMatchObject({ status: 'called', warning: words })
+    const p = await prisma.installPacket.create({ data: { accountId, jobId: job, token: `tok${tag}${crypto.randomBytes(8).toString('hex')}`, snapshot: { companyName: 'Getter Done Fence' } as any } })
+    const page = await fetch(`${base}/p/i/${p.token}`).then(r => r.text())
+    expect(page).toMatch(/id="locWarn" data-packet-locate-warn[^>]*>⚠ 811 is not clear to dig until/)
+    // A warning, not a block.
+    const s = await call('POST', `/api/install-packets/crew/${job}/start`, {}, crew)
+    expect(s.status).toBe(200)
+    expect((await jobOf(job))?.status).toBe('in_progress')
+    const log = await prisma.activityLog.findFirst({ where: { entityType: 'job', entityId: job, body: { startsWith: 'Started before the 811 locate was clear' } } })
+    expect(log?.body).toContain(words)
+    // The office sees it on the job, under the install times.
+    expect((await call('GET', `/api/install-packets/crew/${job}`, undefined, owner)).json.data.locateWarned).toEqual([expect.objectContaining({ text: expect.stringContaining(words) })])
+    // Clear to dig: no warning on the card or the packet, and nothing logged at Start.
+    const { job: clearJob } = await soldJob('Eve', [today])
+    await call('PUT', `/api/saved-jobs/${clearJob}/locate`, { ticket: '294610300', calledDate: plus(today, -3), goodDate: today, expDate: plus(today, 30) })
+    expect((await call('GET', `/api/install-packets/crew/${clearJob}`, undefined, crew)).json.data.locate).toMatchObject({ status: 'clear', warning: null })
+    await call('POST', `/api/install-packets/crew/${clearJob}/start`, {}, crew)
+    expect(await prisma.activityLog.count({ where: { entityId: clearJob, body: { startsWith: 'Started before the 811' } } })).toBe(0)
+    // No locate on a new fence: the card says so (it showed nothing before).
+    const { job: none } = await soldJob('Finn', [today])
+    expect((await call('GET', `/api/install-packets/crew/${none}`, undefined, crew)).json.data.locate).toMatchObject({ status: 'not_called', warning: expect.stringMatching(/no 811 locate/) })
+  })
 })

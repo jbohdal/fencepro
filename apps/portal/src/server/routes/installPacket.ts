@@ -16,7 +16,7 @@
  * Under /p, so the same public door as proposals serves it.
  */
 
-import { locateOf, locateStatus, locateWords, hasLocate, locateDay } from '../lib/locates.js'
+import { locateOf, locateStatus, locateWords, hasLocate, locateDay, locateStartWarning } from '../lib/locates.js'
 import { saveLocate, lastCrewDay, startedByCrew, closeOutIfDone, billingViewFor } from '../lib/jobTruth.js'
 import { billingStatusOf } from '../lib/jobReadiness.js'
 import { isDonePhase } from '../lib/opsStageModel.js'
@@ -44,6 +44,7 @@ import { finishScheduleRows } from '../lib/installScheduling.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob } from '../lib/crewInstall.js'
 import { forCrew } from '../lib/costRedact.js'
+import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { isWorkLine } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
@@ -310,8 +311,21 @@ export async function crewFacts(accountId: string, jobId: string) {
     paidInFull: billingStatusOf(await billingViewFor(accountId, jobId)).paidInFull,
   }
   const loc = locateOf(job)
-  return { lastDay, crewDays, jobDone: crewFinishedJob(times, lastDay), locate: hasLocate(loc) ? { ...locateWords(loc, todayFl()), ticket: loc.ticket } : null, closeOut }
+  // The 811 status on the card every day, and what Start warns about (never a block): not clear yet, expired, or
+  // none when posts go in the ground (a repair with no new posts needs no ticket: its packet says so).
+  const packet = await prisma.installPacket.findUnique({ where: { jobId }, select: { snapshot: true } }).catch(() => null)
+  const work = (packet?.snapshot as Snapshot | null)?.work
+  const startWarning = locateStartWarning(loc, todayFl(), work ? work.needs811 : true)
+  const locate = hasLocate(loc) || startWarning ? { ...locateWords(loc, todayFl()), ticket: loc.ticket, warning: startWarning } : null
+  return { lastDay, crewDays, jobDone: crewFinishedJob(times, lastDay), locate, closeOut }
 }
+
+/** The service and warranty visits booked with the signed in login, for My installs (lib/crewVisits.ts). No prices. */
+packetStaff.get('/visits', async (req: any, res) => {
+  try {
+    res.json({ success: true, data: await crewVisitsFor(req.user.crmAccountId, req.user.id) })
+  } catch (err) { console.error('[packet] visits:', err); res.status(500).json({ success: false, error: 'Could not load the visits' }) }
+})
 
 /** For an install on the installer's home: its packet link, the customer's notes, Start and Finish so far, and whether the job is finished. */
 packetStaff.get('/crew/:jobId', async (req: any, res) => {
@@ -323,6 +337,9 @@ packetStaff.get('/crew/:jobId', async (req: any, res) => {
       packet: p && !p.disabledAt ? { token: p.token } : null,
       customerNotes: await customerNotesForJob(req.user.crmAccountId, job.crmContactId),
       times: await installTimes(job.id),
+      // Starts made while 811 was not clear (he was warned): the office sees them under the install times.
+      locateWarned: (await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: job.id, body: { startsWith: 'Started before the 811 locate was clear' } }, orderBy: { createdAt: 'asc' }, select: { createdAt: true, actor: true, body: true } }))
+        .map(r => ({ at: r.createdAt.toISOString(), by: r.actor, text: r.body })),
       ...(await crewFacts(req.user.crmAccountId, job.id)),
     } })
   } catch (err) { console.error('[packet] crew:', err); res.status(500).json({ success: false, error: 'Could not load the install' }) }
@@ -346,6 +363,12 @@ packetStaff.post('/crew/:jobId/:kind', async (req: any, res) => {
     const kind = req.params.kind === 'finish' ? 'finish' : 'start'
     const wholeJob = kind === 'finish' && req.body?.jobDone === true
     await recordInstallTime(job.id, kind, by, new Date(), wholeJob)
+    // Started while the 811 locate is not clear: allowed (he was warned on his phone), and kept on the job's
+    // history with who and what, for the owner (legal and safety).
+    if (kind === 'start') {
+      const warned = (await crewFacts(accountId, job.id)).locate?.warning
+      if (warned) await prisma.activityLog.create({ data: { entityType: 'job', entityId: job.id, actor: by, body: `Started before the 811 locate was clear: ${warned}`, metadata: { kind: 'locate_warning' } } }).catch(() => null)
+    }
     // "We finished the whole job" before its last booked day: the crew days still ahead come off the installer's list
     // and the Schedule (logged, restorable from Deleted Records), as a close out does (re-check, Oct 26 2026: day 2 of 2
     // still showed on My installs the next day).
@@ -438,6 +461,7 @@ packetPublic.get('/:token', async (req, res) => {
     ${s.work ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
     <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
+      ${(() => { const w = locateStartWarning(loc, todayFl(), s.work ? s.work.needs811 : true); return `<p id="locWarn" data-packet-locate-warn style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;font-weight:700"${w ? '' : ' hidden'}>${w ? `⚠ ${esc(w)}` : ''}</p>` })()}
       <div id="locOnFile">${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}</div>
       <div id="locForm" data-packet-locate-form${hasLocate(loc) ? ' hidden' : ''}>
       <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(loc.ticket ?? '')}" data-was="${esc(loc.ticket ?? '')}" maxlength="40" autocomplete="off"></label>
@@ -495,6 +519,7 @@ packetPublic.get('/:token', async (req, res) => {
       fetch(tok+'/locate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:v('ticket'),calledDate:v('lcalled'),goodDate:v('ldate'),expDate:v('lexp'),replace:!!replace})})
         .then(function(r){return r.json()}).then(function(j){
           if(j.success){m.textContent='Saved. The office sees it on the job.';document.getElementById('ticket').setAttribute('data-was',v('ticket'));var st=document.getElementById('locStatus');if(j.data&&j.data.text){st.textContent=j.data.text;st.setAttribute('data-packet-locate-status',j.data.status)}
+            var lw=document.getElementById('locWarn');if(lw&&j.data){lw.textContent=j.data.warning?'\\u26a0 '+j.data.warning:'';lw.hidden=!j.data.warning}
             // The table on file shows what was just saved (the ticket, its dates, who saved it), the boxes close.
             if(j.data&&typeof j.data.onFile==='string'&&j.data.onFile){document.getElementById('locOnFile').innerHTML=j.data.onFile;document.getElementById('locForm').hidden=true;bindEdit()}}
           else if(j.code==='REPLACE_TICKET'){if(window.confirm(j.error))saveLoc(true);else m.textContent='Not saved. The office\\'s ticket is kept.'}
@@ -578,7 +603,9 @@ packetPublic.post('/:token/locate', express.json({ limit: '8kb' }), async (req, 
     const row = await saveLocate(found.p.accountId, found.p.jobId, { ticket, calledDate: keep(b.data.calledDate, was.calledDate), goodDate: keep(b.data.goodDate ?? b.data.date, was.goodDate), expDate: keep(b.data.expDate, was.expDate) }, 'Crew (install packet)')
     const w = locateWords(locateOf(row), todayFl())
     // The table on file as it is now (escaped server side, the same as the page draws it).
-    res.json({ success: true, data: { status: w.status, text: w.text, onFile: locateOnFile(locateOf(row), row.locateUpdatedBy, row.locateUpdatedAt) } })
+    const work = (found.p.snapshot as Snapshot | null)?.work
+    const warning = locateStartWarning(locateOf(row), todayFl(), work ? work.needs811 : true)
+    res.json({ success: true, data: { status: w.status, text: w.text, warning, onFile: locateOnFile(locateOf(row), row.locateUpdatedBy, row.locateUpdatedAt) } })
   } catch (err: any) {
     if (err?.status) { res.status(err.status).json({ success: false, error: err.message }); return }
     console.error('[packet] locate:', err)

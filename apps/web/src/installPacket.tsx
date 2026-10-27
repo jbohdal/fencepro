@@ -193,11 +193,13 @@ export interface InstallTime { kind: 'start' | 'finish'; at: string; by: string;
 export interface CrewInstall {
   packet: { token: string } | null; customerNotes: string[]; times: InstallTime[]
   /** The job's last crew day; whether the crew finished the whole job; the 811 locate in words (null: none on the job). */
-  lastDay?: string | null; jobDone?: boolean; locate?: { status: string; text: string; ticket: string | null } | null
+  lastDay?: string | null; jobDone?: boolean; locate?: { status: string; text: string; ticket: string | null; warning?: string | null } | null
   /** The crew days booked, in order ("Finished day 1 of 2"). */
   crewDays?: string[]
   /** Where the close out stands: closed (Complete or Paid), the final walkthrough signed, paid in full. Never an amount. */
   closeOut?: { closed: boolean; walkthroughSigned: boolean; paidInFull: boolean } | null
+  /** Starts made while 811 was not clear (he was warned and went ahead): who, when and the warning. */
+  locateWarned?: Array<{ at: string; by: string; text: string }>
 }
 
 // Start and Finish in words, and the installer's "Job finished" from the real close out (crewWords.ts).
@@ -217,6 +219,18 @@ export function putCrewInstall(jobId: string, patch: Partial<CrewInstall>): void
   const was = crewCache.get(jobId)
   crewCache.set(jobId, { packet: null, customerNotes: [], times: [], ...was, ...patch })
   window.dispatchEvent(new CustomEvent(CREW_INSTALL_EVENT, { detail: { jobId } }))
+}
+
+/** A service or warranty visit booked with the signed in login (server lib/crewVisits.ts). Never a price. */
+export interface CrewVisit {
+  id: string; type: string; startAt: string; endAt: string | null; allDay: boolean; day: string
+  customerName: string; customerPhone: string; address: string; notes: string
+  ticket: { id: string; issue: string; notes: string; covered: boolean; warrantyName: string; photos: Array<{ id: string; kind: string; thumb: string | null; url: string }> } | null
+  packetToken: string | null
+}
+/** His visits from today on; null with no signal. */
+export async function fetchCrewVisits(): Promise<CrewVisit[] | null> {
+  return call<CrewVisit[]>('/visits')
 }
 
 /** An install's packet link, the customer's notes, Start / Finish so far and the job's finish; null with no signal. */
@@ -314,6 +328,8 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
         {times.length === 0 ? <p>The crew has not tapped Start yet.</p> : (
           <ul>{times.map(t => <li key={t.at} data-install-time={t.kind}>{finishWords(t, crewInfo)} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
         )}
+        {/* Started while 811 was not clear: he was warned on his phone and went ahead. */}
+        {(crewInfo?.locateWarned ?? []).map(w => <p key={w.at} className="mt-1 rounded-lg bg-red-50 border border-red-200 px-2 py-1 text-red-900" data-install-locate-warned>⚠ {w.text} ({w.by}, {new Date(w.at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })})</p>)}
       </div>
     </div>
   )

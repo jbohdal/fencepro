@@ -86,6 +86,7 @@ import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
 import { plainStyleName } from '../lib/estimates.js'
 import { installDateOf, nyDay } from '../lib/warranties.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
+import { inboxFrom } from '../lib/portalInbox.js'
 
 // File storage helpers
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
@@ -1428,29 +1429,9 @@ router.get('/messages/inbox', requireStaffSyncKey, async (_req, res) => {
       orderBy: { createdAt: 'desc' },
       take: 1000,
     })
-    const byCustomer = new Map<string, any>()
-    for (const m of allMessages) {
-      const ex = byCustomer.get(m.crmCustomerId)
-      if (!ex || (ex.lastAt && m.createdAt > ex.lastAt)) {
-        byCustomer.set(m.crmCustomerId, ex || {
-          crmCustomerId: m.crmCustomerId,
-          lastAt: m.createdAt,
-          lastBody: m.body,
-          lastSender: m.senderType,
-          unreadCustomerCount: 0,
-        })
-      }
-      const entry = byCustomer.get(m.crmCustomerId)!
-      if (m.senderType === 'customer' && !m.isReadByStaff) entry.unreadCustomerCount += 1
-    }
-    const list = Array.from(byCustomer.values()).sort((a, b) => (b.lastAt as Date).getTime() - (a.lastAt as Date).getTime())
-    res.json({
-      success: true,
-      data: {
-        threads: list,
-        totalUnread: list.reduce((s, t) => s + t.unreadCustomerCount, 0),
-      },
-    })
+    // Unread, and waiting for a reply (the customer wrote last): a message read on another screen still counts
+    // until someone answers it (lib/portalInbox.ts).
+    res.json({ success: true, data: inboxFrom(allMessages) })
   } catch (err) {
     console.error('[portal-inbox]', err)
     res.status(500).json({ success: false, error: 'INBOX_FAILED' })

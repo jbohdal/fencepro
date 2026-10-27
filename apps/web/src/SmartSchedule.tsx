@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { styleLabel } from './fenceCatalog'
 import { getJobs, updateJob } from './jobStore'
+import { getQuoteById } from './quoteStore'
+import { hasDrawing } from './jobDrawing'
 import { jobSectionsCell } from './jobWork'
 import L from 'leaflet'
 import { createFreeMap, centeredIcon, aboveIcon, type FreeMap } from './freeMap'
@@ -73,7 +75,7 @@ function loadSchedulableJobs(): SchedulableJob[] {
         materialsStatus: j.materialsStatus,
         locatesExpDate: j.locatesExpDate,
         locatesGoodDate: j.locatesDate,
-        drawingComplete: j.drawingComplete,
+        drawingComplete: hasDrawing(j, j.quoteId ? getQuoteById(j.quoteId) : null),
         pullSheetPulled: j.pullSheetPulled,
         notes: j.notes,
         crewAssigned: j.crewAssigned,

@@ -7,6 +7,14 @@
 
 import prisma from './prisma.js'
 
+/**
+ * A notice for the owner and the office only, even when it is about a job (routes/automations.ts bellWhere): a
+ * permit still to apply for, an automation that failed. The Salesman and the Installer of the job never get it.
+ */
+export const OFFICE_NOTICE_ROLE = 'office'
+/** The start of every permit reminder's title ("Permit still Needed: Manuel Cotrich"). */
+export const PERMIT_REMINDER_PREFIX = 'Permit still '
+
 export interface CreateNotificationOptions {
   recipientId?: string    // specific user
   recipientRole?: string  // broadcast to all users with this role

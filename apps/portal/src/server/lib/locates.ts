@@ -80,6 +80,23 @@ export function locateWords(r: LocateRecord, today: Ymd): { status: LocateStatus
   }
 }
 
+/**
+ * What the crew is told before digging on `today` (the installer's card, Start and the crew packet; audit Oct 26
+ * 2026: the crew could Start two days before good to dig with nothing said). A warning, never a block: null when
+ * the locate is clear to dig, or when no posts go in the ground (`needs811` false: a repair with no new posts).
+ */
+export function locateStartWarning(r: LocateRecord, today: Ymd, needs811 = true): string | null {
+  if (!needs811) return null
+  switch (locateStatus(r, today)) {
+    case 'clear': return null
+    case 'expired': return `The 811 ticket expired ${locateDay(r.expDate!)}. Do not dig until the office has a new ticket.`
+    case 'not_called': return 'There is no 811 locate on this job. Do not dig until the office has a ticket.'
+    case 'called': return r.goodDate
+      ? `811 is not clear to dig until ${locateDay(r.goodDate)}. Do not dig before then.`
+      : '811 was called in, but there is no good to dig date on the job. Check with the office before digging.'
+  }
+}
+
 const dayNumber = (d: Ymd) => Math.round(Date.parse(`${d}T12:00:00Z`) / 86_400_000)
 
 export interface LocateWarning { key: 'locates'; text: string }

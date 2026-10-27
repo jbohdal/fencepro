@@ -34,6 +34,7 @@ import { isQuietImportCard } from '../importCards.js'
 import { followUpMorningPush } from '../followUps.js'
 import { proposalOpenedSweep } from '../proposalViews.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
+import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../notificationService.js'
 import type { AutomationEvent, AutomationRule, AutomationRun } from '@prisma/client'
 
 export interface LogEntry { at: string; step: number | null; result: string; detail: string; link?: string; until?: string }
@@ -299,7 +300,7 @@ async function tellFailure(rule: AutomationRule, run: AutomationRun, ctx: Entity
     const had = await prisma.automationEffect.findUnique({ where: { key } })
     if (had) return
     await prisma.$transaction(async tx => {
-      await tx.notification.create({ data: { title, body, type: 'error', link, jobId: ctx.job?.id ?? null } })
+      await tx.notification.create({ data: { title, body, type: 'error', link, jobId: ctx.job?.id ?? null, recipientRole: OFFICE_NOTICE_ROLE } })
       await tx.automationEffect.create({ data: { key, runId: run.id, status: 'done' } })
     })
     await sendPush(rule.accountId, { title, body, url: link, tag: `fail-${run.id}` }).catch(() => null)
@@ -425,8 +426,9 @@ export function dueAgain(days: string[], today: string): boolean {
   return !last || ymdPlus(last, PERMIT_REMIND_EVERY_DAYS) <= today
 }
 
-export async function permitReminders(now = new Date()): Promise<number> {
-  const open = await prisma.permit.findMany({ where: { status: { in: ['needed', 'applied'] } } })
+/** `onlyAccount`: one company's permits (a test's own); the nightly pass does every company's. */
+export async function permitReminders(now = new Date(), onlyAccount?: string): Promise<number> {
+  const open = await prisma.permit.findMany({ where: { status: { in: ['needed', 'applied'] }, ...(onlyAccount ? { accountId: onlyAccount } : {}) } })
   let sent = 0
   const today = floridaDay(now)
   for (const p of open) {
@@ -441,12 +443,14 @@ export async function permitReminders(now = new Date()): Promise<number> {
     if (!dueAgain(await reminderDays(p.id), today)) continue
     const key = `permit-reminder:${p.id}:${today}`
     const portal = portalFor(p.county)
-    const title = `Permit still ${PERMIT_STATUS_LABEL[p.status as PermitStatus]}: ${job.customerName}`
+    const title = `${PERMIT_REMINDER_PREFIX}${PERMIT_STATUS_LABEL[p.status as PermitStatus]}: ${job.customerName}`
     const body = `${job.customerAddress}. ${p.status === 'needed' ? 'Not applied for yet.' : `Applied${p.appliedAt ? ` ${p.appliedAt}` : ''}; check for approval.`}${portal ? ` ${portal.name}: ${portal.url}` : ''}`
     try {
       await prisma.$transaction(async tx => {
         await tx.automationEffect.create({ data: { key, runId: 'permit-reminders', status: 'done' } })
-        await tx.notification.create({ data: { title, body, type: 'warning', link: `/operations?job=${job.id}`, jobId: job.id } })
+        // One reminder per job on the bell: this one takes the place of the last (audit Oct 26 2026: two of the same).
+        await tx.notification.deleteMany({ where: { jobId: job.id, title: { startsWith: PERMIT_REMINDER_PREFIX } } })
+        await tx.notification.create({ data: { title, body, type: 'warning', link: `/operations?job=${job.id}`, jobId: job.id, recipientRole: OFFICE_NOTICE_ROLE } })
       })
     } catch { continue } // already reminded today
     await sendPush(p.accountId, { title, body, url: `/operations?job=${job.id}`, tag: `permit-${p.id}` }).catch(() => null)

@@ -406,14 +406,18 @@ function StepFields({ s, meta, stages, onChange }: { s: Step; meta: Meta; stages
   switch (s.type) {
     case 'create_task': return (
       <div className="space-y-2">
-        <input className={input} value={s.title} onChange={e => set('title', e.target.value)} placeholder="Order materials for {name}" data-step-title />
+        {/* A label above, and a placeholder that cannot pass for typed words (audit Oct 26 2026). */}
+        <label className="block"><span className={label}>Task title (required)</span>
+          <input className={`${input} placeholder:italic placeholder:text-gray-400`} value={s.title} onChange={e => set('title', e.target.value)} placeholder="Type it, for example: Order materials for {name}" aria-required="true" data-step-title /></label>
         <textarea className={input} rows={2} value={s.description} onChange={e => set('description', e.target.value)} placeholder="Details (optional)" />
         <div className="grid grid-cols-2 gap-2"><PersonPicker value={s.assignTo} onChange={v => set('assignTo', v)} meta={meta} />
           <div><label className={label}>Due in (days)</label><input type="number" min={0} className={input} value={s.dueInDays} onChange={e => set('dueInDays', Math.max(0, Number(e.target.value) || 0))} /></div></div>
       </div>)
     case 'notify': return (
       <div className="space-y-2">
-        <input className={input} value={s.title} onChange={e => set('title', e.target.value)} placeholder="{name} moved to {stage}" data-step-title />
+        <label className="block"><span className={label}>Title on the bell (required)</span>
+          <input className={`${input} placeholder:italic placeholder:text-gray-400`} value={s.title} onChange={e => set('title', e.target.value)} placeholder="Type it, for example: {name} moved to {stage}" aria-required="true" data-step-title /></label>
+        {!s.title.trim() && <p className="text-xs text-amber-800" data-step-title-empty>No title yet: the notice needs one.</p>}
         <input className={input} value={s.body} onChange={e => set('body', e.target.value)} placeholder="More (optional)" />
         <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" className="h-5 w-5" checked={s.push} onChange={e => set('push', e.target.checked)} />Also push to my phone</label>
       </div>)

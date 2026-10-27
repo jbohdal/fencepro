@@ -80,7 +80,7 @@ try {
   await inputs.nth(1).fill(`Salesman ${stamp}`)
   await form.locator('input[type="email"]').fill(EMAIL)
   await form.locator('input[type="radio"][value="sales_rep"]').check()
-  check('invite: Salesman is a role to pick, with what it may do', (await form.innerText()).includes('No settings, prices, team or deleting'))
+  check('invite: Salesman is a role to pick, with what it may do', (await form.innerText()).includes('Sees costs and margins. No settings, price list changes, team or deleting'))
   await shot(op, 'desktop-invite')
   await form.locator('button[type="submit"]').click()
   const link = await op.locator('[data-invite-url]').inputValue({ timeout: 15000 })
@@ -124,7 +124,7 @@ try {
   const never = ['Settings', 'Team', 'Automations', 'Inventory', 'Billing', 'Integrations', 'Audit Log', 'P&L Statement']
   check('menu: Today, Pipeline, Customers, Quotes, Appointments, Schedule', want.every(w => navItems.includes(w)), navItems.join(', '))
   check('menu: no Settings, Team, Automations, Inventory, Billing', never.every(n => !navItems.includes(n)))
-  check('menu: no role switcher, the role is shown', (await sp.locator('.sidebar-desktop select').count()) === 0 && (await sp.locator('.sidebar-desktop [data-role-label]').innerText()).trim() === 'Sales')
+  check('menu: no role switcher, the role is shown', (await sp.locator('.sidebar-desktop select').count()) === 0 && (await sp.locator('.sidebar-desktop [data-role-label]').innerText()).trim() === 'Salesman')
   await shot(sp, 'desktop-nav')
 
   // ── 3. Add a lead, move it, start a quote ──
