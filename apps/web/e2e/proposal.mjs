@@ -184,6 +184,9 @@ try {
   const notes = await api('/api/automations/notifications')
   const note = (notes.notifications || []).find(n => n.title === `Proposal accepted: ${CUST}`)
   check('an in app notification says who accepted what', !!note && note.body.includes(sixOpt.label), note?.body || 'none')
+  // The second signing was refused; the owner and the office hear what was tried (audit fix Oct 27 2026).
+  const tried = (notes.notifications || []).find(n => n.title === `Proposal not signed: ${CUST}`)
+  check('the refused second signing is on the bell, with what was tried', !!tried && tried.body.startsWith('Someone else tried to accept') && tried.body.includes(`already accepted by Shawn Collins`), tried?.body || 'none')
 
   // ── Back in the app: the quote shows the customer's choice ──
   await d.page.goto(`${APP}/?customer=${sold.crmContactId}`); await d.page.waitForSelector('[data-global-appointment]'); await sleep(1200)
@@ -223,7 +226,7 @@ try {
   psql(`delete from "SignedDocument" where "quoteId" in (select id from "SavedQuote" where "crmContactId" = '${contactId}')`)
   psql(`delete from "JobQuotedCost" where "quoteId" in (select id from "SavedQuote" where "crmContactId" = '${contactId}')`)
   psql(`delete from "SavedQuote" where "crmContactId" = '${contactId}'`)
-  psql(`delete from "Notification" where title = 'Proposal accepted: ${CUST}'`)
+  psql(`delete from "Notification" where title in ('Proposal accepted: ${CUST}', 'Proposal not signed: ${CUST}')`)
   psql(`delete from "CrmContactNote" where "crmContactId" = '${contactId}'; delete from "CrmContact" where id = '${contactId}'`)
   await browser.close()
 }
