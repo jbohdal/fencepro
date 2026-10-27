@@ -138,6 +138,9 @@ describe('the proposal page', () => {
     expect(html.match(/data-option="/g)).toHaveLength(3)
     expect(html).not.toContain('6 or 8 ft panels (best price)')
     expect(html).toMatch(/data-option="1">\s*<input type="radio" name="option" value="1" checked/)
+    // Save / more against the selected option (the quote's own, shown by Better): Good saves, Best costs more, Better says neither.
+    expect(html).toContain('Save $1,270')
+    expect(html).toContain('$561 more')
   })
 
   test('no address in Settings: no address line; no terms: no Terms section', () => {

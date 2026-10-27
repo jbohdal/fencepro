@@ -25,7 +25,9 @@ export function projectSteps(j: Pick<PortalProject, 'status' | 'scheduledDate' |
     { label: 'Materials Ordered', done: st ? st.materials : at > 3 },
   ]
   const before = finished ? all.filter(s => s.done) : all
-  const after = [{ label: 'Installation Scheduled', done: at >= 4 && !!j.scheduledDate || at >= 5 }, { label: 'Installation Complete', done: at >= 6 }, { label: 'Invoice Sent', done: at >= 7 }, { label: 'Complete', done: at >= 8 }]
+  // Scheduled only when an install date was set; a finished job never given one leaves the step off.
+  const scheduled = { label: 'Installation Scheduled', done: (at >= 4 && !!j.scheduledDate) || (at === 5) }
+  const after = [...(finished && !j.scheduledDate ? [] : [scheduled]), { label: 'Installation Complete', done: at >= 6 }, { label: 'Invoice Sent', done: at >= 7 }, { label: 'Complete', done: at >= 8 }]
   const steps = [...before, ...after]
   // The current step: the first one not done.
   const cur = steps.findIndex(s => !s.done)

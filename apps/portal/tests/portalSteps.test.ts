@@ -30,6 +30,10 @@ describe('the page', () => {
     expect(s.every(x => x.done)).toBe(true)
     expect(FINISHED_STATUSES).toContain('paid')
   })
+  test('a finished job never given an install date: no "Installation Scheduled" tick', () => {
+    const s = projectSteps({ status: 'completed', scheduledDate: '', steps: { locates: false, permit: 'not_yet', materials: false } })
+    expect(s.map(x => x.label)).toEqual(['Quote Accepted', 'Installation Complete', 'Invoice Sent', 'Complete'])
+  })
   test('a finished job keeps the steps that were recorded', () => {
     const s = projectSteps({ status: 'completed', scheduledDate: '2026-10-26', steps: { locates: true, permit: 'done', materials: true } })
     expect(s.filter(x => x.done).map(x => x.label)).toEqual(['Quote Accepted', 'Locates Marked (811)', 'Permit Approved', 'Materials Ordered', 'Installation Scheduled', 'Installation Complete'])

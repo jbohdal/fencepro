@@ -484,7 +484,8 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const startAt = typeof view.start === 'number' && p.options[view.start] && !hidden.has(view.start) ? view.start : rec
   const chosen = accepted ? (q.chosenOption ?? rec) : startAt
   const shownCount = p.options.length - p.options.filter((_o, i) => hidden.has(i) && i !== chosen).length
-  const base = p.options[rec]?.finalPrice ?? p.options[0].finalPrice
+  // "Save $X" / "$X more" against the option selected when the page opens (the one the quote was made with).
+  const base = p.options[chosen]?.finalPrice ?? p.options[rec]?.finalPrice ?? p.options[0].finalPrice
   const fin = p.financing && (p.financing.months ?? 0) > 0 ? p.financing : null
   // Priced to the whole dollar: the price a foot and the monthly payment show no cents either.
   const whole = p.wholeDollar === true
@@ -495,7 +496,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
     // The same fence at the same price as an option shown before it: not shown again (the chosen one always is).
     if (hidden.has(i) && i !== chosen) return ''
     const diff = o.finalPrice - base
-    const save = i !== rec && diff < -0.5 ? `<span class="save">Save ${money(-diff)}</span>` : i !== rec && diff > 0.5 ? `<span class="more">${money(diff)} more</span>` : ''
+    const save = i !== chosen && diff < -0.5 ? `<span class="save">Save ${money(-diff)}</span>` : i !== chosen && diff > 0.5 ? `<span class="more">${money(diff)} more</span>` : ''
     const monthly = fin ? `<p class="monthly">As low as ${monthlyText(monthlyPayment(o.finalPrice, fin.apr ?? 0, fin.months!))}/month for ${fin.months} months${fin.provider ? ` with ${esc(fin.provider)}` : ''}</p>` : ''
     const photo = o.photoId ? `<img class="photo" src="photo/${esc(o.photoId)}" alt="${esc(o.label)}" loading="lazy">` : ''
     return `<label class="opt${i === chosen ? ' on' : ''}" data-option="${i}">

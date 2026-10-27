@@ -77,7 +77,7 @@ receiptPublic.get('/:token', async (req, res) => {
     </tbody></table></section>
     ${s.paidInFull ? `<section class="done" data-receipt-paid-in-full><h2>Paid in full</h2><p>Thank you! Warranty: ${esc(s.warrantyName || 'as written on your contract')}. It starts on the install date.</p></section>` : ''}
     ${s.lienRelease && s.paidInFull ? `<section><h2>Final Release of Lien</h2><p class="small">${esc(LIEN_RELEASE_DRAFT_NOTE)} It is in the PDF.</p></section>` : ''}
-    <p><a class="btn" href="${esc(token)}.pdf" data-receipt-pdf>Download the receipt (PDF)</a></p>
+    <p><a class="btn linkbtn" href="${esc(token)}.pdf" data-receipt-pdf>Download the receipt (PDF)</a></p>
   </main>`
   res.type('html').send(page(`${receiptName(r.number)} - ${s.company.name}`, body))
 })
