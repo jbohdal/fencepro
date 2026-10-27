@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import JobCostingTab from './JobCostingTab'
 import { getQuotes } from './quoteStore'
+import { companyTargets, yearActuals } from './moneyLoad'
+import { marginOf, type TargetMargins } from './moneyTruth'
 import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars, fractionToPercent, percentToFraction, parseCents } from './numberText'
 
@@ -326,12 +328,38 @@ function StatCard({ label, value, sub, accent }: { label: string, value: string,
   )
 }
 
-function BucketBar({ label, actual, target, color, invertColor }: { label: string, actual: number, target: number, color: string, invertColor?: boolean }) {
+/** Each Target Margin in Settings › Pricing and the styles at it ("44%: 12 styles, e.g. WV-ND 6'x8' Privacy"). */
+function TargetLevels({ targets }: { targets: TargetMargins }) {
+  return (
+    <div className="text-gray-400 text-xs mt-2 space-y-0.5" data-budget-target-levels>
+      <p>Overhead {targets.overheadPct}% + each style's Target Profit %. Price = (materials + labor) ÷ (100% − Target Margin).</p>
+      {targets.levels.map(l => (
+        <p key={l.pct}><span className="text-white font-semibold">{l.pct}%</span>: {l.styles.length} {l.styles.length === 1 ? 'style' : 'styles'}, e.g. {l.styles[0]}</p>
+      ))}
+    </div>
+  )
+}
+
+function BucketBar({ label, actual: known, target, color, invertColor }: { label: string, actual: number | null, target: number, color: string, invertColor?: boolean }) {
+  // Not known yet (no sold job with costs, or no overhead in the budget): a dash, never a made up number.
+  if (known === null) return (
+    <div data-budget-bucket={label} data-actual="">
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">target {fmtPct(target)}</span>
+          <span className="text-sm font-bold text-gray-400">—</span>
+        </div>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden" />
+    </div>
+  )
+  const actual = known
   const over = actual > target
   // For costs, over target is bad (red). For profit, over target is good (green).
   const isGood = invertColor ? over || Math.abs(actual - target) < 0.02 : !over
   return (
-    <div>
+    <div data-budget-bucket={label} data-actual={actual.toFixed(4)}>
       <div className="flex justify-between items-baseline mb-1.5">
         <span className="text-sm font-medium text-gray-700">{label}</span>
         <div className="flex items-center gap-2">
@@ -363,28 +391,18 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: Commit }
   // Target net profit from the editable 4-bucket inputs (the same default as the box below)
   const targetNetProfitPct = state.netProfitPct ?? 0.106
 
-  // Magic Number = 1 - Overhead% - Net Profit% = COGS target %
-  // This is the reciprocal of (overhead + desired profit)
-  // Used in pricing: Price = COGS / MagicNumber
-  const magicNumber = 1 - overheadPct - targetNetProfitPct
+  // The budget plan's split: overhead + net profit. Not what quotes are priced at (that is Settings › Pricing, below).
+  const planMargin = overheadPct + targetNetProfitPct
 
-  // Implied GM from the magic number (what quotes should produce)
-  const impliedGM = 1 - magicNumber
+  // Target Margin: one setting, Settings › Pricing (Overhead % + each style's Target Profit %), the same on every screen.
+  const targets = companyTargets()
+  const planDiffers = Math.abs(overheadPct * 100 - targets.overheadPct) >= 0.05
 
-  // Actual material cost from sold quotes
-  const quotes = useMemo(() => loadQuotes(), [])
+  // Actuals from real records only (moneyTruth.budgetActuals): sold quotes with costs this year, and the
+  // budget's overhead over this year's installed revenue (projected to the full year).
   const currentYear = new Date().getFullYear()
-  const soldQuotes = useMemo(() => quotes.filter(q =>
-    q.status === 'SOLD' && q.date && new Date(q.date).getFullYear() === currentYear
-  ), [quotes, currentYear])
-  const ytdRevenue = soldQuotes.reduce((s, q) => s + q.finalPrice, 0)
-  const ytdMaterialCost = soldQuotes.reduce((s, q) => s + q.materialCost, 0)
-  const actualMaterialsPct = ytdRevenue > 0 ? ytdMaterialCost / ytdRevenue : materialsPct
-
-  // Actual net profit = what's left after actual overhead, actual labor, actual materials
-  const actualNetProfitPct = ytdRevenue > 0
-    ? 1 - actualMaterialsPct - (ytdRevenue > 0 ? soldQuotes.reduce((s, q) => s + q.laborCost, 0) / ytdRevenue : actualLaborPct) - actualOverheadPct
-    : 1 - actualOverheadPct - actualLaborPct - materialsPct
+  const act = useMemo(() => yearActuals(currentYear, totalOverheadCost), [currentYear, totalOverheadCost])
+  const leftOutWords = act.leftOut ? `; ${act.leftOut} sold without costs left out` : ''
 
   const monthlyGoals      = seasonality.map(s => revenueGoal * s)
   const avg               = revenueGoal / 12
@@ -392,31 +410,34 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: Commit }
   return (
     <div className="space-y-8">
 
-      {/* Target Margin = overhead + profit */}
+      {/* Target Margin = overhead + profit (Settings › Pricing) */}
       <div className="bg-gray-900 rounded-2xl p-4 lg:p-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <p className="text-gray-400 text-xs font-semibold mb-2">Target Margin — overhead plus profit</p>
-          <p className="text-4xl lg:text-7xl font-black text-white leading-none" data-budget-target-margin>{fmtPct(impliedGM)}</p>
-          <p className="text-gray-500 text-xs mt-1">Price = (materials + labor) ÷ (100% − {fmtPct(impliedGM)}). Materials and labor are {fmtPct(magicNumber)} of the price.</p>
+          <p className="text-gray-400 text-xs font-semibold mb-2">Target Margin — overhead plus profit, from Settings › Pricing</p>
+          <p className="text-4xl lg:text-7xl font-black text-white leading-none" data-budget-target-margin>{targets.words}</p>
+          <TargetLevels targets={targets} />
+          <p className="text-gray-400 text-xs mt-2" data-budget-plan-note>
+            Budget plan: overhead {fmtPct(overheadPct)} + net profit {fmtPct(targetNetProfitPct)} = <span data-budget-plan-margin>{fmtPct(planMargin)}</span>
+            {planDiffers && <span className="text-yellow-300"> · Pricing uses overhead {targets.overheadPct}%: change one so they match.</span>}
+          </p>
           <div className="flex flex-wrap gap-4 lg:gap-6 mt-4">
             <div>
               <p className="text-gray-500 text-xs">Labor Target</p>
               <p className="text-white font-bold text-lg">{fmtPct(laborPct)}</p>
-              <p className={`text-xs ${Math.abs(actualLaborPct - laborPct) < 0.02 ? 'text-green-400' : 'text-yellow-400'}`}>
-                actual {fmtPct(actualLaborPct)}
-              </p>
+              <p className="text-xs text-gray-300">actual {act.laborPct === null ? '—' : fmtPct(act.laborPct)}</p>
             </div>
             <div className="w-px bg-gray-700" />
             <div>
               <p className="text-gray-500 text-xs">Materials Target</p>
               <p className="text-white font-bold text-lg">{fmtPct(materialsPct)}</p>
+              <p className="text-xs text-gray-300">actual {act.materialsPct === null ? '—' : fmtPct(act.materialsPct)}</p>
             </div>
             <div className="w-px bg-gray-700" />
             <div>
               <p className="text-gray-500 text-xs">Overhead Target</p>
               <p className="text-white font-bold text-lg">{fmtPct(overheadPct)}</p>
-              <p className={`text-xs ${Math.abs(actualOverheadPct - overheadPct) < 0.02 ? 'text-green-400' : 'text-yellow-400'}`}>
-                actual {fmtPct(actualOverheadPct)}
+              <p className={`text-xs ${act.overheadPct === null ? 'text-gray-300' : act.overheadPct <= overheadPct + 0.02 ? 'text-green-400' : 'text-yellow-400'}`}>
+                actual {act.overheadPct === null ? '—' : fmtPct(act.overheadPct)}
               </p>
             </div>
             <div className="w-px bg-gray-700" />
@@ -425,8 +446,8 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: Commit }
               <p className={`font-bold text-lg ${targetNetProfitPct > 0.10 ? 'text-green-400' : targetNetProfitPct > 0 ? 'text-yellow-400' : 'text-red-400'}`}>
                 {fmtPct(targetNetProfitPct)}
               </p>
-              <p className={`text-xs ${actualNetProfitPct >= targetNetProfitPct - 0.02 ? 'text-green-400' : 'text-red-400'}`}>
-                actual {fmtPct(actualNetProfitPct)}
+              <p className={`text-xs ${act.netProfitPct === null ? 'text-gray-300' : act.netProfitPct >= targetNetProfitPct - 0.02 ? 'text-green-400' : 'text-red-400'}`}>
+                estimated {act.netProfitPct === null ? '—' : fmtPct(act.netProfitPct)}
               </p>
             </div>
           </div>
@@ -445,22 +466,23 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: Commit }
         </div>
       </div>
 
-      {/* KPI strip */}
+      {/* KPI strip: actuals from real records, plans from this budget */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Actual Net Profit"
-          value={fmtPct(actualNetProfitPct)}
-          sub={`${fmt(revenueGoal * actualNetProfitPct)} · target ${fmtPct(targetNetProfitPct)}`}
-          accent={actualNetProfitPct >= targetNetProfitPct - 0.02}
+          label="Net Profit (estimated)"
+          value={act.netProfitPct === null ? '—' : fmtPct(act.netProfitPct)}
+          sub={act.netProfitPct === null
+            ? (act.withCosts ? 'Needs the yearly overhead in this budget' : 'Needs sold jobs with costs')
+            : `${fmtPct(act.grossMargin ?? 0)} gross margin on ${act.withCosts} sold jobs with costs − ${fmtPct(act.overheadPct ?? 0)} overhead${leftOutWords} · target ${fmtPct(targetNetProfitPct)}`}
+          accent={act.netProfitPct !== null && act.netProfitPct >= targetNetProfitPct - 0.02}
         />
-        <StatCard label="Total Labor" value={fmt(totalLaborCost)} sub={`${fmtPct(actualLaborPct)} of revenue · target ${fmtPct(laborPct)}`} />
-        <StatCard label="Total Overhead" value={fmt(totalOverheadCost)} sub={`${fmtPct(actualOverheadPct)} of revenue · target ${fmtPct(overheadPct)}`} />
+        <StatCard label="Crew Wages (budget)" value={fmt(totalLaborCost)} sub={`${fmtPct(actualLaborPct)} of the revenue goal · target ${fmtPct(laborPct)}`} />
+        <StatCard label="Overhead (budget)" value={fmt(totalOverheadCost)}
+          sub={`${fmtPct(actualOverheadPct)} of the revenue goal${act.overheadPct === null ? '' : ` · ${fmtPct(act.overheadPct)} of ${fmt(act.yearRevenueCents / 100)} installed${act.projected ? ' (this year, projected)' : ''}`} · target ${fmtPct(overheadPct)}`} />
         <StatCard
           label="Materials"
-          value={ytdRevenue > 0 ? fmt(ytdMaterialCost) : fmt(revenueGoal * materialsPct)}
-          sub={ytdRevenue > 0
-            ? `${fmtPct(actualMaterialsPct)} actual · target ${fmtPct(materialsPct)}`
-            : `${fmtPct(materialsPct)} of revenue (budget)`}
+          value={act.materialsPct === null ? '—' : fmtPct(act.materialsPct)}
+          sub={act.materialsPct === null ? `No sold jobs with costs yet · target ${fmtPct(materialsPct)}` : `of the price on ${act.withCosts} sold jobs with costs${leftOutWords} · target ${fmtPct(materialsPct)}`}
         />
       </div>
 
@@ -490,12 +512,12 @@ function BudgetTab({ state, onChange }: { state: BudgetState, onChange: Commit }
 
         <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-4 lg:p-6">
           <h3 className="font-bold text-gray-900 mb-1">4 Buckets</h3>
-          <p className="text-xs text-gray-400 mb-5">Every revenue dollar flows into one of these.</p>
+          <p className="text-xs text-gray-400 mb-5">Every revenue dollar flows into one of these. Actual: materials and labor on sold jobs with costs, overhead over installed revenue, net profit what is left.</p>
           <div className="space-y-5">
-            <BucketBar label="Overhead"      actual={actualOverheadPct}   target={overheadPct}        color="bg-blue-400" />
-            <BucketBar label="Labor & Comms" actual={actualLaborPct}      target={laborPct}           color="bg-purple-400" />
-            <BucketBar label="Materials"     actual={actualMaterialsPct}  target={materialsPct}       color="bg-yellow-400" />
-            <BucketBar label="Net Profit"    actual={actualNetProfitPct}  target={targetNetProfitPct} color="bg-green-400" invertColor />
+            <BucketBar label="Overhead"      actual={act.overheadPct}     target={overheadPct}        color="bg-blue-400" />
+            <BucketBar label="Labor & Comms" actual={act.laborPct}        target={laborPct}           color="bg-purple-400" />
+            <BucketBar label="Materials"     actual={act.materialsPct}    target={materialsPct}       color="bg-yellow-400" />
+            <BucketBar label="Net Profit"    actual={act.netProfitPct}    target={targetNetProfitPct} color="bg-green-400" invertColor />
           </div>
           <div className="mt-6 pt-5 border-t border-gray-100 space-y-3">
             {[
@@ -1489,7 +1511,7 @@ function loadQuotes(): QuoteRecord[] {
 function KPIsTab({ state }: { state: BudgetState }) {
   const { revenueGoal, seasonality, laborPct, materialsPct, overheadPct } = state
   const targetNetProfitPct = state.netProfitPct ?? 0.106
-  const magicNumber = 1 - overheadPct - targetNetProfitPct
+  const targets = companyTargets()
 
   const quotes = useMemo(() => loadQuotes(), [])
   const currentYear = new Date().getFullYear()
@@ -1507,29 +1529,22 @@ function KPIsTab({ state }: { state: BudgetState }) {
         quoted: monthQuotes.length,
         sold: soldQuotes.length,
         revenue: soldQuotes.reduce((s, q) => s + q.finalPrice, 0),
-        cogs: soldQuotes.reduce((s, q) => s + q.totalCOGS, 0),
-        materialCost: soldQuotes.reduce((s, q) => s + q.materialCost, 0),
-        laborCost: soldQuotes.reduce((s, q) => s + q.laborCost, 0),
-        avgMargin: soldQuotes.length > 0 ? soldQuotes.reduce((s, q) => s + q.gmPct, 0) / soldQuotes.length : 0,
+        // Gross margin of the month's sold quotes with costs (null: none has a cost).
+        margin: marginOf(soldQuotes).margin,
         quotedValue: monthQuotes.reduce((s, q) => s + q.finalPrice, 0),
       }
     })
   }, [yearQuotes])
 
   const totalRevenue = monthlyData.reduce((s, m) => s + m.revenue, 0)
-  const totalCOGS    = monthlyData.reduce((s, m) => s + m.cogs, 0)
   const totalQuoted  = monthlyData.reduce((s, m) => s + m.quoted, 0)
   const totalSold    = monthlyData.reduce((s, m) => s + m.sold, 0)
   const closingRate  = totalQuoted > 0 ? totalSold / totalQuoted : 0
   const pctOfGoal    = revenueGoal > 0 ? totalRevenue / revenueGoal : 0
-  const actualGM     = totalRevenue > 0 ? (totalRevenue - totalCOGS) / totalRevenue : 0
 
-  // Actual bucket percentages based on real job data
-  const actualMaterialPct = totalRevenue > 0 ? monthlyData.reduce((s, m) => s + m.materialCost, 0) / totalRevenue : 0
-  const actualLaborPct    = totalRevenue > 0 ? monthlyData.reduce((s, m) => s + m.laborCost, 0) / totalRevenue : 0
-  const totalOverhead     = state.overhead.filter((o: any) => !(o as any).parentId).reduce((s: number, o: any) => s + (o.annual || 0), 0)
-  const actualOverheadPct = totalRevenue > 0 ? totalOverhead / totalRevenue : 0
-  const actualNetProfitPct= totalRevenue > 0 ? 1 - actualMaterialPct - actualLaborPct - actualOverheadPct : 0
+  // Actual shares: the same as the Budget tab and Reports (moneyTruth.budgetActuals): sold jobs with costs only.
+  const totalOverhead = state.overhead.filter((o: any) => !(o as any).parentId).reduce((s: number, o: any) => s + (o.annual || 0), 0)
+  const act = useMemo(() => yearActuals(currentYear, totalOverhead), [currentYear, totalOverhead])
 
   const goals    = seasonality.map(s => revenueGoal * s)
   const actRevs  = monthlyData.map(m => m.revenue)
@@ -1552,7 +1567,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
           </p>
         </div>
         <StatCard label="Closing Rate" value={`${(closingRate * 100).toFixed(0)}%`} sub={`${totalSold} sold / ${totalQuoted} quoted`} accent={closingRate >= 0.40} />
-        <StatCard label="Actual Gross Margin" value={fmtPct(actualGM)} sub={`Target Margin: ${fmtPct(1 - magicNumber)}`} accent={actualGM >= (1 - magicNumber - 0.03)} />
+        <StatCard label="Actual Gross Margin" value={act.grossMargin === null ? '—' : fmtPct(act.grossMargin)} sub={`${act.withCosts} sold jobs with costs${act.leftOut ? `, ${act.leftOut} without left out` : ''} · Target Margin ${targets.words}`} accent={act.grossMargin !== null && act.grossMargin * 100 >= targets.minPct - 0.5} />
       </div>
 
       {/* Actual vs Goal chart */}
@@ -1574,12 +1589,12 @@ function KPIsTab({ state }: { state: BudgetState }) {
       {/* Actual bucket health */}
       <div className="bg-white rounded-2xl border border-gray-200 p-4 md:p-6">
         <h3 className="font-bold text-gray-900 mb-1">Budget Health — Actual vs Targets</h3>
-        <p className="text-xs text-gray-400 mb-5">Based on {totalSold} sold jobs totaling {fmt(totalRevenue)} in revenue</p>
+        <p className="text-xs text-gray-400 mb-5">Materials and labor from the {act.withCosts} sold jobs with costs{act.leftOut ? ` (${act.leftOut} without costs left out)` : ''}; overhead from this budget over installed revenue</p>
         <div className="space-y-5">
-          <BucketBar label="Materials (from jobs)"  actual={actualMaterialPct}  target={materialsPct}       color="bg-yellow-400" />
-          <BucketBar label="Labor (from jobs)"      actual={actualLaborPct}     target={laborPct}           color="bg-purple-400" />
-          <BucketBar label="Overhead (annualized)"  actual={actualOverheadPct}  target={overheadPct}        color="bg-blue-400" />
-          <BucketBar label="Net Profit (implied)"   actual={actualNetProfitPct} target={targetNetProfitPct} color="bg-green-400" invertColor />
+          <BucketBar label="Materials (from jobs)"  actual={act.materialsPct}  target={materialsPct}       color="bg-yellow-400" />
+          <BucketBar label="Labor (from jobs)"      actual={act.laborPct}      target={laborPct}           color="bg-purple-400" />
+          <BucketBar label="Overhead (annualized)"  actual={act.overheadPct}   target={overheadPct}        color="bg-blue-400" />
+          <BucketBar label="Net Profit (estimated)" actual={act.netProfitPct}  target={targetNetProfitPct} color="bg-green-400" invertColor />
         </div>
         {totalRevenue === 0 && (
           <p className="text-sm text-gray-400 mt-4 text-center">No sold quotes yet — create and close quotes to see actual budget health</p>
@@ -1631,9 +1646,9 @@ function KPIsTab({ state }: { state: BudgetState }) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {monthlyData[i].sold > 0 && (
-                      <span className={`text-xs font-bold ${monthlyData[i].avgMargin >= (1 - magicNumber - 0.03) ? 'text-green-600' : 'text-yellow-600'}`}>
-                        {fmtPct(monthlyData[i].avgMargin)}
+                    {monthlyData[i].margin !== null && (
+                      <span className={`text-xs font-bold ${monthlyData[i].margin! * 100 >= targets.minPct - 0.5 ? 'text-green-600' : 'text-yellow-600'}`}>
+                        {fmtPct(monthlyData[i].margin!)}
                       </span>
                     )}
                   </td>
@@ -1657,7 +1672,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
                 <span className={`text-xs ${closingRate >= 0.40 ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(closingRate)}</span>
               </td>
               <td className="px-4 py-3 text-right">
-                <span className={`text-xs ${actualGM >= (1 - magicNumber - 0.03) ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(actualGM)}</span>
+                {act.grossMargin !== null && <span className={`text-xs ${act.grossMargin * 100 >= targets.minPct - 0.5 ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(act.grossMargin)}</span>}
               </td>
             </tr>
           </tfoot>
