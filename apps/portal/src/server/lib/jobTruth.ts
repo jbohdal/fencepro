@@ -123,6 +123,23 @@ export async function receivables(accountId: string, today = floridaDay(new Date
   return out.sort((x, y) => y.daysOver - x.daysOver || x.customerName.localeCompare(y.customerName))
 }
 
+export interface ReceivedPaymentRow { id: string; jobId: string; customerName: string; amountCents: number; paidOn: string; method: string }
+
+/**
+ * Every payment received (not voided) on the payment schedules: the cash
+ * basis revenue of the P&L and the Budget (web moneyTruth.ts cashReceived).
+ * Payments of deleted jobs are left out, as in receivables; archived jobs'
+ * payments count.
+ */
+export async function paymentsReceived(accountId: string): Promise<ReceivedPaymentRow[]> {
+  const [payments, jobs] = await Promise.all([
+    prisma.contractPayment.findMany({ where: { accountId, voidedAt: null }, select: { id: true, jobId: true, amountCents: true, paidOn: true, method: true }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
+    prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, customerName: true } }),
+  ])
+  const byJob = new Map(jobs.map(j => [j.id, j]))
+  return payments.filter(p => byJob.has(p.jobId)).map(p => ({ id: p.id, jobId: p.jobId, customerName: byJob.get(p.jobId)!.customerName, amountCents: p.amountCents, paidOn: p.paidOn, method: p.method }))
+}
+
 // ── Milestones ──────────────────────────────────────────────────────────────
 
 async function checklistState(accountId: string) {
