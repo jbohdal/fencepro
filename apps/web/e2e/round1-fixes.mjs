@@ -393,7 +393,9 @@ async function computer(browser) {
   await page.getByRole('button', { name: /Smart Schedule/ }).first().click()
   await page.waitForSelector('[data-smart-job]', { timeout: 30000 }).catch(() => {})
   await sleep(3000)
-  const unplaced = await page.evaluate(() => document.body.innerText.match(/couldn.t be located[\s\S]{0,400}/)?.[0] ?? '')
+  // Only the rows of the "couldn't be located" box (other runs' test jobs with made up addresses may be in it;
+  // reading 400 characters of page text after its heading ran on into the job list below it).
+  const unplaced = (await page.locator('[data-geocode-error]').allInnerTexts().catch(() => [])).join(' | ')
   check('computer: Smart Schedule places the test repair job', !unplaced.includes(REPAIR_NAME), unplaced.slice(0, 160))
   await page.keyboard.press('Escape').catch(() => {})
   check('computer: no page errors', errors.length === 0, errors.join(' | '))

@@ -426,7 +426,7 @@ export default function SmartSchedule({ onClose }: { onClose: () => void }) {
                     <p className="font-semibold text-red-700 mb-1">{Object.keys(geocodeErrors).length} jobs couldn't be located:</p>
                     <div className="max-h-24 overflow-y-auto space-y-0.5">
                       {noGeoJobs.filter(j => geocodeErrors[j.id]).map(j => (
-                        <p key={j.id} className="text-red-600 truncate">
+                        <p key={j.id} className="text-red-600 truncate" data-geocode-error={j.id}>
                           <span className="font-medium">{j.customerName}</span>: {geocodeErrors[j.id]}
                         </p>
                       ))}
