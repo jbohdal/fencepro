@@ -263,6 +263,8 @@ export interface InboxThread {
   lastBody: string
   lastSender: 'customer' | 'staff'
   unreadCustomerCount: number
+  /** The customer wrote last (in the last 14 days): nobody has answered yet, read or not (server lib/portalInbox.ts). */
+  waitingReply?: boolean
 }
 
 /** `markRead`: false when nobody is looking at the thread (a poll in a tab in the background), so the customer's new message stays unread on the bubble. */
@@ -286,7 +288,7 @@ export async function staffReplyToCustomer(customerId: string, body: string, sen
   } catch (err: any) { return { ok: false, error: err?.message || 'Network error' } }
 }
 
-export async function getMessagesInbox(): Promise<{ threads: InboxThread[]; totalUnread: number }> {
+export async function getMessagesInbox(): Promise<{ threads: InboxThread[]; totalUnread: number; totalWaiting?: number; needsYou?: number }> {
   try {
     const res = await fetchWithAuth(`${apiBase()}/api/portal/messages/inbox`)
     const json = await res.json()
