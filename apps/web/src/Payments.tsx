@@ -6,7 +6,7 @@
  *   is due, paid and left, and a big "Payment received" on every open one,
  *   filled in with what is due. Phone first: amount, how (check and its
  *   number, cash, Zelle, card, other), the day (today), an optional photo of
- *   the check, Save. Under 30 seconds.
+ *   the check (of the receipt for Zelle, card and the rest), Save. Under 30 seconds.
  *   The receipt, full screen, right after Save, with no signal too: big
  *   enough to hand the phone to the customer. Text (the phone's own texting
  *   app with the link), Email, or both, to the saved phone and email (both
@@ -32,6 +32,7 @@ import { smsLink } from './appointmentLogic'
 import { invoiceDue } from '../../portal/src/server/lib/jobReadiness'
 import { businessDate } from './businessDate'
 import { hasSignal } from './outbox'
+import { formatPhone } from './phoneFormat'
 import { CO_EVENT } from './ChangeOrders'
 import {
   METHODS, money, centsOf, todayOcala, loadJob, loadCustomer, makeSchedule, scheduleOf, subscribe, paymentsVersion,
@@ -196,7 +197,7 @@ function PaymentLine({ p, onReceipt }: { p: Schedule['payments'][number]; onRece
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           {p.receipt && <button className="text-sm font-semibold text-violet-700 min-h-[40px] px-2" onClick={onReceipt} data-open-receipt>Receipt</button>}
-          {p.hasPhoto && <button className="text-xs text-gray-500 underline" onClick={async () => { if (!(await openStaffFile(`/api/payments/${encodeURIComponent(p.id)}/photo`))) toast.error('Could not open the photo') }}>Check photo</button>}
+          {p.hasPhoto && <button className="text-xs text-gray-500 underline" onClick={async () => { if (!(await openStaffFile(`/api/payments/${encodeURIComponent(p.id)}/photo`))) toast.error('Could not open the photo') }}>{p.method === 'check' ? 'Check photo' : 'Receipt photo'}</button>}
         </div>
       </div>
       {office && !p.voidedAt && (
@@ -297,7 +298,7 @@ function PaymentSheet({ s, invoice, onClose, onSaved }: { s: Schedule; invoice: 
           <label className="flex-1"><span className="text-xs font-semibold text-gray-600">Date</span>
             <input type="date" className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2" value={paidOn} onChange={e => setPaidOn(e.target.value || todayOcala())} data-payment-date />
           </label>
-          <label className="flex-1"><span className="text-xs font-semibold text-gray-600">Photo of the check</span>
+          <label className="flex-1"><span className="text-xs font-semibold text-gray-600" data-payment-photo-label>{method === 'check' ? 'Photo of the check' : 'Photo of the receipt (optional)'}</span>
             <input type="file" accept="image/*" capture="environment" className="mt-1 w-full text-xs" data-payment-photo onChange={async e => { const f = e.target.files?.[0]; if (f) setPhoto(await shrinkPhoto(f).catch(() => null)) }} />
             {photo && <span className="text-xs text-green-700">Photo added</span>}
           </label>
@@ -330,7 +331,8 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
   const link = token ? receiptUrl(token) : ''
   const waiting = paymentWaiting(paymentId)
   const voided = !!fromServer?.voided
-  const [phone, setPhone] = useState(snap?.phone || s?.phone || '')
+  // Shown as the app shows phones: "(352) 555 0211" (recheck Oct 27 2026: the box showed 3525550211).
+  const [phone, setPhone] = useState(formatPhone(snap?.phone || s?.phone || ''))
   const [email, setEmail] = useState(snap?.email || s?.email || '')
   const emailed = emailResultOf(paymentId)
   // On a computer: the number "Did you send it?" is asked about (nothing is recorded until Yes).

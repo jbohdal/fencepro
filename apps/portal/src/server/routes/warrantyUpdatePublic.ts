@@ -27,7 +27,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { CSS, esc, linkClosed, renderProposal, proposalPage, trackScript, acceptQuote, acceptSchema, signerOf, type Proposal } from './proposal.js'
 import { signedNow } from './saved-quotes.js'
 import { startView, beatView, staffOf, ignoredRequest, proposalOpenedPush } from '../lib/proposalViews.js'
-import { contractForQuote } from '../lib/contractPdf.js'
+import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
 import { pricingModule } from '../lib/estimates.js'
 import { remakeCertificateForJob } from '../lib/walkthroughCertificate.js'
@@ -106,7 +106,7 @@ warrantyUpdatePublic.get('/:token', async (req, res) => {
     const job = await prisma.savedJob.findFirst({ where: { accountId: r.q.accountId, quoteId: r.q.id, archivedAt: null }, select: { id: true, completedDate: true } })
     const installed = job ? await installDateOf(job) : null
     const m = await pricingModule()
-    const start = installed ? `Warranty starts on the install date: ${m.dayText(installed)}` : 'Warranty starts on the install date (set when the fence is installed).'
+    const start = warrantyLines(null, installed ? m.dayText(installed) : null, (p as any)?.kind).start
     const opt = p?.options?.[o.index ?? -1] as any
     const done = r.u.acknowledgedAt
       ? `<section class="done" data-wu-acknowledged><h2>Received</h2><p>Acknowledged by ${esc(r.u.acknowledgedBy)} on ${esc(dayOf(r.u.acknowledgedAt))}. Thank you.</p></section>`

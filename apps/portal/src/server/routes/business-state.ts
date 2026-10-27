@@ -23,6 +23,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { businessPatchRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
+import { closeTasksSoon } from '../lib/taskAutoClose.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -116,6 +117,8 @@ router.patch('/', async (req: any, res) => {
       }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
+    // A Sales Order marked Ordered closes its job's "Order materials for …" task (lib/taskAutoClose.ts).
+    if (updateData.pendingOrders !== undefined) closeTasksSoon()
     // Settings saved here (company config, appointments, templates...) go to the change log (Settings > Change log).
     for (const f of SETTINGS_FIELDS) {
       if (updateData[f] !== undefined) await auditSettingChange(req, `business-state/${f}`, (saved as any)?.[f] ?? null, (s as any)[f], { version: s.version })

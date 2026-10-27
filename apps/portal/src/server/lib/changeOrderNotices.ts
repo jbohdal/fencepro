@@ -5,8 +5,10 @@
  *              tells the owner and the office; the notice opens the job
  *              scrolled to the change order, its OK button in view.
  *   OK'd       the owner's or office's OK clears their "to OK" notices and
- *              tells the Salesman who made it ("OK'd: send it to <customer>"),
- *              opening her card window at the change order.
+ *              tells the Salesman who made it ("Change order OK'd: CO-1,
+ *              <customer>. Send it to the customer."), opening her card
+ *              window at the change order; once signed it says "Change order
+ *              OK'd and signed: CO-1, <customer>".
  *   signed     the customer signed (in person, on the link or in the portal):
  *              whoever made it and the owner and office are told.
  *
@@ -108,19 +110,28 @@ export async function okGiven(co: Co, by: string, voided = false, byRole: string
     if (!maker) return
     const link = maker.role === 'sales_rep' ? await cardLink(co.accountId, co.quoteId, contactId, co.id) : jobLink(job?.id, co.id, contactId)
     await prisma.notification.create({
-      data: { recipientId: maker.email, title: `${SEND_IT_TITLE} ${customer}`, body: `${by} OK'd change order CO-${co.number} (${usd(co.totalCents)}). Send it to ${customer} to sign, or have them sign on your phone.`, type: 'success', link, jobId: job?.id ?? null },
+      data: { recipientId: maker.email, title: sendItTitle(co.number, customer), body: `${by} OK'd change order CO-${co.number} (${usd(co.totalCents)}). Send it to ${customer} to sign, or have them sign on your phone.`, type: 'success', link, jobId: job?.id ?? null },
     })
   } catch (e) { console.error("[change-orders] OK'd notice:", e) }
 }
 
-export const SEND_IT_TITLE = "OK'd: send it to"
+/**
+ * The maker's notice when the office OKs her change order. It became "Sent and signed: …" once
+ * signed while its words still said to send it, so it read as if something had been sent and
+ * signed that she had not sent yet (recheck Oct 27 2026). It names the step she is at.
+ */
+export const SEND_IT_TITLE = "Change order OK'd: CO-"
+export const sendItTitle = (number: number, customer: string) => `${SEND_IT_TITLE}${number}, ${customer}. Send it to the customer.`
+/** The title before Oct 27 2026, still on older notices. */
+const OLD_SEND_IT_TITLE = "OK'd: send it to"
 
-/** The maker's "OK'd: send it to <customer>" notices of this change order, once it is signed: read, and retitled. */
+/** The maker's "Change order OK'd: CO-1, <customer>. Send it…" notices of this change order, once it is signed: read, and they say it is signed. */
 async function sendItDone(co: Co, email: string, jobId: string | null, customer: string): Promise<void> {
-  const rows = await prisma.notification.findMany({ where: { recipientId: email, title: { startsWith: SEND_IT_TITLE }, ...(jobId ? { jobId } : { jobId: null }) } })
+  const rows = await prisma.notification.findMany({ where: { recipientId: email, OR: [{ title: { startsWith: SEND_IT_TITLE } }, { title: { startsWith: OLD_SEND_IT_TITLE } }], ...(jobId ? { jobId } : { jobId: null }) } })
   const now = new Date()
   for (const n of rows.filter(n => n.link?.includes(`co=${encodeURIComponent(co.id)}`) || new RegExp(`\\bCO-${co.number}\\b`).test(n.body))) {
-    await prisma.notification.update({ where: { id: n.id }, data: { read: true, readAt: n.readAt ?? now, title: `Sent and signed: CO-${co.number}, ${customer}` } })
+    const body = n.body.replace(/ Send it to .*$/, ` ${customer} signed it.`)
+    await prisma.notification.update({ where: { id: n.id }, data: { read: true, readAt: n.readAt ?? now, title: `Change order OK'd and signed: CO-${co.number}, ${customer}`, body } })
   }
 }
 

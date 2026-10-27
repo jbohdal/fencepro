@@ -59,3 +59,21 @@ export function workSummary(work: WorkWordsInput | null | undefined): string | n
   const s = workScope({ type: work.type as 'repair' | 'move', crew: work.crew ?? [], description: work.description ?? '' })
   return s ? `${s.title}: ${s.items.join(' · ')}` : null
 }
+
+/**
+ * What the office and the crew call the job's work: "Repair" for a repair,
+ * else "Install" (a new fence, and a fence move, which puts a fence up in its
+ * new place). Recheck Oct 27 2026: a repair's job page, task and crew packet
+ * said "Schedule install", "Install packet" and "Install: 1 crew day".
+ */
+export const installWord = (work: { type?: unknown } | null | undefined): 'Repair' | 'Install' => (work && typeof work === 'object' && work.type === 'repair' ? 'Repair' : 'Install')
+
+/**
+ * A line written for a new fence, said of a repair: "install" and
+ * "installation" become "repair" (a capital letter kept), so the rule's own
+ * task title "Schedule the install for {name}" reads "Schedule the repair for
+ * …" on a repair job. Anything else is left as written.
+ */
+export function repairWording(text: string): string {
+  return text.replace(/\binstall(?:ation)?\b/gi, m => (m[0] === 'I' ? 'Repair' : 'repair'))
+}

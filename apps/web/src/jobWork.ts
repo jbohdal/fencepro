@@ -5,7 +5,7 @@
  */
 
 import { getQuoteById } from './quoteStore'
-import { sectionsCell, sizeText, workSummary } from './moveRepair'
+import { sectionsCell, sizeText, workSummary, installWord } from './moveRepair'
 import { styleLabel } from './fenceCatalog'
 
 const workOf = (job: { quoteId?: string | null }) => (job.quoteId ? getQuoteById(job.quoteId)?.work ?? null : null)
@@ -25,3 +25,9 @@ export const styleOrWork = (fenceStyle: string | null | undefined, work: Paramet
 
 /** The same for a job or a card, from its quote. */
 export const jobStyleOrWork = (job: { fenceStyle?: string | null; quoteId?: string | null }) => styleOrWork(job.fenceStyle, workOf(job))
+
+/** A repair job (its quote's work): Advance passes over Need Drawing, and the office's and crew's words say Repair. */
+export const isRepairJob = (job: { quoteId?: string | null } | null | undefined) => !!job && installWord(workOf(job)) === 'Repair'
+
+/** "Install" or "Repair": what the job page, the packet and Schedule call the job's work (workWords.ts installWord). */
+export const jobInstallWord = (job: { quoteId?: string | null } | null | undefined) => (job ? installWord(workOf(job)) : 'Install')

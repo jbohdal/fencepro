@@ -30,6 +30,7 @@ import { billingStatusOf } from '../../portal/src/server/lib/jobReadiness'
 import { startTouch } from './followUpStore'
 import { getPipeline } from './pipelineStore'
 import { getCustomerById } from './customerStore'
+import { jobInstallWord } from './jobWork'
 
 /* ── The customer's phone ───────────────────────────────────────────────── */
 
@@ -198,7 +199,7 @@ export function JobMilestones({ job, onMarkInstalled }: { job: Job; onMarkInstal
                   ? `Ticked by hand${m.tickedBy ? ` by ${m.tickedBy}` : ''}${m.tickedAt ? `, ${new Date(m.tickedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}${m.key ? ` · the job says: ${m.detail}` : ''}`
                   : m.detail}
               </span>
-              {!m.done && !m.byHand && m.key && <span className="block text-[11px] text-gray-400">{m.key === 'locate' ? 'Follows the 811 locate above.' : m.key === 'permit' ? 'Follows the Permit section.' : 'Follows Schedule install.'}</span>}
+              {!m.done && !m.byHand && m.key && <span className="block text-[11px] text-gray-400">{m.key === 'locate' ? 'Follows the 811 locate above.' : m.key === 'permit' ? 'Follows the Permit section.' : `Follows Schedule ${jobInstallWord(job).toLowerCase()}.`}</span>}
             </span>
           </div>
         )

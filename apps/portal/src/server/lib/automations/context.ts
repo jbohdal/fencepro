@@ -64,6 +64,8 @@ export interface EntityContext {
   proposalSentDate: string
   proposalLink: string
   quoteId: string | null
+  /** The quote's work (SavedQuote.work): a repair or a fence move; null for a new fence. */
+  work?: unknown
 }
 
 export async function loadLeads(accountId: string): Promise<{ leads: any[]; version: number }> {
@@ -179,6 +181,7 @@ export async function buildContext(accountId: string, board: Board, entityId: st
     proposalSentDate: sent ? String((sent.proposal as any)?.createdAt || sent.date || '').slice(0, 10) : '',
     proposalLink: proposalLinkFor(shared?.shareToken),
     quoteId: quote?.id ?? null,
+    work: quote?.work ?? null,
   }
 }
 

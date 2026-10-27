@@ -539,11 +539,11 @@ export const MATERIALS_STATUS_CONFIG: Record<MaterialsStatus, { label: string; c
  * Move a job to the next stage on the board (Settings > Operations Stages
  * order), setting the status that stage stands for.
  */
-/** Advance a job one stage (past Permit Pending when `permitOk`: its permit is not needed or issued). */
-export function advanceJob(id: string, permitOk = false): Job | null {
+/** Advance a job one stage (past Permit Pending when `permitOk`: its permit is not needed or issued; past Need Drawing for a `repair`). */
+export function advanceJob(id: string, permitOk = false, repair = false): Job | null {
   const job = getJob(id)
   if (!job || job.status === 'on_hold') return null
-  const next = advanceStage(stageOf(job), permitOk)
+  const next = advanceStage(stageOf(job), permitOk, repair)
   if (!next) return null
   const updates = stageFields(next.id, job, businessDate(new Date())) as Partial<Job> | null
   if (!updates) return null

@@ -46,7 +46,7 @@ import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob }
 import { forCrew } from '../lib/costRedact.js'
 import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
-import { isWorkLine } from '../lib/workWords.js'
+import { isWorkLine, installWord } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
@@ -447,12 +447,14 @@ packetPublic.get('/:token', async (req, res) => {
   const crewNotes = (s.crewNotes ?? []).filter(Boolean).map(forCrew)
   // What the customer told us ("have 2 dogs"), read now so a note added after the packet was sent shows (lib/crewInstall.ts).
   const fromCustomer = await customerNotesForJob(p.accountId, job_.crmContactId).catch(() => [] as string[])
-  const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">Install packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
+  // A repair's packet says Repair ("Repair packet", "Repair: 1 crew day"); recheck Oct 27 2026 (lib/workWords.ts installWord).
+  const W = installWord(s.work)
+  const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">${W} packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
     <button type="button" id="print" class="printbtn noprint">Print / PDF</button></header>
   <main class="wrap">
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
-    <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">Install: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
+    <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">${W}: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
     ${coChange ? `<section class="notes" data-packet-change-order><h2>${esc(packetChangeHeading(coChange))}</h2>${coChange.all.map(a => `<p data-packet-co-item="${a.number}">${coChange.all.length > 1 ? `CO-${a.number}: ` : ''}<b>${esc(a.what)}</b> (approved ${esc(a.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${a.rev ? `, contract rev ${a.rev}` : ''}).</p>`).join('')}<p>The fence, runs and pull sheet below are the new ones, with ${coChange.all.length > 1 ? 'every change above' : 'this change'}.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
@@ -549,7 +551,7 @@ packetPublic.get('/:token', async (req, res) => {
       next();
     });
   })();`
-  res.type('html').send(page(`Install packet: ${job_.customerName}`, body, nonce, script))
+  res.type('html').send(page(`${W} packet: ${job_.customerName}`, body, nonce, script))
 })
 
 /**

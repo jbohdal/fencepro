@@ -30,6 +30,7 @@ import { toast } from './toast'
 import type { SavedQuote } from './QuotesPage'
 import { refreshChangeOrders, quoteWithChanges, signedQuoteOf, CO_EVENT } from './ChangeOrders'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
+import { installWord } from './moveRepair'
 
 const API = (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/install-packets'
 
@@ -261,6 +262,8 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
   const [busy, setBusy] = useState(false)
   const [crewInfo, setCrewInfo] = useState<CrewInstall | null>(() => crewInstallCached(jobId))
   const times = crewInfo?.times ?? []
+  // A repair's packet is the "Repair packet" (workWords.ts installWord; recheck Oct 27 2026).
+  const W = installWord(quote?.work), w = W.toLowerCase()
   useEffect(() => {
     let live = true
     void call<Packet>(`?jobId=${encodeURIComponent(jobId)}`).then(p => { if (live) setPacket(p) })
@@ -282,19 +285,19 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
     setBusy(true)
     const p = await sendInstallPacket(jobId, job, quote)
     setBusy(false)
-    if (!p) { toast.error('Could not make the install packet. Try again.'); return }
+    if (!p) { toast.error(`Could not make the ${w} packet. Try again.`); return }
     setPacket(p)
-    toast.success(packet && !packet.disabledAt ? 'Install packet updated' : 'Install packet ready')
+    toast.success(packet && !packet.disabledAt ? `${W} packet updated` : `${W} packet ready`)
   }
   async function off() {
-    if (!packet || !window.confirm('Turn off this install packet link? The crew will see a page asking them to call the office.')) return
+    if (!packet || !window.confirm(`Turn off this ${w} packet link? The crew will see a page asking them to call the office.`)) return
     if (await call(`/${packet.id}/off`, { method: 'POST' })) setPacket({ ...packet, disabledAt: new Date().toISOString() })
   }
 
   const live = packet && !packet.disabledAt
   const office = can('packets.change')
   const url = live ? packetUrl(packet!.token) : ''
-  const msg = `Install packet for ${job.customerName || 'the job'}: ${url}`
+  const msg = `${W} packet for ${job.customerName || 'the job'}: ${url}`
   return (
     <div className="space-y-2" data-install-packet>
       <p className="text-xs text-gray-600">A private link for the crew: plan with post spacing, counts, gates, pull sheet, photos and notes. No prices. It closes 30 days after the job is marked complete.</p>
@@ -302,7 +305,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
       {live && packet?.changedBy && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-packet-outdated>{packetChangedWords(packet.changedBy)} after this packet was sent. The crew's link already shows the new pull sheet; update the packet for the new site plan.</p>}
       {/* The office sends and updates the packet; the crew may only make a job's first one. */}
       {(office || !live) && <button type="button" className="btn btn-primary w-full" disabled={busy} onClick={send} data-packet-send>
-        <Send size={16} aria-hidden="true" /> {live ? 'Update the install packet' : 'Send install packet'}
+        <Send size={16} aria-hidden="true" /> {live ? `Update the ${w} packet` : `Send ${w} packet`}
       </button>}
       {live && (
         <>
@@ -310,7 +313,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
             <a className="btn btn-secondary" href={url} target="_blank" rel="noreferrer" data-packet-open><ExternalLink size={16} aria-hidden="true" /> Open</a>
             <button type="button" className="btn btn-secondary" onClick={() => navigator.clipboard?.writeText(url).then(() => toast.success('Link copied'))}><Copy size={16} aria-hidden="true" /> Copy link</button>
             <a className="btn btn-secondary" href={`sms:?&body=${encodeURIComponent(msg)}`} data-packet-text><MessageSquare size={16} aria-hidden="true" /> Text it</a>
-            <a className="btn btn-secondary" href={`mailto:?subject=${encodeURIComponent(`Install packet: ${job.customerName || ''}`)}&body=${encodeURIComponent(msg)}`}><Mail size={16} aria-hidden="true" /> Email it</a>
+            <a className="btn btn-secondary" href={`mailto:?subject=${encodeURIComponent(`${W} packet: ${job.customerName || ''}`)}&body=${encodeURIComponent(msg)}`}><Mail size={16} aria-hidden="true" /> Email it</a>
           </div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-gray-600 break-all" data-packet-url>{url}</p>
@@ -324,7 +327,7 @@ export function InstallPacketPanel({ jobId, job, quote }: { jobId: string; job: 
       {live && <p className="text-xs text-gray-700" data-packet-locate>811 locate on the packet: {locateWords(locateOf(getJob(jobId)), businessDate(new Date())).text}. The crew can fill it in there; it is the same locate as on this page.</p>}
       {/* Start and Finish from the installer's home (InstallerHome.tsx). */}
       <div className="text-xs text-gray-700" data-job-install-times>
-        <p className="font-semibold">Install times</p>
+        <p className="font-semibold">{W} times</p>
         {times.length === 0 ? <p>The crew has not tapped Start yet.</p> : (
           <ul>{times.map(t => <li key={t.at} data-install-time={t.kind}>{finishWords(t, crewInfo)} {new Date(t.at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {t.by}</li>)}</ul>
         )}

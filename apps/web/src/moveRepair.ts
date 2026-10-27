@@ -51,6 +51,7 @@ export const REPAIR_ITEMS = workWords.REPAIR_ITEMS
 export const REPAIR_LABEL = workWords.REPAIR_LABEL
 export const workScope = workWords.workScope
 export const workSummary = workWords.workSummary
+export const installWord = workWords.installWord
 export type { RepairItemKey }
 
 export interface MoveRepairSettings {
