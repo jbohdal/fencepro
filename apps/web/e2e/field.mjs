@@ -449,7 +449,11 @@ try {
           if (FLOWS.includes('c') && jobId) a.mediaIds.push(...await flowC(dev, signal, proxy, jobId))
           if (FLOWS.includes('d') && jobId && signal === 'good') await flowD(dev, a, jobId)
         }
-      } catch (e) { check('the run finished', false, String(e?.message || e).split('\n').slice(0, 4).join(' ')) }
+      } catch (e) {
+        // The whole call log: it names what was in the way of a click ("... intercepts pointer events").
+        check('the run finished', false, String(e?.message || e).split('\n').slice(0, 14).join(' '))
+        if (SHOTS && dev.page) await dev.page.screenshot({ path: `${SHOTS}/${dev.short}-${signal}-failed.png` }).catch(() => {})
+      }
       row.seconds = Math.round((Date.now() - t0) / 1000)
       proxy.set('up'); await dev.offline(false)
     }

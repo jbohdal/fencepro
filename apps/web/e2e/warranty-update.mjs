@@ -127,7 +127,8 @@ try {
   d.on('pageerror', e => errors.push(String(e).slice(0, 200)))
   await d.goto(`${APP}/?customer=${contactId}`); await d.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(1200)
   await d.locator('[data-customer-tab="quotes"]').first().click(); await sleep(500)
-  await d.locator('text=$10,656').first().click()
+  // The sent quote's row on the Quotes tab (the summary tiles above can show the same amount).
+  await d.locator(`[data-customer-quote="${quoteIds[0]}"]`).first().click()
   await d.waitForSelector('[data-proposal-send] [data-wu-start]', { timeout: 15000 })
   await d.locator('[data-wu-start]').click()
   await d.waitForSelector('[data-wu-panel] [data-wu-now]')
