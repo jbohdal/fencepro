@@ -299,7 +299,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     // At the time of the OK (round 3 recheck), read for the owner who OK'd it, unread for the office.
     expect(after.every(n => n.createdAt.getTime() >= okAt)).toBe(true)
     expect(after.map(n => [n.recipientRole, n.read]).sort()).toEqual([['admin', true], ['office_staff', false]])
-    expect(await prisma.notification.count({ where: { jobId, recipientId: me.email, title: { startsWith: "OK'd: send it to " } } })).toBe(1)
+    expect(await prisma.notification.count({ where: { jobId, recipientId: me.email, title: { startsWith: "Change order OK'd: CO-" } } })).toBe(1)
     // Her change to the lines of an OK'd one: refused with a send, and on its own it waits for the OK again (it never stays OK'd).
     const more = [{ ...lines[0], amountCents: 90000 }]
     expect((await call(sales, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok.version, lines: more, status: 'sent' })).status).toBe(409)
@@ -604,13 +604,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const after = await prisma.notification.findMany({ where: { id: { in: toOk.map(n => n.id) } } })
     expect(after.every(n => /^Change order OK'd: /.test(n.title))).toBe(true)
     expect(after.find(n => n.id === his.id)!.read).toBe(true)
-    const sendIt = await prisma.notification.findFirst({ where: { jobId, recipientId: me.email, title: { startsWith: "OK'd: send it to " } } })
+    const sendIt = await prisma.notification.findFirst({ where: { jobId, recipientId: me.email, title: { startsWith: "Change order OK'd: CO-" } } })
     expect(sendIt?.read).toBe(false)
+    // Recheck Oct 27 2026: it says what happened (OK'd) and what is next (send it), not "Sent and signed".
+    expect(sendIt?.title).toMatch(/^Change order OK'd: CO-1, .+\. Send it to the customer\.$/)
     // Signed in person: her "send it" is done (read, says signed); the new "Signed" notice tells her.
     await call(owner, 'PATCH', `/api/change-orders/${co.id}`, { baseVersion: ok.version, status: 'sent' })
     expect((await call(owner, 'POST', `/api/change-orders/${co.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
     const done = (await prisma.notification.findUnique({ where: { id: sendIt!.id } }))!
-    expect([done.read, done.title.startsWith('Sent and signed: CO-1, ')]).toEqual([true, true])
-    expect(await prisma.notification.count({ where: { jobId, title: { startsWith: "OK'd: send it to " } } })).toBe(0)
+    expect([done.read, done.title.startsWith("Change order OK'd and signed: CO-1, ")]).toEqual([true, true])
+    expect(done.body).not.toMatch(/Send it to/)
+    expect(done.body).toMatch(/signed it\.$/)
+    expect(await prisma.notification.count({ where: { jobId, title: { startsWith: "Change order OK'd: CO-" } } })).toBe(0)
   })
 })
