@@ -50,7 +50,10 @@ async function setProposalSettings(page, dep, months, apr) {
   await page.locator('[data-deposit-pct]').fill(dep)
   await page.locator('[data-fin-months]').fill(months)
   await page.locator('[data-fin-apr]').fill(apr)
-  await page.locator('button:has-text("Save Changes")').click(); await sleep(1200)
+  // The Settings bar shows Save only when something changed (already set this way: nothing to save).
+  await sleep(300)
+  const save = page.locator('[data-settings-save]')
+  if (await save.isVisible().catch(() => false)) { await save.click(); await sleep(1200) }
 }
 try {
   // ── Settings: deposit, financing and a photo for the tan style ──
@@ -175,9 +178,9 @@ try {
 
   // ── Back in the app: the quote shows the customer's choice ──
   await d.page.goto(`${APP}/?customer=${sold.crmContactId}`); await d.page.waitForSelector('[data-global-appointment]'); await sleep(1200)
-  await d.page.locator('button.capitalize', { hasText: /^quotes/i }).first().click(); await sleep(500)
+  await d.page.locator('[data-customer-tab="quotes"]').click(); await sleep(500)
   // The quote row's price, not the job's "Change order ($…)" button that shows the same amount.
-  await d.page.locator(`text=$${Math.round(sold.finalPrice).toLocaleString('en-US')}`).filter({ hasNotText: /Change order/i }).first().click(); await sleep(800)
+  await d.page.locator(`[data-customer-tab-panel] >> text=$${Math.round(sold.finalPrice).toLocaleString('en-US')}`).filter({ hasNotText: /Change order/i }).first().click(); await sleep(800)
   const chosenText = (await d.page.locator('[data-proposal-chosen]').textContent().catch(() => '')) || ''
   check('the saved quote shows who accepted which option', chosenText.includes('Accepted by Shawn Collins') && chosenText.includes(sixOpt.label), chosenText)
   check('and Text it / Email it / Open buttons, with the link date', await d.page.locator('[data-proposal-text]').count() === 1 && await d.page.locator('[data-proposal-open]').count() === 1 && /Link works until/.test(await d.page.locator('[data-link-state]').textContent()))
