@@ -155,7 +155,7 @@ warrantyUpdatePublic.get('/:token', async (req, res) => {
   }
   const shown = withUpdateWarranties(p, r.options)
   const names = changedNames(r.options)
-  const notice = `<section class="notice" data-wu-note><p>We've updated the warranty on your fence: <b>${esc(names)}</b>. Your price and everything else stay the same.${p.options.length > 1 ? ' Each option shows its warranty.' : ''}</p></section>`
+  const notice = `<section class="notice" data-wu-note><p>We've updated the warranty on your fence: <b>${esc(names)}</b>. Your price and everything else stay the same.${p.options.length > 1 && !r.q.acceptedAt ? ' Each option shows its warranty.' : ''}</p></section>`
   let installDay: string | null = null
   if (r.q.acceptedAt) {
     const job = await prisma.savedJob.findFirst({ where: { accountId: r.q.accountId, quoteId: r.q.id, archivedAt: null }, select: { id: true, completedDate: true } })
@@ -166,6 +166,8 @@ warrantyUpdatePublic.get('/:token', async (req, res) => {
   const photos = await proposalPhotos(r.q)
   // Its terms, the option the quote was made with selected, and no option twice, as on the proposal link.
   const pv = await proposalPage(r.q, shown as Proposal)
+  // Back from a refused signing (accepted meanwhile): it says why first, as on the proposal link.
+  if (req.query.refused) pv.view.refused = true
   res.type('html').send(renderProposal(r.q, pv.p, token, nonce, photos, installDay, notice, pv.view))
 })
 

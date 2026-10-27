@@ -134,6 +134,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed documents (dev database)'
     await prisma.portalFile.deleteMany({ where: { crmCustomerId: contactId } })
     await prisma.crmContact.deleteMany({ where: { accountId } })
     await prisma.notification.deleteMany({ where: { title: { startsWith: 'Proposal accepted: E2E Signed' } } })
+    await prisma.notification.deleteMany({ where: { title: { startsWith: 'Proposal conflict: E2E Signed' } } })
     await prisma.accountKeyValue.deleteMany({ where: { accountId } })
     await prisma.businessState.deleteMany({ where: { accountId } })
     await prisma.crmAccount.delete({ where: { id: accountId } }).catch(() => {})

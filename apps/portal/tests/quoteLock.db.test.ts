@@ -88,6 +88,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     const coIds = (await prisma.crmAuditLog.findMany({ where: { entityType: 'ChangeOrder', newValues: { path: ['quoteId'], string_contains: '' } }, select: { id: true, newValues: true } }))
       .filter(r => ids.quotes.includes((r.newValues as any)?.quoteId)).map(r => r.id)
     await prisma.crmAuditLog.deleteMany({ where: { OR: [{ entityId: { in: [...ids.quotes, ...ids.jobs] } }, { id: { in: coIds } }] } })
+    // The bell notice a refused signing on the link makes (routes/proposal.ts notifyConflict).
+    await prisma.notification.deleteMany({ where: { title: { startsWith: 'Proposal conflict: E2E Quote Lock' } } })
     server?.close()
   })
 

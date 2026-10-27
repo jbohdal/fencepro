@@ -154,13 +154,20 @@ try {
   const dep = (await c.page.locator('#deposit b').textContent()).trim()
   check('choosing an option updates the deposit', dep === '$' + Math.round(sixOpt.finalPrice / 2).toLocaleString('en-US'), dep)
   await c.page.locator('#name').fill('Shawn Collins')
-  const sig = await c.page.locator('#sig').boundingBox()
   // A finger signature: pointer events as a phone sends them.
-  const pt = (i) => ({ clientX: sig.x + 30 + i * 20, clientY: sig.y + 80 + (i % 2 ? -25 : 25), pointerId: 7, pointerType: 'touch', bubbles: true })
-  await c.page.locator('#sig').dispatchEvent('pointerdown', pt(0))
-  for (let i = 1; i <= 12; i++) await c.page.locator('#sig').dispatchEvent('pointermove', pt(i))
-  await c.page.locator('#sig').dispatchEvent('pointerup', pt(12))
+  const signOn = async pg => {
+    await pg.locator('#sig').scrollIntoViewIfNeeded()
+    const sig = await pg.locator('#sig').boundingBox()
+    const pt = (i) => ({ clientX: sig.x + 30 + i * 20, clientY: sig.y + 80 + (i % 2 ? -25 : 25), pointerId: 7, pointerType: 'touch', bubbles: true })
+    await pg.locator('#sig').dispatchEvent('pointerdown', pt(0))
+    for (let i = 1; i <= 12; i++) await pg.locator('#sig').dispatchEvent('pointermove', pt(i))
+    await pg.locator('#sig').dispatchEvent('pointerup', pt(12))
+  }
+  await signOn(c.page)
   if (SHOTS) { await c.page.locator('#accept').scrollIntoViewIfNeeded(); await c.page.screenshot({ path: `${SHOTS}/4-customer-sign.png` }) }
+  // A second phone with the proposal open from before it was signed (the other one of the household).
+  const stale = await open(browser, true)
+  await stale.page.goto(`${API}/p/${token}`); await sleep(1000)
   await c.page.locator('#go').click(); await sleep(2000)
   const err = (await c.page.locator('#err').textContent().catch(() => '')) || ''
   if (err) console.log('page said:', err)
@@ -168,9 +175,36 @@ try {
   check('customer page: accepted, with the option and price', after.includes('Accepted by Shawn Collins') && after.includes(sixOpt.label), after.slice(after.indexOf('Accepted'), after.indexOf('Accepted') + 160))
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/5-customer-accepted.png` })
   check('customer page: read only after accepting (no Accept button)', await c.page.locator('#go').count() === 0)
+  // Signed: only the signed option, no "Save $" on the ones not picked, Accepted and the contract near the top (review Oct 27 2026).
+  const shownAfter = await c.page.locator('.opt[data-option]').evaluateAll(els => els.map(e => e.getAttribute('data-option')))
+  check('customer page after signing: only the signed option, no "Save $"', shownAfter.join() === String(sixIndex) && !after.includes('Save $') && !after.includes('Recommended'), `${shownAfter.join()} vs ${sixIndex}`)
+  // Where the customer is after the reload: on the phone's screen, not scrolled down to where the Accept button was.
+  const acceptedTop = await c.page.locator('[data-accepted]').boundingBox(), pdfTop = await c.page.locator('[data-contract-pdf]').boundingBox(), optTop = await c.page.locator('.opt[data-option]').first().boundingBox()
+  check('customer page after signing: Accepted and the signed contract (PDF) on the first screen, before the fence', !!acceptedTop && !!pdfTop && !!optTop && acceptedTop.y >= 0 && pdfTop.y + pdfTop.height <= 915 && pdfTop.y < optTop.y, `accepted at ${acceptedTop?.y}, pdf at ${pdfTop?.y}, fence at ${optTop?.y}`)
   check('customer page: no page errors', c.errors.length === 0, c.errors.join(' | '))
-  const twice = await fetch(`${API}/p/${token}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option: 0, name: 'Someone else', signature: 'data:image/png;base64,iVBORw0KGgo=' }) })
-  check('cannot be accepted twice', twice.status === 409, String(twice.status))
+  const post = (option, name) => fetch(`${API}/p/${token}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option, name, signature: 'data:image/png;base64,iVBORw0KGgo=' }) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) }))
+  // The same option signed again by someone else of the household: it stands, no error and no bell notice.
+  const spouse = await post(sixIndex, 'Pat Collins')
+  check('the same option signed again (someone else of the household): accepted as it stands, no error', spouse.status === 200 && spouse.json.success === true, `${spouse.status} ${spouse.json.error ?? ''}`)
+  // The second phone, opened before: another option, signed and sent. Refused; the page reloads to what stands, saying why first.
+  check('second phone: the page from before still shows every option', await stale.page.locator('.opt[data-option]').count() === offered.length)
+  await stale.page.locator('.opt').nth(0).click(); await sleep(200)
+  await stale.page.locator('#name').fill('Someone else')
+  await signOn(stale.page)
+  await stale.page.locator('#go').click()
+  await stale.page.waitForSelector('[data-refused]', { timeout: 15000 }).catch(() => {})
+  await sleep(500)
+  const refusedText = ((await stale.page.locator('[data-refused]').textContent().catch(() => '')) || '').trim()
+  const staleText = (await stale.page.locator('body').textContent()).replace(/\s+/g, ' ')
+  const rb = await stale.page.locator('[data-refused]').boundingBox().catch(() => null)
+  check('second phone: the refusal is on the screen, at the top', !!rb && rb.y >= 0 && rb.y + rb.height <= 915, `at ${rb?.y}`)
+  check('second phone: refused, naming the signed option and the number to call', /^This proposal was already accepted for .+\. To make a change, please call us at \(\d{3}\) \d{3} \d{4}\.$/.test(refusedText) && refusedText.includes(`for ${sixOpt.label}.`), refusedText)
+  check('second phone: now shows only the signed option, Accepted, and a plain address', await stale.page.locator('.opt[data-option]').count() === 1 && staleText.includes('Accepted by Shawn Collins') && await stale.page.locator('#go').count() === 0 && !stale.page.url().includes('refused='), stale.page.url())
+  if (SHOTS) await stale.page.screenshot({ path: `${SHOTS}/5b-second-phone-refused.png` })
+  check('second phone: no page errors', stale.errors.length === 0, stale.errors.join(' | '))
+  await stale.ctx.close()
+  const twice = await post(0, 'Someone else')
+  check('cannot be accepted twice (another option)', twice.status === 409 && twice.json.reload === true, `${twice.status} ${twice.json.error}`)
   await c.ctx.close()
 
   const sold = await api(`/api/saved-quotes/${quoteId}`)
@@ -184,9 +218,21 @@ try {
   const notes = await api('/api/automations/notifications')
   const note = (notes.notifications || []).find(n => n.title === `Proposal accepted: ${CUST}`)
   check('an in app notification says who accepted what', !!note && note.body.includes(sixOpt.label), note?.body || 'none')
-  // The second signing was refused; the owner and the office hear what was tried (audit fix Oct 27 2026).
-  const tried = (notes.notifications || []).find(n => n.title === `Proposal not signed: ${CUST}`)
-  check('the refused second signing is on the bell, with what was tried', !!tried && tried.body.startsWith('Someone else tried to accept') && tried.body.includes(`already accepted by Shawn Collins`), tried?.body || 'none')
+  // The second signing was refused; the owner and the office hear what was tried (audit fix Oct 27 2026), the essentials in the title.
+  const conflicts = (notes.notifications || []).filter(n => n.title.startsWith(`Proposal conflict: ${CUST} `))
+  const tried = conflicts[0]
+  check('the refused signing is on the bell: who tried what, and what stands, in the title; a warning', conflicts.length === 1 && tried.title === `Proposal conflict: ${CUST} tried ${q.proposal.options[0].label}; ${sixOpt.label} stands` && tried.type === 'warning' && tried.body.startsWith('Someone else tried to accept') && tried.body.includes(`already accepted by Shawn Collins`), conflicts.map(n => n.title).join(' | ') || 'none')
+  check('the same option signed again made no notice', !(notes.notifications || []).some(n => n.body?.startsWith('Pat Collins')))
+  // Tapping it on a phone: the warning shows whole, and opens the quote on the customer's Quotes tab.
+  const o = await open(browser, true)
+  await o.page.goto(APP); await o.page.waitForSelector('[data-tabbar]', { timeout: 30000 }); await sleep(1000)
+  await o.page.locator('button[aria-label="Notifications"]:visible').first().click(); await sleep(800)
+  const bellRow = o.page.locator(`[data-notification-kind="warning"]:has-text("Proposal conflict: ${CUST}")`).first()
+  check('bell: the conflict is styled as a warning, its title whole', await bellRow.count() === 1 && (await bellRow.textContent()).includes(`${sixOpt.label} stands`))
+  await bellRow.click(); await sleep(2000)
+  check('bell: tapping it opens the quote on the customer\'s Quotes tab', o.page.url().includes(`/customers/${sold.crmContactId}`) && o.page.url().includes(`qv=${quoteId}`) && await o.page.locator('[data-proposal-chosen]').count() > 0, o.page.url())
+  check('bell on a phone: no page errors', o.errors.length === 0, o.errors.join(' | '))
+  await o.ctx.close()
 
   // ── Back in the app: the quote shows the customer's choice ──
   await d.page.goto(`${APP}/?customer=${sold.crmContactId}`); await d.page.waitForSelector('[data-global-appointment]'); await sleep(1200)
@@ -226,7 +272,7 @@ try {
   psql(`delete from "SignedDocument" where "quoteId" in (select id from "SavedQuote" where "crmContactId" = '${contactId}')`)
   psql(`delete from "JobQuotedCost" where "quoteId" in (select id from "SavedQuote" where "crmContactId" = '${contactId}')`)
   psql(`delete from "SavedQuote" where "crmContactId" = '${contactId}'`)
-  psql(`delete from "Notification" where title in ('Proposal accepted: ${CUST}', 'Proposal not signed: ${CUST}')`)
+  psql(`delete from "Notification" where title = 'Proposal accepted: ${CUST}' or title like 'Proposal conflict: ${CUST} %'`)
   psql(`delete from "CrmContactNote" where "crmContactId" = '${contactId}'; delete from "CrmContact" where id = '${contactId}'`)
   await browser.close()
 }

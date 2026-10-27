@@ -44,6 +44,7 @@ import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
 import { stampQuoteTerms } from '../lib/contractTerms.js'
 import { workKindOf } from '../lib/installDays.js'
+import { stampOwnTier, proposalSent } from '../lib/ownTier.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 
@@ -242,6 +243,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     if (data.proposal) data.proposal = await stampQuoteWarranties(req.user.crmAccountId, data.proposal, null, false) as any
     // The terms the customer reads and signs (Settings → Contract Templates) and the company's address, frozen on the proposal (lib/contractTerms.ts).
     if (data.proposal) data.proposal = await stampQuoteTerms(req.user.crmAccountId, data.proposal, null, false, { repair: workKindOf(data.work) === 'repair' }) as any
+    // A best price quote's own option shown as its tier, frozen now: a new proposal has not been sent (lib/ownTier.ts).
+    if (data.proposal) data.proposal = await stampOwnTier(data.proposal, data.fenceStyle, null, false) as any
     const clientId = clientIdSchema.parse(req.body?.id)
     const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedQuote.findUnique({ where: { id } }))
     if (decision.kind === 'exists') {
@@ -330,6 +333,11 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     if (data.proposal) data.proposal = await stampQuoteWarranties(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing)) as any
     // Its terms and the company's address: a sent or signed proposal keeps the ones it went out with (lib/contractTerms.ts).
     if (data.proposal) data.proposal = await stampQuoteTerms(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing), { repair: workKindOf(data.work === undefined ? existing.work : data.work) === 'repair' }) as any
+    // A best price quote's own option shown as its tier: a sent proposal keeps the cards and prices it went out with;
+    // a draft saved before folding was frozen is frozen as it showed when it is sent now (lib/ownTier.ts).
+    const sentBefore = proposalSent(existing) || await signedNow(existing)
+    if (data.proposal) data.proposal = await stampOwnTier(data.proposal, data.fenceStyle ?? existing.fenceStyle, existing.proposal, sentBefore) as any
+    else if (!sentBefore && data.status && data.status !== 'DRAFT' && existing.proposal && (existing.proposal as any).ownTier === undefined) data.proposal = await stampOwnTier(existing.proposal, existing.fenceStyle, null, false) as any
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
       data: {
