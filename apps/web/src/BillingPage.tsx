@@ -13,6 +13,7 @@ import { METHODS, openStaffFile } from './paymentsStore'
 import { toast } from './toast'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
+import { styleLabel } from './fenceCatalog'
 
 const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })
 
@@ -386,7 +387,7 @@ export default function BillingPage() {
     const byId = new Map(all.map(i => [i.id, i]))
     return [
       ...(received ?? []).map(r => ({
-        key: `s-${r.id}`, paidOn: r.paidOn, customerName: r.customerName, jobId: r.jobId as string | null, job: [r.fenceStyle, r.address].filter(Boolean).join(' · '),
+        key: `s-${r.id}`, paidOn: r.paidOn, customerName: r.customerName, jobId: r.jobId as string | null, job: [styleLabel(r.fenceStyle), r.address].filter(Boolean).join(' · '),
         method: methodText(r.method, r.checkNumber), amountCents: r.amountCents, receipt: r.receipt, invoice: null as Invoice | null, invoiceNumber: '',
       })),
       ...legacyPaymentsCounted(all, payments).map((p: Payment) => {
