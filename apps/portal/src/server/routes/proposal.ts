@@ -40,6 +40,7 @@ import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
 import { svgWithNamespace } from '../lib/planSvg.js'
 import { currentTerms, companyAddress, termsOn, type Term } from '../lib/contractTerms.js'
+import { OFFICE_NOTICE_ROLE } from '../lib/notificationService.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -119,6 +120,22 @@ export interface ProposalPageView {
   start?: number
   /** Options not shown: the same fence at the same price as one shown before them. */
   hidden?: number[]
+  /**
+   * Signed in the app (Sold, or its quoted cost saved) but not yet accepted on the link: the option it was
+   * signed for (as shown: its twin when it is hidden as the same fence), the only one the customer can sign.
+   * -1: signed for a fence that is not on this proposal any more, so nothing can be signed here (call us).
+   */
+  sold?: number
+}
+
+/**
+ * The option a quote signed in the app was signed for: its style at its price (the same rule acceptQuote
+ * takes), shown by its twin when it is hidden as the same fence. -1 when no option is that fence and price.
+ */
+export function signedOptionOf(options: Array<Pick<ProposalOption, 'fenceStyle' | 'finalPrice'>>, q: { fenceStyle: string; finalPrice: number }, dup: number[]): number {
+  const own = options.findIndex(o => o.fenceStyle === q.fenceStyle && Math.round(Number(o.finalPrice) * 100) === Math.round(Number(q.finalPrice) * 100))
+  if (own < 0) return -1
+  return (dup[own] ?? -1) >= 0 ? dup[own] : own
 }
 
 /**
@@ -127,7 +144,7 @@ export interface ProposalPageView {
  * signed before), the company's address, the option the quote was made with
  * selected, and any option that is the same fence twice hidden.
  */
-export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; fenceStyle: string; finalPrice: number }, p: Proposal): Promise<{ p: Proposal; view: ProposalPageView }> {
+export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; fenceStyle: string; finalPrice: number }, p: Proposal, signed = false): Promise<{ p: Proposal; view: ProposalPageView }> {
   const m = await pricingModule()
   const frozen = await termsOn(p)
   const terms = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId))
@@ -136,7 +153,9 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
   const dup = m.sameFenceAs(p.options)
   const hidden = dup.map((d, i) => (d >= 0 ? i : -1)).filter(i => i >= 0)
   const start = m.startingOption(p.options, q, p.recommended ?? 0)
-  return { p: shown, view: { start, hidden } }
+  // Sold in the app before the customer signed the link: only the option it was sold for can be signed.
+  const sold = signed && !q.acceptedAt ? signedOptionOf(p.options, q, dup) : undefined
+  return { p: shown, view: { start, hidden, ...(sold === undefined ? {} : { sold }) } }
 }
 
 /** An option's price block: the final price; with "Show as discount" and a reduction, the list price and a Discount line above it. */
@@ -218,7 +237,8 @@ publicProposal.get('/:token', async (req, res) => {
   // Signed on a warranty update link: the accepted option shows the warranty it was signed with (lib/warrantyUpdates.ts).
   const shown = q.acceptedAt ? await overlayAcceptedUpdate(q, p).catch(() => p) : p
   // Its terms, the option the quote was made with selected, and no option twice (proposalPage).
-  const pv = await proposalPage(q, shown)
+  // Already sold in the app: only the option it was sold for can be signed (audit fix: the customer could pick another).
+  const pv = await proposalPage(q, shown, !q.acceptedAt && await signedNow(q))
   res.type('html').send(renderProposal(q, pv.p, token, nonce, photos, installDay, '', pv.view))
 })
 
@@ -360,6 +380,38 @@ async function twinOfSigned(q: { fenceStyle: string; finalPrice: number }, p: Pr
   return dup[own] === option || dup[option] === own
 }
 
+/**
+ * A customer tried to sign the proposal link for something other than what stands (another option, or after
+ * it was accepted): nothing is changed, and the owner and the office hear it on the bell with what the
+ * customer tried, so someone calls them (audit fix Oct 27 2026: the office was never told).
+ * The same try again within 10 minutes (a second tap) is one notice.
+ */
+export async function notifyConflict(q: any, body: { option: number; name: string }, why: 'signed' | 'accepted'): Promise<void> {
+  try {
+    const p = q.proposal as Proposal | null
+    const opts = Array.isArray(p?.options) ? p!.options : []
+    const tried = opts[body.option]
+    const triedText = tried ? `${tried.label} at ${money(tried.finalPrice)}` : 'an option that is not on the proposal'
+    const standing = why === 'accepted' && opts[q.chosenOption ?? -1]
+      ? opts[q.chosenOption]
+      : opts.find(o => o.fenceStyle === q.fenceStyle && Math.round(Number(o.finalPrice) * 100) === Math.round(Number(q.finalPrice) * 100))
+    const standingText = standing ? `${standing.label} at ${money(standing.finalPrice)}` : `${await plainStyleName(q.fenceStyle).catch(() => q.fenceStyle)} at ${money(q.finalPrice)}`
+    const customer = q.customerName || body.name
+    const title = `Proposal not signed: ${customer}`
+    const already = why === 'accepted' && q.acceptedAt
+      ? `it was already accepted${q.acceptedBy ? ` by ${q.acceptedBy}` : ''} on ${new Date(q.acceptedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'America/New_York' })} for ${standingText}`
+      : `it is already signed for ${standingText}`
+    const text = `${body.name} tried to accept ${triedText} on the proposal link, but ${already}. Nothing was changed. Call ${customer} to sort it out.`
+    const recent = await prisma.notification.findFirst({ where: { title, body: text, createdAt: { gte: new Date(Date.now() - 10 * 60_000) } }, select: { id: true } })
+    if (recent) return
+    const job = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null }, select: { id: true } }).catch(() => null)
+    await prisma.notification.create({
+      data: { recipientRole: OFFICE_NOTICE_ROLE, title, body: text, type: 'warning', link: q.crmContactId ? `/?customer=${q.crmContactId}` : null, jobId: job?.id ?? null },
+    })
+    console.log(`[proposal] conflicting acceptance on quote ${q.id}: option ${body.option} by "${body.name}" (${why})`)
+  } catch (err) { console.error('[proposal] conflict notice:', err) }
+}
+
 /** The signed contract PDF, stored once (lib/signedDocuments.ts); a retry makes it if the first try did not. */
 const fileContract = (quoteId: string) => fileSignedContract(quoteId).catch(err => console.error('[proposal] signed contract file:', err))
 
@@ -372,7 +424,10 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   if (!q || q.archivedAt) { return { status: 404, json: { success: false, error: 'This proposal is no longer available.' } } }
   // The same acceptance sent again (the customer's signal dropped before the answer came back): it stands.
   if (q.acceptedAt && q.chosenOption === body.option && q.acceptedBy === body.name) { await fileContract(q.id); return { status: 200, json: { success: true, data: { acceptedAt: q.acceptedAt, option: body.option } }, accepted: false } }
-  if (q.acceptedAt) { return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } } }
+  if (q.acceptedAt) {
+    await notifyConflict(q, body, 'accepted')
+    return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } }
+  }
   if (linkClosed(q)) { return { status: 410, json: { success: false, error: 'This link is no longer active. Please call us.' } } }
   const p = q.proposal as unknown as Proposal | null
   const opt = p?.options?.[body.option]
@@ -381,6 +436,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   // The customer's acceptance is recorded only for the option it was signed at.
   const signed = await signedNow(q)
   if (signed && !(opt.fenceStyle === q.fenceStyle && Math.round(Number(opt.finalPrice) * 100) === Math.round(q.finalPrice * 100)) && !(await twinOfSigned(q, p!, body.option))) {
+    await notifyConflict(q, body, 'signed')
     return { status: 409, json: { success: false, error: 'This proposal was already signed for a different option. Please call us to make a change.' } }
   }
   // The terms the customer just read: frozen on the proposal now if it went out before terms were (lib/contractTerms.ts).
@@ -420,6 +476,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
   if (claimed.count === 0) {
     if (updated.chosenOption === body.option && updated.acceptedBy === body.name) { await fileContract(q.id); return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: false } }
+    await notifyConflict(updated, body, 'accepted')
     return { status: 409, json: { success: false, error: 'This proposal was already accepted.' } }
   }
   console.log(`[proposal] customer accepted quote ${q.id} option ${body.option} (${opt.fenceStyle}) as "${body.name}"`)
@@ -485,7 +542,11 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const hidden = new Set(view.hidden ?? [])
   // Not yet accepted: the option the quote was made with (proposalPage), else the recommended one.
   const startAt = typeof view.start === 'number' && p.options[view.start] && !hidden.has(view.start) ? view.start : rec
-  const chosen = accepted ? (q.chosenOption ?? rec) : startAt
+  // Sold in the app, not yet signed here: the sold option is the only one to sign; -1, none can be (proposalPage).
+  const sold = !accepted && typeof view.sold === 'number' ? (p.options[view.sold] ? view.sold : -1) : null
+  const chosen = accepted ? (q.chosenOption ?? rec) : sold !== null && sold >= 0 ? sold : startAt
+  const notAvailable = (i: number) => sold !== null && i !== sold
+  const canSign = !accepted && sold !== -1
   const shownCount = p.options.length - p.options.filter((_o, i) => hidden.has(i) && i !== chosen).length
   // "Save $X" / "$X more" against the option selected when the page opens (the one the quote was made with).
   const base = p.options[chosen]?.finalPrice ?? p.options[rec]?.finalPrice ?? p.options[0].finalPrice
@@ -498,15 +559,27 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const options = p.options.map((o, i) => {
     // The same fence at the same price as an option shown before it: not shown again (the chosen one always is).
     if (hidden.has(i) && i !== chosen) return ''
+    // Sold for another option: shown, but not available to sign (as on a signed proposal, with a plain word why).
+    if (notAvailable(i)) {
+      return `<label class="opt na" data-option="${i}" data-not-available>
+      <input type="radio" name="option" value="${i}" disabled>
+      <span class="optbody">
+        ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
+        <span class="optlabel">${esc(o.label)}</span>
+        ${optionPriceHtml(p, o)}
+        <span class="nanote">Not available: your fence was already signed${sold! >= 0 ? ` for ${esc(p.options[sold!].label)}` : ''}.</span>
+      </span>
+    </label>`
+    }
     const diff = o.finalPrice - base
     const save = i !== chosen && diff < -0.5 ? `<span class="save">Save ${money(-diff)}</span>` : i !== chosen && diff > 0.5 ? `<span class="more">${money(diff)} more</span>` : ''
     const monthly = fin ? `<p class="monthly">As low as ${monthlyText(monthlyPayment(o.finalPrice, fin.apr ?? 0, fin.months!))}/month for ${fin.months} months${fin.provider ? ` with ${esc(fin.provider)}` : ''}</p>` : ''
     const photo = o.photoId ? `<img class="photo" src="photo/${esc(o.photoId)}" alt="${esc(o.label)}" loading="lazy">` : ''
     return `<label class="opt${i === chosen ? ' on' : ''}" data-option="${i}">
-      <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted ? ' disabled' : ''}>
+      <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted || !canSign ? ' disabled' : ''}>
       ${photo}
       <span class="optbody">
-        ${o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 ? '<span class="badge">Recommended</span>' : ''}
+        ${sold !== null ? (sold >= 0 ? '<span class="badge" data-sold-option>Your fence</span>' : '') : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 ? '<span class="badge">Recommended</span>' : ''}
         ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
@@ -535,14 +608,20 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
   const terms = (p.terms ?? []).filter(t => t && t.text)
   const termsHtml = terms.length ? `<section data-proposal-terms><h2>Terms</h2>${terms.map(t => `<div class="term" data-term="${esc(t.key)}"><h3>${esc(t.title)}</h3><p>${esc(t.text).replace(/\n/g, '<br>')}</p></div>`).join('')}</section>` : ''
   const plan = safeSvg(p.planSvg)
-  const acceptBlock = accepted
+  const callLine = company.phone ? `please call us at ${tel(company.phone)}` : 'please call us'
+  const soldOpt = sold !== null && sold >= 0 ? p.options[sold] : null
+  const acceptBlock = !accepted && sold === -1
+    ? `<section class="done" data-already-signed><h2>Already signed</h2><p>Your fence was already signed with us. To make a change, ${callLine}.</p></section>`
+    : accepted
     ? `<section class="done"><h2>Accepted</h2><p>Accepted by ${esc(q.acceptedBy)} on ${new Date(q.acceptedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}: ${esc(p.options[chosen]?.label)} at ${money(p.options[chosen]?.finalPrice)}.</p><p>Thank you. We will call you to schedule.</p><p><a class="btn linkbtn" href="${esc(token)}/contract.pdf" data-contract-pdf>Your signed contract (PDF)</a></p></section>`
     : `<section id="accept"><h2>Accept this proposal</h2>
-        <p class="small">Choose an option above, type your name and sign with your finger.${terms.length ? ' By signing you accept this proposal and its terms above.' : ''}</p>
+        ${soldOpt
+          ? `<p class="small" data-sold-note>Your fence was signed with us for <b>${esc(soldOpt.label)}</b> at <b>${money(soldOpt.finalPrice)}</b>. Type your name and sign with your finger to accept it here.${terms.length ? ' By signing you accept this proposal and its terms above.' : ''} To change to a different option, ${callLine}.</p>`
+          : `<p class="small">Choose an option above, type your name and sign with your finger.${terms.length ? ' By signing you accept this proposal and its terms above.' : ''}</p>`}
         <label class="field">Your name<input id="name" autocomplete="name" maxlength="200"></label>
         <div class="sigwrap"><canvas id="sig" width="600" height="200" aria-label="Sign here"></canvas><button type="button" id="clear" class="link">Clear</button></div>
         <p id="err" class="err" role="alert"></p>
-        <button type="button" id="go" class="btn">Accept the selected option</button>
+        <button type="button" id="go" class="btn">${soldOpt ? 'Accept my fence' : 'Accept the selected option'}</button>
       </section>`
 
   const body = `<header class="top"><img src="logo.png" alt="" class="logo"><div><p class="co">${esc(company.name || 'Getter Done Fence')}</p><p class="small">${[company.phone ? tel(company.phone) : '', company.email ? esc(company.email) : ''].filter(Boolean).join(' · ')}</p>${company.address ? `<p class="small" data-company-address>${esc(company.address)}</p>` : ''}</div></header>
@@ -558,7 +637,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
     <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>
   </main>`
 
-  const script = trackScript(token) + (accepted ? '' : `
+  const script = trackScript(token) + (!canSign ? '' : `
   (function(){
     var opts=[].slice.call(document.querySelectorAll('.opt'));
     var prices=${JSON.stringify(p.options.map(o => o.finalPrice))};
@@ -573,7 +652,7 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
     c.addEventListener('pointermove',function(e){if(!down)return;var p=pos(e);x.lineTo(p[0],p[1]);x.stroke();e.preventDefault()});
     c.addEventListener('pointerup',function(){down=false});
     document.getElementById('clear').addEventListener('click',function(){x.clearRect(0,0,c.width,c.height);inked=false});
-    var go=document.getElementById('go'),err=document.getElementById('err');
+    var go=document.getElementById('go'),err=document.getElementById('err'),goText=go.textContent;
     go.addEventListener('click',function(){
       var sel=document.querySelector('input[name=option]:checked');var name=document.getElementById('name').value.trim();
       if(!sel){err.textContent='Please choose an option.';return}
@@ -581,8 +660,8 @@ export function renderProposal(q: any, p: Proposal, token: string, nonce: string
       if(!inked){err.textContent='Please sign in the box.';return}
       go.disabled=true;go.textContent='Sending...';err.textContent='';
       fetch('${esc(token)}/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:+sel.value,name:name,signature:c.toDataURL('image/png'),view:window.__proposalView?window.__proposalView():null})})
-        .then(function(r){return r.json()}).then(function(j){if(j.success){location.reload()}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent='Accept the selected option'}})
-        .catch(function(){err.textContent='No connection. Please try again.';go.disabled=false;go.textContent='Accept the selected option'});
+        .then(function(r){return r.json()}).then(function(j){if(j.success){location.reload()}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent=goText}})
+        .catch(function(){err.textContent='No connection. Please try again.';go.disabled=false;go.textContent=goText});
     });
   })();`)
   return page(`Fence proposal for ${p.customer?.name || q.customerName}`, body, nonce, script)
@@ -654,5 +733,6 @@ ul{margin:0;padding-left:20px}.field{display:block;font-size:14px;color:var(--g)
 .sigwrap{position:relative;border:1px dashed #9D7BD0;border-radius:10px;background:#fff}#sig{width:100%;height:160px;touch-action:none;display:block}
 .link{position:absolute;right:4px;top:4px;background:none;border:0;color:var(--p);font-weight:600;font-size:14px;min-height:48px;min-width:64px}
 .btn{width:100%;min-height:52px;margin-top:12px;border:0;border-radius:12px;background:var(--p);color:#fff;font-size:17px;font-weight:700}
+.opt.na{cursor:default;opacity:.55;background:#FAFAFB}.nanote{font-size:14px;font-weight:600;color:var(--g)}
 .btn:disabled{opacity:.6}.err{color:#b91c1c;min-height:1.2em;margin:8px 0 0}.done{border-color:#86efac;background:#f0fdf4}.foot{text-align:center;margin-top:24px}
 `
