@@ -36,6 +36,10 @@ export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG }
 // Settings → Fence styles → Add color / turn a choice off (scripts/stephens-quotes-2026-10-26b.ts: Green chain link).
 export { planAddColor, planUpdateOption, resolveFenceStyles, swapColor, isColorPart } from './fenceCatalog'
 export { kitSetFor } from './materialKits'
+// The contract terms frozen on a proposal and the company's address (server routes/proposal.ts, lib/contractPdf.ts).
+export { stampTerms, proposalTerms, frozenTerms, companyAddressOf } from './contractTerms'
+// Which proposal options are shown and which starts selected (server routes/proposal.ts).
+export { sameFenceAs, shownOptions, startingOption } from './proposalOptions'
 // Warranties per option (server lib/warranties.ts).
 export {
   defaultWarrantySettings, warrantySettingsOf, warrantyForStyle, installKeyOf, signedOptionWarranty, warrantyFromText,

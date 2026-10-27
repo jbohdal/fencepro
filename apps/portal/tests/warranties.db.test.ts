@@ -153,6 +153,26 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranties per option (dev datab
     await prisma.businessState.update({ where: { accountId }, data: { config: cfg, version: { increment: 1 } } })
   })
 
+  test('Contract Templates terms and the company address are frozen on the proposal when saved; a sent one keeps them', async () => {
+    const b = (await prisma.businessState.findUnique({ where: { accountId } }))!
+    const cfg = b.config as any
+    // The sent proposal was saved with today's terms (the defaults: never edited on this company), none of them the warranty.
+    const sent = (await prisma.savedQuote.findUnique({ where: { id: sentId } }))!.proposal as any
+    expect(sent.terms.map((x: any) => x.key)).toEqual(['payment_terms', 'scope_exclusions', 'property_access', 'permits', 'cancellation', 'dispute_resolution'])
+    expect(sent.company?.address).toBeUndefined()
+    await prisma.businessState.update({ where: { accountId }, data: { contractSections: [{ key: 'payment_terms', title: 'Payment Terms', body: 'E2E edited: paid in full up front.', visible: true }] as any, config: { ...cfg, company: { ...(cfg.company ?? {}), address: '1 E2E Way', city: 'Ocala', state: 'FL', zip: '34470' } }, version: { increment: 1 } } })
+    const again = await call('PATCH', `/api/saved-quotes/${sentId}`, { notes: 'called again', proposal: quote('E2E Warranty GBB', GBB(), 1).proposal })
+    expect(again.json.data.proposal.terms).toEqual(sent.terms)
+    expect(again.json.data.proposal.company?.address).toBeUndefined()
+    const page = (await raw(`/p/${token}`)).buf.toString()
+    expect(page).toContain('data-proposal-terms')
+    expect(page).not.toContain('E2E edited')
+    const fresh = await call('POST', '/api/saved-quotes', quote('E2E Terms Fresh', GBB(), 1))
+    expect(fresh.json.data.proposal.terms.find((x: any) => x.key === 'payment_terms').text).toBe('E2E edited: paid in full up front.')
+    expect(fresh.json.data.proposal.company.address).toBe('1 E2E Way, Ocala, FL 34470')
+    await prisma.businessState.update({ where: { accountId }, data: { contractSections: [] as any, config: cfg, version: { increment: 1 } } })
+  })
+
   test('accepting Better (no dig): the signed contract has the Lifetime words; the install date once known; job and service calls', async () => {
     const acc = await call('POST', `/p/${token}/accept`, { option: 1, name: 'E2E Warranty GBB', signature: SIG }, false)
     expect(acc.status).toBe(200)

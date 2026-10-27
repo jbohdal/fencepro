@@ -10,6 +10,7 @@ import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
 import { issueShareToken, turnOffShare } from './savedQuotesApi'
 import { proposalUrl } from './proposal'
+import { shownOptions } from './proposalOptions'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { toast } from './toast'
@@ -107,6 +108,8 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null
+  // The options the customer sees: the same fence at the same price shows once (proposalOptions.ts).
+  const offered = shownOptions(p.options as any).length
   const day = (d: string) => { const t = new Date(typeof d === 'string' ? d : NaN); return Number.isNaN(t.getTime()) ? 'its end date' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   const expired = !offAt && !!expiresAt && new Date(expiresAt).getTime() < Date.now()
   const linkLine = offAt ? `Link turned off ${day(offAt)}. Sending it again makes a new link.`
@@ -125,7 +128,7 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
           Accepted by {quote.acceptedBy} on {new Date(quote.acceptedAt!).toLocaleDateString()}: {chosen.label}, ${Math.round(chosen.finalPrice).toLocaleString('en-US')}.
         </p>
       )}
-      <p className="text-sm text-gray-700">{p.options.length} option{p.options.length === 1 ? '' : 's'} offered{p.depositPct ? `, ${p.depositPct}% deposit` : ''}{p.financing ? `, financing over ${p.financing.months} months` : ''}.</p>
+      <p className="text-sm text-gray-700" data-options-offered={offered}>{offered} option{offered === 1 ? '' : 's'} offered{p.depositPct ? `, ${p.depositPct}% deposit` : ''}{p.financing ? `, financing over ${p.financing.months} months` : ''}.</p>
       {!cfg.proposal?.publicLinks && (
         <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900" data-proposal-private>
           Right now this link opens only on your own phones and computers, not on the customer's phone. Once outside access is set up, turn it on in Settings → Proposals.

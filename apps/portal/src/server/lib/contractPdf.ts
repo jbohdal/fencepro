@@ -18,6 +18,8 @@ import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.
 import { pricingModule } from './estimates.js'
 import { acceptedOnUpdate } from './warrantyUpdates.js'
 import { depositOf, pricedWholeDollar } from './paymentMath.js'
+import { termsOn, companyAddress, type Term } from './contractTerms.js'
+import { plainIp } from './signedDocuments.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -37,7 +39,8 @@ export interface SignedRecord {
 }
 
 export interface ContractInput {
-  company: { name: string; phone: string; email: string }
+  /** address: Settings → Company's street, city, state and ZIP ('' when not filled in: no line is printed). */
+  company: { name: string; phone: string; email: string; address?: string }
   customerName: string
   address: string
   optionLabel: string
@@ -60,8 +63,10 @@ export interface ContractInput {
   /** How it was signed: on the customer's link, or in person (marked Sold in the app). */
   signedHow: 'link' | 'in_person'
   signature: Buffer | null
-  /** The stored signed copy: the signed record (time with zone, IP, what was accepted) under the signature. */
+  /** The signed record (time with zone, IP, what was accepted) under the signature: the stored copy's, or as recorded at signing. */
   signedRecord?: SignedRecord | null
+  /** Settings → Contract Templates as frozen on the proposal when it was signed (lib/contractTerms.ts). */
+  terms?: Term[]
 }
 
 /**
@@ -109,6 +114,8 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
     if (logo) { try { doc.image(logo, L, 40, { fit: [56, 56] }) } catch { /* not a drawable logo */ } }
     doc.font('Helvetica-Bold').fontSize(18).fillColor(PURPLE).text(c.company.name, L + 68, 46)
     doc.font('Helvetica').fontSize(10).fillColor(GRAY).text([phoneText(c.company.phone), c.company.email].filter(Boolean).join('  ·  '), L + 68, 68)
+    // The company's address only when Settings → Company has it: no empty line otherwise.
+    if (c.company.address) doc.font('Helvetica').fontSize(10).fillColor(GRAY).text(c.company.address, L + 68, 82, { width: W - 68 })
     doc.moveTo(L, 108).lineTo(L + W, 108).lineWidth(2).strokeColor(PURPLE).stroke().lineWidth(1)
     doc.font('Helvetica-Bold').fontSize(24).fillColor(INK).text('Fence Contract', L, 124, { width: W, align: 'center' })
     doc.moveDown(0.8)
@@ -138,6 +145,18 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
     doc.moveDown(0.4)
     doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(w.start, L, doc.y, { width: W })
 
+    // The terms the customer read on the proposal and signed, word for word.
+    const terms = (c.terms ?? []).filter(x => x && x.text)
+    if (terms.length) {
+      heading('Terms', 60)
+      for (const x of terms) {
+        need(40)
+        doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(x.title, L, doc.y, { width: W })
+        doc.font('Helvetica').fontSize(9.5).fillColor(INK).text(x.text, L, doc.y, { width: W })
+        doc.moveDown(0.5)
+      }
+    }
+
     // The signature block (and the signed record of a stored copy) stays together on the last page.
     heading('Signed', c.signedRecord ? 240 : 110)
     const sy = doc.y
@@ -155,7 +174,7 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
 
 type Q = {
   id: string; accountId: string; proposal: unknown; chosenOption: number | null; fenceStyle: string; status: string; finalPrice: number
-  acceptedAt: Date | null; acceptedBy: string | null; acceptedSignature: string | null; soldAt: Date | null; work: unknown
+  acceptedAt: Date | null; acceptedBy: string | null; acceptedSignature: string | null; acceptedIp?: string | null; soldAt: Date | null; work: unknown
   customerName: string; customerAddress: string
 }
 
@@ -192,8 +211,13 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
   const sig = /^data:image\/png;base64,(.+)$/.exec(q.acceptedSignature || '')
   // Accepted on the link: the price the customer accepted; signed in person: the quote's price.
   const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
+  // Signed on the link: the signed record (time, IP, what was accepted) on every copy, not only the stored one.
+  const record = signed ?? (q.acceptedAt ? { at: q.acceptedAt, ip: plainIp(q.acceptedIp ?? null), accepted: acceptedOptionText(q) } : null)
   return contractPdf({
-    company: { name: String(p.company?.name || co.name || 'Getter Done Fence'), phone: String(p.company?.phone || co.phone || ''), email: String(p.company?.email || co.email || '') },
+    company: {
+      name: String(p.company?.name || co.name || 'Getter Done Fence'), phone: String(p.company?.phone || co.phone || ''), email: String(p.company?.email || co.email || ''),
+      address: String(p.company?.address || await companyAddress(q.accountId) || ''),
+    },
     customerName: String(p.customer?.name || q.customerName || ''), address: String(p.customer?.address || q.customerAddress || ''),
     optionLabel: String(opt.label || q.fenceStyle), tierLabel: String(opt.tier?.label || ''), price,
     footageFt: Number(p.footageFt) || 0, gatesText: p.kind ? '' : String(p.gatesText || ''),
@@ -202,11 +226,13 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
     warranty, installDate: day ? m.dayText(day) : null,
     acceptedBy: String(q.acceptedBy || ''), acceptedAt: q.acceptedAt ?? q.soldAt ?? null, signedHow: q.acceptedAt ? 'link' : 'in_person',
     signature: sig ? Buffer.from(sig[1], 'base64') : null,
-    signedRecord: signed ?? null,
+    signedRecord: record,
+    // Only the terms frozen on the proposal: what the customer read and signed.
+    terms: (await termsOn(p)) ?? [],
   })
 }
 
 export const CONTRACT_SELECT = {
   id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, finalPrice: true,
-  acceptedAt: true, acceptedBy: true, acceptedSignature: true, soldAt: true, work: true, customerName: true, customerAddress: true,
+  acceptedAt: true, acceptedBy: true, acceptedSignature: true, acceptedIp: true, soldAt: true, work: true, customerName: true, customerAddress: true,
 } as const
