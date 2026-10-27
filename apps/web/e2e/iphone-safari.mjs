@@ -702,13 +702,14 @@ async function cleanup() {
   if (OWNER) await step('contact (API)', () => call('DELETE', `/api/crm-contacts/${T.contactId}`))
   await step('contact', async () => sql(`DELETE FROM "CrmContact" WHERE id = ${lit(T.contactId)}`))
   await step('sign ins', async () => {
+    // First the Salesman login of the reload area, with its sign ins (the owner's Team delete; lib/loginDelete.ts),
+    // while the owner's own sign in still works.
+    if (T.salesman?.id && OWNER) await call('DELETE', `/api/crm-auth/users/${T.salesman.id}`)
     const ids = T.sessions.filter(s => /^[0-9a-f-]{36}$/i.test(s))
     if (ids.length) sql(`DELETE FROM "CrmUserSession" WHERE id IN (${ids.map(lit).join(',')})`)
     // Only its own cookie sign in (lib/staffSession.ts cookieHash: 'ck1:' + sha256): every dev cookie made since
     // it started took other test runs' sign ins with it (they were signed out half way, Oct 26 2026).
     if (COOKIE) sql(`DELETE FROM "CrmUserSession" WHERE "tokenHash" = ${lit('ck1:' + crypto.createHash('sha256').update(COOKIE).digest('hex'))}`)
-    // The Salesman login of the reload area, with its sign ins (the owner's Team delete; lib/loginDelete.ts).
-    if (T.salesman?.id && OWNER) await call('DELETE', `/api/crm-auth/users/${T.salesman.id}`)
   })
   fs.rmSync(T.tmp, { recursive: true, force: true })
   const left = Number(sql(`SELECT (SELECT count(*) FROM "CrmContact" WHERE id = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedQuote" WHERE "crmContactId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedJob" WHERE id = ${jl}) + (SELECT count(*) FROM "Receipt" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "ContractPayment" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "MediaItem" WHERE "customerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "PortalAccount" WHERE "crmCustomerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "IntakeLead" WHERE name LIKE ${lit('E2E iPhone Quote ' + stamp)})`))
