@@ -221,6 +221,18 @@ export function putCrewInstall(jobId: string, patch: Partial<CrewInstall>): void
   window.dispatchEvent(new CustomEvent(CREW_INSTALL_EVENT, { detail: { jobId } }))
 }
 
+/** A service or warranty visit booked with the signed in login (server lib/crewVisits.ts). Never a price. */
+export interface CrewVisit {
+  id: string; type: string; startAt: string; endAt: string | null; allDay: boolean; day: string
+  customerName: string; customerPhone: string; address: string; notes: string
+  ticket: { id: string; issue: string; notes: string; covered: boolean; warrantyName: string; photos: Array<{ id: string; kind: string; thumb: string | null; url: string }> } | null
+  packetToken: string | null
+}
+/** His visits from today on; null with no signal. */
+export async function fetchCrewVisits(): Promise<CrewVisit[] | null> {
+  return call<CrewVisit[]>('/visits')
+}
+
 /** An install's packet link, the customer's notes, Start / Finish so far and the job's finish; null with no signal. */
 export async function fetchCrewInstall(jobId: string): Promise<CrewInstall | null> {
   const r = await call<CrewInstall>(`/crew/${encodeURIComponent(jobId)}`)

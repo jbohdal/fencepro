@@ -44,6 +44,7 @@ import { finishScheduleRows } from '../lib/installScheduling.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { customerNotesForJob, installTimes, recordInstallTime, crewFinishedJob } from '../lib/crewInstall.js'
 import { forCrew } from '../lib/costRedact.js'
+import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
 const todayFl = () => floridaDay(new Date())
@@ -317,6 +318,13 @@ export async function crewFacts(accountId: string, jobId: string) {
   const locate = hasLocate(loc) || startWarning ? { ...locateWords(loc, todayFl()), ticket: loc.ticket, warning: startWarning } : null
   return { lastDay, crewDays, jobDone: crewFinishedJob(times, lastDay), locate, closeOut }
 }
+
+/** The service and warranty visits booked with the signed in login, for My installs (lib/crewVisits.ts). No prices. */
+packetStaff.get('/visits', async (req: any, res) => {
+  try {
+    res.json({ success: true, data: await crewVisitsFor(req.user.crmAccountId, req.user.id) })
+  } catch (err) { console.error('[packet] visits:', err); res.status(500).json({ success: false, error: 'Could not load the visits' }) }
+})
 
 /** For an install on the installer's home: its packet link, the customer's notes, Start and Finish so far, and whether the job is finished. */
 packetStaff.get('/crew/:jobId', async (req: any, res) => {

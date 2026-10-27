@@ -16,7 +16,10 @@ import { getJobs } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
 import { styleLabel } from './fenceCatalog'
-import { fetchCrewInstall, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, jobDoneWords, CREW_INSTALL_EVENT, type CrewInstall, type InstallTime } from './installPacket'
+import { fetchCrewInstall, fetchCrewVisits, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, jobDoneWords, CREW_INSTALL_EVENT, type CrewInstall, type CrewVisit, type InstallTime } from './installPacket'
+import { APPOINTMENTS_UPDATED } from './appointmentsStore'
+import { TYPE_SHORT } from './appointmentLogic'
+import { API_ORIGIN } from './syncHttp'
 import { workSummary } from './moveRepair'
 import MediaGallery from './MediaGallery'
 import { toast } from './toast'
@@ -24,6 +27,8 @@ import { formatPhone } from './phoneFormat'
 import type { SavedQuote } from './QuotesPage'
 import { crewDays, ymd, AHEAD_DAYS, type CrewDay } from './crewDays'
 
+/** A media link from the server (/api/media/f/...), from this page. */
+const apiUrl = (u: string) => (u.startsWith('/') ? API_ORIGIN + u : u)
 const dayWords = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
 const timeWords = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
 
@@ -42,13 +47,33 @@ function useCrewDays(): CrewDay[] {
   }, [tick])
 }
 
+/** The service and warranty visits booked with him (audit Oct 26 2026: one booked for Tuesday never showed). */
+function useCrewVisits(): CrewVisit[] {
+  const [list, setList] = useState<CrewVisit[]>([])
+  useEffect(() => {
+    let live = true
+    const load = () => { void fetchCrewVisits().then(r => { if (live && r) setList(r) }) }
+    load()
+    // A visit booked or moved by the office shows without a reload.
+    const t = setInterval(load, 60_000)
+    window.addEventListener(APPOINTMENTS_UPDATED, load)
+    window.addEventListener('focus', load)
+    return () => { live = false; clearInterval(t); window.removeEventListener(APPOINTMENTS_UPDATED, load); window.removeEventListener('focus', load) }
+  }, [])
+  return list
+}
+
 export default function InstallerHome() {
   const all = useCrewDays()
+  const visits = useCrewVisits()
   const today = ymd(new Date())
   const todays = all.filter(d => d.day === today)
-  const later = all.filter(d => d.day > today)
-  const byDay = new Map<string, CrewDay[]>()
-  for (const d of later) byDay.set(d.day, [...(byDay.get(d.day) ?? []), d])
+  const todaysVisits = visits.filter(v => v.day === today)
+  const byDay = new Map<string, { installs: CrewDay[]; visits: CrewVisit[] }>()
+  const dayOf = (day: string) => { const e = byDay.get(day) ?? { installs: [], visits: [] }; byDay.set(day, e); return e }
+  for (const d of all.filter(d => d.day > today)) dayOf(d.day).installs.push(d)
+  for (const v of visits.filter(v => v.day > today)) dayOf(v.day).visits.push(v)
+  const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b))
 
   return (
     <div className="max-w-xl mx-auto space-y-4 pb-24" data-installer-home>
@@ -59,23 +84,69 @@ export default function InstallerHome() {
 
       <section className="space-y-3" data-installs-today>
         <h2 className="text-sm font-semibold text-gray-900">Today</h2>
-        {todays.length === 0
-          ? <p className="bg-white rounded-2xl border border-gray-200 p-4 text-sm text-gray-600">No install today.</p>
-          : todays.map(d => <InstallCard key={`${d.job.id}-${d.day}`} d={d} today />)}
+        {todays.length === 0 && todaysVisits.length === 0
+          ? <p className="bg-white rounded-2xl border border-gray-200 p-4 text-sm text-gray-600">No install or service visit today.</p>
+          : <>
+            {todays.map(d => <InstallCard key={`${d.job.id}-${d.day}`} d={d} today />)}
+            {todaysVisits.map(v => <VisitCard key={v.id} v={v} />)}
+          </>}
       </section>
 
       <section className="space-y-3" data-installs-upcoming>
         <h2 className="text-sm font-semibold text-gray-900">Coming up</h2>
-        {byDay.size === 0
+        {days.length === 0
           ? <p className="bg-white rounded-2xl border border-gray-200 p-4 text-sm text-gray-600">Nothing booked in the next {AHEAD_DAYS} days.</p>
-          : [...byDay.entries()].map(([day, list]) => (
+          : days.map(([day, list]) => (
             <div key={day} className="space-y-2">
               <p className="text-xs font-semibold text-gray-600">{dayWords(day)}</p>
-              {list.map(d => <InstallCard key={`${d.job.id}-${d.day}`} d={d} />)}
+              {list.installs.map(d => <InstallCard key={`${d.job.id}-${d.day}`} d={d} />)}
+              {list.visits.map(v => <VisitCard key={v.id} v={v} />)}
             </div>
           ))}
       </section>
     </div>
+  )
+}
+
+/** A service or warranty visit: when, where, call, the issue and the office's notes, and the $0 work order. No prices. */
+function VisitCard({ v }: { v: CrewVisit }) {
+  const kind = v.type === 'warranty' ? 'Warranty visit' : v.type === 'service' ? 'Service visit' : TYPE_SHORT[v.type as keyof typeof TYPE_SHORT] ?? 'Visit'
+  return (
+    <article className="bg-white rounded-2xl border border-cyan-200 p-4 space-y-3" data-crew-visit={v.id}>
+      <div>
+        <p className="text-xs font-semibold text-cyan-800 uppercase tracking-wide">{kind}{v.allDay ? '' : ` · ${timeWords(v.startAt)}`}</p>
+        <p className="text-lg font-bold text-gray-900">{v.customerName || 'Customer'}</p>
+        <p className="text-sm text-gray-700">{v.address || 'No address on the visit'}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <a className={`btn btn-secondary min-h-[48px] ${v.address ? '' : 'pointer-events-none opacity-50'}`} href={v.address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(v.address)}` : undefined} target="_blank" rel="noreferrer" data-visit-navigate>
+          <Navigation size={18} aria-hidden="true" /> Navigate
+        </a>
+        <a className={`btn btn-secondary min-h-[48px] ${v.customerPhone ? '' : 'pointer-events-none opacity-50'}`} href={v.customerPhone ? `tel:${v.customerPhone.replace(/[^\d+]/g, '')}` : undefined} data-visit-call>
+          <Phone size={18} aria-hidden="true" /> {v.customerPhone ? formatPhone(v.customerPhone) : 'No phone'}
+        </a>
+      </div>
+      {v.ticket && (
+        <div className="rounded-xl bg-cyan-50 border border-cyan-200 px-3 py-2 space-y-1" data-visit-ticket>
+          <p className="text-sm font-semibold text-cyan-950">{v.ticket.issue}</p>
+          {v.ticket.covered && <p className="text-sm text-cyan-950" data-visit-work-order>Warranty work order: no charge to the customer{v.ticket.warrantyName ? ` (${v.ticket.warrantyName})` : ''}.</p>}
+          {v.ticket.notes && <p className="text-sm text-gray-800 whitespace-pre-wrap">{v.ticket.notes}</p>}
+          {v.ticket.photos.length > 0 && (
+            <div className="grid grid-cols-4 gap-1 pt-1" data-visit-photos>
+              {v.ticket.photos.map(p => (
+                <a key={p.id} href={apiUrl(p.url)} target="_blank" rel="noreferrer" className="block aspect-square bg-gray-100 rounded overflow-hidden">
+                  {p.kind === 'video' ? <span className="grid place-items-center h-full text-xs text-gray-600">Video</span> : <img src={apiUrl(p.thumb ?? p.url)} alt="From the customer" className="w-full h-full object-cover" loading="lazy" />}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {v.notes && <p className="text-sm text-gray-800 bg-gray-50 rounded-xl px-3 py-2 whitespace-pre-wrap" data-visit-notes>{v.notes}</p>}
+      {v.packetToken
+        ? <a className="btn btn-primary w-full min-h-[48px]" href={packetUrl(v.packetToken)} target="_blank" rel="noreferrer" data-visit-packet><FileText size={18} aria-hidden="true" /> Open the work order (crew packet)</a>
+        : v.ticket?.covered && <p className="text-xs text-gray-600">Take Completed photos when it is fixed and tell the office your hours and the materials used.</p>}
+    </article>
   )
 }
 
