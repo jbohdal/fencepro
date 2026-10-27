@@ -1377,8 +1377,11 @@ function CustomerDetail({
               <p className="mt-0.5 text-sm leading-snug [overflow-wrap:anywhere]">
                 {/* On a phone the badges lead the address line, so the name keeps the first line to itself. */}
                 {!wide && badges}
+                {/* On a phone the address is one box of its own (inline-block): beside the pills when it fits, else on
+                    the next line whole, so a wrapped address never runs under a pill ("Job: Awaiting Locates" covered
+                    it on an iPhone, Oct 26 2026) and its whole tap area opens maps. */}
                 {address
-                  ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="font-medium text-gray-900 hover:underline" data-customer-address title="Open in maps">
+                  ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className={`font-medium text-gray-900 hover:underline${wide ? '' : ' inline-block max-w-full align-top'}`} data-customer-address title="Open in maps">
                       <MapPin size={14} className="inline -mt-0.5 mr-1 text-orange-600" aria-hidden="true" />{address}
                     </a>
                   : <span className="text-gray-500" data-customer-address="">No property address yet</span>}
