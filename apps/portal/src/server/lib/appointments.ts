@@ -167,7 +167,7 @@ export function parseCallbackTime(text: string | null | undefined, now: Date = n
 
 /* ── What the browser gets ───────────────────────────────────────────────── */
 
-export const contactSelect = { id: true, firstName: true, lastName: true, phone: true, email: true, serviceAddress: true } as const
+export const contactSelect = { id: true, firstName: true, lastName: true, phone: true, email: true, serviceAddress: true, notes: true } as const
 
 export function toClient(a: any) {
   return {
@@ -181,6 +181,9 @@ export function toClient(a: any) {
     customerName: a.contact ? `${a.contact.firstName || ''} ${a.contact.lastName && a.contact.lastName !== '-' ? a.contact.lastName : ''}`.trim() : '',
     customerPhone: a.contact?.phone || '',
     customerEmail: a.contact?.email || '',
+    // The customer record's notes (what the office typed in Add lead: "wants 6 ft white vinyl, ~150 ft"), so the
+    // Salesman reads them on her visit (audit Oct 26 2026: only the customer page had them).
+    customerNotes: a.contact?.notes || '',
     contact: undefined,
   }
 }

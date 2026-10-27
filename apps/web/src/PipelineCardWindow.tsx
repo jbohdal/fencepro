@@ -124,6 +124,8 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
     if (made) { setDraft(''); setAdding(false); load() }
   }
   const lastNotes = (notes ?? []).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 3)
+  // The customer record's own notes (what the office typed in Add lead), on top (audit Oct 26 2026: "No notes yet").
+  const recordNotes = (customer?.notes || '').trim()
 
   // The jobs of this customer's sold quotes (made when a quote is marked Sold), kept current.
   const [, setJobTick] = useState(0)
@@ -303,12 +305,18 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
                 </div>
               </div>
             )}
+            {recordNotes && (
+              <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2" data-card-record-notes>
+                <p className="text-xs font-semibold text-amber-900">On the customer record</p>
+                <p className="text-sm text-gray-900 whitespace-pre-wrap">{recordNotes}</p>
+              </div>
+            )}
             {!lead.customerId ? (
               <p className="text-sm text-gray-600 mt-1">{lead.notes || 'Notes are kept on the customer record. This lead has none yet.'}</p>
             ) : notes === null ? (
               <p className="text-sm text-gray-500 mt-1">Loading notes…</p>
             ) : lastNotes.length === 0 ? (
-              <p className="text-sm text-gray-600 mt-1">No notes yet.</p>
+              recordNotes ? null : <p className="text-sm text-gray-600 mt-1">No notes yet.</p>
             ) : (
               <ul className="mt-2 space-y-2">
                 {lastNotes.map(n => (
