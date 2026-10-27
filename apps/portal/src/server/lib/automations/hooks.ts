@@ -14,6 +14,7 @@ import { loadPipelineStages } from '../pipelineStages.js'
 import { roleStageId, isSoldStage, stageById } from '../pipelineStageModel.js'
 import prisma from '../prisma.js'
 import { JOB_WAIT_NOTE } from './types.js'
+import { closeTasksSoon } from '../taskAutoClose.js'
 
 type Db = Parameters<typeof recordEvent>[1]
 
@@ -68,6 +69,8 @@ export async function wakeJobWaiters(accountId: string, db?: Db): Promise<number
 
 export async function recordJobChanges(accountId: string, before: any | null, after: any, db?: Db): Promise<void> {
   if (!before) await wakeJobWaiters(accountId, db)
+  // Its automation tasks ("Schedule the install for …") close by themselves once done (lib/taskAutoClose.ts).
+  closeTasksSoon(after.id)
   const at = new Date(after.updatedAt ?? Date.now()).getTime()
   // By stage id (Settings > Operations Stages), so a renamed stage is the same stage.
   const { stages } = await loadOpsStages(accountId, db ?? undefined)

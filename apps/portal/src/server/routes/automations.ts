@@ -51,6 +51,7 @@ import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STAT
 import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { myTasksWhere, seesCompanyTasks } from '../lib/taskScope.js'
+import { closeTasksSoon } from '../lib/taskAutoClose.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -457,6 +458,8 @@ router.put('/permits/:jobId', requireCan('permits.change'), async (req: any, res
     })
     // Two saves of a job's first permit at the same moment: the second finds the first and updates it.
     const permit = await save().catch(e => { if (isUniqueViolation(e)) return save(); throw e })
+    // "File the fence permit for …" closes by itself once it is Approved or Not needed (lib/taskAutoClose.ts).
+    if (before?.status !== permit.status) closeTasksSoon(job.id)
     res.json({ success: true, data: { permit, portal: portalFor(permit.county) } })
   } catch (err) { fail(res, err, 'save the permit') }
 })
