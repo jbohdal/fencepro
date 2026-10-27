@@ -1,8 +1,9 @@
 /**
  * Profit & Loss Statement
  *
- * Combines AR invoices + vendor bills + job costing labor + manual entries
- * into a standard P&L with EBITDA highlighted.
+ * Revenue (installed or payments received: moneyTruth.ts, the same numbers as
+ * the Dashboard and Billing) + vendor bills + job costing labor + manual
+ * entries into a standard P&L with EBITDA highlighted.
  */
 
 import { useState, useMemo, useEffect } from 'react'
@@ -10,14 +11,17 @@ import {
   calculatePl,
   calculateMonthlyPl,
   periodMTD, periodQTD, periodYTD, periodLast12, periodCustom,
-  type PeriodRange, type PlStatement,
+  type PeriodRange, type PlStatement, type RevenueSources,
 } from './plEngine'
+import { BASIS_WORDS, type RevenueBasis } from './moneyTruth'
+import { useReceived, allReceived } from './moneyLoad'
+import { getJobs, getArchivedJobs } from './jobStore'
 import {
   getPlEntries, createPlEntry, updatePlEntry, deletePlEntry, ensureRecurringForPeriod,
   type PlManualEntry, type PlCategory,
 } from './financeStore'
 import { useBackLayer } from './nav'
-import { businessDate } from './businessDate'
+import { businessDate, dayWords } from './businessDate'
 import { loadFinanceLabor } from './takeoffStore'
 import { getConfig } from './configStore'
 
@@ -51,6 +55,16 @@ export default function PLStatementPage() {
   const [viewMode, setViewMode] = useState<'summary' | 'monthly'>('summary')
   const [showEntries, setShowEntries] = useState(false)
   const [bumpKey, setBumpKey] = useState(0)
+  // Revenue basis: installed (accrual, the Dashboard's number) unless the owner picks payments received (cash).
+  const [basis, setBasis] = useState<RevenueBasis>('installed')
+  const { rows: received, error: receivedError } = useReceived()
+  const src: RevenueSources = useMemo(() => ({
+    basis,
+    received: allReceived(received ?? []),
+    // Archived jobs still count (only deleted ones do not), as on the Dashboard.
+    jobs: [...getJobs(), ...getArchivedJobs()],
+  }), [basis, received, bumpKey])
+  const firstPaid = src.received.map(p => p.paidOn).filter(Boolean).sort()[0] ?? ''
   // Crew labor from approved job takeoffs (job costing) goes into Direct Labor once it is loaded.
   useEffect(() => { loadFinanceLabor().then(ok => { if (ok) setBumpKey(k => k + 1) }) }, [])
 
@@ -68,13 +82,13 @@ export default function PLStatementPage() {
     // Auto-populate recurring entries for the period
     const d = new Date()
     ensureRecurringForPeriod(d.getFullYear(), d.getMonth() + 1)
-    return calculatePl(period.from, period.to, period.label)
-  }, [period, bumpKey])
+    return calculatePl(period.from, period.to, period.label, src)
+  }, [period, src])
 
   const monthlyPl: PlStatement[] = useMemo(() => {
     const d = new Date()
-    return calculateMonthlyPl(d.getFullYear(), d.getMonth() + 1, 12)
-  }, [bumpKey])
+    return calculateMonthlyPl(d.getFullYear(), d.getMonth() + 1, 12, src)
+  }, [src])
 
   const positive = pl.ebitda >= 0
 
@@ -83,7 +97,7 @@ export default function PLStatementPage() {
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Profit &amp; Loss Statement</h1>
-          <p className="text-sm text-gray-500 mt-1">Revenue, COGS, operating expenses, and EBITDA for the selected period.</p>
+          <p className="text-sm text-gray-500 mt-1">Revenue, COGS, operating expenses, and EBITDA for the selected period. Revenue: {BASIS_WORDS[basis].name.toLowerCase()}.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowEntries(true)}
@@ -118,14 +132,31 @@ export default function PLStatementPage() {
           <button onClick={() => setViewMode('monthly')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${viewMode === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>Monthly (12)</button>
         </div>
+        <div className="w-full flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Revenue basis">
+          <span className="text-xs font-semibold text-gray-500">Revenue</span>
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+            {(['installed', 'cash'] as const).map(b => (
+              <button key={b} role="radio" aria-checked={basis === b} data-pl-basis={b} onClick={() => setBasis(b)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${basis === b ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>{BASIS_WORDS[b].name}</button>
+            ))}
+          </div>
+          <span className="text-xs text-gray-500">
+            {BASIS_WORDS[basis].how}
+            {basis === 'cash' && firstPaid && <> The first payment recorded in EZ Biz is from {dayWords(firstPaid)}; payments before that are not in it.</>}
+          </span>
+        </div>
       </div>
+
+      {receivedError && <p className="text-sm text-red-700">{receivedError}</p>}
+      <CostWarning pl={pl} />
 
       {/* KPI summary row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <p className="text-xs font-semibold text-gray-400">Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{fmt(pl.revenue.total)}</p>
-          <p className="text-xs text-gray-400 mt-1">{period.label}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1" data-pl-revenue={pl.revenue.total}>{fmt(pl.revenue.total)}</p>
+          <p className="text-xs text-gray-400 mt-1">{period.label} · {pl.revenue.basis === 'cash' ? `${pl.revenue.count} ${pl.revenue.count === 1 ? 'payment' : 'payments'} received` : `${pl.revenue.count} ${pl.revenue.count === 1 ? 'job' : 'jobs'} installed`}</p>
+          <p className="text-xs text-gray-500 mt-1" data-pl-other-basis={pl.revenue.otherBasisCents}>{pl.revenue.basis === 'cash' ? 'Installed' : 'Payments received'}: {fmt(pl.revenue.otherBasisCents)}</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <p className="text-xs font-semibold text-gray-400">Gross Profit</p>
@@ -160,6 +191,29 @@ export default function PLStatementPage() {
   )
 }
 
+// ── What the costs leave out ──
+
+/**
+ * Costs come only from what is entered: vendor bills, approved crew labor
+ * (job takeoffs) and P&L entries. Says so whenever the period has revenue
+ * and costs look missing, so a 99% margin is never read as real.
+ */
+function CostWarning({ pl }: { pl: PlStatement }) {
+  if (pl.revenue.total <= 0) return null
+  const noOpex = pl.opex.total === 0
+  const thin = pl.cogs.total < pl.revenue.total * 0.2
+  if (!noOpex && !thin) return null
+  const parts: string[] = []
+  if (thin) parts.push(`costs of goods are ${fmt(pl.cogs.total)} against ${fmt(pl.revenue.total)} of revenue (${pl.costCheck.takeoffs} of ${pl.costCheck.jobsInstalled} jobs installed in the period have an approved takeoff with crew labor; materials come only from vendor bills entered)`)
+  if (noOpex) parts.push('no operating expenses are entered (overhead, insurance, utilities: vendor bills or Manage Entries)')
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-pl-cost-warning>
+      <p className="font-semibold">Profit here is too high until the costs are entered</p>
+      <p className="mt-1">This period {parts.join('; and ')}. Enter vendor bills and approve job takeoffs, or add P&amp;L entries, and these numbers fill in.</p>
+    </div>
+  )
+}
+
 // ── Summary view ──
 
 function SummaryView({ pl }: { pl: PlStatement }) {
@@ -171,7 +225,7 @@ function SummaryView({ pl }: { pl: PlStatement }) {
       </div>
       <div className="divide-y divide-gray-50">
         <Section label="REVENUE" />
-        <Row label="Fence Installation Revenue" amount={pl.revenue.fenceInstallation} indent={1} />
+        <Row label={pl.revenue.basis === 'cash' ? 'Payments received' : 'Fence installation revenue (jobs installed)'} amount={pl.revenue.fenceInstallation} indent={1} />
         <Row label="Other Revenue" amount={pl.revenue.otherRevenue} indent={1} />
         <Row label="Total Revenue" amount={pl.revenue.total} bold indent={0} />
 
@@ -272,7 +326,7 @@ function MonthlyView({ monthly }: { monthly: PlStatement[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            <MonthRow label="Revenue" values={revenueSeries} bold />
+            <MonthRow label={monthly[0]?.revenue.basis === 'cash' ? 'Revenue (payments received)' : 'Revenue (installed)'} values={revenueSeries} bold />
             <MonthRow label="Materials" values={monthly.map(m => m.cogs.materials)} />
             <MonthRow label="Direct Labor" values={monthly.map(m => m.cogs.directLabor)} />
             <MonthRow label="Subcontractors" values={monthly.map(m => m.cogs.subcontractors)} />
@@ -521,7 +575,7 @@ function exportPlCsv(pl: PlStatement) {
     ['Period', pl.period.label],
     [],
     ['REVENUE'],
-    ['Fence Installation Revenue', (pl.revenue.fenceInstallation / 100).toFixed(2)],
+    [pl.revenue.basis === 'cash' ? 'Payments received (cash basis)' : 'Fence installation revenue (jobs installed, accrual)', (pl.revenue.fenceInstallation / 100).toFixed(2)],
     ['Other Revenue', (pl.revenue.otherRevenue / 100).toFixed(2)],
     ['Total Revenue', (pl.revenue.total / 100).toFixed(2)],
     [],
@@ -586,7 +640,7 @@ function exportPlPdf(pl: PlStatement) {
 <h2>Profit &amp; Loss Statement — ${pl.period.label}</h2>
 <div class="section">Revenue</div>
 <table>
-  <tr><td>Fence Installation Revenue</td><td class="amt">${fmt(pl.revenue.fenceInstallation)}</td></tr>
+  <tr><td>${pl.revenue.basis === 'cash' ? 'Payments received (cash basis)' : 'Fence installation revenue (jobs installed, accrual)'}</td><td class="amt">${fmt(pl.revenue.fenceInstallation)}</td></tr>
   <tr><td>Other Revenue</td><td class="amt">${fmt(pl.revenue.otherRevenue)}</td></tr>
   <tr class="total"><td>Total revenue</td><td class="amt">${fmt(pl.revenue.total)}</td></tr>
 </table>

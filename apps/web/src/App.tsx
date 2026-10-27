@@ -84,7 +84,9 @@ import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import { syncQuote } from './portalSync'
 import { stockWarningsForSheet } from './pendingOrderStore'
 import { fireQuoteSold } from './automationTrigger'
-import { installedRevenueForYear, soldNotInstalled, averageMargin } from './quoteStats'
+import { installedRevenueForYear, soldNotInstalled } from './quoteStats'
+import { marginOf, soldInYear, weightedTarget, leftOutWords } from './moneyTruth'
+import { companyTargets, yearActuals, reportQuotes, quoteMarginTone } from './moneyLoad'
 import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
 import { initBookingTeam, isBookingTeamLoaded } from './bookingTeamStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
@@ -212,10 +214,10 @@ const fmt = (n: number) =>
 
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
 
-function marginColor(pct: number) {
-  if (pct >= 0.34) return 'text-green-600 font-semibold'
-  if (pct >= 0.27) return 'text-yellow-600 font-semibold'
-  return 'text-red-600 font-semibold'
+/** A quote's margin against its own style's Target Margin (Settings › Pricing). */
+function marginColor(q: { gmPct: number; totalCOGS: number; fenceStyle: string }) {
+  const tone = quoteMarginTone(q)
+  return tone === 'good' ? 'text-green-600 font-semibold' : tone === 'near' ? 'text-yellow-600 font-semibold' : tone === 'bad' ? 'text-red-600 font-semibold' : 'text-gray-400'
 }
 
 function loadQuotes(): SavedQuote[] {
@@ -893,21 +895,25 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // Installed revenue by install date, the way the GD Schedule counts it.
   // Archived jobs and quotes still count in the KPIs and reports (only deleted ones do not).
   const reportJobs   = [...jobs, ...getArchivedJobs()]
-  const reportQuotes = [...quotes, ...(getArchivedQuotes() as SavedQuote[])]
   // Reports count a sold quote at its contract: the signed price plus its approved change orders (the job's
   // changeOrderTotal, kept by the server). Only for Reports: the quotes themselves stay as signed.
-  const coByQuote = new globalThis.Map<string, number>(reportJobs.filter(j => j.quoteId && j.changeOrderTotal).map(j => [j.quoteId!, j.changeOrderTotal] as [string, number]))
-  const revenueQuotes = reportQuotes.map(q => (q.status === 'SOLD' && coByQuote.get(q.id) ? { ...q, finalPrice: Math.round((q.finalPrice + coByQuote.get(q.id)!) * 100) / 100 } : q))
+  // (moneyLoad.reportQuotes: the same list the Budget's actuals read.)
+  const revenueQuotes = reportQuotes()
   const ytdRevenue   = installedRevenueForYear(reportJobs, thisYear)
   const openSold     = soldNotInstalled(jobs)
-  const monthQuotes  = reportQuotes.filter(q => {
+  const monthQuotes  = revenueQuotes.filter(q => {
     if (!q.date) return false
     const d = new Date(q.date)
     return d.getMonth() === thisMonth && d.getFullYear() === thisYear
   })
   const monthSold    = monthQuotes.filter(q => q.status === 'SOLD').length
   const openQuotes   = quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length
-  const avgMargin    = averageMargin(quotes)
+  // Gross margin of this year's sold quotes with costs: the same number as Reports' Gross Margin for this year.
+  const yearSold     = soldInYear(revenueQuotes, thisYear)
+  const yearMargin   = marginOf(yearSold)
+  const avgMargin    = yearMargin.margin
+  const targets      = companyTargets()
+  const marginTarget = weightedTarget(getConfig().fenceStyles ?? [], yearSold, targets.minPct / 100) ?? targets.minPct / 100
   const activePipeline = loadPipelineCount()
   const recentQuotes = [...quotes].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)
 
@@ -917,16 +923,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const laborPct     = budget?.laborPct ?? 0.214
   const materialsPct = budget?.materialsPct ?? 0.44
   const netProfitPct = budget?.netProfitPct ?? 0.106
-  const magicNumber  = 1 - overheadPct - netProfitPct
 
   const totalOverhead = budget?.overhead
     ? budget.overhead.filter((o: any) => !o.parentId).reduce((s: number, o: any) => s + (o.annual || 0), 0)
     : 0
 
-  const actualOverheadPct  = revenueGoal > 0 ? totalOverhead / revenueGoal : 0
-  const actualLaborAmt     = revenueGoal * laborPct
-  const actualMaterialsAmt = revenueGoal * materialsPct
-  const actualNetProfit    = revenueGoal * netProfitPct
+  // Actual shares from real records, the same as the Budget page (moneyLoad.yearActuals).
+  const actuals = yearActuals(thisYear, totalOverhead)
   const ytdGoal            = revenueGoal * (thisMonth + 1) / 12
 
   const seesCostsHere = can('costs.view')
@@ -935,15 +938,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     { label: 'Sold this month', value: String(monthSold), sub: `${monthQuotes.length} quoted · ${monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%'} close rate`, tone: 'plain' as const },
     { label: 'Open quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), tone: 'plain' as const },
     { label: 'Active pipeline', value: String(activePipeline), sub: 'leads in progress', tone: 'plain' as const },
-    { label: 'Average margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'Needs quotes with costs' : avgMargin >= 0.34 ? 'On target' : 'Below the 34% target', tone: avgMargin !== null && avgMargin < 0.34 ? 'bad' as const : 'plain' as const },
+    { label: 'Gross margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'Needs sold quotes with costs' : `${avgMargin >= marginTarget - 0.005 ? 'On' : 'Under'} the ${fmtPct(marginTarget)} target · ${yearMargin.withCosts} sold this year with costs`, sub2: leftOutWords(yearMargin), tone: avgMargin !== null && avgMargin < marginTarget - 0.005 ? 'bad' as const : 'plain' as const },
   // Margins and the budget's cost shares are for logins that see costs; the office, a Salesman and the crew see prices only.
-  ].filter(k => seesCostsHere || k.label !== 'Average margin')
+  ].filter(k => seesCostsHere || k.label !== 'Gross margin')
 
+  const pctOr = (n: number | null) => (n === null ? '—' : fmtPct(n))
   const budgetBuckets = [
-    { label: 'Overhead', target: fmtPct(overheadPct), actual: fmtPct(actualOverheadPct), amount: fmt(totalOverhead), ok: actualOverheadPct <= overheadPct + 0.02 },
-    { label: 'Labor & Commission', target: fmtPct(laborPct), actual: fmtPct(laborPct), amount: fmt(actualLaborAmt), ok: true },
-    { label: 'Materials', target: fmtPct(materialsPct), actual: fmtPct(materialsPct), amount: fmt(actualMaterialsAmt), ok: true },
-    { label: 'Net Profit', target: fmtPct(netProfitPct), actual: fmtPct(netProfitPct), amount: fmt(actualNetProfit), ok: netProfitPct >= 0.08 },
+    { label: 'Overhead', target: fmtPct(overheadPct), actual: pctOr(actuals.overheadPct), amount: `${fmt(totalOverhead)} a year (budget)`, ok: actuals.overheadPct === null || actuals.overheadPct <= overheadPct + 0.02 },
+    { label: 'Labor & Commission', target: fmtPct(laborPct), actual: pctOr(actuals.laborPct), amount: `on ${actuals.withCosts} sold jobs with costs`, ok: actuals.laborPct === null || actuals.laborPct <= laborPct + 0.02 },
+    { label: 'Materials', target: fmtPct(materialsPct), actual: pctOr(actuals.materialsPct), amount: `on ${actuals.withCosts} sold jobs with costs`, ok: actuals.materialsPct === null || actuals.materialsPct <= materialsPct + 0.02 },
+    { label: 'Net Profit', target: fmtPct(netProfitPct), actual: pctOr(actuals.netProfitPct), amount: 'estimated: gross margin − overhead', ok: actuals.netProfitPct === null || actuals.netProfitPct >= netProfitPct - 0.02 },
   ]
 
   const sidebarW = sidebarCollapsed ? 'w-16' : 'w-56'
@@ -1302,7 +1306,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                           <p className="text-sm text-gray-500">{[styleLabel(q.fenceStyle), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</span>}
+                          {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(q)}`}>{fmtPct(q.gmPct)}</span>}
                           <span className="text-sm font-semibold text-gray-900">{fmt(q.finalPrice)}</span>
                           <span className={`chip ${STATUS_COLORS[q.status]}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                         </div>
@@ -1324,7 +1328,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       { label: 'Close Rate', value: monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%' },
                       { label: 'Revenue Closed', value: fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0)) },
                       { label: 'Avg Deal Size', value: monthSold > 0 ? fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0) / monthSold) : '$0' },
-                      ...(seesCostsHere ? [{ label: 'Target Margin', value: fmtPct(1 - magicNumber) }] : []),
+                      ...(seesCostsHere ? [{ label: 'Target Margin', value: targets.words }] : []),
                     ].map(row => (
                       <div key={row.label} className="flex items-center justify-between">
                         <span className="text-sm text-gray-500">{row.label}</span>
@@ -1340,13 +1344,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="font-semibold text-gray-900">Budget Targets</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Target Margin: <span className="font-bold text-gray-700">{fmtPct(1 - magicNumber)}</span> · Revenue Goal: <span className="font-bold text-gray-700">{fmt(revenueGoal)}</span></p>
+                    <p className="text-xs text-gray-400 mt-0.5">Target Margin (Settings › Pricing): <span className="font-bold text-gray-700" data-dash-target-margin>{targets.words}</span> · Revenue Goal: <span className="font-bold text-gray-700">{fmt(revenueGoal)}</span> · Actual: this year's sold jobs with costs{yearMargin.leftOut.length ? ` (${yearMargin.leftOut.length} without left out)` : ''}</p>
                   </div>
                   <button onClick={() => setActive('Budget')} className="text-orange-500 text-sm hover:underline">Edit in Budget</button>
                 </div>
                 <div className="grid grid-cols-4 gap-4">
                   {budgetBuckets.map(b => (
-                    <div key={b.label} className="bg-gray-50 rounded-xl p-4">
+                    <div key={b.label} className="bg-gray-50 rounded-xl p-4" data-dash-bucket={b.label}>
                       <p className="text-xs text-gray-500 font-medium">{b.label}</p>
                       <p className={`text-2xl font-bold mt-1 ${b.ok ? 'text-green-600' : 'text-red-500'}`}>{b.actual}</p>
                       <p className="text-xs text-gray-400 mt-1">{b.amount}</p>
@@ -1368,7 +1372,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       {searchOpen && (
         <ScreenErrorBoundary name="Search" window onBack={() => { setSearchOpen(false); setSearchQuery('') }}><GlobalSearch
           onClose={() => { setSearchOpen(false); setSearchQuery('') }}
-          quotes={reportQuotes}
+          quotes={[...quotes, ...(getArchivedQuotes() as SavedQuote[])]}
           jobs={reportJobs}
           pages={ALL_NAV_ITEMS.filter(i => i.roles.includes(role)).map(i => i.name)}
           openCustomer={openCustomerFromAnywhere}

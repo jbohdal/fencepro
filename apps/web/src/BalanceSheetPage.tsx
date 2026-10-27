@@ -1,8 +1,12 @@
 /**
  * Balance Sheet
  *
- * Auto-populated:  A/R (from invoices), A/P (from vendor bills).
- * Manually maintained: all other current/fixed/other assets, liabilities, equity.
+ * From the records:  Accounts Receivable = what the Billing page shows as
+ *                    Outstanding (moneyTruth.receivablesTotal), Accounts
+ *                    Payable = open vendor bills.
+ * Typed in the editor: cash, equipment, loans, equity and the rest.
+ * It always balances: equity not typed is worked out (assets - liabilities)
+ * and shown as its own line with what is missing (moneyTruth.balanceSheet).
  */
 
 import { useState, useMemo } from 'react'
@@ -10,11 +14,12 @@ import {
   getBsEntries, getBsEntriesAsOf, createBsEntry, updateBsEntry, deleteBsEntry,
   type BalanceSheetEntry, type BalanceSheetCategory,
 } from './financeStore'
-import { getInvoices } from './billingStore'
 import { getBills } from './vendorStore'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
+import { balanceSheet, type BalanceResult } from './moneyTruth'
+import { useReceivables, receivablesNow } from './moneyLoad'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -33,16 +38,6 @@ const CATEGORIES: BalanceSheetCategory[] = [
   'current_liability', 'long_term_liability', 'equity',
 ]
 
-function liveArCents(): number {
-  const invoices = getInvoices()
-  let total = 0
-  for (const inv of invoices) {
-    if (inv.status === 'void') continue
-    if (inv.balanceDueCents > 0) total += inv.balanceDueCents
-  }
-  return total
-}
-
 function liveApCents(): number {
   const bills = getBills()
   let total = 0
@@ -53,10 +48,15 @@ function liveApCents(): number {
   return total
 }
 
+/** "a, b and c". */
+const listWords = (xs: string[]) => xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`
+
 export default function BalanceSheetPage() {
-  const [asOfDate, setAsOfDate] = useState(() => businessDate(new Date()))
+  const today = businessDate(new Date())
+  const [asOfDate, setAsOfDate] = useState(today)
   const [showEditor, setShowEditor] = useState(false)
   const [bumpKey, setBumpKey] = useState(0)
+  const { rows: owed, error: owedError } = useReceivables()
 
   const manualEntries = useMemo(() => getBsEntriesAsOf(asOfDate), [asOfDate, bumpKey])
 
@@ -67,65 +67,47 @@ export default function BalanceSheetPage() {
   }
   for (const e of manualEntries) byCategory[e.category].push(e)
 
-  const ar = liveArCents()
+  // Receivables: the same Outstanding as the Billing page (owed today; the records keep no history of it).
+  const ar = receivablesNow(owed ?? [], today).outstandingCents
   const ap = liveApCents()
-
-  const sumCat = (cat: BalanceSheetCategory): number =>
-    byCategory[cat].reduce((s, e) => s + e.amountCents, 0)
-
-  const totalCurrentAssets = sumCat('current_asset') + ar
-  const totalFixedAssets = sumCat('fixed_asset')
-  const totalOtherAssets = sumCat('other_asset')
-  const totalAssets = totalCurrentAssets + totalFixedAssets + totalOtherAssets
-
-  const totalCurrentLiabilities = sumCat('current_liability') + ap
-  const totalLongTermLiabilities = sumCat('long_term_liability')
-  const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities
-
-  const totalEquity = sumCat('equity')
-  const totalLiabEquity = totalLiabilities + totalEquity
-  const diff = totalAssets - totalLiabEquity
-  const balanced = Math.abs(diff) < 100  // within $1
+  const bs = balanceSheet({ arCents: ar, apCents: ap, entries: manualEntries })
+  const pastDay = asOfDate !== today
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Balance Sheet</h1>
-          <p className="text-sm text-gray-500 mt-1">Assets, liabilities, and equity. A/R and A/P auto-populate from live data.</p>
+          <p className="text-sm text-gray-500 mt-1">Receivables (the same as Billing) and payables come from the records; the rest is typed in the Balance Sheet Editor.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs text-gray-500 font-semibold">As of</label>
-          <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)}
+          <label className="text-xs text-gray-500 font-semibold" htmlFor="bs-as-of">As of</label>
+          <input id="bs-as-of" type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value || today)}
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
           <button onClick={() => setShowEditor(true)}
             className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">Balance Sheet Editor</button>
-          <button onClick={() => exportBsPdf({
-            asOfDate, ar, ap,
-            byCategory,
-            totalCurrentAssets, totalFixedAssets, totalOtherAssets, totalAssets,
-            totalCurrentLiabilities, totalLongTermLiabilities, totalLiabilities,
-            totalEquity, totalLiabEquity, diff, balanced,
-          })}
+          <button onClick={() => exportBsPdf({ asOfDate, ar, ap, byCategory, bs })}
             className="text-sm bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg">Export PDF</button>
         </div>
       </div>
 
-      {/* Balance status */}
-      <div className={`rounded-2xl border p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${balanced ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+      {owedError && <p className="text-sm text-red-700">{owedError} Accounts Receivable shows $0 until it loads.</p>}
+
+      {/* What it is built from, and what is missing */}
+      <div className={`rounded-2xl border p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${bs.missing.length ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`} data-bs-status>
         <div>
-          <p className={`text-sm font-bold ${balanced ? 'text-green-800' : 'text-yellow-800'}`}>
-            {balanced ? '✓ Balanced' : '⚠ Out of Balance'}
+          <p className={`text-sm font-bold ${bs.missing.length ? 'text-amber-900' : 'text-green-800'}`}>
+            {bs.workedOutEquityCents === 0 ? 'Balanced from what is entered' : 'Balanced: equity not entered is worked out'}
           </p>
-          <p className="text-xs text-gray-600 mt-0.5">
-            {balanced
-              ? 'Total Assets equals Total Liabilities + Equity.'
-              : `Difference: ${fmt(diff)} — add manual entries to reconcile.`}
+          <p className="text-xs text-gray-700 mt-0.5">
+            {bs.workedOutEquityCents !== 0 && <>Assets minus liabilities minus the equity typed in leaves {fmt(bs.workedOutEquityCents)}, shown as "Equity not entered (worked out)". </>}
+            {bs.missing.length > 0 && <>Not entered yet: {listWords(bs.missing)}. Add them in the Balance Sheet Editor; until then this sheet shows only receivables and payables.</>}
+            {pastDay && <> Receivables and payables are as of today: the records keep no history of them.</>}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-xs text-gray-500">Total Assets / Liab + Equity</p>
-          <p className="text-sm font-bold text-gray-900">{fmt(totalAssets)} / {fmt(totalLiabEquity)}</p>
+          <p className="text-xs text-gray-500">Total Assets / Liabilities + Equity</p>
+          <p className="text-sm font-bold text-gray-900" data-bs-totals={`${bs.assetsCents}/${bs.liabilitiesAndEquityCents}`}>{fmt(bs.assetsCents)} / {fmt(bs.liabilitiesAndEquityCents)}</p>
         </div>
       </div>
 
@@ -138,14 +120,14 @@ export default function BalanceSheetPage() {
             {byCategory.current_asset.map(e => (
               <BsRow key={e.id} label={e.label} amount={e.amountCents} />
             ))}
-            <BsRow label="Accounts Receivable" amount={ar} autoLabel />
-            <BsRow label="Total Current Assets" amount={totalCurrentAssets} bold />
+            <BsRow label="Accounts Receivable (same as Billing)" amount={ar} autoLabel data="ar" />
+            <BsRow label="Total Current Assets" amount={bs.currentAssetsCents} bold />
 
             <SubHeader label="Fixed Assets" />
             {byCategory.fixed_asset.map(e => (
               <BsRow key={e.id} label={e.label} amount={e.amountCents} />
             ))}
-            <BsRow label="Total Fixed Assets" amount={totalFixedAssets} bold />
+            <BsRow label="Total Fixed Assets" amount={bs.fixedAssetsCents} bold />
 
             {byCategory.other_asset.length > 0 && (
               <>
@@ -153,13 +135,13 @@ export default function BalanceSheetPage() {
                 {byCategory.other_asset.map(e => (
                   <BsRow key={e.id} label={e.label} amount={e.amountCents} />
                 ))}
-                <BsRow label="Total Other Assets" amount={totalOtherAssets} bold />
+                <BsRow label="Total Other Assets" amount={bs.otherAssetsCents} bold />
               </>
             )}
 
             <div className="px-6 py-3 bg-gray-100 font-bold flex justify-between">
               <span>Total Assets</span>
-              <span>{fmt(totalAssets)}</span>
+              <span>{fmt(bs.assetsCents)}</span>
             </div>
           </div>
         </div>
@@ -169,32 +151,33 @@ export default function BalanceSheetPage() {
           <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 font-bold text-xs text-gray-500">Liabilities &amp; Equity</div>
           <div className="divide-y divide-gray-50">
             <SubHeader label="Current Liabilities" />
-            <BsRow label="Accounts Payable" amount={ap} autoLabel />
+            <BsRow label="Accounts Payable (open vendor bills)" amount={ap} autoLabel data="ap" />
             {byCategory.current_liability.map(e => (
               <BsRow key={e.id} label={e.label} amount={e.amountCents} />
             ))}
-            <BsRow label="Total Current Liabilities" amount={totalCurrentLiabilities} bold />
+            <BsRow label="Total Current Liabilities" amount={bs.currentLiabilitiesCents} bold />
 
             <SubHeader label="Long-Term Liabilities" />
             {byCategory.long_term_liability.map(e => (
               <BsRow key={e.id} label={e.label} amount={e.amountCents} />
             ))}
-            <BsRow label="Total Long-Term Liabilities" amount={totalLongTermLiabilities} bold />
+            <BsRow label="Total Long-Term Liabilities" amount={bs.longTermLiabilitiesCents} bold />
 
             <div className="px-6 py-2 bg-gray-50 font-semibold flex justify-between">
               <span>Total Liabilities</span>
-              <span>{fmt(totalLiabilities)}</span>
+              <span>{fmt(bs.liabilitiesCents)}</span>
             </div>
 
             <SubHeader label="Equity" />
             {byCategory.equity.map(e => (
               <BsRow key={e.id} label={e.label} amount={e.amountCents} />
             ))}
-            <BsRow label="Total Equity" amount={totalEquity} bold />
+            {bs.workedOutEquityCents !== 0 && <BsRow label="Equity not entered (worked out)" amount={bs.workedOutEquityCents} worked data="equity-worked-out" />}
+            <BsRow label="Total Equity" amount={bs.equityCents} bold />
 
             <div className="px-6 py-3 bg-gray-100 font-bold flex justify-between">
               <span>Total Liabilities &amp; Equity</span>
-              <span>{fmt(totalLiabEquity)}</span>
+              <span>{fmt(bs.liabilitiesAndEquityCents)}</span>
             </div>
           </div>
         </div>
@@ -214,12 +197,13 @@ function SubHeader({ label }: { label: string }) {
   return <div className="px-6 py-2 text-xs font-semibold text-gray-500 bg-gray-50">{label}</div>
 }
 
-function BsRow({ label, amount, bold, autoLabel }: { label: string; amount: number; bold?: boolean; autoLabel?: boolean }) {
+function BsRow({ label, amount, bold, autoLabel, worked, data }: { label: string; amount: number; bold?: boolean; autoLabel?: boolean; worked?: boolean; data?: string }) {
   return (
-    <div className={`px-6 py-2 flex justify-between items-center text-sm ${bold ? 'bg-gray-50 font-semibold' : ''}`}>
+    <div className={`px-6 py-2 flex justify-between items-center text-sm ${bold ? 'bg-gray-50 font-semibold' : ''} ${worked ? 'italic' : ''}`} data-bs-row={data} data-cents={amount}>
       <span className={`${bold ? 'text-gray-900' : 'text-gray-600'}`} style={{ paddingLeft: bold ? 0 : 16 }}>
         {label}
-        {autoLabel && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Auto</span>}
+        {autoLabel && <span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">From records</span>}
+        {worked && <span className="ml-2 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded not-italic">Worked out</span>}
       </span>
       <span className={bold ? 'text-gray-900' : 'text-gray-700'}>{fmt(amount)}</span>
     </div>
@@ -361,10 +345,9 @@ function BsEntryForm({ initial, onCancel, onSaved }: { initial: BalanceSheetEntr
 function exportBsPdf(ctx: {
   asOfDate: string; ar: number; ap: number;
   byCategory: Record<BalanceSheetCategory, BalanceSheetEntry[]>;
-  totalCurrentAssets: number; totalFixedAssets: number; totalOtherAssets: number; totalAssets: number;
-  totalCurrentLiabilities: number; totalLongTermLiabilities: number; totalLiabilities: number;
-  totalEquity: number; totalLiabEquity: number; diff: number; balanced: boolean;
+  bs: BalanceResult;
 }) {
+  const { bs } = ctx
   const company = getConfig().company?.name || 'Getter Done Fence'
   const rows = (items: BalanceSheetEntry[]) => items.map(e => `<tr><td>${e.label}</td><td class="amt">${fmt(e.amountCents)}</td></tr>`).join('')
 
@@ -385,25 +368,25 @@ function exportBsPdf(ctx: {
 </style></head><body>
 <h1>${company}</h1>
 <h2>Balance Sheet — As of ${ctx.asOfDate}</h2>
-<p><span class="badge ${ctx.balanced ? 'ok' : 'bad'}">${ctx.balanced ? '✓ Balanced' : '⚠ Out of balance by ' + fmt(ctx.diff)}</span></p>
+<p><span class="badge ${bs.missing.length ? 'bad' : 'ok'}">${bs.workedOutEquityCents === 0 ? 'Balanced from what is entered' : 'Balanced: equity not entered is worked out (' + fmt(bs.workedOutEquityCents) + ')'}</span>${bs.missing.length ? ' Not entered yet: ' + listWords(bs.missing) + '.' : ''}</p>
 <div class="grid">
   <div>
     <div class="section">Assets — Current</div>
-    <table>${rows(ctx.byCategory.current_asset)}<tr><td>Accounts Receivable (auto)</td><td class="amt">${fmt(ctx.ar)}</td></tr><tr class="total"><td>Total Current Assets</td><td class="amt">${fmt(ctx.totalCurrentAssets)}</td></tr></table>
+    <table>${rows(ctx.byCategory.current_asset)}<tr><td>Accounts Receivable (same as Billing)</td><td class="amt">${fmt(ctx.ar)}</td></tr><tr class="total"><td>Total Current Assets</td><td class="amt">${fmt(bs.currentAssetsCents)}</td></tr></table>
     <div class="section">Assets — Fixed</div>
-    <table>${rows(ctx.byCategory.fixed_asset)}<tr class="total"><td>Total Fixed Assets</td><td class="amt">${fmt(ctx.totalFixedAssets)}</td></tr></table>
-    ${ctx.byCategory.other_asset.length ? `<div class="section">Other Assets</div><table>${rows(ctx.byCategory.other_asset)}<tr class="total"><td>Total Other Assets</td><td class="amt">${fmt(ctx.totalOtherAssets)}</td></tr></table>` : ''}
-    <table><tr class="total"><td>Total Assets</td><td class="amt">${fmt(ctx.totalAssets)}</td></tr></table>
+    <table>${rows(ctx.byCategory.fixed_asset)}<tr class="total"><td>Total Fixed Assets</td><td class="amt">${fmt(bs.fixedAssetsCents)}</td></tr></table>
+    ${ctx.byCategory.other_asset.length ? `<div class="section">Other Assets</div><table>${rows(ctx.byCategory.other_asset)}<tr class="total"><td>Total Other Assets</td><td class="amt">${fmt(bs.otherAssetsCents)}</td></tr></table>` : ''}
+    <table><tr class="total"><td>Total Assets</td><td class="amt">${fmt(bs.assetsCents)}</td></tr></table>
   </div>
   <div>
     <div class="section">Liabilities — Current</div>
-    <table><tr><td>Accounts Payable (auto)</td><td class="amt">${fmt(ctx.ap)}</td></tr>${rows(ctx.byCategory.current_liability)}<tr class="total"><td>Total Current Liabilities</td><td class="amt">${fmt(ctx.totalCurrentLiabilities)}</td></tr></table>
+    <table><tr><td>Accounts Payable (open vendor bills)</td><td class="amt">${fmt(ctx.ap)}</td></tr>${rows(ctx.byCategory.current_liability)}<tr class="total"><td>Total Current Liabilities</td><td class="amt">${fmt(bs.currentLiabilitiesCents)}</td></tr></table>
     <div class="section">Liabilities — Long Term</div>
-    <table>${rows(ctx.byCategory.long_term_liability)}<tr class="total"><td>Total Long-Term Liabilities</td><td class="amt">${fmt(ctx.totalLongTermLiabilities)}</td></tr></table>
-    <table><tr class="total"><td>Total Liabilities</td><td class="amt">${fmt(ctx.totalLiabilities)}</td></tr></table>
+    <table>${rows(ctx.byCategory.long_term_liability)}<tr class="total"><td>Total Long-Term Liabilities</td><td class="amt">${fmt(bs.longTermLiabilitiesCents)}</td></tr></table>
+    <table><tr class="total"><td>Total Liabilities</td><td class="amt">${fmt(bs.liabilitiesCents)}</td></tr></table>
     <div class="section">Equity</div>
-    <table>${rows(ctx.byCategory.equity)}<tr class="total"><td>Total Equity</td><td class="amt">${fmt(ctx.totalEquity)}</td></tr></table>
-    <table><tr class="total"><td>Total Liabilities &amp; Equity</td><td class="amt">${fmt(ctx.totalLiabEquity)}</td></tr></table>
+    <table>${rows(ctx.byCategory.equity)}${bs.workedOutEquityCents !== 0 ? `<tr><td><i>Equity not entered (worked out)</i></td><td class="amt">${fmt(bs.workedOutEquityCents)}</td></tr>` : ''}<tr class="total"><td>Total Equity</td><td class="amt">${fmt(bs.equityCents)}</td></tr></table>
+    <table><tr class="total"><td>Total Liabilities &amp; Equity</td><td class="amt">${fmt(bs.liabilitiesAndEquityCents)}</td></tr></table>
   </div>
 </div>
 <script>window.print()</script>

@@ -1,14 +1,19 @@
 /**
  * P&L Calculation Engine
  *
- * Combines four data sources into a Profit & Loss statement:
- *   1. AR invoices (revenue)
+ * Combines these sources into a Profit & Loss statement:
+ *   1. Revenue (moneyTruth.ts), on the basis chosen:
+ *        installed (accrual): jobs finished in the period, at contract value
+ *          (the Dashboard's "Revenue this year");
+ *        cash: payments received in the period ("Payment received" on the
+ *          payment schedules, plus hand-made invoices not taken into one).
+ *      Before Oct 26, 2026 it read only the hand-made Billing invoices, so it
+ *      showed one $4,457 invoice and none of the payments received.
  *   2. Vendor bills (COGS + operating expenses, by category)
  *   3. Job costing records (direct labor)
  *   4. Manual P&L entries (depreciation, owner salary, etc.)
  */
 
-import { getInvoices } from './billingStore'
 import { getBills } from './vendorStore'
 import { getPlEntries } from './financeStore'
 import type { PlManualEntry } from './financeStore'
@@ -16,6 +21,17 @@ import type { VendorBillCategory } from './vendorStore'
 import { cloudStorage } from './cloudStorage'
 import { getConfig } from './configStore'
 import { financeLabor } from './takeoffStore'
+import { businessDate } from './businessDate'
+import { cashReceived, installedRevenue, type RevenueBasis, type ReceivedPayment, type JobForRevenue } from './moneyTruth'
+
+/** What revenue is worked out from (loaded by the page). */
+export interface RevenueSources {
+  basis: RevenueBasis
+  /** Payments received (moneyLoad.allReceived). */
+  received: ReceivedPayment[]
+  /** Jobs, archived ones too (not deleted). */
+  jobs: JobForRevenue[]
+}
 
 export interface PlLine {
   key: string
@@ -40,7 +56,15 @@ export interface PlStatement {
     fenceInstallation: number
     otherRevenue: number
     total: number
+    basis: RevenueBasis
+    /** Jobs finished (installed basis) or payments counted (cash basis). */
+    count: number
+    /** The fence revenue on the other basis, for the line under it. */
+    otherBasisCents: number
+    otherBasisCount: number
   }
+  /** Installed jobs in the period, and approved takeoffs (actual crew labor) among their costs. */
+  costCheck: { jobsInstalled: number; takeoffs: number }
   cogs: {
     materials: number
     directLabor: number
@@ -137,24 +161,14 @@ function sumJobCostingLabor(from: Date, to: Date): number {
   } catch { return 0 }
 }
 
-function sumInvoiceRevenue(from: Date, to: Date): number {
-  const invoices = getInvoices().filter(i =>
-    i.status === 'paid' || i.status === 'partially_paid'
-  )
-  let total = 0
-  for (const inv of invoices) {
-    const d = new Date(inv.issuedDate || inv.createdAt)
-    if (inPeriod(d, from, to)) {
-      // Recognize revenue as paid portion for mixed-status invoices
-      total += inv.status === 'paid' ? inv.totalCents : inv.amountPaidCents
-    }
-  }
-  return total
-}
-
-export function calculatePl(from: Date, to: Date, label: string): PlStatement {
-  // Revenue
-  const fenceInstallation = sumInvoiceRevenue(from, to)
+export function calculatePl(from: Date, to: Date, label: string, src: RevenueSources): PlStatement {
+  // Revenue: one source with the Dashboard (installed) and Billing (payments received).
+  const fromDay = businessDate(from), toDay = businessDate(to)
+  const installed = installedRevenue(src.jobs, fromDay, toDay)
+  const cash = cashReceived(src.received, fromDay, toDay)
+  const main = src.basis === 'cash' ? cash : installed
+  const other = src.basis === 'cash' ? installed : cash
+  const fenceInstallation = main.cents
   const otherRevenue = sumManualByCategory(from, to, ['revenue'])
   const totalRevenue = fenceInstallation + otherRevenue
 
@@ -192,7 +206,8 @@ export function calculatePl(from: Date, to: Date, label: string): PlStatement {
 
   return {
     period: { from, to, label },
-    revenue: { fenceInstallation, otherRevenue, total: totalRevenue },
+    revenue: { fenceInstallation, otherRevenue, total: totalRevenue, basis: src.basis, count: main.count, otherBasisCents: other.cents, otherBasisCount: other.count },
+    costCheck: { jobsInstalled: installed.count, takeoffs: financeLabor().filter(t => t.installDate >= fromDay && t.installDate <= toDay).length },
     cogs: { materials, directLabor, subcontractors, equipment, total: totalCogs },
     grossProfit,
     grossMargin,
@@ -210,7 +225,7 @@ export function calculatePl(from: Date, to: Date, label: string): PlStatement {
 }
 
 /** Calculate P&L for each of the trailing N months. */
-export function calculateMonthlyPl(endYear: number, endMonth: number, monthsBack: number): PlStatement[] {
+export function calculateMonthlyPl(endYear: number, endMonth: number, monthsBack: number, src: RevenueSources): PlStatement[] {
   const out: PlStatement[] = []
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   for (let i = monthsBack - 1; i >= 0; i--) {
@@ -219,7 +234,7 @@ export function calculateMonthlyPl(endYear: number, endMonth: number, monthsBack
     while (m <= 0) { m += 12; y-- }
     const from = new Date(y, m - 1, 1, 0, 0, 0)
     const to = new Date(y, m, 0, 23, 59, 59)
-    out.push(calculatePl(from, to, `${MONTHS[m - 1]} ${y}`))
+    out.push(calculatePl(from, to, `${MONTHS[m - 1]} ${y}`, src))
   }
   return out
 }

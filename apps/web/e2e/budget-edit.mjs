@@ -13,7 +13,7 @@
 //     the first key comes right after the tap (no wait), on the 360 phone with
 //     the processor slowed 6 times, and a burst typed at once loses no key;
 //   - Enter and Tab move to the next box; leaving saves once ("Saved" shows);
-//   - Target Margin, the bucket total, the overhead and labor totals and the
+//   - the budget plan's margin (overhead + profit), the bucket total, the overhead and labor totals and the
 //     % of revenue follow right away;
 //   - Undo puts the last change back (and saves that);
 //   - "$1,234.50" pasted into an overhead line is $1,234.50; its monthly box
@@ -145,8 +145,8 @@ async function run(s, original) {
   await page.keyboard.press('Backspace')
   st = await state(goal)
   check(`${s.name}: Backspace takes off one digit`, st.value === '700000' && st.start === 6, JSON.stringify(st))
-  const stat0 = await text(page, '[data-budget-stat="Total Overhead"]')
-  const pctBefore = await page.locator('[data-budget-stat="Total Overhead"]').first().evaluate(e => e.parentElement.lastElementChild.textContent)
+  const stat0 = await text(page, '[data-budget-stat="Overhead (budget)"]')
+  const pctBefore = await page.locator('[data-budget-stat="Overhead (budget)"]').first().evaluate(e => e.parentElement.lastElementChild.textContent)
 
   // Enter: saved, formatted, and on to the next box.
   await page.keyboard.press('Enter')
@@ -154,7 +154,7 @@ async function run(s, original) {
   check(`${s.name}: Enter moves to the next box (Overhead target)`, (await focusedField(page)) === 'overheadPct', await focusedField(page))
   check(`${s.name}: the revenue goal shows $700,000 once left`, (await goal.inputValue()) === '$700,000', await goal.inputValue())
   check(`${s.name}: "Saved" shows after the revenue goal`, await waitSaved(page))
-  const pctAfter = await page.locator('[data-budget-stat="Total Overhead"]').first().evaluate(e => e.parentElement.lastElementChild.textContent)
+  const pctAfter = await page.locator('[data-budget-stat="Overhead (budget)"]').first().evaluate(e => e.parentElement.lastElementChild.textContent)
   const overheadDollars = Number(stat0.replace(/[$,]/g, ''))
   const wantPct = `${(overheadDollars / 700000 * 100).toFixed(1)}%`
   check(`${s.name}: overhead % of revenue follows the goal right away`, pctAfter.startsWith(wantPct) && pctAfter !== pctBefore, `${pctBefore} → ${pctAfter}, want ${wantPct}`)
@@ -172,7 +172,7 @@ async function run(s, original) {
   check(`${s.name}: Overhead target shows 25.5% once left`, (await oh.inputValue()) === '25.5%', await oh.inputValue())
   const np = Math.round((original.netProfitPct ?? 0.106) * 1000) / 10
   const lab = Math.round((original.laborPct ?? 0.214) * 1000) / 10, mat = Math.round((original.materialsPct ?? 0.44) * 1000) / 10
-  check(`${s.name}: Target Margin follows right away (25.5% + profit)`, (await text(page, '[data-budget-target-margin]')) === `${(25.5 + np).toFixed(1)}%`, await text(page, '[data-budget-target-margin]'))
+  check(`${s.name}: the budget plan's margin follows right away (25.5% + profit)`, (await text(page, '[data-budget-plan-margin]')) === `${(25.5 + np).toFixed(1)}%`, await text(page, '[data-budget-plan-margin]'))
   check(`${s.name}: the bucket total follows right away`, (await text(page, '[data-budget-bucket-total]')) === `${Math.round((25.5 + lab + mat + np) * 10) / 10}%`, await text(page, '[data-budget-bucket-total]'))
   check(`${s.name}: "Saved" shows after the overhead target`, await waitSaved(page))
   await shot(s, '2-saved')
@@ -183,7 +183,7 @@ async function run(s, original) {
   if (s.phone) await undo.tap(); else await undo.click()
   await sleep(250)
   check(`${s.name}: Undo puts the overhead target back`, (await oh.inputValue()) === `${origOh}%`, await oh.inputValue())
-  check(`${s.name}: Target Margin back too`, (await text(page, '[data-budget-target-margin]')) === `${(origOh + np).toFixed(1)}%`, await text(page, '[data-budget-target-margin]'))
+  check(`${s.name}: the budget plan's margin back too`, (await text(page, '[data-budget-plan-margin]')) === `${(origOh + np).toFixed(1)}%`, await text(page, '[data-budget-plan-margin]'))
   check(`${s.name}: the undo is saved`, await waitSaved(page))
   check(`${s.name}: Undo left the revenue goal alone`, (await goal.inputValue()) === '$700,000', await goal.inputValue())
 

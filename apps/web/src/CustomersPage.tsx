@@ -65,6 +65,7 @@ import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
 import { CustomerChangeOrderButtons } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
+import { lowTarget } from './moneyLoad'
 
 /** Open a customer's page (a possible match, or the one this customer was merged into). */
 const openCustomerPage = (id: string) => navigate(`/customers/${encodeURIComponent(id)}`)
@@ -1514,7 +1515,7 @@ function CustomerDetail({
                             <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                             <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
-                            {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= 0.34 ? 'text-green-600' : q.margin >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                            {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= lowTarget() ? 'text-green-600' : q.margin >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
                               {(q.margin * 100).toFixed(1)}%
                             </td>}
                             <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{dayWords(q.date)}</td>

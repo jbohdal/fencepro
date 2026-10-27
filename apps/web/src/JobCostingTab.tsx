@@ -9,6 +9,7 @@ import { businessDate } from './businessDate'
 import { can } from './permissions'
 import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars } from './numberText'
+import { lowTarget } from './moneyLoad'
 
 /* ───────── types ───────── */
 
@@ -335,11 +336,11 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
             </div>
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <p className="text-xs text-gray-400">Est GM</p>
-              <p className={`text-lg font-bold ${job.estGM >= 0.34 ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(job.estGM)}</p>
+              <p className={`text-lg font-bold ${job.estGM >= lowTarget() ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(job.estGM)}</p>
             </div>
-            <div className={`rounded-xl p-3 text-center ${job.actGM >= 0.34 ? 'bg-green-50' : job.actGM >= 0.27 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+            <div className={`rounded-xl p-3 text-center ${job.actGM >= lowTarget() ? 'bg-green-50' : job.actGM >= lowTarget() - 0.05 ? 'bg-yellow-50' : 'bg-red-50'}`}>
               <p className="text-xs text-gray-400">Actual GM</p>
-              <p className={`text-lg font-bold ${job.actGM >= 0.34 ? 'text-green-600' : job.actGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>{fmtPct(job.actGM)}</p>
+              <p className={`text-lg font-bold ${job.actGM >= lowTarget() ? 'text-green-600' : job.actGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>{fmtPct(job.actGM)}</p>
             </div>
           </div>
 
@@ -562,7 +563,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Actual GM</p>
-            <p className={`text-2xl font-bold ${stats.avgActGM >= 0.34 ? 'text-green-600' : stats.avgActGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+            <p className={`text-2xl font-bold ${stats.avgActGM >= lowTarget() ? 'text-green-600' : stats.avgActGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
               {fmtPct(stats.avgActGM)}
             </p>
           </div>
@@ -611,7 +612,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgMatVar)}`}>
                     {d.avgMatVar >= 0 ? '+' : ''}{fmtPct(d.avgMatVar)}
                   </td>
-                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${d.avgActGM >= 0.34 ? 'text-green-600' : d.avgActGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${d.avgActGM >= lowTarget() ? 'text-green-600' : d.avgActGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
                     {fmtPct(d.avgActGM)}
                   </td>
                 </tr>
@@ -660,7 +661,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   {j.cogsVariance >= 0 ? '+' : ''}{fmt(j.cogsVariance)}
                 </td>
                 <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{fmtPct(j.estGM)}</td>
-                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${j.actGM >= 0.34 ? 'text-green-600' : j.actGM >= 0.27 ? 'text-yellow-600' : 'text-red-500'}`}>
+                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${j.actGM >= lowTarget() ? 'text-green-600' : j.actGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
                   {fmtPct(j.actGM)}
                 </td>
                 <td data-label="Actions" className="px-2 py-3 text-right">

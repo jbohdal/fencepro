@@ -13,6 +13,8 @@
  *   POST  /:id/texted                  { to } the receipt link went to the phone's texting app (kept on the receipt)
  *   GET   /receipts/:id/pdf            the receipt PDF
  *   GET   /:id/photo                   the check's photo
+ *   GET   /receivables                 every open invoice on the schedules (Billing, the Balance Sheet)
+ *   GET   /received                    every payment received, not voided (P&L and Budget cash basis; owner and office)
  *   GET   /to-confirm                  payments a Salesman recorded, not confirmed yet (owner and office)
  *   POST  /:id/confirm                 confirm one (the receipt does not change)
  *   POST  /:id/void                    { reason } void a payment and its receipt
@@ -38,7 +40,7 @@ import {
 } from '../lib/contractBilling.js'
 import { METHODS } from '../lib/paymentMath.js'
 import { isSignedQuote } from '../lib/quoteLock.js'
-import { closeOutIfDone, receivables, cardFollowsJob } from '../lib/jobTruth.js'
+import { closeOutIfDone, receivables, paymentsReceived, cardFollowsJob } from '../lib/jobTruth.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -76,6 +78,11 @@ router.get('/job/:jobId', async (req: any, res) => {
 // Accounts Receivable: every open invoice on the payment schedules, due and overdue (lib/jobTruth.ts receivables).
 router.get('/receivables', async (req: any, res) => {
   try { res.json({ success: true, data: await receivables(req.user.crmAccountId) }) } catch (e) { fail(res, e, 'load what is owed') }
+})
+
+// Payments received (cash basis revenue for the P&L and the Budget: web moneyTruth.ts).
+router.get('/received', requireCan('billing.change'), async (req: any, res) => {
+  try { res.json({ success: true, data: await paymentsReceived(req.user.crmAccountId) }) } catch (e) { fail(res, e, 'load the payments received') }
 })
 
 router.get('/customer/:contactId', async (req: any, res) => {
