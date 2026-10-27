@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import PhoneLink from './PhoneLink'
 import { can } from './permissions'
-import { styleLabel } from './fenceCatalog'
+import { soldStyleLabel } from './soldStyleLabel'
+import { getQuoteById } from './quoteStore'
 import { jobSectionsCell } from './jobWork'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -23,6 +24,9 @@ import { InstallTextSheet } from './ScheduleInstall'
 import { toast } from './toast'
 import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
 import { lowTarget } from './moneyLoad'
+
+/** A job's fence name: a sold best price job names the panels its runs used, never "(best price)". */
+const jobStyle = (j: Pick<Job, 'fenceStyle' | 'quoteId'>) => soldStyleLabel(j.fenceStyle, j.quoteId ? getQuoteById(j.quoteId) as any : null)
 
 /* ═══════════════════════════════════════════════
    DISPATCH COMMAND CENTER
@@ -269,7 +273,7 @@ export default function DispatchPage() {
         existing.setLatLng([coords.lat, coords.lng])
         existing.setIcon(icon)
       } else {
-        const marker = L.marker([coords.lat, coords.lng], { icon, title: `${job.customerName} — ${styleLabel(job.fenceStyle)}` }).addTo(map)
+        const marker = L.marker([coords.lat, coords.lng], { icon, title: `${job.customerName} — ${jobStyle(job)}` }).addTo(map)
         marker.on('click', () => setSelectedJobId(job.id))
         existingMarkers.set(job.id, marker)
       }
@@ -560,7 +564,7 @@ export default function DispatchPage() {
                             <span className="text-gray-400">{job.totalFeet} ft</span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5 text-gray-400">
-                            <span>{styleLabel(job.fenceStyle)}</span>
+                            <span>{jobStyle(job)}</span>
                             <span>&middot;</span>
                             <span className={MATERIALS_STATUS_CONFIG[job.materialsStatus].color}>
                               {MATERIALS_STATUS_CONFIG[job.materialsStatus].label}
@@ -758,7 +762,7 @@ function DayTimeline({
                         {block.job.customerName}
                       </p>
                       <p className="text-white/80 text-[10px] truncate leading-tight">
-                        {styleLabel(block.job.fenceStyle)} &middot; {block.job.totalFeet} ft
+                        {jobStyle(block.job)} &middot; {block.job.totalFeet} ft
                       </p>
                       {block.job.materialsStatus !== 'loaded' && block.job.materialsStatus !== 'received' && (
                         <div className="absolute top-1 right-1">
@@ -925,7 +929,7 @@ function JobDetailPanel({
       <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs mb-3">
         <div className="flex justify-between">
           <span className="text-gray-400">Style</span>
-          <span className="font-medium text-gray-900">{styleLabel(job.fenceStyle)}</span>
+          <span className="font-medium text-gray-900">{jobStyle(job)}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-gray-400">Total Feet</span>

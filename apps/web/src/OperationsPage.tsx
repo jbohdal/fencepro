@@ -107,9 +107,10 @@ export function kindOfQuote(quoteId: string | null | undefined): 'repair' | 'mov
   return t === 'repair' || t === 'move' ? t : null
 }
 
-/** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move. */
-export function fenceText(j: { fenceType: string; jobKind?: 'repair' | 'move' | null }): string {
-  const style = styleLabel(j.fenceType)
+/** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move; a sold best price job names its panels (soldStyleLabel). */
+export function fenceText(j: { fenceType: string; jobKind?: 'repair' | 'move' | null; rawJob?: { quoteId?: string | null } }): string {
+  const quoteId = j.rawJob?.quoteId
+  const style = soldStyleLabel(j.fenceType, quoteId ? getQuotes().find(q => q.id === quoteId) as any : null)
   if (!j.jobKind) return style
   return [j.jobKind === 'repair' ? 'Repair' : 'Fence move', style].filter(Boolean).join(' · ')
 }
