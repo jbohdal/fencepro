@@ -12,6 +12,7 @@ import PendingOrdersPage from './PendingOrdersPage'
 import { getPendingOrders, updatePendingOrderStatus, type PendingOrderStatus } from './pendingOrderStore'
 import { replaceUrl } from './nav'
 import { can, useCan } from './permissions'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 type InvTab = 'items' | 'sales_orders' | 'operations' | 'invoices'
 
@@ -149,7 +150,7 @@ function OperationsView() {
                         <tbody className="divide-y divide-gray-200">
                           {o.items.map(i => (
                             <tr key={i.id}>
-                              <td className="py-1.5 text-gray-800">{i.itemName}</td>
+                              <td className="py-1.5 text-gray-800">{partWithPair(i.itemName)}</td>
                               <td className="py-1.5 text-right text-gray-700">{i.requiredQuantity}</td>
                               <td className="py-1.5 text-right text-gray-500">{i.quantityOnHandAtTimeOfOrder ?? '—'}</td>
                               <td className="py-1.5 text-right text-gray-700">{costText(i.unitCostCents)}</td>
@@ -177,7 +178,7 @@ function OperationsView() {
                         <button onClick={() => {
                           const w = window.open('', '_blank')
                           if (!w) return
-                          const rows = o.items.map(i => `<tr><td>${i.itemName}</td><td class="r">${i.requiredQuantity}</td><td class="r">${costText(i.unitCostCents)}</td><td class="r">${costText(i.totalCostCents)}</td></tr>`).join('')
+                          const rows = o.items.map(i => `<tr><td>${partWithPair(i.itemName)}</td><td class="r">${i.requiredQuantity}</td><td class="r">${costText(i.unitCostCents)}</td><td class="r">${costText(i.totalCostCents)}</td></tr>`).join('')
                           w.document.write(`<!doctype html><html><head><title>Pull Sheet — ${o.customerName}</title><style>body{font-family:system-ui;padding:32px}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f9fafb;text-align:left;padding:6px;font-size:9px;text-transform:uppercase;color:#6b7280}td{padding:6px;border-bottom:1px solid #f3f4f6}td.r{text-align:right}</style></head><body><h1>Pull Sheet — ${o.customerName}</h1><h2>${o.quoteName} · ${new Date(o.createdAt).toLocaleDateString()}</h2><table><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table><script>window.print()</script></body></html>`)
                           w.document.close()
                         }}

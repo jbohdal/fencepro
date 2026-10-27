@@ -20,6 +20,7 @@ import FillInTab from './FillInTab'
 import { groupCatalog, NEW_ITEMS_GROUP } from './inventorySort'
 import { useMergedRefresh } from './useMergedRefresh'
 import { can } from './permissions'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 import type {
   InventoryItem,
   InventoryLocation, StockLevel,
@@ -124,7 +125,7 @@ function DashboardTab() {
               {txns.map(t => (
                 <div key={t.id} className="px-6 py-3 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{t.itemName}</p>
+                    <p className="text-sm font-medium text-gray-900">{partWithPair(t.itemName)}</p>
                     <p className="text-xs text-gray-400">{new Date(t.createdAt).toLocaleDateString()} · {getLocName(t.locationId)}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -669,7 +670,7 @@ function StockMovementTab() {
             <tbody className="divide-y divide-gray-100">
               {lines.map(line => (
                 <tr key={line.itemId} className="group">
-                  <td className="px-4 py-2.5 font-medium text-gray-900">{line.itemName}</td>
+                  <td className="px-4 py-2.5 font-medium text-gray-900">{partWithPair(line.itemName)}</td>
                   <td className="px-3 py-2.5 text-right">
                     <input type="number" min={1} step={1}
                       className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
@@ -768,7 +769,7 @@ function TransactionsTab() {
             ) : filtered.slice(0, 200).map(t => (
               <tr key={t.id} className={`hover:bg-gray-50 group ${t.reversedBy ? 'opacity-40 line-through' : ''}`}>
                 <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{new Date(t.createdAt).toLocaleString()}</td>
-                <td className="px-3 py-2.5 font-medium text-gray-900 text-xs">{t.itemName}</td>
+                <td className="px-3 py-2.5 font-medium text-gray-900 text-xs">{partWithPair(t.itemName)}</td>
                 <td className="px-3 py-2.5">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${TXN_TYPE_COLORS[t.type]}`}>{TXN_TYPE_LABELS[t.type]}</span>
                 </td>

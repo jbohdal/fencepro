@@ -105,6 +105,7 @@ import GlobalSearch from './GlobalSearch'
 import { isSignedForChange, quoteForChange as latestDrawingQuote, signedQuoteOf } from './ChangeOrders'
 import { DashboardAppointments } from './AppointmentWidgets'
 import { businessDate } from './businessDate'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 /* ───────── role system ───────── */
 
@@ -678,7 +679,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         const warnings = stockWarningsForSheet(q.pullSheet)
         if (warnings.length > 0) {
           toast.warning('Low stock on some materials',
-            warnings.slice(0, 3).map(w => `${w.itemName}: need ${w.required}, have ${w.available}`).join('\n')
+            warnings.slice(0, 3).map(w => `${partWithPair(w.itemName)}: need ${w.required}, have ${w.available}`).join('\n')
           )
         }
       }

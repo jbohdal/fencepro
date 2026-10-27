@@ -11,6 +11,7 @@ import {
 } from './pendingOrderStore'
 import { toast } from './toast'
 import { can } from './permissions'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100)
@@ -137,7 +138,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
   function printPullSheet() {
     const w = window.open('', '_blank')
     if (!w) return
-    const rows = order.items.map(i => `<tr><td>${i.itemName}</td><td class="r">${i.requiredQuantity}</td><td class="r">${costText(i.unitCostCents)}</td><td class="r">${costText(i.totalCostCents)}</td></tr>`).join('')
+    const rows = order.items.map(i => `<tr><td>${partWithPair(i.itemName)}</td><td class="r">${i.requiredQuantity}</td><td class="r">${costText(i.unitCostCents)}</td><td class="r">${costText(i.totalCostCents)}</td></tr>`).join('')
     const html = `<!doctype html><html><head><title>Pull Sheet — ${order.customerName}</title>
 <style>body{font-family:-apple-system,Segoe UI,sans-serif;padding:32px;color:#1f2937}h1{margin:0;font-size:20px}h2{margin:4px 0 16px;font-size:12px;color:#6b7280}table{width:100%;border-collapse:collapse;font-size:12px}th{background:#f9fafb;padding:6px;font-size:9px;text-transform:uppercase;color:#6b7280;text-align:left;font-weight:700}td{padding:6px;border-bottom:1px solid #f3f4f6}td.r{text-align:right}tfoot td{font-weight:700;background:#f9fafb}</style></head><body>
 <h1>Pull Sheet — ${order.customerName}</h1><h2>${order.quoteName} · ${new Date(order.createdAt).toLocaleDateString()}</h2>
@@ -165,7 +166,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
           <p className="text-xs font-bold text-yellow-800">⚠ Low stock on {warnings.length} item{warnings.length === 1 ? '' : 's'}</p>
           <ul className="mt-2 text-xs text-yellow-900 space-y-0.5">
             {warnings.map((w, i) => (
-              <li key={i}>{w.itemName}: need {w.required}, have {w.available} (short {w.short})</li>
+              <li key={i}>{partWithPair(w.itemName)}: need {w.required}, have {w.available} (short {w.short})</li>
             ))}
           </ul>
         </div>
@@ -185,7 +186,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
           <tbody className="divide-y divide-gray-50">
             {order.items.map(i => (
               <tr key={i.id}>
-                <td className="py-2 text-gray-900">{i.itemName}</td>
+                <td className="py-2 text-gray-900">{partWithPair(i.itemName)}</td>
                 <td className="py-2 text-right">{i.requiredQuantity}</td>
                 <td className="py-2 text-right">
                   <input type="number" value={i.quantityReceived} min={0} max={i.requiredQuantity}

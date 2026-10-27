@@ -4,6 +4,7 @@ import { styleLabel } from './fenceCatalog'
 import { sizeText } from './moveRepair'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
+import { partWithPair } from '../../portal/src/server/lib/partNames'
 
 /* ───────── config loader ───────── */
 
@@ -135,7 +136,7 @@ export function generatePO(quote: SavedQuote, vendor?: string, notes?: string) {
     ${items.map((item, i) => `
     <tr>
       <td class="row-num">${i + 1}</td>
-      <td class="item-name">${esc(item.item)}</td>
+      <td class="item-name">${esc(partWithPair(item.item))}</td>
       <td class="r">${item.qty}</td>
       <td class="r">$${item.unitCost.toFixed(2)}</td>
       <td class="r">$${item.total.toFixed(2)}</td>
