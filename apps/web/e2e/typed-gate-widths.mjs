@@ -79,7 +79,12 @@ try {
     const t = (await green.first().textContent()) || ''
     check('Green (switched off) says it is switched off, then what it waits for', /Switched off\. It is also waiting for prices on \d+ parts? in Inventory/.test(t) || /Switched off: fully priced/.test(t), t.slice(0, 200))
     await green.first().scrollIntoViewIfNeeded(); if (SHOTS) await page.screenshot({ path: `${SHOTS}/settings-green-switched-off.png` })
-  } else check('Green is on this database', false, 'no Green finish')
+  } else {
+    // Green Chain Link is made on the dev copy only (scripts/stephens-quotes-2026-10-26b.ts, docs/FEATURES.md
+    // "06-251706 and 06-251707"); a fresh copy of live has no Green. The words for a switched off color are
+    // pinned in tests/optionStatusWords.test.ts, and adding a held chain link finish in e2e/add-color.mjs.
+    console.log('SKIP  Green (switched off): no Green finish on this database (a fresh copy of live); covered by tests/optionStatusWords.test.ts')
+  }
   const ds = page.locator('[data-tree-option="chain:install:ds"]')
   const dsText = (await ds.textContent()) || ''
   check('Dig set names the fences available for quoting and the ones waiting, not a pooled count', /Available for quoting: .*Galvanized Chain Link, 4 ft/.test(dsText) && /Waiting for prices in Inventory: |Switched off, and waiting for prices: /.test(dsText) && !/waiting for prices on \d+ parts in Inventory\. It switches on by itself/.test(dsText), dsText.slice(0, 400))
