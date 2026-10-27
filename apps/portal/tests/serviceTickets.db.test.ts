@@ -312,8 +312,20 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     expect(booked.json.data.appointment.id).toBe(a.id)
     // The job was finished in March: its packet would be closed, but covered work keeps it open.
     const p = await prisma.installPacket.create({ data: { accountId, jobId, token: crypto.randomBytes(24).toString('base64url'), snapshot: { companyName: 'Getter Done Fence' } } })
+    // The original install's 811 ticket, not clear yet, and the walkthrough's "Left return" taken three times.
+    await prisma.savedJob.update({ where: { id: jobId }, data: { locateTicket: 'T-ORIGINAL', locatesDate: '2099-10-29' } as any })
+    for (let i = 0; i < 3; i++) {
+      await prisma.mediaItem.create({ data: { accountId, jobId, clientId: `wt-retake-${stamp}-${i}`, kind: 'photo', mime: 'image/jpeg', path: `/nonexistent/wt-${stamp}-${i}.jpg`, takenAt: new Date(Date.UTC(2026, 2, 10, 15, i)), caption: 'Final walkthrough: Side: Left return', category: 'Completed', visibility: 'crew', status: 'ready' } })
+    }
     const page = await (await fetch(`${base}/p/i/${p.token}`)).text()
     expect(page).toContain('Warranty work order: no charge to the customer')
+    // A service visit: no 811 section, and none of the original install's "do not dig" warning (review Oct 27 2026).
+    expect(page).not.toContain('data-packet-locate-section')
+    expect(page).not.toContain('T-ORIGINAL')
+    expect(page).not.toMatch(/not clear to dig/i)
+    // The newest walkthrough photo of the spot only.
+    expect(page.match(/Final walkthrough: Side: Left return/g) ?? []).toHaveLength(1)
+    expect((page.match(/<b>Completed<\/b>/g) ?? []).length).toBe(1)
     expect(page).not.toContain('$0, no charge')
     expect(page).toContain(`data-packet-warranty-work="${ticketId}"`)
     // Covered work is costed: owner and office, with hours.

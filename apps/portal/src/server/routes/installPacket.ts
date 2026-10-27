@@ -39,6 +39,7 @@ import { plainStyleName } from '../lib/estimates.js'
 import { packetChange, packetWithChange, packetChangeHeading, sheetChanges } from '../lib/changeOrderWork.js'
 import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
+import { isWalkthroughCaption, replacedWalkthroughPhotos } from '../lib/walkthrough.js'
 import { isYmd, usDate, shortDayWords } from '../lib/installDays.js'
 import { finishScheduleRows } from '../lib/installScheduling.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
@@ -431,7 +432,9 @@ packetPublic.get('/:token', async (req, res) => {
     where: { accountId: p.accountId, deletedAt: null, kind: { in: ['photo', 'video'] }, AND: [{ OR: [{ jobId: job!.id }, ...fromQuote] }, { OR: [{ visibility: { in: ['crew', 'customer'] } }, { source: 'crew' }] }] },
     orderBy: { takenAt: 'asc' },
   })
-  const items = media.map(m => serializeMedia(m, ttl))
+  // The walkthrough's photo of each spot, not every retake (review Oct 27 2026: 7 "Left return" photos).
+  const replaced = await replacedWalkthroughPhotos(media).catch(() => new Set<string>())
+  const items = newestWalkthroughPhotos(media.filter(m => !replaced.has(m.clientId))).map(m => serializeMedia(m, ttl))
   // Walkthrough video first, then marked up photos, then the rest.
   items.sort((a, b) => rank(a) - rank(b))
   // /api/media/f/<id>/<v>?… → m/<id>/<v>?… (under /p/i, the public door)
@@ -442,6 +445,9 @@ packetPublic.get('/:token', async (req, res) => {
   // A service visit (covered warranty work on a job already installed, or opened from the visit): the work order's
   // items and notes only, never the original fence's pull sheet and steps (review Oct 27 2026: 416 pickets).
   const service = await serviceVisit(job_, work, req.query.visit !== undefined)
+  // A service visit leaves out the original install's 811 locate and its "do not dig before" warning (review Oct 27
+  // 2026: a gate latch fix said "811 is not clear to dig until 10/29/2026"). A warranty request records only its issue
+  // and notes, nothing that says new posts or digging, so it shows no 811 line.
   // Work (tear out and haul away) is a step for the crew, not a material to pull.
   const parts = service ? [] : (s.pullSheet ?? []).filter(i => !isWorkLine(i.item))
   const workLines = service ? [] : (s.pullSheet ?? []).filter(i => isWorkLine(i.item))
@@ -465,7 +471,7 @@ packetPublic.get('/:token', async (req, res) => {
     ${await workOrders(work)}
     ${service ? '<p class="small" data-packet-service-only>This visit is the work order above. The original fence\'s pull sheet and install steps are left out.</p>' : ''}
     ${s.work && !service ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
-    <section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 && !service ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
+    ${service ? '' : `<section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 && !service ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
       ${(() => { const w = locateStartWarning(loc, todayFl(), s.work ? s.work.needs811 : true); return `<p id="locWarn" data-packet-locate-warn style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;font-weight:700"${w ? '' : ' hidden'}>${w ? `⚠ ${esc(w)}` : ''}</p>` })()}
       <div id="locOnFile">${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}</div>
@@ -476,7 +482,7 @@ packetPublic.get('/:token', async (req, res) => {
       <label class="field">Expires<input id="lexp" type="date" value="${esc(loc.expDate ?? '')}"></label></div>
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button></div>
       <p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>
-    </section>
+    </section>`}
     <section data-packet-fence><h2>${s.work?.type === 'repair' || service ? 'The existing fence' : 'The fence'}</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
       ${postsLine(s.posts, s.work?.type)}
@@ -532,7 +538,7 @@ packetPublic.get('/:token', async (req, res) => {
           else m.textContent=j.error||'Could not save.'
         }).catch(function(){m.textContent='No connection. Try again.'});
     }
-    document.getElementById('saveLocate').addEventListener('click',function(){saveLoc(false)});
+    var saveBtn=document.getElementById('saveLocate');if(saveBtn)saveBtn.addEventListener('click',function(){saveLoc(false)});
     var files=document.getElementById('files'),msg=document.getElementById('upMsg');
     files.addEventListener('change',function(){
       var list=[].slice.call(files.files);if(!list.length)return;var i=0,wait=3000;
@@ -557,6 +563,20 @@ packetPublic.get('/:token', async (req, res) => {
   })();`
   res.type('html').send(page(`${W} packet: ${job_.customerName}`, body, nonce, script))
 })
+
+/**
+ * The walkthrough's photos, the newest of each spot only (its caption, "Final walkthrough: Side: Left return"):
+ * a retake shows once. Every other photo is kept, in the same order. Rows come oldest first.
+ */
+export function newestWalkthroughPhotos<T extends { caption: string; takenAt: Date }>(rows: T[]): T[] {
+  const newest = new Map<string, T>()
+  for (const m of rows) {
+    if (!isWalkthroughCaption(m.caption)) continue
+    const was = newest.get(m.caption)
+    if (!was || m.takenAt.getTime() >= was.takenAt.getTime()) newest.set(m.caption, m)
+  }
+  return rows.filter(m => !isWalkthroughCaption(m.caption) || newest.get(m.caption) === m)
+}
 
 /**
  * Is this packet opened for a service visit? Covered warranty work is open on the job, and the install is
