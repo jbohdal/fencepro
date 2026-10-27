@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { laneOf, styleChoices, UNSCHEDULED_LANE } from '../../web/src/opsBoardLanes'
+import { laneOf, styleChoices, filterStyleName, UNSCHEDULED_LANE } from '../../web/src/opsBoardLanes'
 import { START_OPS_STAGES } from '../../web/src/opsStageModel'
 import { styleLabel } from '../../web/src/fenceCatalog'
 
@@ -34,6 +34,11 @@ describe('the styles filter', () => {
   test('plain names, once each, A to Z; nothing empty', () => {
     const plain = (c: string) => ({ "WV-ND 6'x8' Privacy": 'White vinyl privacy', 'WVND': 'White vinyl privacy', 'CL': 'Chain link' } as Record<string, string>)[c] ?? c
     expect(styleChoices(["WV-ND 6'x8' Privacy", 'WVND', 'CL', '', null, undefined], plain)).toEqual(['Chain link', 'White vinyl privacy'])
+  })
+  test('the bare import code "CL" reads "Chain link" (review Oct 27 2026); other codes go to the catalog', () => {
+    expect(filterStyleName('CL', c => c)).toBe('Chain link')
+    expect(filterStyleName(' cl ', c => c)).toBe('Chain link')
+    expect(filterStyleName("CL - 4' Galv", () => 'Galvanized chain link, 4 ft')).toBe('Galvanized chain link, 4 ft')
   })
   test('a catalog code shows its plain name, never the code', () => {
     const names = styleChoices(["WV-ND 6'x8' Privacy", "TV-ND 6'x8' Privacy"], styleLabel)

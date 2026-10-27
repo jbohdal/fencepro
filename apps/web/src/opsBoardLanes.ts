@@ -23,6 +23,15 @@ export function laneOf(stages: OpsStageDef[], job: { opsStage: string; scheduled
   return job.opsStage
 }
 
+/**
+ * A style's plain name for the filter: a bare import code with one plain meaning ("CL" on about 20 imported jobs,
+ * review Oct 27 2026) in words, else the catalog's plain name (`plain`).
+ */
+const IMPORT_CODE_WORDS: Record<string, string> = { cl: 'Chain link' }
+export function filterStyleName(code: string, plain: (code: string) => string): string {
+  return IMPORT_CODE_WORDS[code.trim().toLowerCase()] ?? plain(code)
+}
+
 /** The styles to filter by: the plain names of the styles on the jobs shown, once each, A to Z. */
 export function styleChoices(fenceTypes: Array<string | null | undefined>, plain: (code: string) => string): string[] {
   const set = new Set<string>()

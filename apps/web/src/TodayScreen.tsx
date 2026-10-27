@@ -103,7 +103,7 @@ export default function TodayScreen() {
         <PersonFilter team={team} former={former} value={person} onChange={setPerson} className="border border-gray-200 rounded-lg px-2 py-2 text-sm" />
       </div>
 
-      {next ? <NextCard a={next} onComplete={() => setClosing(next)} /> : (
+      {next ? <NextCard a={next} onComplete={() => setClosing(next)} onOpen={() => setViewing(next)} /> : (
         <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
           <p className="text-gray-600 font-semibold">{todays.length ? 'All done for today.' : 'Nothing booked today.'}</p>
           <button onClick={() => openBooking({ date: today })} className="mt-3 px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold">+ Appointment</button>
@@ -174,7 +174,7 @@ export default function TodayScreen() {
   )
 }
 
-function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void }) {
+function NextCard({ a, onComplete, onOpen }: { a: Appointment; onComplete: () => void; onOpen: () => void }) {
   const config = getConfig()
   const company = config.company
   const settings = getAppointmentSettings()
@@ -200,7 +200,8 @@ function NextCard({ a, onComplete }: { a: Appointment; onComplete: () => void })
         <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: TYPE_COLORS[a.type] }}>{TYPE_SHORT[a.type]}</span>
         <span className="text-lg font-bold text-gray-900">{a.allDay ? 'All day' : fmtTime(a.startAt!)}</span>
       </div>
-      <div>
+      {/* The whole top of the card opens the visit (review Oct 27 2026: she tapped here first and nothing happened). */}
+      <div role="button" tabIndex={0} className="cursor-pointer" onClick={onOpen} onKeyDown={e => { if (e.key === 'Enter') onOpen() }} data-next-open>
         <p className="text-2xl font-bold text-gray-900 leading-tight" data-next-name>{a.customerName}</p>
         <p className="text-sm text-gray-600 mt-1">{a.address || 'No address'}</p>
         {quote && <p className="text-sm text-emerald-700 font-semibold mt-1">Quote {money(quote.finalPrice || 0)} ({quote.status.toLowerCase()})</p>}

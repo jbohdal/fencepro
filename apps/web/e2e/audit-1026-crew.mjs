@@ -192,6 +192,14 @@ try {
     check('Salesman: the visit has Call, Navigate, New quote and Change appointment', await w.locator('[data-visit-call]').isVisible() && await w.locator('[data-visit-navigate]').isVisible() && await w.locator('[data-visit-new-quote]').isVisible() && await w.locator('[data-visit-edit]').isVisible())
     await w.locator('[data-visit-edit]').tap()
     check('Salesman: Change appointment opens the booking form', await page.getByText('Change appointment').first().isVisible({ timeout: 10000 }).catch(() => false))
+    // Today's visit: the big card at the top opens it too.
+    const todayVisit = await owner('POST', '/api/appointments', { crmContactId: C.id, type: 'estimate', startAt: new Date(Date.now() + 2 * 3_600_000).toISOString(), address: ADDR, assignedToUserId: sales.id, notes: 'today visit' })
+    made.appts.push(todayVisit.json.data?.id)
+    if (ymd(new Date(Date.now() + 2 * 3_600_000)) === today) {
+      await go(page, '/today')
+      await page.locator('[data-next-open]').tap().catch(() => {})
+      check('Salesman: tapping the big next visit card opens the visit', await page.locator('[data-visit-window]').isVisible({ timeout: 8000 }).catch(() => false))
+    }
     await go(page, `/pipeline?card=${C.cardId}`)
     const card = page.locator(`[data-card-window="${C.cardId}"]`)
     await card.waitFor({ timeout: 30000 }).catch(() => {})
@@ -217,7 +225,7 @@ try {
     const inUnscheduled = (await page.locator('[id^="opslane-__unscheduled"], [id^="opslane-unscheduled"]').innerText().catch(() => '')).includes(D.name)
     check('office: a job in Awaiting Locates with no date is in that column, not Unscheduled', !!inLane && !inUnscheduled, String(await lane.count()))
     const styles = await page.locator('select').filter({ hasText: 'All styles' }).first().locator('option').allInnerTexts().catch(() => [])
-    check('office: the styles filter shows plain names, no import codes', styles.length > 1 && !styles.some(s => /^(AG|WVSDS|wvnd|galvcl|BoB|WV-ND|TV-ND)/.test(s)), styles.join(', '))
+    check('office: the styles filter shows plain names, no import codes', styles.length > 1 && !styles.some(s => /^(AG|WVSDS|wvnd|galvcl|BoB|WV-ND|TV-ND|CL)$|^(WV-ND|TV-ND)/.test(s)), styles.join(', '))
 
     const num = A.quoteId.slice(-6).toUpperCase()
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k')

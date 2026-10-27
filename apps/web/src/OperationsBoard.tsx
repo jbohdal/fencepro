@@ -18,7 +18,8 @@
 import { can, isCrewLogin } from './permissions'
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
-import { laneOf, styleChoices, UNSCHEDULED_LANE } from './opsBoardLanes'
+import { laneOf, styleChoices, filterStyleName, UNSCHEDULED_LANE } from './opsBoardLanes'
+const opsStyleName = (code: string) => filterStyleName(code, styleLabel)
 import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -207,7 +208,7 @@ export default function OperationsBoard() {
       }
       if (stageFilter && j.opsStage !== stageFilter) return false
       if (crewFilter && crewLabel(j.crewAssigned) !== crewFilter) return false
-      if (styleFilter && styleLabel(j.fenceType) !== styleFilter) return false
+      if (styleFilter && opsStyleName(j.fenceType) !== styleFilter) return false
       if (!search) return true
       const q = search.toLowerCase()
       return (
@@ -374,7 +375,7 @@ export default function OperationsBoard() {
   // The plain style names of the jobs on the board now (finished ones only with Completed ticked), not every old
   // import code (opsBoardLanes.ts).
   const styleOptions = useMemo(() => styleChoices(jobs.filter(j => showCompleted || fromLink || !(isDoneStage(j.opsStage)
-    && j.rawJob && daysSince(j.rawJob.completedDate || j.rawJob.updatedAt) > 2)).map(j => j.fenceType), styleLabel), [jobs, showCompleted, fromLink])  // eslint-disable-line react-hooks/exhaustive-deps
+    && j.rawJob && daysSince(j.rawJob.completedDate || j.rawJob.updatedAt) > 2)).map(j => j.fenceType), opsStyleName), [jobs, showCompleted, fromLink])  // eslint-disable-line react-hooks/exhaustive-deps
   // A style remembered from before (an old code, or one no job has now) is not left filtering everything out.
   useEffect(() => { if (styleFilter && !styleOptions.includes(styleFilter)) setStyleFilter('') }, [styleOptions, styleFilter])
 
