@@ -13,6 +13,7 @@ import { MessageSquarePlus, X, Loader2, Pencil, Undo2 } from 'lucide-react'
 import { captureScreen, sendFeedback, whereText } from './feedback'
 import { BackClose, useNav } from './nav'
 import { toast } from './toast'
+import { BUTTON, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
 
 type Point = [number, number]
 type Stroke = Point[]
@@ -118,6 +119,50 @@ export function FeedbackOverWindow({ screen = '' }: { screen?: string }) {
   return <FeedbackButton screen={screen} floating />
 }
 
+/** Something tappable under this point, other than the feedback button itself (feedbackSpot.ts). */
+function tappableAt(x: number, y: number): boolean {
+  for (const el of document.elementsFromPoint(x, y)) {
+    if ((el as HTMLElement).closest('[data-feedback-button]')) continue
+    // The first thing under the button decides: a control, or something drawn as one (a pointer cursor).
+    if (el.closest(TAPPABLE)) return true
+    let e: Element | null = el
+    for (let i = 0; e && i < 4; i++, e = e.parentElement) if (getComputedStyle(e).cursor === 'pointer') return true
+    return false
+  }
+  return false
+}
+
+/**
+ * The floating button's spot: one with nothing tappable under it, looked at again as the window
+ * scrolls, resizes or changes (feedbackSpot.ts). The spot it has is kept while it is still free.
+ */
+function useFreeSpot(on: boolean): Spot | null {
+  const [spot, setSpot] = useState<Spot | null>(null)
+  const cur = useRef<Spot | null>(null)
+  useEffect(() => {
+    if (!on) return
+    let frame = 0
+    const free = (s: Spot) => !probePoints(s).some(([x, y]) => tappableAt(x, y))
+    const measure = () => {
+      frame = 0
+      const vw = window.innerWidth, vh = window.innerHeight
+      const bar = document.querySelector('[data-tabbar]')?.getBoundingClientRect()
+      const inset = bar && bar.height > 0 && bar.top < vh ? vh - bar.top : 0
+      const spots = spotsFor(vw, vh, inset)
+      const keep = cur.current && !cur.current.tab && spots.some(s => s.left === cur.current!.left && s.top === cur.current!.top) && free(cur.current)
+      const next = keep ? cur.current! : pickSpot(spots, free, vh)
+      if (!cur.current || next.left !== cur.current.left || next.top !== cur.current.top || !!next.tab !== !!cur.current.tab) { cur.current = next; setSpot(next) }
+    }
+    const soon = () => { if (!frame) frame = requestAnimationFrame(measure) }
+    measure()
+    const timer = window.setInterval(soon, 700)
+    window.addEventListener('resize', soon)
+    window.addEventListener('scroll', soon, true)
+    return () => { window.clearInterval(timer); window.removeEventListener('resize', soon); window.removeEventListener('scroll', soon, true); if (frame) cancelAnimationFrame(frame) }
+  }, [on])
+  return spot
+}
+
 export default function FeedbackButton({ screen = '', floating = false }: { screen?: string; floating?: boolean }) {
   const [stage, setStage] = useState<Stage>({ kind: 'idle' })
   const [text, setText] = useState('')
@@ -155,15 +200,23 @@ export default function FeedbackButton({ screen = '', floating = false }: { scre
   }
 
   const busy = stage.kind === 'capturing'
+  const spot = useFreeSpot(floating)
+  const tab = floating && !!spot?.tab
   return (
     <>
       <button type="button" onClick={start} disabled={busy || stage.kind === 'form'} data-feedback-button={floating ? 'window' : 'top'} data-feedback-skip
-        aria-label="Send feedback" title="Send feedback"
+        aria-label="Send feedback" title="Send feedback" data-feedback-spot={floating ? (tab ? 'edge' : spot ? `${spot.left},${spot.top}` : 'measuring') : undefined}
+        // Floating: placed where nothing tappable is under it (useFreeSpot); hidden until placed.
+        style={floating ? (spot ? { left: spot.left, top: spot.top, width: spot.width, height: spot.height } : { left: 12, top: 12, width: BUTTON.width, height: BUTTON.height, visibility: 'hidden' }) : undefined}
         className={floating
-          ? 'fixed z-[175] left-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:left-4 md:bottom-4 flex items-center justify-center gap-1.5 h-11 px-3 rounded-full bg-white text-gray-700 border border-gray-300 shadow-lg hover:bg-gray-50 disabled:opacity-60 text-sm font-semibold'
+          ? tab
+            ? 'fixed z-[175] flex items-center justify-center rounded-r-lg bg-orange-500/90 text-white shadow-lg disabled:opacity-60'
+            : 'fixed z-[175] flex items-center justify-center gap-1.5 rounded-full bg-white text-gray-700 border border-gray-300 shadow-lg hover:bg-gray-50 disabled:opacity-60 text-sm font-semibold'
           : 'flex items-center justify-center gap-1.5 w-11 h-11 md:w-auto md:h-9 md:px-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-60 text-sm'}>
-        {busy ? <Loader2 size={20} className="animate-spin md:w-4 md:h-4" aria-hidden="true" /> : <MessageSquarePlus size={20} className="md:w-4 md:h-4" aria-hidden="true" />}
-        <span className={floating ? '' : 'hidden xl:inline'}>{busy ? 'Taking picture...' : 'Feedback'}</span>
+        {tab ? <span className="w-1 h-8 rounded-full bg-white/90" aria-hidden="true" /> : <>
+          {busy ? <Loader2 size={20} className="animate-spin md:w-4 md:h-4" aria-hidden="true" /> : <MessageSquarePlus size={20} className="md:w-4 md:h-4" aria-hidden="true" />}
+          <span className={floating ? '' : 'hidden xl:inline'}>{busy ? 'Taking picture...' : 'Feedback'}</span>
+        </>}
       </button>
 
       {stage.kind === 'form' && (
