@@ -70,8 +70,16 @@ cleanup() {
   # Every booted iOS simulator, and the Simulator app.
   command -v xcrun >/dev/null 2>&1 && xcrun simctl shutdown all >/dev/null 2>&1
   pkill -x Simulator >/dev/null 2>&1
-  # Playwright browsers this run left behind (only Playwright's own builds).
-  pkill -f 'ms-playwright/.*(chrome|headless_shell|webkit|Playwright)' >/dev/null 2>&1
+  # Playwright browsers this run left behind (only Playwright's own builds): this run's own, and orphans (their
+  # test is gone, parent 1). Never another run's live browsers: a blanket pkill here closed the browser under a
+  # suite another agent was running on its own server at the same time (Oct 27 2026, round1-fixes).
+  ps -A -o pid= -o ppid= -o command= | awk -v me="$$" '
+    { pid[NR] = $1; par[NR] = $2; pw[NR] = ($3 ~ /ms-playwright\//) }
+    END {
+      mine[me] = 1
+      do { grew = 0; for (i = 1; i <= NR; i++) if ((par[i] in mine) && !(pid[i] in mine)) { mine[pid[i]] = 1; grew = 1 } } while (grew)
+      for (i = 1; i <= NR; i++) if (pw[i] && ((pid[i] in mine) || par[i] == 1)) print pid[i]
+    }' | xargs kill 2>/dev/null
   echo "Emulator, simulators and test browsers shut down."
 }
 trap cleanup EXIT
