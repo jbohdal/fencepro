@@ -34,6 +34,7 @@ export async function permitStatusesOf(accountId: string | null, jobs: Array<{ i
   const records = await prisma.permit.findMany({ where: { ...scope, jobId: { in: jobs.map(j => j.id) } }, select: { jobId: true, status: true } })
   const byJob = new Map(records.map(p => [p.jobId, p.status]))
   const needQuote = [...new Set(jobs.filter(j => !byJob.has(j.id) && j.quoteId).map(j => j.quoteId as string))]
+  // all rows: a job's quote says what the job is (a repair) even if the quote was deleted later
   const quotes = needQuote.length ? await prisma.savedQuote.findMany({ where: { ...scope, id: { in: needQuote } }, select: { id: true, work: true } }) : []
   const workOf = new Map(quotes.map(q => [q.id, q.work]))
   for (const j of jobs) {
