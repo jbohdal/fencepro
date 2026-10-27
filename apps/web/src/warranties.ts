@@ -141,14 +141,28 @@ export function newWarrantyId(name: string, taken: Iterable<string>): string {
  * The warranty a fence style gets: the warranty set for its install, with the
  * material's extra line. `kind`: a move or repair proposal (its own row).
  */
+/**
+ * A repair's warranty words: its time runs from the repair date, as the signed
+ * contract's "Warranty starts on the repair date" says (round 6 review, Oct 27
+ * 2026: a repair proposal read "1 year from installation date"). Only the date
+ * is changed; the rest of the words stay as typed in Settings → Warranties.
+ */
+export function warrantyTextForRepair(text: string): string {
+  return text.replace(/\b(from )?(the )?install(?:ation)? date\b/gi, (m: string, from: string | undefined) => {
+    const out = `${from ?? ''}the repair date`
+    return /^[A-Z]/.test(m) ? out[0].toUpperCase() + out.slice(1) : out
+  })
+}
+
 export function warrantyForStyle(settings: WarrantySettings, style: StyleLike | null | undefined, kind?: 'move' | 'repair' | null): OptionWarranty | null {
   const key = kind ? 'work' : installKeyOf(style)
   const id = settings.byInstall[key] ?? settings.byInstall.other
   const w = settings.list.find(x => x.id === id)
   if (!w) return null
   const extra = kind ? '' : (settings.extras[materialOf(style)] ?? '').trim()
+  const text = kind === 'repair' ? warrantyTextForRepair(w.text.trim()) : w.text.trim()
   return {
-    id: w.id, name: w.name, text: extra ? `${w.text.trim()}\n${extra}` : w.text.trim(), term: w.term,
+    id: w.id, name: w.name, text: extra ? `${text}\n${extra}` : text, term: w.term,
     ...(w.term === 'years' ? { years: w.years ?? 1 } : {}),
   }
 }

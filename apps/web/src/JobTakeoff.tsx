@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { X, Minus, Plus, Camera, Search, Trash2, ClipboardList, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Job } from './jobStore'
+import { jobInstallWord } from './jobWork'
 import { getQuotes } from './quoteStore'
 import { getInventory, initInventory } from './inventoryStore'
 import { addCapture, localMedia, MEDIA_EVENT, type LocalMedia } from './mediaStore'
@@ -89,7 +90,7 @@ export default function JobTakeoffPanel({ job }: { job: Job }) {
         {t && <SaveStatus keys={[]} also={isTakeoffOp(t.id)} quietWhenSaved />}
       </div>
       {t === undefined && <p className="text-xs text-gray-500">Loading…</p>}
-      {t === null && <p className="text-xs text-gray-600">After install, before the walkthrough: confirm what was used from the pull sheet, add anything extra, mark returns and the labor.</p>}
+      {t === null && <p className="text-xs text-gray-600">After {jobInstallWord(job) === 'Repair' ? 'the repair' : 'install'}, before the walkthrough: confirm what was used from the pull sheet, add anything extra, mark returns and the labor.</p>}
       {t && (
         <p className="text-xs text-gray-700" data-takeoff-summary>
           {STATUS_WORDS[t.status]} · {t.lines.length} lines{changed ? ` · ${changed} changed or added` : ''}

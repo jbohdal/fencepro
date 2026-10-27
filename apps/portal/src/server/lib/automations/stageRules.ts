@@ -17,6 +17,7 @@ import { loadPipelineStages } from '../pipelineStages.js'
 import { stageNameOf } from '../pipelineStageModel.js'
 import { stageOfJob, reconcileOpsStage } from '../opsStageModel.js'
 import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
+import { permitStatusOf } from '../permitStatus.js'
 
 export interface Missing { type: Requirement; label: string; detail: string }
 export interface Blocked { id: string; name: string; board: Board; from: string; to: string; missing: Missing[] }
@@ -37,9 +38,10 @@ export async function missingFor(accountId: string, reqs: Requirement[], job: an
     switch (type) {
       case 'permit_approved': {
         if (!job) { add(type, 'There is no job for this card yet, so there is no permit to check.'); break }
-        const p = await prisma.permit.findUnique({ where: { jobId: job.id } })
-        if (!p) add(type, 'The permit status is not set. Open the job in Operations and fill in the Permit panel.')
-        else if (!PERMIT_OK.has(p.status)) add(type, `The permit is ${PERMIT_WORDS[p.status] ?? p.status}; it must be Approved (or marked Not needed).`)
+        // The job's permit as every screen reads it: its record, else Not needed for a repair (lib/permitStatus.ts).
+        const status = await permitStatusOf(accountId, job)
+        if (!status) add(type, 'The permit status is not set. Open the job in Operations and fill in the Permit panel.')
+        else if (!PERMIT_OK.has(status)) add(type, `The permit is ${PERMIT_WORDS[status] ?? status}; it must be Approved (or marked Not needed).`)
         break
       }
       case 'walkthrough_signed': {

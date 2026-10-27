@@ -15,6 +15,7 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { lockAccountState } from './lockState.js'
 import { acknowledgedUpdate } from './warrantyUpdates.js'
+import { installWord, repairWording } from './workWords.js'
 
 export type WarrantyTerm = 'lifetime' | 'years' | 'unknown'
 export interface OptionWarranty { id: string | null; name: string; text: string; term: WarrantyTerm; years?: number }
@@ -158,6 +159,8 @@ export interface JobWarranty {
   start: string | null
   end: string | null
   endText: string
+  /** The job's quote is a repair: the page says "the repair date", not "the install date". */
+  repair: boolean
   /** The signed contract PDF can be opened (the quote was accepted or sold). */
   contract: boolean
   serviceCalls: ServiceCall[]
@@ -177,6 +180,9 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
   const { warranty, from, update, changeOrder } = await effectiveQuoteWarranty(q, job.fenceStyle, await configOf(accountId))
   const start = await installDateOf(job)
   const period = m.warrantyPeriod(warranty, start)
+  // A repair's warranty starts on the repair date: "1 year from the repair date", not the install date (round 6 review, Oct 27 2026).
+  const repair = installWord(q?.work as { type?: unknown } | null) === 'Repair'
+  const words = (t: string) => (repair ? repairWording(t) : t)
   const appts = await prisma.appointment.findMany({
     where: { accountId, jobId: job.id, type: { in: [...SERVICE_TYPES] }, deletedAt: null, archivedAt: null },
     orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }],
@@ -186,13 +192,14 @@ export async function jobWarranty(accountId: string, jobId: string): Promise<Job
     const day = nyDay(a.startAt ?? a.createdAt)
     const o: any = a.warrantyOverride
     const override = isObj(o) && typeof o.covered === 'boolean' ? o as CoverageOverride : null
-    return { id: a.id, type: a.type, status: a.status, day, notes: a.notes, coverage: m.serviceCoverage(warranty, start, day, override) as Coverage, override }
+    const coverage = m.serviceCoverage(warranty, start, day, override) as Coverage
+    return { id: a.id, type: a.type, status: a.status, day, notes: a.notes, coverage: { ...coverage, why: words(coverage.why) }, override }
   })
   return {
     jobId: job.id, quoteId: q?.id ?? null, warranty, from, changeOrder: changeOrder ? { number: changeOrder.number, day: nyDay(changeOrder.at) } : null,
     updated: update ? { day: nyDay(update.at), by: update.by, how: update.how, previousName: update.previous?.name ?? null } : null,
     signed: !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt),
-    start: period.start, end: period.end, endText: period.endText,
+    start: period.start, end: period.end, endText: words(period.endText), repair,
     contract: !!q && (!!q.acceptedAt || q.status === 'SOLD' || !!q.soldAt) && isObj(q.proposal) && Array.isArray((q.proposal as any).options),
     serviceCalls,
   }

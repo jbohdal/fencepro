@@ -14,7 +14,7 @@
 
 import { pdfDocument } from './pdfText.js'
 import prisma from './prisma.js'
-import { logoPath } from '../routes/proposal.js'
+import { logoPath, standingOptionOf } from '../routes/proposal.js'
 import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.js'
 import { pricingModule } from './estimates.js'
 import { acceptedOnUpdate } from './warrantyUpdates.js'
@@ -22,6 +22,7 @@ import { depositOf, pricedWholeDollar } from './paymentMath.js'
 import { termsOn, companyAddress, type Term } from './contractTerms.js'
 import { plainIp } from './signedDocuments.js'
 import { workKindOf } from './installDays.js'
+import { customerFenceName } from './customerFenceName.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -198,7 +199,8 @@ export function acceptedOptionText(q: Pick<Q, 'proposal' | 'chosenOption' | 'fen
   const opt = opts[idx] ?? opts[0] ?? {}
   const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
   const tier = String(opt.tier?.label || '')
-  const label = String(opt.label || q.fenceStyle)
+  // A best price fence signed through its twin tier card: named as the fence that stands (routes/proposal.ts standingOptionOf).
+  const label = customerFenceName(String(opts[standingOptionOf(opts, q, idx)]?.label || opt.label || q.fenceStyle))
   return `${tier && tier !== label ? `${tier}: ` : ''}${label} at ${money(price)}`
 }
 
@@ -231,7 +233,7 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
       address: String(p.company?.address || await companyAddress(q.accountId) || ''),
     },
     customerName: String(p.customer?.name || q.customerName || ''), address: String(p.customer?.address || q.customerAddress || ''),
-    optionLabel: String(opt.label || q.fenceStyle), tierLabel: String(opt.tier?.label || ''), price,
+    optionLabel: customerFenceName(String(p.options[standingOptionOf(p.options, q, idx)]?.label || opt.label || q.fenceStyle)), tierLabel: String(opt.tier?.label || ''), price,
     footageFt: Number(p.footageFt) || 0, gatesText: p.kind ? '' : String(p.gatesText || ''),
     included: Array.isArray(p.included) ? p.included.map(String) : [], includedNote: String(p.includedNote || ''),
     depositPct: Number(p.depositPct) || 0, depositNote: String(p.depositNote || ''), wholeDollar: pricedWholeDollar(q), description: p.kind ? String(p.description || '') : '',

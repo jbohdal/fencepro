@@ -23,6 +23,8 @@ import { recordJobChanges, recordCardMoves } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
 import { completeStage, fieldsForStage, firstStageFor, isDonePhase, stageOfJob, stageById, permitIsOk } from './opsStageModel.js'
 import { floridaDay } from './automations/context.js'
+import { permitStatusesOf } from './permitStatus.js'
+import { installWord, repairWording } from './workWords.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
 export { billingStatusOf } from './jobReadiness.js'
@@ -168,7 +170,7 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
   const out = new Map<string, ReadinessFacts>()
   if (!ids.length) return out
   const [permits, vendor, takeoffs, walks, media, invoices, payments, sched] = await Promise.all([
-    prisma.permit.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true, status: true } }),
+    permitStatusesOf(accountId, jobs as Array<{ id: string; quoteId?: string | null }>),
     prisma.vendorInvoice.groupBy({ by: ['jobId'], where: { accountId, jobId: { in: ids }, docType: 'invoice', status: { notIn: ['refused', 'undone', 'failed', 'replaced'] } }, _count: { _all: true } }),
     prisma.jobTakeoff.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true } }),
     prisma.walkthrough.findMany({ where: { accountId, jobId: { in: ids } }, select: { jobId: true, homeownerSig: true, repSig: true, signedAt: true, status: true } }),
@@ -201,7 +203,7 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
     const homeowner = (w?.homeownerSig as Json)?.name ?? null
     out.set(j.id, {
       today, status: j.status, previousStatus: j.previousStatus ?? null, locate: locateOf(j),
-      permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
+      permitStatus: permits.get(j.id) ?? null,
       materialsStatus: j.materialsStatus, vendorInvoices: vendor.find(v => v.jobId === j.id)?._count._all ?? 0,
       crewAssigned: crewNameOf(j.crewAssigned || ''), scheduledDate: j.scheduledDate || '',
       takeoffStarted: takeoffs.some(t => t.jobId === j.id),
@@ -588,6 +590,11 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     if (!job) return { moved: false, why: 'no job' }
     if (job.status === 'paid') return { moved: false, why: 'already done' }
     if (job.status === 'on_hold') return { moved: false, why: 'on hold' }
+    // A repair's history says repair: "the crew finished the repair" (round 6 review, Oct 27 2026).
+    const work = job.quoteId ? (await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { work: true } }))?.work : null
+    const repair = installWord(work as { type?: unknown } | null) === 'Repair'
+    if (repair) why = repairWording(why)
+    const finished = repair ? 'repair' : 'install'
     const { stages } = await loadOpsStages(accountId)
     const paidStage = firstStageFor(stages, 'paid')
     const status = billingStatusOf(await billingViewFor(accountId, jobId))
@@ -604,7 +611,7 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
       if (!(await installHappened(accountId, job))) return { moved: false, why: 'not installed' }
       const done = completeStage(stages)
       if (!done) return { moved: false, why: 'no Complete stage' }
-      const completed = await moveJobToStage(accountId, job, stages, done.id, ['staging', 'scheduled', 'in_progress'], { completedBy: 'Automatic: install finished, walkthrough signed and paid in full' }, `Closed out by itself: ${why}`)
+      const completed = await moveJobToStage(accountId, job, stages, done.id, ['staging', 'scheduled', 'in_progress'], { completedBy: `Automatic: ${finished} finished, walkthrough signed and paid in full` }, `Closed out by itself: ${why}`)
       if (!completed) return { moved: false, why: 'already done' }
       row = completed
       // The Final's due date is the install date (lib/contractBilling.ts afterJobSaved).

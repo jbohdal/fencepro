@@ -100,12 +100,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect(html).toMatch(/data-option="1">\s*<input type="radio" name="option" value="1" checked>/)
     expect(html.match(/data-option="/g)).toHaveLength(1)
     expect(html).not.toContain('Tan no dig')
-    expect(html).toContain('Your fence was signed with us for <b>No dig</b> at <b>$7,363</b>')
+    expect(html).toContain('Your fence was agreed with us for <b>No dig</b> at <b>$7,363</b>')
 
     const before = JSON.stringify(await prisma.savedQuote.findUnique({ where: { id: q.id } }))
     const r = await accept(q.shareToken!, 2, 'Pat Sold')
     expect(r.status).toBe(409)
-    expect(r.json.error).toBe('Your fence was already signed for No dig. To change it, please call us at (352) 844 2677.')
+    expect(r.json.error).toBe('Your fence was already agreed with us for No dig. To change it, please call us at (352) 844 2677.')
     expect(r.json.reload).toBe(true)
     expect(JSON.stringify(await prisma.savedQuote.findUnique({ where: { id: q.id } }))).toBe(before)
     const n = await notices(q)
@@ -117,7 +117,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect(await notices(q)).toHaveLength(1)
     // The page it reloads to: why first, over the sold option.
     const back = await page(q.shareToken!, '?refused=1')
-    expect(back).toMatch(/data-refused role="alert"><p>Your fence was already signed for No dig\. To change it, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\.<\/p>/)
+    expect(back).toMatch(/data-refused role="alert"><p>Your fence was already agreed with us for No dig\. To change it, please call us at <a href="tel:3528442677"[^>]*>\(352\) 844 2677<\/a>\.<\/p>/)
     expect(back.match(/data-option="/g)).toHaveLength(1)
 
     // The customer signs the sold option: accepted, and the conflict is settled (read).
@@ -137,7 +137,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect(html).not.toContain('data-option="')
     const r = await accept(q.shareToken!, 1, 'Pat Changed')
     expect(r.status).toBe(409)
-    expect(r.json.error).toMatch(/^Your fence was already signed for .+\. To change it, please call us at \(352\) 844 2677\.$/)
+    expect(r.json.error).toMatch(/^Your fence was already agreed with us for .+\. To change it, please call us at \(352\) 844 2677\.$/)
     expect(r.json.error).not.toContain("WV-ND 6'x8'")
   })
 
@@ -197,7 +197,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     const card = html.slice(html.indexOf('data-option="3"'), html.indexOf('data-option="2"'))
     expect(card).toContain('Most popular')
     expect(card).toContain('<span class="tier">Better</span>')
-    expect(card).toContain('6 or 8 ft panels (best price)')
+    expect(card).toContain('6 ft or 8 ft panels')
+    expect(card).not.toContain('(best price)')
     expect(card).toContain('$7,179')
     expect(html).not.toContain('$7,363')
     expect(html).toContain('Save $1,086')

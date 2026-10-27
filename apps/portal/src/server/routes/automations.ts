@@ -38,7 +38,7 @@ import { getFilePath } from '../lib/storage/index.js'
 import { recordEvent } from '../lib/automationEvents.js'
 import { ruleSchema, stageRuleSchema, REQUIREMENT_LABEL, REQUIREMENTS, STEP_TYPES, CONDITION_FIELDS, EVENT_TRIGGERS, type Board } from '../lib/automations/types.js'
 import { dryRun, ensureStarters, runAgain, type LogEntry } from '../lib/automations/queue.js'
-import { buildContext, loadLeads, opsStageOfJob, opsStageName, TEMPLATE_FIELDS } from '../lib/automations/context.js'
+import { buildContext, loadLeads, jobForCard, opsStageOfJob, opsStageName, TEMPLATE_FIELDS } from '../lib/automations/context.js'
 import { loadPipelineStages } from '../lib/pipelineStages.js'
 import * as pipelineModel from '../lib/pipelineStageModel.js'
 import { loadOpsStages } from '../lib/opsStages.js'
@@ -315,15 +315,32 @@ router.get('/runs', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     const where: any = { accountId }
     if (typeof req.query.entityId === 'string') where.entityId = req.query.entityId
+    // A job's runs, and its pipeline card's (the Signed Contract rule runs on the card, round 6 review Oct 27 2026:
+    // the job said "No automation has run for this yet" when it had).
+    let cardIds = new Set<string>()
+    if (typeof req.query.jobId === 'string') {
+      const job = await prisma.savedJob.findFirst({ where: { id: req.query.jobId, accountId }, select: { id: true, quoteId: true, crmContactId: true } })
+      if (job) cardIds = new Set(await cardsOfJob(accountId, job))
+      where.entityId = { in: [req.query.jobId, ...cardIds] }
+    }
     if (typeof req.query.ruleId === 'string') where.ruleId = req.query.ruleId
     if (typeof req.query.status === 'string') where.status = { in: req.query.status.split(',') }
     if (typeof req.query.id === 'string') where.id = req.query.id
     const runs = await prisma.automationRun.findMany({ where, orderBy: { createdAt: 'desc' }, take: Math.min(100, Number(req.query.limit) || 50) })
     const rules = await prisma.automationRule.findMany({ where: { id: { in: [...new Set(runs.map(r => r.ruleId))] } }, select: { id: true, name: true, board: true } })
     const names = new Map(rules.map(r => [r.id, r]))
-    res.json({ success: true, data: runs.map(r => ({ ...r, ruleName: names.get(r.ruleId)?.name ?? '(deleted rule)', board: names.get(r.ruleId)?.board ?? null })) })
+    res.json({ success: true, data: runs.map(r => ({ ...r, ruleName: names.get(r.ruleId)?.name ?? '(deleted rule)', board: names.get(r.ruleId)?.board ?? null, ...(cardIds.has(r.entityId) ? { onCard: true } : {}) })) })
   } catch (err) { fail(res, err, 'load the run log') }
 })
+
+/** The pipeline cards whose job is this one (context.ts jobForCard: the card's job, its quote's, else its customer's newest). */
+async function cardsOfJob(accountId: string, job: { id: string; quoteId: string | null; crmContactId: string | null }): Promise<string[]> {
+  const { leads } = await loadLeads(accountId)
+  const maybe = leads.filter(l => l?.id && (l.jobId === job.id || (job.quoteId && l.quoteId === job.quoteId) || (job.crmContactId && l.customerId === job.crmContactId)))
+  const out: string[] = []
+  for (const card of maybe) if ((await jobForCard(accountId, card))?.id === job.id) out.push(String(card.id))
+  return out
+}
 
 router.post('/runs/:id/run-again', requireAdmin, async (req: any, res) => {
   try {
@@ -500,7 +517,15 @@ router.get('/tasks', async (req: any, res) => {
     const status = typeof req.query.status === 'string' ? req.query.status.split(',') : ['pending', 'in_progress']
     // A Salesman's or Installer's list is theirs only; the owner's and office's also has the company's unnamed tasks (lib/taskScope.ts).
     const mine = req.query.all === '1' && seesCompanyTasks(roleOf(req)) ? {} : myTasksWhere(roleOf(req), names)
-    const tasks = await prisma.task.findMany({ where: { status: { in: status as any }, ...mine }, orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }], take: 100 })
+    // As many as asked for (the list's "Show more"; round 6 review, Oct 27 2026: a fixed 100 hid newer tasks).
+    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500)
+    // Done: the ones closed in the last `days` days (14 unless asked), newest first, with why they closed (in the description).
+    const done = status.length === 1 && status[0] === 'completed'
+    const days = Math.min(Math.max(Number(req.query.days) || 14, 1), 90)
+    const tasks = done
+      ? await prisma.task.findMany({ where: { status: 'completed', completedAt: { gte: new Date(Date.now() - days * 86_400_000) }, ...mine }, orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }], take })
+      // Open: overdue first, then today's, then later ones, then those with no due day.
+      : await prisma.task.findMany({ where: { status: { in: status as any }, ...mine }, orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }], take })
     res.json({ success: true, data: tasks })
   } catch (err) { fail(res, err, 'load tasks') }
 })

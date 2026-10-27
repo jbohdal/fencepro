@@ -37,6 +37,7 @@
 
 import prisma from './prisma.js'
 import { floridaDay, jobForCard } from './automations/context.js'
+import { permitStatusesOf } from './permitStatus.js'
 
 export type TaskNeed = 'permit' | 'schedule' | 'materials'
 
@@ -144,7 +145,7 @@ export async function closeFinishedTasks(opts: { dryRun?: boolean; jobIds?: stri
   const jobIds = jobs.map(j => j.id)
   const accounts = [...new Set(jobs.map(j => j.accountId))]
   const [permits, vendor, states] = await Promise.all([
-    prisma.permit.findMany({ where: { jobId: { in: jobIds } }, select: { jobId: true, status: true } }),
+    permitStatusesOf(null, jobs),
     prisma.vendorInvoice.groupBy({ by: ['jobId'], where: { jobId: { in: jobIds }, docType: 'invoice', status: { notIn: ['refused', 'undone', 'failed', 'replaced'] } }, _count: { _all: true } }),
     prisma.businessState.findMany({ where: { accountId: { in: accounts } }, select: { accountId: true, pendingOrders: true } }),
   ])
@@ -153,7 +154,7 @@ export async function closeFinishedTasks(opts: { dryRun?: boolean; jobIds?: stri
     status: j.status === 'on_hold' ? (j.previousStatus || 'staging') : j.status,
     scheduledDate: j.scheduledDate || '',
     materialsStatus: j.materialsStatus || 'not_ordered',
-    permitStatus: permits.find(p => p.jobId === j.id)?.status ?? null,
+    permitStatus: permits.get(j.id) ?? null,
     salesOrdersOrdered: orders.filter(o => o.accountId === j.accountId && (o.jobId === j.id || (j.quoteId && o.quoteId === j.quoteId)) && (o.status === 'ordered' || o.status === 'received')).length,
     vendorInvoices: vendor.find(v => v.jobId === j.id)?._count._all ?? 0,
   })

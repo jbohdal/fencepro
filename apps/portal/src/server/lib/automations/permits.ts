@@ -13,6 +13,7 @@ import { suggestCounty } from '../addressIndex.js'
 import { countyOf, floridaDay } from './context.js'
 import { pricingModule, plainStyleName } from '../estimates.js'
 import { phoneText } from '../receiptPdf.js'
+import { defaultPermitStatus as defaultStatusOfWork } from '../permitStatus.js'
 
 export const PERMIT_STATUSES = ['not_needed', 'needed', 'applied', 'approved', 'inspection_scheduled', 'passed'] as const
 export type PermitStatus = typeof PERMIT_STATUSES[number]
@@ -69,12 +70,11 @@ export async function lookupParcel(address: string, fetchFn: typeof fetch = fetc
 
 /**
  * The permit status a job starts with: Needed, except a repair (the quote's
- * work), which is Not needed until the office sets it (Jonathan, Oct 26 2026:
- * "Repairs: permit defaults to Not needed (office can change it), no reminders
- * unless set to Needed"). A fence move is a new fence line, so Needed as before.
+ * work), which is Not needed until the office sets it (Oct 26 2026). The rule
+ * lives in lib/permitStatus.ts, which every reader of a job's permit uses.
  */
 export function defaultPermitStatus(work: unknown): PermitStatus {
-  return work && typeof work === 'object' && (work as { type?: unknown }).type === 'repair' ? 'not_needed' : 'needed'
+  return defaultStatusOfWork(work)
 }
 
 /** The default for this job, from its quote's work (a job without a quote: Needed). */

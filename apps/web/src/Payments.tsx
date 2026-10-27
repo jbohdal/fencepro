@@ -20,7 +20,7 @@
 
 import { styleLabel } from './fenceCatalog'
 import { withoutScheduleWords } from './customerPage'
-import { jobStyleOrWork } from './jobWork'
+import { jobStyleOrWork, jobInstallWord } from './jobWork'
 import { getJob } from './jobStore'
 import { customerText } from '../../portal/src/server/lib/customerText'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
@@ -337,6 +337,8 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
   const emailed = emailResultOf(paymentId)
   // On a computer: the number "Did you send it?" is asked about (nothing is recorded until Yes).
   const [ask, setAsk] = useState<string | null>(null)
+  // A repair's warranty starts on the repair date (round 6 review, Oct 27 2026).
+  const startWord = jobInstallWord(getJob(jobId)).toLowerCase()
   if (!snap) return null
   // "Company: ... Reply STOP to opt out." (lib/customerText.ts).
   const body = customerText(`Receipt for your ${money(snap.amountCents)} payment (${snap.forText.toLowerCase()}). Thank you! ${link}`, snap.company.name)
@@ -368,7 +370,7 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
           <div className="rounded-xl bg-green-50 border border-green-200 p-4 text-center" data-receipt-paid-in-full>
             <p className="text-2xl font-bold text-green-800">Paid in full</p>
             <p className="text-base text-gray-800" data-receipt-warranty>Warranty: {snap.warrantyName || 'as written on your contract'}</p>
-            <p className="text-sm text-gray-600">{s?.completedDate ? `It starts on the install date: ${wordsDay(s.completedDate)}.` : 'It starts on the install date.'}</p>
+            <p className="text-sm text-gray-600">{s?.completedDate ? `It starts on the ${startWord} date: ${wordsDay(s.completedDate)}.` : `It starts on the ${startWord} date.`}</p>
             {snap.lienRelease && <p className="text-xs text-amber-800 mt-2" data-receipt-lien>Final Release of Lien is on the PDF (DRAFT wording, for your lawyer to check).</p>}
           </div>
         )}
