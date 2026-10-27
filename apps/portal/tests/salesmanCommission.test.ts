@@ -5,7 +5,7 @@
  * builder's "Salesman on this job?" switch.)
  */
 import { describe, test, expect } from 'vitest'
-import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote } from '../../web/src/salesmanCommission'
+import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote, savedCommission } from '../../web/src/salesmanCommission'
 import { calculatePrice, type PriceInputs, type PricingSettings, type StylePricing } from '../../web/src/pricingEngine'
 import { seesCosts } from '../../web/src/moveRepair'
 
@@ -122,5 +122,16 @@ describe('a saved quote\'s margin for a Salesman login (review, Oct 27 2026)', (
     expect(isRepsQuote('christa  feagin', 'Christa Feagin')).toBe(true)
     expect(isRepsQuote('Jonathan Bohdal', 'Christa Feagin')).toBe(false)
     expect(isRepsQuote('', '')).toBe(false)
+  })
+})
+
+describe('Pricing (Internal) shows the commission that is in the margin (review Oct 27 2026)', () => {
+  test('price − cost − commission is the margin shown; none without a commission', () => {
+    // $3,766 price, $2,108 cost, 9% commission ($338.94): margin (3766 − 2108 − 338.94) ÷ 3766.
+    const q = { finalPrice: 3766, totalCOGS: 2108, gmPct: (3766 - 2108 - 338.94) / 3766, hasSalesman: true, pricing: { commissionPct: 0.09 } }
+    expect(savedCommission(q)).toEqual({ pct: 0.09, cents: 33894 })
+    expect(savedCommission({ ...q, pricing: undefined })!.pct).toBeCloseTo(0.09, 3)
+    expect(savedCommission({ ...q, hasSalesman: false, pricing: undefined })).toBeNull()
+    expect(savedCommission({ finalPrice: 450, totalCOGS: 200, gmPct: 0.4, work: { priced: { commissionCents: 4050 } } })).toEqual({ pct: 0.09, cents: 4050 })
   })
 })

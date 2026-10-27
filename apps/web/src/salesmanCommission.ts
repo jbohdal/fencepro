@@ -105,3 +105,20 @@ export function isRepsQuote(salesRep: string | null | undefined, name: string | 
   const n = norm(name)
   return !!n && norm(salesRep) === n
 }
+
+/**
+ * A saved quote's commission, for "Pricing (Internal)" (review Oct 27 2026: the office saw cost, price and
+ * a 35% margin that did not add up, the commission being in the margin but nowhere on the screen).
+ * The cents are what the saved figures leave for it, price − cost − margin (so the lines add up to the
+ * margin shown); a repair's are its own saved commission. The % is the quote's own, else the cents over
+ * the price. Null with no commission. Only for logins that see the commission (seesCommission).
+ */
+export function savedCommission(q: SavedMargin): { pct: number; cents: number } | null {
+  if (!carriesCommission(q) || !(q.finalPrice > 0)) return null
+  const cents = pos(q.work?.priced?.commissionCents)
+    ? Math.round(q.work!.priced!.commissionCents!)
+    : Math.round(q.finalPrice * 100 * (1 - q.gmPct) - q.totalCOGS * 100)
+  if (!(cents > 0)) return null
+  const pct = pos(q.pricing?.commissionPct) ? q.pricing!.commissionPct! : cents / (q.finalPrice * 100)
+  return { pct, cents }
+}

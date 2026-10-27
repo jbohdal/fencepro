@@ -10,7 +10,7 @@
 import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
 import { can, canOpenOperations, signedInRole } from './permissions'
-import { seesCommission, shownMargin } from './salesmanCommission'
+import { seesCommission, shownMargin, savedCommission } from './salesmanCommission'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
@@ -79,6 +79,7 @@ export default function QuoteDetailDrawer({
   const quote = (getQuoteById(opened.id) as SavedQuote | null) ?? opened
   // A Salesman sees the margin before the commission (Oct 27 2026); the saved quote keeps its own.
   const shownGm = shownMargin(quote, seesCommission(signedInRole(), can('costs.view')))
+  const commission = seesCommission(signedInRole(), can('costs.view')) ? savedCommission(quote) : null
   const [sendOpen, setSendOpen] = useState(false)
   // The Send box is showing its own "Show these to the customer" list: the photos section does not repeat it.
   const [sendTicks, setSendTicks] = useState(false)
@@ -281,6 +282,8 @@ export default function QuoteDetailDrawer({
                 <div className="flex justify-between"><span className="text-gray-600">Tear out</span><span>{fmt(quote.tearOutCost)}</span></div>
                 <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total cost</span><span>{fmt(quote.totalCOGS)}</span></div>
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
+                {/* The commission in the margin below, for logins that see it (never a Salesman): the lines add up. */}
+                {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%</span><span>{fmt(commission.cents / 100)}</span></div>}
                 <div className="flex justify-between pt-1 text-xs text-gray-500"><span>Gross Margin</span><span>{fmtPct(shownGm)}</span></div>
               </div>
             </section>
