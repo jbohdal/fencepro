@@ -13,18 +13,19 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, STAFF_COOKIE } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
-const COOKIE = process.env.E2E_STAFF_COOKIE || ''
+// E2E_STAFF_COOKIE, or E2E_ACCESS_TOKEN moved over to a cookie by lib.mjs (how run-heavy.sh runs it).
+const COOKIE = STAFF_COOKIE
 const SHOTS = process.env.SHOTS || ''
 const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
 if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
-if (!COOKIE) { console.error('Set E2E_STAFF_COOKIE (scripts/dev-session-token.ts --cookie).'); process.exit(2) }
+if (!COOKIE) { console.error('Set E2E_STAFF_COOKIE (scripts/dev-session-token.ts --cookie) or E2E_ACCESS_TOKEN.'); process.exit(2) }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
