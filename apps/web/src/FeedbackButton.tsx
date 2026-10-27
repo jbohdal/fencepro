@@ -13,7 +13,7 @@ import { MessageSquarePlus, X, Loader2, Pencil, Undo2 } from 'lucide-react'
 import { captureScreen, sendFeedback, whereText } from './feedback'
 import { BackClose, useNav } from './nav'
 import { toast } from './toast'
-import { BUTTON, CUSTOMER_HOLDS, PHONE_MAX, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
+import { BUTTON, CUSTOMER_HOLDS, LABELS, PHONE_MAX, TAPPABLE, pickSpot, probePoints, spotsFor, type Spot } from './feedbackSpot'
 
 type Point = [number, number]
 type Stroke = Point[]
@@ -119,12 +119,23 @@ export function FeedbackOverWindow({ screen = '' }: { screen?: string }) {
   return <FeedbackButton screen={screen} floating />
 }
 
-/** Something tappable under this point, other than the feedback button itself (feedbackSpot.ts). */
+/** Words drawn at this point: one of the element's own lines of text is there. */
+function textAt(el: Element, x: number, y: number): boolean {
+  for (const n of Array.from(el.childNodes)) {
+    if (n.nodeType !== Node.TEXT_NODE || !n.textContent?.trim()) continue
+    const r = document.createRange()
+    r.selectNodeContents(n)
+    for (const b of Array.from(r.getClientRects())) if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) return true
+  }
+  return false
+}
+
+/** Something tappable, a label or words under this point, other than the feedback button itself (feedbackSpot.ts). */
 function tappableAt(x: number, y: number): boolean {
   for (const el of document.elementsFromPoint(x, y)) {
     if ((el as HTMLElement).closest('[data-feedback-button]')) continue
-    // The first thing under the button decides: a control, or something drawn as one (a pointer cursor).
-    if (el.closest(TAPPABLE)) return true
+    // The first thing under the button decides: a control, a label, words, or something drawn as one (a pointer cursor).
+    if (el.closest(TAPPABLE) || el.closest(LABELS) || textAt(el, x, y)) return true
     let e: Element | null = el
     for (let i = 0; e && i < 4; i++, e = e.parentElement) if (getComputedStyle(e).cursor === 'pointer') return true
     return false
@@ -154,6 +165,8 @@ function useFreeSpot(on: boolean): Spot | null | 'hidden' {
       const c = cur.current
       const keep = !!c && free(c) && (c.tab ? vw <= PHONE_MAX && c.top + c.height <= vh : vw > PHONE_MAX && spots.some(s => s.left === c.left && s.top === c.top))
       const next = keep ? cur.current! : pickSpot(spots, free, vh, vw)
+      // Every spot covers something: not shown, rather than over a control (it comes back once one is free).
+      if (!next) { cur.current = null; setSpot('hidden'); return }
       if (!cur.current || next.left !== cur.current.left || next.top !== cur.current.top || !!next.tab !== !!cur.current.tab) { cur.current = next; setSpot(next) }
     }
     const soon = () => { if (!frame) frame = requestAnimationFrame(measure) }
@@ -212,13 +225,14 @@ export default function FeedbackButton({ screen = '', floating = false }: { scre
       <button type="button" onClick={start} disabled={busy || stage.kind === 'form'} data-feedback-button={floating ? 'window' : 'top'} data-feedback-skip
         aria-label="Send feedback" title="Send feedback" data-feedback-spot={floating ? (tab ? 'edge' : spot ? `${spot.left},${spot.top}` : 'measuring') : undefined}
         // Floating: placed where nothing tappable is under it (useFreeSpot); hidden until placed.
-        style={floating ? (spot ? { left: spot.left, top: spot.top, width: spot.width, height: spot.height } : { left: 12, top: 12, width: BUTTON.width, height: BUTTON.height, visibility: 'hidden' }) : undefined}
+        // Held to its size: the phone rule that makes a labelled button 48 px wide made the 14 px tab cover the quote builder's controls.
+        style={floating ? (spot ? { left: spot.left, top: spot.top, width: spot.width, height: spot.height, minWidth: spot.width, minHeight: spot.height, maxWidth: spot.width } : { left: 12, top: 12, width: BUTTON.width, height: BUTTON.height, visibility: 'hidden' }) : undefined}
         className={floating
           ? tab
-            ? 'fixed z-[175] flex items-center justify-center rounded-r-lg bg-orange-500/90 text-white shadow-lg disabled:opacity-60'
+            ? `fixed z-[175] flex items-center justify-center p-0 ${spot?.side === 'right' ? 'rounded-l-lg' : 'rounded-r-lg'} bg-orange-500/90 text-white shadow-lg disabled:opacity-60`
             : 'fixed z-[175] flex items-center justify-center gap-1.5 rounded-full bg-white text-gray-700 border border-gray-300 shadow-lg hover:bg-gray-50 disabled:opacity-60 text-sm font-semibold'
           : 'flex items-center justify-center gap-1.5 w-11 h-11 md:w-auto md:h-9 md:px-2.5 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-60 text-sm'}>
-        {tab ? <MessageSquarePlus size={16} aria-hidden="true" /> : <>
+        {tab ? <MessageSquarePlus size={12} aria-hidden="true" className="shrink-0" /> : <>
           {busy ? <Loader2 size={20} className="animate-spin md:w-4 md:h-4" aria-hidden="true" /> : <MessageSquarePlus size={20} className="md:w-4 md:h-4" aria-hidden="true" />}
           <span className={floating ? '' : 'hidden xl:inline'}>{busy ? 'Taking picture...' : 'Feedback'}</span>
         </>}
