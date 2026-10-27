@@ -144,7 +144,8 @@ export default function JobWarranty({ job }: { job: Job }) {
                   <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { setDeciding(null); setReason('') }}>Cancel</button>
                 </div>
               </div>
-            ) : (
+            ) : can('schedule.change') && (
+              // Covered or not is the office's call (the server refuses the Installer: warranties.ts override).
               <div className="flex flex-wrap gap-x-3">
                 {c.coverage.covered !== true && <button type="button" className="text-xs text-purple-700 underline min-h-[48px]" onClick={() => setDeciding({ id: c.id, covered: true })} data-override-covered>Mark covered</button>}
                 {c.coverage.covered !== false && <button type="button" className="text-xs text-purple-700 underline min-h-[48px]" onClick={() => setDeciding({ id: c.id, covered: false })} data-override-not-covered>Mark not covered</button>}

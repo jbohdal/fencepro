@@ -192,7 +192,7 @@ try {
   if (await send.isVisible({ timeout: 5000 }).catch(() => false)) await tap(send)
   const packetLink = await until(async () => W().locator('[data-ticket-packet-link]').getAttribute('href'), 20000)
   const packetHtml = packetLink ? await (await fetch(packetLink)).text() : ''
-  check('the crew packet shows the $0 work order', packetHtml.includes('Warranty work order: $0, no charge to the customer') && packetHtml.includes(`data-packet-warranty-work="${ticketId}"`))
+  check('the crew packet shows the no charge work order', packetHtml.includes('Warranty work order: no charge to the customer') && packetHtml.includes(`data-packet-warranty-work="${ticketId}"`))
   await shot(page, '5-covered')
 
   // 6. Book the visit (a Service appointment).

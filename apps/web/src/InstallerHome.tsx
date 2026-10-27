@@ -192,11 +192,14 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
   }
 
   async function makePacket() {
+    // One tap makes it and opens it (review, Oct 27 2026). The tab opens on the tap: an iPhone blocks one opened after the wait.
+    const tab = window.open('', '_blank')
     setBusy(true)
     const p = await sendInstallPacket(job.id, { fenceStyle: job.fenceStyle, notes: job.notes, walkGates: job.walkGates, dblGates: job.dblGates }, quote ?? undefined)
     setBusy(false)
-    if (!p) { toast.error('Could not make the crew packet', 'Check the signal and try again, or ask the office to send it.'); return }
+    if (!p) { tab?.close(); toast.error('Could not make the crew packet', 'Check the signal and try again, or ask the office to send it.'); return }
     putCrewInstall(job.id, { packet: { token: p.token } })
+    if (tab) { tab.opener = null; tab.location.href = new URL(packetUrl(p.token), window.location.href).href }
   }
 
   // A repair or a move: what is being done (the repair items), not the fence style and "0 sections" (round 2, Oct 26 2026).

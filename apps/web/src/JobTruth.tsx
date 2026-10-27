@@ -240,7 +240,8 @@ export function JobFinancial({ job }: { job: Job }) {
 
 export function OpenCustomerProfile({ job }: { job: Job }) {
   const id = job.customerId
-  if (!id || !getCustomerById(id)) return null
+  // Not for the Installer: he has no Customers page, so the tap only dropped him on My installs (review, Oct 27 2026).
+  if (!id || isCrewLogin() || !getCustomerById(id)) return null
   return (
     <button type="button" className="btn btn-secondary w-full min-h-[48px]" data-job-open-customer
       onClick={() => navigate(`/customers/${encodeURIComponent(id)}`, { from: 'Operations' })}>

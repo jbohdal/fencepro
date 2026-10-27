@@ -567,7 +567,7 @@ async function workOrders(work: Awaited<ReturnType<typeof coveredWorkOn>>): Prom
     const appt = t.appointmentId ? await prisma.appointment.findFirst({ where: { id: t.appointmentId, deletedAt: null, status: { not: 'cancelled' } }, select: { startAt: true, assignedTo: true } }) : null
     const media = (await prisma.mediaItem.findMany({ where: { serviceTicketId: t.id, deletedAt: null }, orderBy: { takenAt: 'asc' } })).map(m => serializeMedia(m, 3 * 86_400_000))
     const visit = appt?.startAt ? appt.startAt.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'not booked yet'
-    parts.push(`<section class="notes" data-packet-warranty-work="${esc(t.id)}"><h2>Warranty work order: $0, no charge to the customer</h2>
+    parts.push(`<section class="notes" data-packet-warranty-work="${esc(t.id)}"><h2>Warranty work order: no charge to the customer</h2>
       <p><b>${esc(issueLabel(t.issue))}</b>${t.warrantyName ? ` · Covered by the ${esc(t.warrantyName)}` : ''}</p>
       <p>Visit: ${esc(visit)}${appt?.assignedTo ? ` · ${esc(appt.assignedTo)}` : ''}</p>
       ${t.notes ? `<p>${esc(forCrew(t.notes)).replace(/\n/g, '<br>')}</p>` : ''}

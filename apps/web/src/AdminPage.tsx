@@ -406,12 +406,12 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                 <React.Fragment key={item.id}>
                   <tr className="hover:bg-gray-50 group">
                     <td className="px-4 py-2.5">
-                      {editingId === item.id ? (
+                      {canPrice && editingId === item.id ? (
                         <input autoFocus className="w-full border border-orange-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                           value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} onBlur={() => setEditingId(null)} />
-                      ) : (
+                      ) : canPrice ? (
                         <span className="cursor-pointer hover:text-orange-600" onClick={() => setEditingId(item.id)}>{item.name}</span>
-                      )}
+                      ) : <span>{item.name}</span>}
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">{item.category}</td>
                     {can('costs.view') && <td className="px-3 py-2.5 text-right">
@@ -425,7 +425,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                     <td className="px-3 py-2.5" data-price-age={ageOf(item)} data-price-item={item.id}>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs ${ageOf(item) === 'fresh' ? 'text-gray-600' : ageOf(item) === 'old' ? 'text-red-700 font-semibold' : 'text-amber-700'}`}>{priceAgeLabel(item)}</span>
-                        {ageOf(item) !== 'fresh' && (
+                        {canPrice && ageOf(item) !== 'fresh' && (
                           <button onClick={() => confirmPrices([item.id])} data-confirm-price
                             className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200 whitespace-nowrap">Confirm price</button>
                         )}
@@ -435,15 +435,16 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                       {hasStock ? qty : '—'}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <button
+                      {/* A login that cannot change the catalog (the Installer, the office) reads it: no edit controls (review, Oct 27 2026). */}
+                      {!canPrice ? <span className="text-xs text-gray-500" data-catalog-readonly>{thresholdCount > 0 ? `${thresholdCount} set` : '—'}</span> : <button
                         onClick={() => setThresholdExpandId(isThresholdExpanded ? null : item.id)}
                         className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${isThresholdExpanded ? 'bg-orange-100 border-orange-300 text-orange-700' : thresholdCount > 0 ? 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-orange-50 hover:border-orange-200' : 'border-dashed border-gray-200 text-gray-400 hover:border-orange-300 hover:text-orange-500'}`}
                       >
                         {thresholdCount > 0 ? `${thresholdCount} set` : '+ Set'}
-                      </button>
+                      </button>}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      {isBarcodesEditing ? (
+                      {!canPrice ? <span className="text-xs text-gray-500">{barcodeCount > 0 ? `${barcodeCount} barcode${barcodeCount > 1 ? 's' : ''}` : '—'}</span> : isBarcodesEditing ? (
                         <input
                           autoFocus
                           className="w-full border border-orange-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
@@ -463,7 +464,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                       )}
                     </td>
                     <td className="px-2 py-2.5">
-                      <button onClick={() => deleteItem(item.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>
+                      {canPrice && <button onClick={() => deleteItem(item.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>}
                     </td>
                   </tr>
                   {isThresholdExpanded && (

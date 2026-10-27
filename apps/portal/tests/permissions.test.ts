@@ -111,6 +111,14 @@ describe('inventory', () => {
     expect(inventoryChangeRefusal('manager', inv, next({ items: [], kits: [] }))).toBe('records.delete')
     expect(inventoryChangeRefusal('admin', inv, next({ items: [], kits: [] }))).toBeNull()
   })
+  test('installer: no catalog writes (barcodes, reorder points, names, deletes, stock); review Oct 27 2026', () => {
+    expect(inventoryChangeRefusal('field_crew', inv, next({ items: [{ ...inv.items[0], barcodes: ['123'] }] }))).toBe('inventory.stock')
+    expect(inventoryChangeRefusal('field_crew', inv, next({ items: [{ ...inv.items[0], reorderPoint: 2 }] }))).toBe('inventory.stock')
+    expect(inventoryChangeRefusal('field_crew', inv, next({ items: [{ ...inv.items[0], name: 'Renamed' }] }))).toBe('inventory.stock')
+    expect(inventoryChangeRefusal('field_crew', inv, next({ stockLevels: [{ itemId: 'i1', locationId: 'l1', quantity: 1, reorderPoint: 3 }] }))).toBe('inventory.stock')
+    expect(inventoryChangeRefusal('field_crew', inv, next({ items: [] }))).toBe('records.delete')
+    expect(inventoryChangeRefusal('field_crew', inv, next({ items: [...inv.items, { id: 'i2', name: 'New', unitCost: 1 }] }))).toBe('prices.change')
+  })
 })
 
 describe('account documents', () => {

@@ -313,7 +313,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     // The job was finished in March: its packet would be closed, but covered work keeps it open.
     const p = await prisma.installPacket.create({ data: { accountId, jobId, token: crypto.randomBytes(24).toString('base64url'), snapshot: { companyName: 'Getter Done Fence' } } })
     const page = await (await fetch(`${base}/p/i/${p.token}`)).text()
-    expect(page).toContain('Warranty work order: $0, no charge to the customer')
+    expect(page).toContain('Warranty work order: no charge to the customer')
+    expect(page).not.toContain('$0, no charge')
     expect(page).toContain(`data-packet-warranty-work="${ticketId}"`)
     // Covered work is costed: owner and office, with hours.
     expect((await call('sales_rep', 'POST', `/api/service-tickets/${ticketId}/fixed`, { fixedOn: '2026-10-22', crew: [{ name: 'Crew A', hours: 2 }] })).status).toBe(403)
