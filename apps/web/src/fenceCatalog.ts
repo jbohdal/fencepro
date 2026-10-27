@@ -34,6 +34,7 @@ import type { FenceStyle } from './configStore'
 import { inventoryCost, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { WOOD_MATERIAL } from './wood'
+import { customerFenceName, soldRailsOf } from '../../portal/src/server/lib/customerFenceName'
 
 // ── The tree ─────────────────────────────────────────────────────────────────
 
@@ -262,6 +263,17 @@ export function styleLabel(name: string | null | undefined): string {
   if (hit) return hit
   const legacy = LEGACY_STYLE_CHOICES[n]
   return legacy ? plainName(DEFAULT_CATALOG, legacy) : n
+}
+
+/**
+ * A sold fence's plain name on a staff screen (a job, or a sold or signed quote): a best price fence says the
+ * panels its runs used, as the customer reads it ("8 ft panels", "6 ft and 8 ft panels"), not the builder's
+ * "6 or 8 ft panels (best price)" tag (lib/customerFenceName.ts). `quote`: the job's quote, for the runs' picks;
+ * without it the name reads "6 ft or 8 ft panels". An unsold draft keeps styleLabel. Only the words shown change.
+ */
+export function soldStyleLabel(name: string | null | undefined, quote?: { fenceStyle?: string | null; runRails?: unknown; proposal?: unknown } | null): string {
+  const label = styleLabel(name)
+  return label ? customerFenceName(label, soldRailsOf(quote, String(name ?? ''))) : label
 }
 
 // ── Colors: parts, readiness, job lot ────────────────────────────────────────

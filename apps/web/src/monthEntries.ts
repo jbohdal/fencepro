@@ -10,7 +10,7 @@ import { installDays as crewDaysFrom, crewDaysOfWeek } from '../../portal/src/se
 import { getJob, type Job } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { workSummary } from './moveRepair'
-import { styleLabel } from './fenceCatalog'
+import { soldStyleLabel } from './fenceCatalog'
 import type { ScheduledJob, ScheduleSettings } from './SchedulePage'
 
 /** The id prefix of a month card made from a job's dates (no board entry yet). */
@@ -58,10 +58,11 @@ export function repairWorkOf(quoteId: string | null | undefined): string | null 
  * What the job is, in a line: a repair or a move says its work ("Repair: 1 ×
  * Rehang a gate with new hardware"), a new fence its style, feet and sections
  * (round 2b, Oct 26 2026: a repair read "White Vinyl Privacy · 2 sections" on
- * Ready to schedule, Schedule install and the month).
+ * Ready to schedule, Schedule install and the month). A best price fence says the
+ * panels its runs used ("8 ft panels"), not "(best price)": the job is sold (Oct 27 2026).
  */
 export function jobScopeWords(j: { quoteId?: string | null; fenceStyle?: string; footage?: number; sections?: number }): string {
-  return repairWorkOf(j.quoteId) ?? [styleLabel(j.fenceStyle || '') || 'No style', j.footage ? `${j.footage} ft` : '', j.sections ? `${j.sections} sections` : ''].filter(Boolean).join(' · ')
+  return repairWorkOf(j.quoteId) ?? [soldStyleLabel(j.fenceStyle || '', j.quoteId ? getQuoteById(j.quoteId) as any : null) || 'No style', j.footage ? `${j.footage} ft` : '', j.sections ? `${j.sections} sections` : ''].filter(Boolean).join(' · ')
 }
 
 /** A month or day card's job: its repair work (null for a new fence) from the job's quote. */

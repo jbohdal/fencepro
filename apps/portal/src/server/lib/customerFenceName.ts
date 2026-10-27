@@ -45,6 +45,26 @@ export function railsOf(option: { snapshot?: { runRails?: unknown } | null } | n
 }
 
 /**
+ * The runs' picks of a sold or signed quote's fence `style` (default the quote's own): from a proposal option of that
+ * style that saved them (its priced snapshot; a twin tier card does not carry them), else the quote's own when they
+ * are all picked. Undefined when the quote is not of that style. Staff screens name a sold best price fence with
+ * these, the way the customer reads it (customerFenceName); an unsold draft keeps the "(best price)" tag.
+ */
+export function soldRailsOf(quote: { fenceStyle?: string | null; runRails?: unknown; proposal?: unknown } | null | undefined, style?: string | null): unknown {
+  if (!quote) return undefined
+  const name = style ?? quote.fenceStyle
+  const opts: any[] = Array.isArray((quote.proposal as any)?.options) ? (quote.proposal as any).options : []
+  const same = opts.filter(o => o && o.fenceStyle === name)
+  const own = same.find(o => panelWidthsOf(o?.snapshot?.runRails).length) ?? same[0]
+  return railsOf(own, quote.fenceStyle === name ? quote.runRails : undefined)
+}
+
+/** Sold, or accepted and signed on the link: a staff screen names its best price fence by the panels used. */
+export function isSoldQuote(q: { status?: string | null; acceptedAt?: unknown; soldAt?: unknown } | null | undefined): boolean {
+  return !!q && (q.status === 'SOLD' || !!q.acceptedAt || !!q.soldAt)
+}
+
+/**
  * "What's included" as the customer reads it, from the lines frozen on the proposal:
  *  - the posts line without zero counts, and "end posts" when there are no gates
  *    ("0 corner posts and 2 end and gate posts" reads "2 end posts"; review Oct 27 2026);

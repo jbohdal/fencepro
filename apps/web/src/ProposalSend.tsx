@@ -5,6 +5,7 @@
  */
 
 import { customerText } from '../../portal/src/server/lib/customerText'
+import { customerFenceName, soldRailsOf } from '../../portal/src/server/lib/customerFenceName'
 import { useEffect, useState } from 'react'
 import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
@@ -108,6 +109,8 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
   }
 
   const chosen = quote.acceptedAt != null && quote.chosenOption != null ? p.options[quote.chosenOption] : null
+  // Named with the panels its runs used, as the customer and the contract read it, not "(best price)" (lib/customerFenceName.ts).
+  const chosenName = chosen ? customerFenceName(chosen.label, soldRailsOf(quote as any, chosen.fenceStyle)) : ''
   // The options the customer sees: the same fence at the same price shows once, and a best price quote's own
   // option shows as the tier it is the fence of (proposalOptions.ts), as on the customer's page (never changed once sent).
   const fold = proposalFold(p as any, quote as any, n => cfg.fenceStyles?.find(s => s.name === n))
@@ -127,7 +130,7 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
       )}
       {chosen && (
         <p className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-900" data-proposal-chosen>
-          Accepted by {quote.acceptedBy} on {new Date(quote.acceptedAt!).toLocaleDateString()}: {chosen.label}, ${Math.round(chosen.finalPrice).toLocaleString('en-US')}.
+          Accepted by {quote.acceptedBy} on {new Date(quote.acceptedAt!).toLocaleDateString()}: {chosenName}, ${Math.round(chosen.finalPrice).toLocaleString('en-US')}.
         </p>
       )}
       <p className="text-sm text-gray-700" data-options-offered={offered}>{offered} option{offered === 1 ? '' : 's'} offered{p.depositPct ? `, ${p.depositPct}% deposit` : ''}{p.financing ? `, financing over ${p.financing.months} months` : ''}.</p>

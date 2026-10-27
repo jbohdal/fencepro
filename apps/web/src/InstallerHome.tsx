@@ -15,7 +15,7 @@ import { Navigation, Phone, FileText, Play, Square, Camera, CheckCircle2, AlertT
 import { getJobs } from './jobStore'
 import { getQuoteById } from './quoteStore'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
-import { styleLabel } from './fenceCatalog'
+import { soldStyleLabel } from './fenceCatalog'
 import { fetchCrewInstall, fetchCrewVisits, markInstall, sendInstallPacket, packetUrl, crewInstallCached, putCrewInstall, jobDoneWords, CREW_INSTALL_EVENT, type CrewInstall, type CrewVisit, type InstallTime } from './installPacket'
 import { APPOINTMENTS_UPDATED } from './appointmentsStore'
 import { TYPE_SHORT } from './appointmentLogic'
@@ -204,7 +204,7 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
 
   // A repair or a move: what is being done (the repair items), not the fence style and "0 sections" (round 2, Oct 26 2026).
   const work = workSummary(quote?.work)
-  const facts = work ? [work] : [styleLabel(job.fenceStyle), job.totalFeet ? `${Math.round(job.totalFeet)} ft` : '', job.sections ? `${job.sections} sections` : '',
+  const facts = work ? [work] : [soldStyleLabel(job.fenceStyle, quote), job.totalFeet ? `${Math.round(job.totalFeet)} ft` : '', job.sections ? `${job.sections} sections` : '',
     job.walkGates ? `${job.walkGates} walk gate${job.walkGates > 1 ? 's' : ''}` : '', job.dblGates ? `${job.dblGates} double gate${job.dblGates > 1 ? 's' : ''}` : ''].filter(Boolean)
 
   return (

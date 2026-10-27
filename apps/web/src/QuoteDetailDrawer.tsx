@@ -11,7 +11,8 @@ import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
 import { can, canOpenOperations, signedInRole } from './permissions'
 import { seesCommission, shownMargin, savedCommission } from './salesmanCommission'
-import { styleLabel } from './fenceCatalog'
+import { styleLabel, soldStyleLabel } from './fenceCatalog'
+import { isSoldQuote } from '../../portal/src/server/lib/customerFenceName'
 import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { updateQuote, getQuoteById } from './quoteStore'
@@ -184,7 +185,8 @@ export default function QuoteDetailDrawer({
             <div>
               <p className="text-xs font-bold text-orange-600">Quote Price</p>
               <p className="text-4xl font-black text-gray-900 mt-2">{fmt0(quote.finalPrice)}</p>
-              <p className="text-xs text-gray-500 mt-1">{styleLabel(quote.fenceStyle)}</p>
+              {/* Sold or signed: a best price fence names the panels its runs used, as the customer reads it; a draft keeps "(best price)". */}
+              <p className="text-xs text-gray-500 mt-1" data-quote-style>{isSoldQuote(quote) ? soldStyleLabel(quote.fenceStyle, quote) : styleLabel(quote.fenceStyle)}</p>
             </div>
             <div className="text-right text-sm">
               {/* A repair or a move: what is being done, not "0 ft total, 0 sections" (round 2, Oct 26 2026). */}
@@ -459,7 +461,8 @@ function SendQuoteForm({ quote, shareUrl, onClose, onSent }: { quote: SavedQuote
     quote_number: `#${quoteNumber(quote.id)}`,
     quote_total: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(quote.finalPrice),
     quote_link: shareUrl,
-    fence_style: styleLabel(quote.fenceStyle),
+    // The customer reads it: never the builder's "(best price)" tag (lib/customerFenceName.ts).
+    fence_style: soldStyleLabel(quote.fenceStyle, quote),
     rep_name: quote.salesRep || '',
     company_name: (company as any).name || 'Getter Done Fence',
     company_phone: (company as any).phone || '',

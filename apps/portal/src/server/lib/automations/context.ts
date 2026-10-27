@@ -11,6 +11,7 @@ import prisma from '../prisma.js'
 import { countyPoint, suggestCounty } from '../addressIndex.js'
 import { getFrontendBase } from '../urls.js'
 import { plainStyleName } from '../estimates.js'
+import { customerFenceName, isSoldQuote, soldRailsOf } from '../customerFenceName.js'
 import type { Board, Condition } from './types.js'
 import { stageOfJob, stageById, START_OPS_STAGES, type OpsStageDef, type OpsJobLike } from '../opsStageModel.js'
 import { loadOpsStages } from '../opsStages.js'
@@ -120,6 +121,16 @@ export function proposalLinkFor(token: string | null | undefined): string {
 
 const dollarsToCents = (n: unknown) => { const v = Number(n); return Number.isFinite(v) ? Math.round(v * 100) : 0 }
 
+/**
+ * {{style}}: the fence's plain name. Sold (a job, or a sold or signed quote): a best price fence says the panels
+ * its runs used ("8 ft panels"), as the customer reads it, not "6 or 8 ft panels (best price)" (Oct 27 2026:
+ * the "Order materials for …" task). Unsold keeps the plain name.
+ */
+async function soldStyleName(code: string, sold: boolean, quote: { fenceStyle?: string | null; runRails?: unknown; proposal?: unknown } | null): Promise<string> {
+  const plain = await plainStyleName(code)
+  return sold && plain ? customerFenceName(plain, soldRailsOf(quote, code)) : plain
+}
+
 /** Build the context for a card or job. Null when it no longer exists. */
 export async function buildContext(accountId: string, board: Board, entityId: string, preloaded?: { leads?: any[] }): Promise<EntityContext | null> {
   const leads = preloaded?.leads ?? (await loadLeads(accountId)).leads
@@ -169,7 +180,7 @@ export async function buildContext(accountId: string, board: Board, entityId: st
     city: String(contact?.city || cityOf(address) || ''),
     county: countyOf(address, permit?.county),
     styleCode: String(job?.fenceStyle || card?.fenceType || quote?.fenceStyle || ''),
-    style: await plainStyleName(String(job?.fenceStyle || card?.fenceType || quote?.fenceStyle || '')),
+    style: await soldStyleName(String(job?.fenceStyle || card?.fenceType || quote?.fenceStyle || ''), !!job || isSoldQuote(quote), quote),
     priceCents: job?.contractValue ? dollarsToCents(job.contractValue) : dollarsToCents(card?.jobValue || card?.quotePrice || quote?.finalPrice || 0),
     salesman: String(card?.assignedRep || job?.salesRep || quote?.salesRep || ''),
     tags,
