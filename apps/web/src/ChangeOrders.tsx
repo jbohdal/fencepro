@@ -141,7 +141,8 @@ export interface ChangeOrderPrefill {
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
-const STATUS_WORDS: Record<ChangeOrderStatus, string> = { needs_ok: 'Waiting for OK', draft: 'Draft', sent: 'Sent', approved: 'Approved', void: 'Void' }
+// A draft has its OK: the owner or office made it, or OK'd a Salesman's (only they make drafts). "Draft" read as not OK'd yet (review, Oct 27 2026).
+const STATUS_WORDS: Record<ChangeOrderStatus, string> = { needs_ok: 'Waiting for OK', draft: "OK'd, not sent yet", sent: 'Sent', approved: 'Approved', void: 'Void' }
 
 export const money = (cents: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)
