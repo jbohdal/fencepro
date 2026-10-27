@@ -76,6 +76,10 @@ try {
 
   // Test it in dry run against the test card: says what would happen, makes nothing.
   const tasksBefore = (await call('/api/automations/tasks?all=1')).json.data.filter(t => t.title.includes(tag)).length
+  // Runs already on the card before the dry run. Making the test job moves the card to Job Prep with it, which
+  // counts as moved into Signed Contract (hooks.ts recordCardMoves, passedThrough; commit 23609ea, Oct 26 2026),
+  // so the Signed Contract rule, when it is on (dev is a copy of live), has queued a run of its own already.
+  const runsBefore = new Set(((await call(`/api/automations/runs?entityId=${cardId}`)).json?.data ?? []).map(r => r.id))
   await p.locator('[data-test-draft]').click()
   await p.waitForSelector('[data-test-panel]')
   await p.locator('[data-sample-search]').fill(LAST); await sleep(900)
@@ -87,7 +91,7 @@ try {
   check('dry run: the condition is met', (await p.locator('[data-would-run="true"]').count()) === 1)
   await shot(p, 'dry-run')
   check('dry run made nothing', (await call('/api/automations/tasks?all=1')).json.data.filter(t => t.title.includes(tag)).length === tasksBefore)
-  const dryRuns = (await call(`/api/automations/runs?entityId=${cardId}`)).json.data
+  const dryRuns = (await call(`/api/automations/runs?entityId=${cardId}`)).json.data.filter(r => !runsBefore.has(r.id))
   check('dry run started no run', dryRuns.length === 0, JSON.stringify(dryRuns.map(r => ({ rule: r.ruleId, name: r.ruleName || r.rule?.name, status: r.status, trigger: r.trigger || r.triggerType, dry: r.dryRun }))).slice(0, 400))
   await p.locator('[data-test-panel] button[aria-label="Close"]').click(); await sleep(300)
 
