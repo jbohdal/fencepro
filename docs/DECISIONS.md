@@ -3,6 +3,18 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-27: careful removal 1.5 × the install rate; commission on by default for the Salesman
+
+- **Jonathan:** "Careful removal is 1.5x the install rate. Fix Settings if it says 0.3, and tell me where 0.3 came from."
+  - The install rate is the style's install labor per section, the rate a new fence and the move's reinstall are charged (apps/web/src/moveRepair.ts styleRates). Careful removal = old sections × that × Settings > Moves and Repairs > Careful removal multiplier. The code default has been 1.5 since moves were built (42cee4b, Oct 19 2026); no code, seed, migration or script ever held 0.3.
+  - 0.3 (and Gate removal 0.5, the repair item multipliers 8 / 8 / 8 / 10 / 15 / 20, Repair Profit 20%, Damage 10%, minimum on new fences) was saved in live's Settings > Moves and Repairs between 10:43 pm on Oct 19 and 2:30 am on Oct 20, 2026, from the owner's Mac (the backups before and after; the Settings change log only began on Oct 20 at 5:37 pm, so it has no line for it). The one move quote saved on live (Helen Dal Santo, draft, 10:43 pm Oct 19) was priced at 1.5 just before.
+  - Live is changed by Jonathan in Settings (no script). Gate removal (0.5 on live, default 1.5) is not covered by the answer and is left as it is.
+- **Jonathan:** "Commission: 9% on by default for Christa's quotes. It comes out of the price; the customer price never changes. Hidden from her view of costs as before."
+  - "Salesman on this job?" starts on for a new quote made by a Salesman login, or for a customer whose sales rep is a Salesman, and for the website's draft before it is sent. The owner and the office keep off for their own quotes. A saved quote opens as saved and keeps its price.
+  - Commission is taken out of the price (Settings > Pricing > Commission: "included", as live has it): ticking it never changes the price. It lowers the quote's margin.
+  - Her screens show no commission (%, dollars, slice), and her Gross Margin reads before it. Since Oct 25 she sees costs; the commission is the one cost she does not see.
+  - In apps/web/src/salesmanCommission.ts, pinned in apps/portal/tests/salesmanCommission.test.ts and moveRepair.test.ts.
+
 ## 2026-10-26: Bell 4'x6' section counted once (applies the Oct 21 ruling; question open)
 
 - **Found (audit Oct 26):** the Bell's saved kits (saved Oct 23 in Inventory > Material Kits) carry the 6'x6' privacy stand in parts (11 pickets, two 6 ft rails, U trim, truss) and also "Misc, 6' Section", whose Catalog cost is still the takeoff sheet's $154.34 (no supplier invoice). Both were counted: 120 ft with a walk gate was $87.57/ft, without a gate $79.91/ft (6'x6' privacy: $38.73/ft).
