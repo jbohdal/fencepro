@@ -14,7 +14,7 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
   - **Discard draft:** closes it as cancelled (dated); the job and its Sales Order stay as they are. Not deleted, so a second hand move does not make it again (createDraftPO makes one per job).
   - **Open job:** the job's window in Operations (jobPagePath). Not offered when the job is no longer on the board.
   - A closed draft (ordered or discarded) leaves Pending Orders.
-- **Not added** (questions, not buttons): sending a draft to the supplier (no supplier on a hand move's draft, and no PO email exists); editing a draft's lines (the Sales Order is the list to correct); merging drafts for one supplier (purchaseOrderStore consolidatePOs exists but no draft names a supplier).
+- **Not added, Jonathan's word** (Oct 28 evening): not sendable to the supplier for now ("I order myself"); lines not editable ("The Sales Order is the one list to correct"); drafts not combined by supplier for now. All three are on docs/LATER_IDEAS.md.
 - In web draftPOs.ts, purchaseOrderStore.ts closeDraftPO and PendingOrdersPage.tsx; pinned in portal tests/draftPOs.test.ts and draftPOs.db.test.ts.
 
 ## 2026-10-28 (morning): Jonathan's answers to the night's list
