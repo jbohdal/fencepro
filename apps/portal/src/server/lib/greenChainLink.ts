@@ -232,6 +232,8 @@ export interface GreenFollow {
   tidied: string[]
   /** Green parts this work added to Inventory with no price that no kit uses and 06-251707 does not sell: taken out. */
   removed: string[]
+  /** Green parts still priced from Black that took Black's price now (set by the server start, lib/greenChainLinkFollow.ts). */
+  pricesFollowed?: Array<{ id: string; part: string; from: string; wasCents: number; nowCents: number }>
 }
 
 /**

@@ -19,6 +19,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { inventoryChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { clearCostReviewOnKitSave } from '../lib/costReview.js'
+import { followBorrowed } from '../lib/followBorrowed.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -94,6 +95,8 @@ router.put('/', async (req: any, res) => {
     }
     const refused = inventoryChangeRefusal(roleOf(req), saved ?? {}, { ...fields, kits: data.kits === undefined ? undefined : fields.kits })
     if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
+    // A part priced from another (green at Black's price) moves with it when this save changed that price (Oct 27 2026).
+    fields.items = await followBorrowed(fields.items)
     // A catalog item removed goes to Settings > Deleted Records, with its stock counts.
     const done = await prisma.$transaction(async tx => {
       const d = await tx.inventoryState.updateMany({ where: { accountId, version: base }, data: { ...fields, version: { increment: 1 } } })

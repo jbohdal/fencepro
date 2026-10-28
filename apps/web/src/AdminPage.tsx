@@ -13,7 +13,7 @@ import {
 } from './inventoryStore'
 import { getConfig } from './configStore'
 import { businessDate } from './businessDate'
-import { priceAge, priceAgeLabel, compareByPriceAge, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import { priceAge, priceAgeLabel, compareByPriceAge, borrowedPrice, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
 import BulkImportModal from './BulkImportModal'
 import MaterialKitsTab from './MaterialKitsTab'
 import FillInTab from './FillInTab'
@@ -215,10 +215,12 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
   const groups = sortBy === 'priceAge'
     ? (filtered.length ? [{ key: 'Oldest price first', items: [...filtered].sort(compareByPriceAge) }] : [])
     : groupCatalog(filtered, filedNames, CATEGORIES)
-  const toConfirm = filtered.filter(i => ageOf(i) !== 'fresh')
+  // A price borrowed from Black is not confirmed as it is: it waits for its own green price.
+  const toConfirm = filtered.filter(i => ageOf(i) !== 'fresh' && !borrowedPrice(i))
 
   /** Confirm prices as they are: saved straight away, only the dates change. */
   function confirmPrices(ids: string[]) {
+    ids = ids.filter(id => !items.some(i => i.id === id && borrowedPrice(i)))
     if (!ids.length) return
     confirmItemPrices(ids)
     const set = new Set(ids)
@@ -297,6 +299,8 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
 
   function handleSave() {
     saveInventory(items)
+    // As saved: the price dates stamped, and a green part priced from Black moved with Black's new price.
+    setItems(getInventory())
     saveStockLevels(levels)
     setFiledNames(new Map(items.map(i => [i.id, i.name])))
     setSaved(true)
@@ -425,7 +429,10 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                     <td className="px-3 py-2.5" data-price-age={ageOf(item)} data-price-item={item.id}>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs ${ageOf(item) === 'fresh' ? 'text-gray-600' : ageOf(item) === 'old' ? 'text-red-700 font-semibold' : 'text-amber-700'}`}>{priceAgeLabel(item)}</span>
-                        {canPrice && ageOf(item) !== 'fresh' && (
+                        {borrowedPrice(item) ? (
+                          // Jonathan, Oct 27: it follows Black's price changes until a green price is entered.
+                          <span className="text-xs text-amber-800" data-follows-black={item.id}>Moves when that price changes. Type this part's own price here (or order it on a vendor document) to stop.</span>
+                        ) : canPrice && ageOf(item) !== 'fresh' && (
                           <button onClick={() => confirmPrices([item.id])} data-confirm-price
                             className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200 whitespace-nowrap">Confirm price</button>
                         )}

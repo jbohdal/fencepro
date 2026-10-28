@@ -48,6 +48,7 @@ import { readInvoiceFile, type ReadPage } from './invoiceReader.js'
 import { parseInvoice, findVendor, normalizeName, lineAddsUp, type KnownVendor, type LineProblem } from './invoiceParse.js'
 import { checkTotals, spreadExtras, toInventoryQty, unitLanded, needsOk, changePct, matchKey, looseMatchKey, findLink, invoiceNumberKey, dollars, landedParts, pctText, isFuelFee, DEFAULT_EST_TAX_BP, type CheckProblem } from './invoiceMath.js'
 import { digSetPipeItem } from './digSetPipeMatch.js'
+import { followBorrowed } from './followBorrowed.js'
 
 export const DEFAULT_JUMP_PCT = 20
 /** A remembered "this vendor item is not an Inventory item". */
@@ -512,7 +513,7 @@ async function evaluateTx(tx: any, invoiceId: string, actor: Actor): Promise<voi
   }
 
   for (const [id, data] of lineUpdates) await tx.vendorInvoiceLine.update({ where: { id }, data })
-  if (inventoryChanged) await tx.inventoryState.update({ where: { accountId }, data: { items, version: { increment: 1 } } })
+  if (inventoryChanged) await tx.inventoryState.update({ where: { accountId }, data: { items: await followBorrowed(items), version: { increment: 1 } } })
 
   const states = active.map((l: any) => lineUpdates.get(l.id)?.state ?? l.state)
   const status = !asInvoice ? 'quote' : states.includes('needs_match') ? 'needs_match' : 'applied'
@@ -542,7 +543,7 @@ export function newerPriceKept(item: { unitCost?: unknown; priceUpdatedAt?: unkn
  * Put one item's landed cost into Inventory (the `item` object is changed in
  * place; the caller saves the items) and write its history row.
  */
-async function applyItem(tx: any, inv: any, vendor: KnownVendor, item: any, unit: { cents: number; exact: number }, actor: Actor, approved: boolean, printedCents: number | null): Promise<{ changed: boolean; note: string }> {
+async function applyItem(tx: any, inv: { accountId: string; id: string | null; invoiceDate: string }, vendor: KnownVendor, item: any, unit: { cents: number; exact: number }, actor: Actor, approved: boolean, printedCents: number | null, extra: { lineId?: string; source?: string } = {}): Promise<{ changed: boolean; note: string }> {
   const prevCents = itemCents(item)
   const prevDate = typeof item.priceUpdatedAt === 'string' ? item.priceUpdatedAt : null
   const prevImported = typeof item.priceImported === 'boolean' ? item.priceImported : null
@@ -554,6 +555,7 @@ async function applyItem(tx: any, inv: any, vendor: KnownVendor, item: any, unit
       day: inv.invoiceDate, unitLandedCents: unit.cents, unitLandedExact: unit.exact,
       prevUnitCents: prevCents, prevPriceUpdatedAt: prevDate, prevPriceImported: prevImported,
       appliedById: actor.id, appliedBy: actor.name, approved, changedInventory: !newer,
+      ...(extra.lineId ? { lineId: extra.lineId } : {}), ...(extra.source ? { source: extra.source } : {}),
     },
   })
   if (newer) return { changed: false, note: `Not applied: Inventory has a newer price from ${dayWords(prevDate)}${prevCents != null ? ` (${dollars(prevCents)})` : ''}. Kept in price history only.` }
@@ -885,7 +887,105 @@ export async function decideWaiting(accountId: string, lineId: string, ok: boole
     const printed = printedQty > 0 ? unitLanded(same.reduce((s: number, l: any) => s + (l.totalCents ?? 0), 0), 0, printedQty).cents : null
     const r = await applyItem(tx, inv, vendor, item, { cents: line.unitLandedCents!, exact: line.unitLandedExact ?? line.unitLandedCents! }, actor, true, printed)
     for (const l of same) await tx.vendorInvoiceLine.update({ where: { id: l.id }, data: { state: r.changed ? 'applied' : 'history_only', stateNote: `OK'd by ${actor.name}. ${r.note}` } })
-    if (r.changed) await tx.inventoryState.update({ where: { accountId }, data: { items, version: { increment: 1 } } })
+    if (r.changed) await tx.inventoryState.update({ where: { accountId }, data: { items: await followBorrowed(items), version: { increment: 1 } } })
+  }, { timeout: 60_000 })
+}
+
+export interface OnceResult { changed: boolean; cents: number; prevCents: number | null; note: string; item: string; invoiceStatus: string }
+
+/**
+ * Price one line waiting in Needs a match from this document only: the match
+ * is NOT remembered for later documents (no vendorItemLink), because the same
+ * printed words are another item on another order. Jonathan, Oct 27 2026:
+ * "The 3 plain bolts on 06-251707 came on my green job, so use them as the
+ * Green bolt prices" (a plain "BOLT/NUT 3/8x2in" on a galvanized order is the
+ * galvanized bolt). His word is the OK, so a price that moves past the limit
+ * does not wait. Landed as the document worked it out (freight, fees and tax
+ * spread; estimated tax when none printed; never fuel). The line leaves Needs
+ * a match; the document is Applied once no line waits. Only on an ordered
+ * quote or an invoice. Never over a newer price (newerPriceKept).
+ */
+export async function applyLineOnce(accountId: string, lineId: string, pick: { inventoryItemId: string; vendorPer?: number; invPer?: number; why: string }, actor: Actor): Promise<OnceResult> {
+  const vendorPer = pick.vendorPer ?? 1, invPer = pick.invPer ?? 1
+  if (!(vendorPer > 0) || !(invPer > 0)) throw new InvoiceError('The unit needs two numbers above zero.')
+  return prisma.$transaction(async (tx: any) => {
+    await lockAll(tx, accountId)
+    const line = await tx.vendorInvoiceLine.findUnique({ where: { id: lineId }, include: { invoice: true } })
+    if (!line || line.invoice.accountId !== accountId) throw new InvoiceError('No such line', 404)
+    const inv = line.invoice
+    if (line.state !== 'needs_match' || line.ignored) throw new InvoiceError('This line is not waiting for a match.', 409)
+    if (!treatedAsInvoice(inv) || !['needs_match', 'applied'].includes(inv.status)) throw new InvoiceError('Only a line of an ordered quote or an invoice can be priced.', 409)
+    const why = zeroPriceWhy(line, { vendorPer, invPer })
+    if (why) throw new InvoiceError(why)
+    const invState = await tx.inventoryState.findUnique({ where: { accountId } })
+    const items: any[] = arr(invState?.items).map(i => ({ ...i }))
+    const item = items.find(i => i.id === pick.inventoryItemId)
+    if (!item) throw new InvoiceError('No such Inventory item')
+    const vs = await vendorState(tx, accountId)
+    const vendor = knownVendors(vs.vendors).find(v => v.id === inv.vendorId) ?? { id: inv.vendorId, name: inv.vendorName, aliases: [] }
+    const invQty = toInventoryQty(line.qty, { vendorPer, invPer })
+    const landed = line.landedCents ?? (line.totalCents ?? 0) + (line.extraCents ?? 0)
+    const unit = unitLanded(landed, 0, invQty)
+    const printed = unitLanded(line.totalCents ?? 0, 0, invQty).cents
+    const prev = itemCents(item)
+    const r = await applyItem(tx, inv, vendor, item, unit, actor, true, printed, { lineId: line.id })
+    await tx.vendorInvoiceLine.update({
+      where: { id: line.id },
+      data: {
+        state: r.changed ? 'applied' : 'history_only', stateNote: `Priced on this document only (not remembered for later documents): ${pick.why} ${r.note}`.trim(),
+        inventoryItemId: item.id, inventoryName: String(item.name ?? ''), vendorPer, invPer, invQty,
+        unitLandedCents: unit.cents, unitLandedExact: unit.exact, prevUnitCents: prev, changePct: changePct(prev, unit.cents),
+      },
+    })
+    if (r.changed) await tx.inventoryState.update({ where: { accountId }, data: { items: await followBorrowed(items), version: { increment: 1 } } })
+    const waiting = await tx.vendorInvoiceLine.count({ where: { invoiceId: inv.id, ignored: false, state: 'needs_match' } })
+    const status = inv.status === 'needs_match' && waiting === 0 ? 'applied' : inv.status
+    if (status !== inv.status) await tx.vendorInvoice.update({ where: { id: inv.id }, data: { status, appliedAt: inv.appliedAt ?? new Date() } })
+    return { changed: r.changed, cents: unit.cents, prevCents: prev, note: r.note, item: String(item.name ?? ''), invoiceStatus: status }
+  }, { timeout: 60_000 })
+}
+
+/** A price printed on a vendor document kept as a file only (not uploaded to the app), landed each. */
+export interface FilePrice {
+  inventoryItemId: string
+  vendorId: string
+  vendorName: string
+  /** The document's number and date (YYYY-MM-DD): the price's date in Inventory. */
+  docNumber: string
+  day: string
+  /** Landed each (cents, and exact), and as printed each (for newerPriceKept). */
+  unitCents: number
+  unitExact: number
+  printedCents: number
+}
+
+/**
+ * Prices from vendor documents kept as files only, put into Inventory the way
+ * a vendor document puts them (applyItem): dated the document's date, not
+ * "imported", a price history row (source "vendor_file:<number>"), and never
+ * over a price from a newer document. Used for an older quote whose printed
+ * price is the only one for a part (green chain link, Oct 28 2026) without
+ * uploading it, which would put it on Accounts Payable or in Needs a match.
+ * One transaction; Inventory saved once, with borrowed prices kept in step.
+ */
+export async function applyFilePrices(accountId: string, prices: FilePrice[], actor: Actor): Promise<Array<{ item: string; changed: boolean; cents: number; prevCents: number | null; note: string }>> {
+  return prisma.$transaction(async (tx: any) => {
+    await lockAll(tx, accountId)
+    const invState = await tx.inventoryState.findUnique({ where: { accountId } })
+    const items: any[] = arr(invState?.items).map(i => ({ ...i }))
+    const out: Array<{ item: string; changed: boolean; cents: number; prevCents: number | null; note: string }> = []
+    let changed = false
+    for (const p of prices) {
+      const item = items.find(i => i.id === p.inventoryItemId)
+      if (!item) throw new InvoiceError(`No such Inventory item ${p.inventoryItemId}`)
+      const prev = itemCents(item)
+      if (prev === p.unitCents && item.priceUpdatedAt === p.day && !item.priceImported) { out.push({ item: String(item.name), changed: false, cents: p.unitCents, prevCents: prev, note: 'Already this price from this document.' }); continue }
+      const r = await applyItem(tx, { accountId, id: null, invoiceDate: p.day }, { id: p.vendorId, name: p.vendorName, aliases: [] }, item, { cents: p.unitCents, exact: p.unitExact }, actor, true, p.printedCents, { source: `vendor_file:${p.docNumber}` })
+      if (r.changed) changed = true
+      out.push({ item: String(item.name), changed: r.changed, cents: p.unitCents, prevCents: prev, note: r.note })
+    }
+    if (changed) await tx.inventoryState.update({ where: { accountId }, data: { items: await followBorrowed(items), version: { increment: 1 } } })
+    return out
   }, { timeout: 60_000 })
 }
 
@@ -943,7 +1043,7 @@ export async function undoInvoice(accountId: string, invoiceId: string, actor: A
       out.restored.push({ name, back: row.prevUnitCents == null ? 'no price' : dollars(row.prevUnitCents) })
     }
     await tx.priceHistory.updateMany({ where: { id: { in: done } }, data: { undoneAt: new Date() } })
-    if (changed) await tx.inventoryState.update({ where: { accountId }, data: { items, version: { increment: 1 } } })
+    if (changed) await tx.inventoryState.update({ where: { accountId }, data: { items: await followBorrowed(items), version: { increment: 1 } } })
     // Lines waiting for a match or an OK stop waiting: an undone document no longer counts in Needs a match.
     await tx.vendorInvoiceLine.updateMany({ where: { invoiceId, state: { in: ['applied', 'history_only', 'waiting_ok', 'needs_match'] } }, data: { state: 'undone' } })
     if (inv.docType === 'quote' && inv.ordered && inv.billId) {

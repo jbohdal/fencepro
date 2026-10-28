@@ -31,6 +31,55 @@ export function borrowedPrice(item: PricedItem): PriceFrom | null {
   return f
 }
 
+/** One borrowed price moved to follow its part ("Green, Bolt, ..." took Black's new price). */
+export interface FollowedPrice { id: string; part: string; from: string; wasCents: number; nowCents: number }
+
+const followKey = (s: string) => String(s ?? '').toLowerCase().replace(/\s+/g, '')
+
+/**
+ * Jonathan, Oct 27 2026: a green part still priced from Black "follows Black's
+ * price changes until a green price is entered". Every item whose borrowed
+ * price still stands (borrowedPrice) takes the price its part has now, and its
+ * mark moves with it, so it keeps following. A price entered for the item
+ * itself (typed in Inventory, which dates it, or set by a vendor document)
+ * ends the borrowing, so it is never touched again. A part with no price, or
+ * not in Inventory, is left as it is. Pure: a new array only when something moved.
+ */
+export function followBorrowedPrices<T extends PricedItem>(items: T[], today: string): { items: T[]; followed: FollowedPrice[] } {
+  const byName = new Map<string, T>()
+  for (const i of items) {
+    const k = followKey(i?.name)
+    if (k && !byName.has(k) && Math.round(Number(i.unitCost) * 100) > 0) byName.set(k, i)
+  }
+  const followed: FollowedPrice[] = []
+  const out = items.map(i => {
+    const f = borrowedPrice(i)
+    if (!f) return i
+    const src = byName.get(followKey(f.part))
+    if (!src || src === i) return i
+    const now = Math.round(Number(src.unitCost) * 100)
+    if (!(now > 0) || now === f.cents) return i
+    followed.push({ id: i.id, part: i.name, from: f.part, wasCents: f.cents, nowCents: now })
+    return { ...i, unitCost: now / 100, priceFrom: { ...f, cents: now, on: today } }
+  })
+  return followed.length ? { items: out, followed } : { items, followed }
+}
+
+/** The parts on a quote still priced from another part (by name, the way quotes find their costs), each once. */
+export function borrowedPartsOnQuote<T extends PricedItem>(partNames: string[], items: T[], normalize: (s: string) => string): Array<{ item: T; from: PriceFrom }> {
+  const byName = new Map(items.map(i => [normalize(i.name), i]))
+  const out: Array<{ item: T; from: PriceFrom }> = []
+  const seen = new Set<string>()
+  for (const n of partNames) {
+    const item = byName.get(normalize(n))
+    if (!item || seen.has(item.id)) continue
+    seen.add(item.id)
+    const from = borrowedPrice(item)
+    if (from) out.push({ item, from })
+  }
+  return out
+}
+
 export type PriceAge = 'unconfirmed' | 'old' | 'fresh'
 
 /** The date `months` before `today` (YYYY-MM-DD); a price on or before it is old. */
@@ -55,7 +104,7 @@ export function compareByPriceAge(a: PricedItem, b: PricedItem): number {
 /** "Mar 4, 2026", "Imported, not yet confirmed", or where a borrowed price came from ("From Black until a green price is entered (Black, Bolt, ...)"). */
 export function priceAgeLabel(item: PricedItem): string {
   const from = borrowedPrice(item)
-  if (from) return `${from.words} (${from.part})`
+  if (from) return `${from.words}: follows ${from.part.trim()}`
   if (!item.priceUpdatedAt || item.priceImported) return 'Imported, not yet confirmed'
   const [y, m, d] = item.priceUpdatedAt.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })

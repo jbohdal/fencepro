@@ -75,6 +75,9 @@ interface EstimateModule {
   planTallVinylParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { items: unknown[]; added: string[] }
   planChainDigSetPipesAndTies(state:{ fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; renamed: Array<{ from: string; to: string }>; kitLines: Array<{ kitSet: string; kit: string; part: string }>; ties: string[]; skipped: string[] }
   planChainGateKits(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; updated: string[]; skipped: string[] }
+  /** web/src/priceAge.ts: a part priced from another (green at Black's) takes that part's price now, until its own is entered. */
+  followBorrowedPrices<T>(items: T[], today: string): { items: T[]; followed: Array<{ id: string; part: string; from: string; wasCents: number; nowCents: number }> }
+  borrowedPrice(item: unknown): { part: string; cents: number; on: string; words: string } | null
   /** Contract terms on a proposal (web/src/contractTerms.ts). */
   stampTerms(proposal: unknown, savedSections: unknown, savedProposal: unknown, frozen: boolean): unknown
   proposalTerms(savedSections: unknown): Array<{ key: string; title: string; text: string }>
