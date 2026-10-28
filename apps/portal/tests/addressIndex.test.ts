@@ -2,8 +2,8 @@
  * Address words and matching for the county suggestions: how people type an
  * address against how Marion County writes it.
  */
-import { describe, test, expect } from 'vitest'
-import { addressWords, matches, cityText, addressParts, addressCount } from '../src/server/lib/addressIndex'
+import { describe, test, expect, vi, afterEach } from 'vitest'
+import { addressWords, matches, cityText, addressParts, addressCount, directionOf, directionsFit, suggestCensusAll, streetEstimate } from '../src/server/lib/addressIndex'
 
 const m = (typed: string, county: string) => matches(addressWords(typed), addressWords(county))
 
@@ -60,5 +60,42 @@ describe.skipIf(addressCount() === 0)('city, state and ZIP from the county list'
   test('a typed address the county knows takes the county city and ZIP', () => {
     expect(addressParts('1301 SE Silver Springs Pl, Ocala, FL 34471')).toEqual({ city: 'Ocala', state: 'FL', zip: '34471' })
     expect(addressParts('17008 Southeast 60th Street, Ocklawaha')).toEqual({ city: 'Ocklawaha', state: 'FL', zip: '32179' })
+  })
+})
+
+describe('directions: SE, SW, NE, NW and spelled out (review Oct 28 2026: "2200 SE Fort King St" offered W and E only)', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+  test('a direction typed part way, spelled out', () => {
+    expect(m('17008 Southe', '17008 SE 60TH ST')).toBe(true)
+    expect(m('17008 Southw', '17008 SE 60TH ST')).toBe(false)
+    expect(m('9161 Northe', '9161 NE 310TH AVE')).toBe(true)
+    expect(m('9161 Nor', '9161 NE 310TH AVE')).toBe(true)
+    expect(m('9161 Northwest 310', '9161 NE 310TH AVE')).toBe(false)
+    expect(m('2061 Southwest Fort', '2061 SW FORT KING ST')).toBe(true)
+  })
+  test('which directions are the same side of town', () => {
+    expect(directionOf(addressWords('2200 SE Fort King St'))).toBe('SE')
+    expect(directionOf(addressWords('2200 Southeast Fort King St'))).toBe('SE')
+    expect(directionOf(addressWords('27 Cedar Trace'))).toBe('')
+    expect([directionsFit('SE', 'E'), directionsFit('SE', 'S'), directionsFit('E', 'SE'), directionsFit('SE', 'SE'), directionsFit('', 'W')]).toEqual([true, true, true, true, true])
+    expect([directionsFit('SE', 'W'), directionsFit('SE', 'SW'), directionsFit('NE', 'N'), directionsFit('NW', 'E')]).toEqual([false, false, true, false])
+  })
+  test('the Census answer: W is never offered for SE; SE first, then E (no outside call: the answer is made here)', async () => {
+    const at = (a: string, x: number) => ({ matchedAddress: a, coordinates: { x, y: 29.18 } })
+    vi.stubGlobal('fetch', async () => ({ json: async () => ({ result: { addressMatches: [at('2200 W FORT KING ST, OCALA, FL, 34471', -82.16), at('2200 E FORT KING ST, OCALA, FL, 34471', -82.11), at('2200 SE FORT KING ST, OCALA, FL, 34471', -82.10)] } }) }))
+    const got = (await suggestCensusAll('2200 SE Fort King St')).map(s => s.line1)
+    expect(got).toEqual(['2200 SE Fort King St', '2200 E Fort King St'])
+    const spelled = (await suggestCensusAll('2200 Southeast Fort King St')).map(s => s.line1)
+    expect(spelled).not.toContain('2200 W Fort King St')
+    // No direction typed: every match in the work area, as before.
+    expect((await suggestCensusAll('2200 Fort King St')).map(s => s.line1)).toHaveLength(3)
+  })
+})
+
+describe.skipIf(addressCount() === 0)('a street the county writes with one letter', () => {
+  test('"2200 SE Fort King St": placed on the county\'s E Fort King St, SE kept', () => {
+    const s = streetEstimate('2200 SE Fort King St')
+    expect(s).toMatchObject({ line1: '2200 SE Fort King St', city: 'Ocala', zip: '34471', source: 'street' })
+    expect(streetEstimate('2200 NW Fort King St')).toBeNull()
   })
 })
