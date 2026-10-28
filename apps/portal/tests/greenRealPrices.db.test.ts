@@ -1,8 +1,11 @@
 /**
  * Real green prices and the "From Black" follow rule, against the dev database
  * (DEV_DB=1 and ezbiz_dev only), on a throwaway company copied from the dev
- * company (its Settings, Inventory with the green parts priced from Black,
- * Vendors, and its 06-251707 with the three plain bolts in Needs a match):
+ * company. It makes its own state as it was before the green prices were
+ * entered, whatever the dev copy holds now (before or after the apply, or a
+ * fresh refresh): Settings and Vendors copied; Inventory with every green part
+ * that has a From Black mark put back at its black part's price, unconfirmed;
+ * its own copy of 06-251707 with the three plain bolts back in Needs a match:
  *
  *   - the plain bolts priced on 06-251707 only (applyLineOnce): Green bolt
  *     prices, dated the document, price history; nothing remembered for later
@@ -37,6 +40,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green prices from documents, and
   let ownerId = ''
   let invoiceId = ''
   let ready = false
+  let blackCents: (name: string) => number = () => 0
   const tag = `green-${Date.now().toString(36)}`
   const actor = { id: null as string | null, name: 'Test owner' }
 
@@ -65,17 +69,33 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green prices from documents, and
     actor.id = u.id
     ownerToken = jwt.sign({ sub: u.id, email: u.email, role: 'super_admin', firstName: 'Test', lastName: 'owner', crmAccountId: accountId }, resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me'), { expiresIn: '30m' })
     await prisma.businessState.create({ data: { accountId, config: b.config } })
+    // Its own Inventory as it was before any green price was entered (dev may already have the apply on it):
+    // every green part with a borrowed mark at its black part's price now, unconfirmed.
     const { id: _i, accountId: _a, createdAt: _c, updatedAt: _u, version: _v, ...rest } = inv
-    await prisma.inventoryState.create({ data: { ...rest, accountId } })
+    const srcItems = inv.items as any[]
+    const items = srcItems.map(i => {
+      if (!i?.priceFrom) return i
+      const black = srcItems.find(b => norm(b.name) === norm(i.priceFrom.part))
+      const cents = Math.round(Number(black?.unitCost) * 100)
+      const { priceUpdatedAt: _p, ...it } = i
+      return { ...it, unitCost: cents / 100, priceImported: true, priceFrom: { ...i.priceFrom, cents } }
+    })
+    await prisma.inventoryState.create({ data: { ...rest, items, accountId } })
+    blackCents = (name: string) => Math.round(Number(srcItems.find(b => norm(b.name) === norm(name))?.unitCost) * 100)
     await prisma.vendorState.create({ data: { accountId, vendors: vs.vendors, bills: [], payments: [] } })
     await prisma.accountKeyValue.create({ data: { accountId, key: GREEN_KEY, value: made.value } })
-    // 06-251707 as it is on dev: ordered, its three plain bolts waiting in Needs a match.
+    // Its own 06-251707 as it was before the bolts were priced (whatever dev has now): ordered, the three plain
+    // bolts waiting in Needs a match, so Needs a match, the rest priced.
     const { id: _si, accountId: _sa, createdAt: _sc, updatedAt: _su, lines, ...head } = src
-    const copy = await prisma.vendorInvoice.create({ data: { ...head, accountId, batchId: `${tag}-batch`, billId: null } })
+    const copy = await prisma.vendorInvoice.create({ data: { ...head, accountId, batchId: `${tag}-batch`, billId: null, status: 'needs_match', appliedAt: null } })
     invoiceId = copy.id
+    const { greenAskFor } = await import('../src/server/lib/greenChainLink.js')
     for (const l of lines) {
       const { id: _li, invoiceId: _lv, createdAt: _lc, updatedAt: _lu, ...lr } = l
-      await prisma.vendorInvoiceLine.create({ data: { ...lr, invoiceId } })
+      const waiting = greenAskFor(l.description)
+        ? { state: 'needs_match', stateNote: '', inventoryItemId: null, inventoryName: '', vendorPer: null, invPer: null, invQty: null, unitLandedCents: null, unitLandedExact: null, prevUnitCents: null, changePct: null }
+        : {}
+      await prisma.vendorInvoiceLine.create({ data: { ...lr, ...waiting, invoiceId } })
     }
     const app = express()
     app.use(express.json({ limit: '10mb' }))
@@ -150,15 +170,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green prices from documents, and
       { inventoryItemId: named(before, 'Green, Fork, PS, 2-1/2"').id, vendorId: sps.id, vendorName: sps.name, docNumber: '06-120125', day: '2023-07-13', unitCents: 368, unitExact: 3.6815, printedCents: 320 },
     ]
     const r = await lib.applyFilePrices(accountId, prices, actor)
+    const gate0 = blackCents(`Chainlink, Black, Gate, 1-3/8", 4' x 5' (.065)`), fork0 = blackCents('Black, Fork, PS, 2-1/2"')
     expect(r.map(x => [x.item, x.changed, x.prevCents, x.cents])).toEqual([
-      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, true, 13369, 19822],
-      ['Green, Fork, PS, 2-1/2"', true, 198, 368],
+      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, true, gate0, 19822],
+      ['Green, Fork, PS, 2-1/2"', true, fork0, 368],
     ])
     const after = await items()
     const gate = named(after, `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`)
     expect([centsOf(gate), gate.priceUpdatedAt, gate.priceImported]).toEqual([19822, '2023-07-13', false])
     const hist = await prisma.priceHistory.findMany({ where: { accountId, source: 'vendor_file:06-120125' } })
-    expect(hist.map((h: any) => [h.day, h.unitLandedCents, h.prevUnitCents]).sort()).toEqual([['2023-07-13', 19822, 13369], ['2023-07-13', 368, 198]])
+    expect(hist.map((h: any) => [h.day, h.unitLandedCents, h.prevUnitCents]).sort()).toEqual([['2023-07-13', 19822, gate0], ['2023-07-13', 368, fork0]].sort())
     const again = await lib.applyFilePrices(accountId, prices, actor)
     expect(again.every(x => !x.changed)).toBe(true)
     expect(await items()).toEqual(after)
@@ -189,11 +210,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green prices from documents, and
     if (!ready) return
     const { ensureGreenFollowsBlack } = await import('../src/server/lib/greenChainLinkFollow.js')
     const s = await prisma.inventoryState.findUnique({ where: { accountId } })
-    const list = (s.items as any[]).map(i => (norm(i.name) === norm(`DS, Pipe, Blk, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`) ? { ...i, unitCost: 17.5 } : i))
+    const was = blackCents(`DS, Pipe, Blk, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`), now = was + 56
+    const list = (s.items as any[]).map(i => (norm(i.name) === norm(`DS, Pipe, Blk, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`) ? { ...i, unitCost: now / 100 } : i))
     await prisma.inventoryState.update({ where: { accountId }, data: { items: list } })
     const out = await ensureGreenFollowsBlack(accountId)
-    expect(out!.pricesFollowed!.map(f => [f.part, f.wasCents, f.nowCents])).toEqual([[`DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`, 1694, 1750]])
-    expect(centsOf(named(await items(), `DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`))).toBe(1750)
+    expect(out!.pricesFollowed!.map(f => [f.part, f.wasCents, f.nowCents])).toEqual([[`DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`, was, now]])
+    expect(centsOf(named(await items(), `DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4' Chain Link`))).toBe(now)
     const v = (await prisma.inventoryState.findUnique({ where: { accountId } })).version
     const again = await ensureGreenFollowsBlack(accountId)
     expect(again!.pricesFollowed).toEqual([])
@@ -207,7 +229,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green prices from documents, and
     const after = await items()
     const { borrowedPrice } = await import('../../web/src/priceAge.js')
     // Back to the borrowed price; the 3/8" x 2" one at Black's price as typed above (0.77), by the follow on the undo's save.
-    expect(borrowedPrice(named(after, 'Green, Bolt, 3/8" x 3" w/ Nut'))?.cents).toBe(53)
+    expect(borrowedPrice(named(after, 'Green, Bolt, 3/8" x 3" w/ Nut'))?.cents).toBe(blackCents('Black, Bolt, 3/8" x 3" w/ Nut'))
     expect(centsOf(named(after, 'Green, Bolt, 3/8" x 2" w/ Nut'))).toBe(77)
     expect(borrowedPrice(named(after, 'Green, Bolt, 3/8" x 2" w/ Nut'))?.cents).toBe(77)
   })
