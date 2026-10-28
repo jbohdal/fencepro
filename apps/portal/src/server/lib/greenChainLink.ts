@@ -301,6 +301,112 @@ export function planGreenFollowsBlack(m: GreenModule, st0: GreenState, opts: { m
   return out
 }
 
+// ── Oct 27: black prices for the green parts 06-251707 does not price, and Green switched on ──
+//
+// Jonathan, Oct 27 2026: "Green Chain Link 4 ft as its own style: a copy of
+// Black Chain Link 4 ft, same calculation, options, labor and margins, with the
+// green parts and prices from Stephens 06-251707. ... If a green part isn't on
+// the quote, use the black price and list it for me." He OK'd switching it on.
+
+export const GREEN_BLACK_PRICES_KEY = 'migration:green-chain-link-black-prices-2026-10-27'
+/** Said next to a green part priced from its black part (Inventory, the quote's price warning). */
+export const FROM_BLACK_WORDS = 'From Black until a green price is entered'
+
+/** A green kit part priced (or to be priced) from the black part it was swapped from. */
+export interface GreenFromBlack {
+  /** The green part (Inventory name). */
+  part: string
+  /** The black part it was swapped from, whose Inventory price it takes. */
+  black: string
+  /** The black part's price now, in cents; null when the black part has no price either (then nothing is set). */
+  cents: number | null
+  /** Where the Green kits use it ("chain/4/green/res/nd walkGate5"). */
+  kits: string[]
+}
+
+const centsOf = (item: any): number | null => { const n = Number(item?.unitCost); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null }
+
+/**
+ * Every green part the Green kits use that has no price in Inventory (after
+ * 06-251707 is ordered) takes the price of the black part it was swapped
+ * from (greenKitFrom), marked `priceFrom` so Inventory and the quote say
+ * "From Black until a green price is entered", and left unconfirmed
+ * (priceImported) so a vendor document or a typed price replaces it. Only the
+ * green item is changed; a black item never is. Pure.
+ */
+export function planGreenBlackPrices(m: GreenModule, st0: GreenState, today: string): { state: GreenState; priced: GreenFromBlack[]; missing: GreenFromBlack[] } {
+  const st = clone(st0)
+  const opt = greenOption(st.fenceCatalog)
+  if (!opt) return { state: st, priced: [], missing: [] }
+  const words = blackWords(st.fenceCatalog, opt)
+  const tag = tagOf(opt)
+  const byName = new Map<string, any>()
+  for (const i of st.items) if (!byName.has(norm(String(i?.name ?? '')))) byName.set(norm(String(i?.name ?? '')), i)
+  const found = new Map<string, GreenFromBlack>()
+  for (const s of greenStyles(st, opt)) {
+    const set = st.kits.find((k: any) => k.styleName === s.name && !k.archived)
+    const black = m.kitSetFor(s.madeFrom, st.kits)
+    if (!set || !black || black === 'archived') continue
+    const { from } = greenKitFrom(m, black, words)
+    for (const [kind, parts] of Object.entries(set.kits ?? {})) for (const p of arr(parts)) {
+      const k = norm(String(p.part))
+      const blackName = from.get(k)
+      if (!blackName || norm(blackName) === k) continue
+      const item = byName.get(k)
+      if (!item || centsOf(item) != null) continue
+      if (!(item.madeFor === tag || item.category === GREEN_CATEGORY)) continue
+      const row = found.get(k) ?? { part: String(p.part).trim(), black: blackName.trim(), cents: centsOf(byName.get(norm(blackName))), kits: [] }
+      row.kits.push(`${s.name} ${kind}`)
+      found.set(k, row)
+    }
+  }
+  const priced: GreenFromBlack[] = [], missing: GreenFromBlack[] = []
+  for (const [k, row] of found) {
+    if (row.cents == null) { missing.push(row); continue }
+    const item = byName.get(k)
+    item.unitCost = row.cents / 100
+    item.priceImported = true
+    delete item.priceUpdatedAt
+    item.priceFrom = { part: row.black, cents: row.cents, on: today, words: FROM_BLACK_WORDS }
+    priced.push(row)
+  }
+  const byPart = (a: GreenFromBlack, b: GreenFromBlack) => a.part.localeCompare(b.part)
+  return { state: st, priced: priced.sort(byPart), missing: missing.sort(byPart) }
+}
+
+/** Green switched on for quoting (Settings → Fence styles → Chain link → Finish → Green on). Pure. */
+export function planGreenSwitchOn(m: GreenModule, st0: GreenState): { state: GreenState; switched: boolean } {
+  const opt = greenOption(st0.fenceCatalog)
+  if (!opt || opt.quotable !== false) return { state: st0, switched: false }
+  return { state: m.planUpdateOption(st0, 'chain', 'finish', opt.key, { quotable: true }), switched: true }
+}
+
+/** What a fence keeps from the fence it copies: everything but its name, finish and on/off state. */
+const NOT_COPIED = new Set(['id', 'name', 'label', 'choices', 'madeFrom', 'held', 'kitKey', 'isActive', 'quotable'])
+
+/**
+ * Green against the black fence it was made from, as the app resolves them
+ * (estimateStyles: labor, gate labor, margin, Target Profit %, section width,
+ * sub rate, category, the color's own profit): every field that differs.
+ */
+export function greenCopyDiffs(resolved: any[], pairs: Array<[string, string]>): Array<{ black: string; green: string; field: string; blackValue: unknown; greenValue: unknown }> {
+  const out: Array<{ black: string; green: string; field: string; blackValue: unknown; greenValue: unknown }> = []
+  const byName = new Map(resolved.map((s: any) => [String(s.name), s]))
+  for (const [b, g] of pairs) {
+    const bs = byName.get(b), gs = byName.get(g)
+    if (!bs || !gs) { out.push({ black: b, green: g, field: 'fence', blackValue: !!bs, greenValue: !!gs }); continue }
+    for (const f of new Set([...Object.keys(bs), ...Object.keys(gs)])) {
+      if (NOT_COPIED.has(f)) continue
+      if (JSON.stringify(bs[f] ?? null) !== JSON.stringify(gs[f] ?? null)) out.push({ black: b, green: g, field: f, blackValue: bs[f], greenValue: gs[f] })
+    }
+    for (const d of new Set([...Object.keys(bs.choices ?? {}), ...Object.keys(gs.choices ?? {})])) {
+      if (d === 'finish') continue
+      if (bs.choices?.[d] !== gs.choices?.[d]) out.push({ black: b, green: g, field: `choices.${d}`, blackValue: bs.choices?.[d], greenValue: gs.choices?.[d] })
+    }
+  }
+  return out
+}
+
 export interface GreenPlan {
   state: GreenState
   /** False when Green was already made (then only planGreenFollowsBlack applies). */

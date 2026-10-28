@@ -22,6 +22,13 @@
  *      green parts swapped in, switched off for quoting until he has seen the
  *      pull sheet and price of a 100 ft test yard with one walk gate next to
  *      black 4 ft.
+ *   c. Oct 27: "Green Chain Link 4 ft as its own style: a copy of Black Chain
+ *      Link 4 ft, same calculation, options, labor and margins, with the green
+ *      parts and prices from Stephens 06-251707. Fuel charge never goes in
+ *      item prices; 7.22% estimated tax if there's no tax line. If a green part
+ *      isn't on the quote, use the black price and list it for me. Show a
+ *      100 ft green vs black example in the report." He OK'd switching it on
+ *      for quoting in the same apply.
  * His standing rules for vendor documents: a quotation marked "We ordered
  * this" updates prices; a fuel charge is never in an item's price (bill
  * only); freight is spread over the lines of a real order; no tax line → 7.22%
@@ -47,10 +54,17 @@
  *      (switched off), or, once made, how its kits follow the black kits
  *      again (lib/greenChainLink planGreenFollowsBlack); the parts with no
  *      green line (no price), and the price of each part;
+ *   5a. Green next to Black 4 ft as the app reads them (labor, gate labor,
+ *      margin, Target Profit, section width): every field that differs;
+ *   5b. every green part the Green kits use that still has no price after
+ *      ordering: the black part it was swapped from and that price, which it
+ *      takes (marked "From Black until a green price is entered");
+ *   5c. Green switched on for quoting, and whether each Green fence is then
+ *      available;
  *   6. a 100 ft straight test yard with one 4 ft walk gate, and the same yard
  *      with one 10 ft double gate: Green against Black 4 ft (No dig, and Dig
  *      set), the full pull sheet, cost and price, from the app's own estimate
- *      (web/src/estimate.ts, preview for the style switched off).
+ *      (web/src/estimate.ts), with 5b's prices and Green switched on.
  *
  * --apply does what Jonathan would do in the app, through the same code:
  * uploads each document the database does not have yet (lib/vendorInvoices),
@@ -63,7 +77,10 @@
  * run matched the plain bolts to the galvanized bolts (the dev copy, Oct 26)
  * gets that undone: the order undone, those three matches removed, the order
  * placed again (never on live). Then it prints what changed and checks it
- * against the dry run. Run again, it changes nothing (each step checks first).
+ * against the dry run. Then (Oct 27) the green parts still with no price take
+ * the black part's price (5b) and Green is switched on for quoting (5c).
+ * Run again, it changes nothing (each step checks first). Never with
+ * DATABASE_URL on ezbiz_livecopy (the read only copy of live).
  */
 
 import 'dotenv/config'
@@ -79,7 +96,7 @@ import { checkTotals, landedParts, spreadExtras, unitLanded, changePct, needsOk,
 import { contentKey, estTaxBpOf, newerPriceKept, revisionOf, DEFAULT_JUMP_PCT } from '../src/server/lib/vendorInvoices.js'
 import { KIT_LABEL } from '../../web/src/materialKits.js'
 import { okLimitWords, quoteTitle, openRowWords, soldRowWords, yardTotalsWords, type RepriceRow } from './stephensReportWords.js'
-import { GREEN_KEY, GREEN_LINES, blackWords, greenAskFor, greenLineFor, greenOption, greenPartFor, greenUnpriced, planGreenChainLink, planGreenFollowsBlack, type GreenFollow, type GreenPlan, type GreenState } from '../src/server/lib/greenChainLink.js'
+import { GREEN_KEY, GREEN_BLACK_PRICES_KEY, GREEN_LINES, FROM_BLACK_WORDS, blackWords, greenAskFor, greenCopyDiffs, greenLineFor, greenOption, greenPartFor, greenUnpriced, planGreenBlackPrices, planGreenChainLink, planGreenFollowsBlack, planGreenSwitchOn, type GreenFollow, type GreenFromBlack, type GreenPlan, type GreenState } from '../src/server/lib/greenChainLink.js'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
@@ -91,6 +108,10 @@ const COMPARE_OUT = flagValue('--compare-out')
 const SOURCE = flagValue('--source')
 const dbUrl = process.env.DATABASE_URL || ''
 const dbName = databaseNameOf(dbUrl)
+/** The read only copy of live: dry runs only, never --apply. */
+const LIVE_COPY_NAME = 'ezbiz_livecopy'
+/** Today in Ocala (YYYY-MM-DD), for the "priced from Black" mark. */
+const TODAY = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
 const PIPE_DOC = '06-251706'
 const GREEN_DOC = '06-251707'
@@ -100,6 +121,7 @@ const PIPE_ITEM = `Pipe, PT40, Galv, 2-1/2" x 8'`
 
 if (!folder || !fs.existsSync(folder)) { console.error('Usage: pnpm exec tsx scripts/stephens-quotes-2026-10-26b.ts <folder with the Stephens PDFs> [--apply [--live]]'); process.exit(1) }
 if (APPLY) {
+  if (dbName === LIVE_COPY_NAME) { console.error(`DATABASE_URL names "${LIVE_COPY_NAME}", the read only copy of live: dry runs only. Nothing was changed.`); process.exit(2) }
   const misuse = liveDatabaseMisuse(dbUrl, process.cwd())
   if (misuse) { console.error(misuse); process.exit(2) }
   assertLiveWriteAllowed('stephens-quotes-2026-10-26b.ts')
@@ -340,21 +362,21 @@ const TEST_YARDS = [
   { title: '100 FT STRAIGHT, ONE 10 FT DOUBLE GATE', yard: yardWith({ type: 'double', widthIn: 120 }) },
 ]
 
-function testYard(m: any, data: any, styleName: string, yard: unknown) {
+function testYard(m: any, data: any, styleName: string, yard: unknown, hasSalesman = false) {
   const y = m.deriveYardRuns(data.config, yard, styleName)
   if (!y) throw new Error(`No yard for ${styleName}`)
-  const est = m.estimate(data, { fenceStyle: styleName, runs: y.runs, corners: y.corners, ends: y.ends, walkGates: y.walkGates, dblGates: y.dblGates, gateWidths: y.gateWidths }, { preview: true })
+  const est = m.estimate(data, { fenceStyle: styleName, runs: y.runs, corners: y.corners, ends: y.ends, walkGates: y.walkGates, dblGates: y.dblGates, gateWidths: y.gateWidths, hasSalesman }, { preview: true })
   return { y, est }
 }
 
 /** Green against Black on each test yard: the pull sheets side by side (each black part next to its green part), then the totals. */
-function printCompare(m: any, data: any, pairs: Array<[string, string]>, unpriced: Set<string>, words: string[]) {
+function printCompare(m: any, data: any, pairs: Array<[string, string]>, unpriced: Set<string>, words: string[], fromBlack: Set<string> = new Set()) {
   for (const t of TEST_YARDS) {
     for (const [black, green] of pairs) {
       const b = testYard(m, data, black, t.yard), g = testYard(m, data, green, t.yard)
       const ys = b.y
       say(`\n   ${t.title}: ${b.est.style.label || black}  vs  ${g.est.style.label || green}`)
-      say(`   yard: runs ${ys.runs.join(' + ')} ft, ${ys.corners} corner, ${ys.ends} end posts, ${ys.walkGates} walk gate${ys.walkGates === 1 ? '' : 's'}${ys.gateWidths?.walk?.length ? ` (${ys.gateWidths.walk.join(', ')} ft)` : ''}, ${ys.dblGates} double gate${ys.dblGates === 1 ? '' : 's'}${ys.gateWidths?.dbl?.length ? ` (${ys.gateWidths.dbl.join(', ')} ft)` : ''}; ${b.est.sections} sections`)
+      say(`   yard: ${ys.runs.reduce((a: number, r: number) => a + r, 0) + (ys.gateWidths?.walk ?? []).reduce((a: number, w: number) => a + w, 0) + (ys.gateWidths?.dbl ?? []).reduce((a: number, w: number) => a + w, 0)} ft in all; fence runs ${ys.runs.join(' + ')} ft (sections counted run by run: ${ys.runs.map((r: number) => `${r} ft = ${Math.ceil(r / (b.est.style.panelWidth || 10))}`).join(', ')}), ${ys.corners} corner, ${ys.ends} end posts, ${ys.walkGates} walk gate${ys.walkGates === 1 ? '' : 's'}${ys.gateWidths?.walk?.length ? ` (${ys.gateWidths.walk.join(', ')} ft)` : ''}, ${ys.dblGates} double gate${ys.dblGates === 1 ? '' : 's'}${ys.gateWidths?.dbl?.length ? ` (${ys.gateWidths.dbl.join(', ')} ft)` : ''}; ${b.est.sections} sections`)
       say(`   ${pad('BLACK part', 58)} ${lpad('qty', 7)} ${lpad('each', 9)} ${lpad('total', 10)} | ${pad('GREEN part', 70)} ${lpad('qty', 7)} ${lpad('each', 9)} ${lpad('total', 10)}`)
       const gl = [...g.est.pullSheet]
       const rows: Array<[any, any]> = []
@@ -367,9 +389,14 @@ function printCompare(m: any, data: any, pairs: Array<[string, string]>, unprice
       const cell = (l: any, w: number, mark = '') => (l ? `${pad(String(l.item).trim() + mark, w)} ${lpad(String(Math.round(l.qty * 1000) / 1000), 7)} ${lpad(usd(l.unitCost), 9)} ${lpad(usd(l.total), 10)}` : pad('', w + 29))
       // A part with no price counts $0.00: a part in the green kits with no price, or any line priced at $0 that is a real part to buy.
       const noPrice = (l: any) => !!l && Number(l.qty) > 0 && (unpriced.has(norm(String(l.item))) || (!(Number(l.unitCost) > 0) && !l.moneyOnly && !l.jobLotPiece && l.costSource !== 'jobLot' && l.costSource !== 'wood'))
-      for (const [x, z] of rows) say(`   ${cell(x, 58, noPrice(x) ? ' [NO PRICE]' : '')} | ${cell(z, 70, noPrice(z) ? ' [NO PRICE]' : '')}`)
+      const mark = (l: any) => (noPrice(l) ? ' [NO PRICE]' : l && fromBlack.has(norm(String(l.item))) ? ' [black price]' : '')
+      for (const [x, z] of rows) say(`   ${cell(x, 58, mark(x))} | ${cell(z, 70, mark(z))}`)
       const side = (e: any) => ({ materialCents: Math.round(e.materialCost * 100), laborCents: Math.round(e.laborCost * 100), cogsCents: Math.round(e.totalCOGS * 100), priceCents: Math.round(e.price * 100), perFootCents: Math.round(e.pricePerFoot * 100), gmPct: e.gmPct, unpriced: new Set(e.pullSheet.filter(noPrice).map((l: any) => norm(String(l.item)))).size })
       for (const l of yardTotalsWords(side(b.est), side(g.est))) say(`   ${l}`)
+      // The same yard quoted by a Salesman (his commission, Settings › Pricing): what his phone shows.
+      const bs = testYard(m, data, black, t.yard, true).est, gs = testYard(m, data, green, t.yard, true).est
+      const pc = Number(data.config?.pricing?.commissionSalesman)
+      say(`   Quoted by a Salesman (commission ${Number.isFinite(pc) ? `${Math.round(pc * 1000) / 10}%` : 'as in Settings'}): black ${usd(bs.price)} (${usd(bs.pricePerFoot)}/ft) · green ${usd(gs.price)} (${usd(gs.pricePerFoot)}/ft)`)
       for (const [who, e] of [['black', b.est], ['green', g.est]] as const) {
         const missing = e.pullSheet.filter(noPrice)
         if (missing.length) say(`   ${who} parts with NO PRICE yet (counted $0.00 above): ${missing.map((z: any) => `${Math.round(z.qty * 1000) / 1000} × ${String(z.item).trim()}`).join('; ')}`)
@@ -380,13 +407,17 @@ function printCompare(m: any, data: any, pairs: Array<[string, string]>, unprice
 }
 
 /** Section 6 on its own (--compare-out): where the numbers come from, then the yards. */
-function writeCompare(file: string, lines: string[], made: boolean) {
+function writeCompare(file: string, lines: string[], made: boolean, fromBlack: GreenFromBlack[] = []) {
   const head = [
     `GREEN CHAIN LINK 4 FT AGAINST BLACK 4 FT: 100 FT STRAIGHT TEST YARDS (${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`,
     '',
     `Where these numbers come from: ${SOURCE ?? `the database the dry run read (${dbName})`}. A dry run: nothing was changed.`,
     'Prices are as they will be once 06-251706 (no dig pipe) and 06-251707 (green chain link) are marked "We ordered this".',
-    "Priced by the app's own estimate code (web/src/estimate.ts). Green is priced as a preview because it is switched off for quoting.",
+    "Priced by the app's own estimate code (web/src/estimate.ts), with Green switched on for quoting as the apply leaves it.",
+    ...(fromBlack.length ? [
+      `Green parts 06-251707 does not price take the Black part's price (Jonathan, Oct 27), marked [black price] below:`,
+      ...fromBlack.map(r => `   ${r.part}  ←  ${r.black}  ${money(r.cents)}`),
+    ] : []),
     "Same install method side by side (No dig against No dig, Dig set against Dig set), same labor and profit (Green copies Black's).",
     '',
     'A total is only a price when every part in it has one. Parts marked [NO PRICE] count $0.00, so a side with any of them',
@@ -400,7 +431,7 @@ function writeCompare(file: string, lines: string[], made: boolean) {
 
 // ── Report ──────────────────────────────────────────────────────────────────
 
-interface Plans { pipe: DocPlan | null; green: DocPlan | null; greenPlan: GreenPlan; follow: GreenFollow | null; vs: Verdict[] }
+interface Plans { pipe: DocPlan | null; green: DocPlan | null; greenPlan: GreenPlan; follow: GreenFollow | null; vs: Verdict[]; fromBlack: GreenFromBlack[] }
 
 async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   labels = new Map(m.estimateConfig(st.config).fenceStyles.map((s: any) => [String(s.name), String(s.label || s.name)]))
@@ -504,7 +535,7 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
       if (a) {
         const link = findLink(st.links, matchKey(l.itemNumber ?? '', l.description))
         const linked = link ? st.items.find(i => String(i.id) === link.inventoryItemId) : null
-        say(`     "${l.description}": NOT applied. ${a.why} It is either ${a.candidates.map(c => `"${c}" (${money(cents(itemNamed(gstate.items, c)))} now)`).join(' or ')}. It waits in Needs a match for Jonathan; the Green kits use the green bolt (no price) until he says.`)
+        say(`     "${l.description}": NOT applied. ${a.why} It is either ${a.candidates.map(c => `"${c}" (${money(cents(itemNamed(gstate.items, c)))} now)`).join(' or ')}. It waits in Needs a match for Jonathan; the Green kits use the green bolt, at the black bolt's price (5b), until he says.`)
         if (link) say(`        the app already has a match for it → "${linked?.name ?? link.inventoryItemId}" (made ${link.createdAt.toISOString().slice(0, 16).replace('T', ' ')}): ${dbName === LIVE_DATABASE_NAME ? 'kept (on live a match is Jonathan\'s); ordering prices the line from it' : 'an earlier run\'s guess; --apply removes it (and puts back what it priced)'}`)
       } else if (g?.note && /no color/.test(g.note)) say(`     "${l.description}": matched to "${g.part}": ${g.note}.`)
     }
@@ -543,7 +574,7 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
   say(`   GREEN PARTS PRICED BY ${GREEN_DOC} (landed each after "We ordered this"):`)
   for (const g of GREEN_LINES) say(`     ${pad(g.part, 66)} ${lpad(money(priceOf(g.part)), 10)}${used.has(norm(g.part)) ? '' : '  (no Green kit uses it)'}`)
   const noGreen = greenUnpriced(gstate)
-  say(`   NO GREEN EQUIVALENT on ${GREEN_DOC} (in the Green kits with NO PRICE, so Green stays "not fully priced" as well as switched off):`)
+  say(`   NO GREEN PRICE on ${GREEN_DOC} (in the Green kits with no price yet; each takes the black part's price, see 5b):`)
   // "chain/4/green/res/nd walkGate5" → "Green Chain Link, 4 ft, Residential, No dig: Walk gate 5 ft wide"
   const kitWhere = (w: string) => { const i = w.lastIndexOf(' '); return i > 0 ? `${labelOf(w.slice(0, i))}: ${kindWords(w.slice(i + 1))}` : named(w) }
   for (const n of noGreen) say(`     - ${n.part}${n.ask ? ` (06-251707 "${n.ask.description}" may be it: ${n.ask.why})` : ''} — used in ${n.kits.map(kitWhere).join('; ')}`)
@@ -553,19 +584,52 @@ async function report(docs: Doc[], st: State, m: any): Promise<Plans> {
     for (const i of [...older].sort((a, b) => String(a.name).localeCompare(String(b.name)))) say(`     ${pad(String(i.name), 58)} ${lpad(money(cents(i)), 10)}`)
   }
 
-  // 6. The test yards
-  say('\n6. TEST YARDS: GREEN AGAINST BLACK 4 FT (the app\'s own estimate, at the prices after both quotes are ordered; Green priced as if switched on, preview only)')
-  if (COMPARE_OUT) capture = []
+  // Oct 27: the prices after both quotes are ordered, then Black's price for every green part still without one, then Green switched on.
   const after = (items: any[]) => {
     const next = new Map<string, number>()
     for (const pl of [pipe, green]) for (const it of pl?.items ?? []) if (it.changes) next.set(norm(it.name), it.next)
     return items.map(i => (next.has(norm(String(i.name))) ? { ...i, unitCost: next.get(norm(String(i.name)))! / 100 } : i))
   }
-  const data = { config: { ...(st.config ?? {}), fenceStyles: gstate.fenceStyles, fenceCatalog: gstate.fenceCatalog }, inventory: after(gstate.items), kits: gstate.kits }
-  const unpriced = new Set(greenUnpriced({ ...gstate, items: data.inventory }).map(n => norm(n.part)))
-  printCompare(m, data, gStyles.map((s: any) => [s.madeFrom, s.name] as [string, string]), unpriced, words)
-  if (COMPARE_OUT && capture) { writeCompare(COMPARE_OUT, capture, gStyles.length > 0); capture = null }
-  return { pipe, green, greenPlan, follow, vs }
+  const fb = planGreenBlackPrices(m, { ...gstate, items: after(gstate.items) }, TODAY)
+  const on = planGreenSwitchOn(m, fb.state)
+  const fin = on.state
+  const pairs = gStyles.map((s: any) => [s.madeFrom, s.name] as [string, string])
+  const finConfig = { ...(st.config ?? {}), fenceStyles: fin.fenceStyles, fenceCatalog: fin.fenceCatalog }
+
+  say('\n5a. IS GREEN A FAITHFUL COPY OF BLACK 4 FT? (as the app reads both: calculation, options, labor, margins, profit)')
+  m.styleLabels(finConfig, { inventory: fin.items, kits: fin.kits })
+  const resolved = m.estimateConfig(finConfig).fenceStyles
+  for (const [b, g] of pairs) {
+    const bs = resolved.find((s: any) => s.name === b), gs = resolved.find((s: any) => s.name === g)
+    if (!bs || !gs) continue
+    say(`   ${labelOf(g)} next to ${labelOf(b)}:`)
+    say(`     section width ${gs.panelWidth} ft (black ${bs.panelWidth}); sections one person installs an hour ${gs.sectionsPerMH} (black ${bs.sectionsPerMH}); walk gate ${gs.mhPerWalkGate} man hours (black ${bs.mhPerWalkGate}); double gate ${gs.mhPerDblGate} (black ${bs.mhPerDblGate})`)
+    say(`     margin ${gs.margin} (black ${bs.margin}); Target Profit ${gs.colorTargetProfitPct ?? gs.targetProfitPct}% (black ${bs.colorTargetProfitPct ?? bs.targetProfitPct}%); category ${gs.category} (black ${bs.category}); sub rate ${gs.subRate ?? 'the Chainlink rate in Settings'} (black ${bs.subRate ?? 'the Chainlink rate in Settings'})`)
+  }
+  const diffs = greenCopyDiffs(resolved, pairs)
+  if (diffs.length) for (const d of diffs) say(`   DIFFERS: ${labelOf(d.green)} ${d.field} = ${JSON.stringify(d.greenValue)}, black ${JSON.stringify(d.blackValue)}`)
+  else say(`   Same in every field the price uses${pairs.length ? '' : ' (no Green fences yet)'}. Its kits are the black kits part for part (section 5); Green is offered at 4 ft only, No dig and Dig set, residential, walk and double gates of every width black 4 ft has.`)
+
+  say(`\n5b. GREEN PARTS NOT PRICED BY ${GREEN_DOC}: BLACK'S PRICE (Jonathan, Oct 27: "If a green part isn't on the quote, use the black price and list it for me")`)
+  say(`   Each takes the black part's price in Inventory now and is marked "${FROM_BLACK_WORDS}" (Inventory, and the quote's price warning). A vendor document or a typed price replaces it. No black price is changed.`)
+  say(`   ${pad('GREEN part', 66)} ${pad('BLACK part used', 62)} ${lpad('price', 9)}`)
+  for (const r of fb.priced) say(`   ${pad(r.part, 66)} ${pad(r.black, 62)} ${lpad(money(r.cents), 9)}`)
+  if (!fb.priced.length) say('   none: every green part already has a price')
+  for (const r of fb.missing) say(`   STILL NO PRICE: ${r.part}: its black part "${r.black}" has no price in Inventory either`)
+
+  say('\n5c. SWITCH ON (Jonathan OK\'d it Oct 27): Settings → Fence styles → Chain link → Finish → Green, on for quoting')
+  if (!greenOption(fin.fenceCatalog)) say('   no Green on this database: nothing to switch on')
+  else say(`   ${on.switched ? 'Green: off → ON for quoting' : 'Green is already on for quoting'}`)
+  for (const s of resolved.filter((x: any) => pairs.some(([, g]) => g === x.name))) say(`   ${s.label}: ${s.held ? `STILL NOT AVAILABLE: ${s.held}` : 'available for quoting (the quote builder offers it to the Salesman and the office; the customer reads this name)'}`)
+
+  // 6. The test yards
+  say('\n6. TEST YARDS: GREEN AGAINST BLACK 4 FT (the app\'s own estimate, at the prices after both quotes are ordered, Black\'s price for the green parts in 5b, Green switched on)')
+  if (COMPARE_OUT) capture = []
+  const data = { config: finConfig, inventory: fin.items, kits: fin.kits }
+  const unpriced = new Set(greenUnpriced(fin).map(n => norm(n.part)))
+  printCompare(m, data, pairs, unpriced, words, new Set(fb.priced.map(r => norm(r.part))))
+  if (COMPARE_OUT && capture) { writeCompare(COMPARE_OUT, capture, gStyles.length > 0, fb.priced); capture = null }
+  return { pipe, green, greenPlan, follow, vs, fromBlack: fb.priced }
 }
 
 // ── Apply (what Jonathan would tap) ─────────────────────────────────────────
@@ -683,6 +747,31 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
     else say(`  ${n}: already ordered, nothing to do`)
   }
 
+  // Oct 27: the green parts still with no price take the black part's price; Green switched on for quoting.
+  const on = await prisma.$transaction(async (tx: any) => {
+    await lockAccountState(tx, accountId)
+    const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true } })
+    const inv = await tx.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } })
+    const cfg = (b?.config ?? {}) as Record<string, any>
+    const st1: GreenState = { fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items: arr(inv?.items), kits: arr(inv?.kits) }
+    if (!greenOption(st1.fenceCatalog)) throw new Error('Green chain link is not in Settings: stopped before pricing it from black.')
+    const fb = planGreenBlackPrices(m, st1, TODAY)
+    const sw = planGreenSwitchOn(m, fb.state)
+    if (fb.priced.length) await tx.inventoryState.update({ where: { accountId }, data: { items: sw.state.items as any, version: { increment: 1 } } })
+    if (sw.switched) await tx.businessState.update({ where: { accountId }, data: { config: { ...cfg, fenceCatalog: sw.state.fenceCatalog } as any, version: { increment: 1 } } })
+    if (fb.priced.length || sw.switched) {
+      const kv = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: GREEN_BLACK_PRICES_KEY } } })
+      const runs = arr((kv?.value as any)?.runs)
+      const value = { runs: [...runs, { at: new Date().toISOString(), by: actor.name, fromBlack: fb.priced, stillNoPrice: fb.missing, switchedOn: sw.switched }] }
+      await tx.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: GREEN_BLACK_PRICES_KEY } }, create: { accountId, key: GREEN_BLACK_PRICES_KEY, value: value as any }, update: { value: value as any } })
+    }
+    return { fb, switched: sw.switched }
+  }, { timeout: 30_000 })
+  for (const r of on.fb.priced) say(`  ${r.part}: no price → ${money(r.cents)} (from ${r.black}; "${FROM_BLACK_WORDS}")`)
+  if (!on.fb.priced.length) say('  green parts priced from black: none needed (each already has a price)')
+  for (const r of on.fb.missing) say(`  STILL NO PRICE: ${r.part} (its black part "${r.black}" has no price either)`)
+  say(`  Green chain link: ${on.switched ? 'switched ON for quoting' : 'already on for quoting'}`)
+
   // What changed, from the database, against the dry run.
   say('\nRESULT (from the database)')
   let mismatch = 0
@@ -709,9 +798,21 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
   m.styleLabels(after.config, { inventory: after.items, kits: after.kits })
   const resolved = m.estimateConfig(after.config).fenceStyles.filter((s: any) => s?.material === 'chain' && s?.choices?.finish === 'green')
   for (const s of resolved) {
-    say(`  fence ${s.name} (${s.label}): ${s.held ? `not available for quoting: ${s.held}` : 'AVAILABLE FOR QUOTING'}`)
-    if (!s.held) mismatch++
+    say(`  fence ${s.name} (${s.label}): ${s.held ? `NOT AVAILABLE FOR QUOTING: ${s.held}` : 'available for quoting'}`)
+    if (s.held) mismatch++
   }
+  // Black's price for each green part, as the dry run said; and no other price changed (never a black one).
+  const itemBy = (items: any[], name: string) => items.find(i => norm(String(i?.name ?? '')) === norm(name))
+  for (const r of plans.fromBlack) {
+    const it = itemBy(after.items, r.part)
+    const got = cents(it)
+    say(`  ${r.part}: ${money(got)}${it?.priceFrom ? ` (${it.priceFrom.words}: ${it.priceFrom.part})` : ''}`)
+    if (got !== r.cents) { mismatch++; say(`     DIFFERS from the dry run: expected ${money(r.cents)} from ${r.black}`) }
+  }
+  const allowed = new Set([norm(PIPE_ITEM), ...[plans.pipe, plans.green].flatMap(p => (p?.items ?? []).map(i => norm(i.name))), ...plans.fromBlack.map(r => norm(r.part))])
+  const changed = st.items.filter(i => !allowed.has(norm(String(i?.name ?? ''))) && cents(itemBy(after.items, String(i?.name ?? ''))) !== cents(i))
+  if (changed.length) { mismatch += changed.length; for (const i of changed) say(`  PRICE CHANGED THAT SHOULD NOT: ${i.name} ${money(cents(i))} → ${money(cents(itemBy(after.items, i.name)))}`) }
+  else say(`  no other Inventory price changed (every Black price as it was)`)
   for (const k of after.kits.filter((x: any) => !x.archived && resolved.some((s: any) => s.name === x.styleName))) {
     const black = m.kitSetFor(k.followsKit?.from ?? '', after.kits)
     say(`  kit ${k.name}: ${k.followsKit ? `follows ${k.followsKit.from}` : 'FOLLOWS NOTHING'}`)
@@ -726,7 +827,7 @@ async function apply(docs: Doc[], st: State, plans: Plans, m: any) {
   const data = { config: after.config, inventory: after.items, kits: after.kits }
   const gs: GreenState = { fenceStyles: arr(after.config?.fenceStyles), fenceCatalog: m.fenceCatalogOf(after.config), items: after.items, kits: after.kits }
   const unpriced = new Set(greenUnpriced(gs).map(n => norm(n.part)))
-  printCompare(m, data, resolved.map((s: any) => [s.madeFrom, s.name] as [string, string]), unpriced, blackWords(gs.fenceCatalog, greenOption(gs.fenceCatalog)))
+  printCompare(m, data, resolved.map((s: any) => [s.madeFrom, s.name] as [string, string]), unpriced, blackWords(gs.fenceCatalog, greenOption(gs.fenceCatalog)), new Set(after.items.filter((i: any) => i?.priceFrom && cents(i) === i.priceFrom.cents).map((i: any) => norm(String(i.name)))))
   say(mismatch ? `\n${mismatch} difference(s) from the dry run: check above.` : '\nEverything matches the dry run.')
   if (mismatch) process.exitCode = 1
 }

@@ -1705,10 +1705,13 @@ export default function QuoteBuilder({
                     <p key={item.id} className="text-xs text-amber-800 leading-snug" data-stale-part={item.name}>{item.name.replace(/^\*/, '')} · {priceAgeLabel(item)}</p>
                   ))}
                   {staleParts.length > 6 && <p className="text-xs text-amber-800">and {staleParts.length - 6} more</p>}
-                  <button type="button" className="btn btn-quiet btn-sm" data-stale-open
-                    onClick={() => { if (okToLeave()) navigate(`/inventory?items=${encodeURIComponent(staleParts.map(p => p.item.id).join(','))}`) }}>
-                    Open in Inventory
-                  </button>
+                  {/* Inventory is not open to a Salesman's login: no button that would leave his quote for a page he cannot open (reviewer, Oct 27). */}
+                  {can('inventory.stock') ? (
+                    <button type="button" className="btn btn-quiet btn-sm" data-stale-open
+                      onClick={() => { if (okToLeave()) navigate(`/inventory?items=${encodeURIComponent(staleParts.map(p => p.item.id).join(','))}`) }}>
+                      Open in Inventory
+                    </button>
+                  ) : <p className="text-xs text-amber-800" data-stale-note>OK to quote. The office updates these prices in Inventory.</p>}
                 </div>
               )}
 

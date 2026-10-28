@@ -131,6 +131,8 @@ export interface InventoryItem {
   priceUpdatedAt?: string
   /** Came in by import (price book, bulk import) and not confirmed since. */
   priceImported?: boolean
+  /** Priced from another part until it has its own (priceAge.ts borrowedPrice): green chain link parts at the black part's price. */
+  priceFrom?: { part: string; cents: number; on: string; words: string }
   // Stock tracking
   qtyOnHand?: number
   reorderPoint?: number
