@@ -42,16 +42,17 @@ export function customersMatching<C extends PickCustomer>(all: C[], typed: strin
   if (q.length < 2) return []
   const qWords = q.split(/\s+/).filter(Boolean)
   const qd = q.replace(/\D/g, '')
-  const out: C[] = []
+  // Names where every typed word starts a word of the name come first ("john" finds John Ruiz before Steven Ojohn).
+  const hits: Array<{ c: C; rank: number }> = []
   for (const c of all) {
     const name = `${c.firstName} ${c.lastName}`.toLowerCase()
+    const nameWords = name.split(/[^a-z0-9]+/).filter(Boolean)
     const hit = qWords.every(w => name.includes(w))
       || (!/[a-z]/.test(q) && qd.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(qd))
       || (!!c.email && c.email.toLowerCase().includes(q))
-    if (hit) out.push(c)
-    if (out.length >= limit) break
+    if (hit) hits.push({ c, rank: qWords.every(w => nameWords.some(n => n.startsWith(w))) ? 0 : 1 })
   }
-  return out
+  return hits.sort((x, y) => x.rank - y.rank).slice(0, limit).map(h => h.c)
 }
 
 export type NewCustomerDecision<C> = { kind: 'attach'; to: C } | { kind: 'new_possible'; matches: C[] } | { kind: 'new' }

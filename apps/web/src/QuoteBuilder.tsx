@@ -492,7 +492,7 @@ export default function QuoteBuilder({
   const [pickedCustomerId, setPickedCustomerId] = useState<string | null>(null)
   const quoteCustomerId = init?.customerId || pickedCustomerId || ''
   const pickedCustomer = pickedCustomerId ? getCustomerById(pickedCustomerId) : null
-  const nameMatches = useMemo(() => (quoteCustomerId ? [] : customersMatching(getCustomers(), customerName, 5)), [quoteCustomerId, customerName])
+  const nameMatches = useMemo(() => (quoteCustomerId ? [] : customersMatching(getCustomers(), customerName, 4)), [quoteCustomerId, customerName])
   const [styleId, setStyleId]           = useState(() => {
     if (!init) return ''
     const found = FENCE_STYLES.find(s => s.name === init.fenceStyle)
@@ -1245,7 +1245,7 @@ export default function QuoteBuilder({
                 <div className="mt-2" data-quote-customer-matches>
                   <p className="text-xs text-gray-500 mb-1">Already a customer? Tap them so this quote goes on their record.</p>
                   <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
-                    {nameMatches.map(c => (
+                    {nameMatches.slice(0, 3).map(c => (
                       <button key={c.id} type="button" data-quote-customer-option={c.id}
                         onClick={() => { setPickedCustomerId(c.id); setCustomerName(`${c.firstName} ${c.lastName}`.trim()) }}
                         className="w-full min-h-[48px] text-left px-3 py-2 hover:bg-orange-50 active:bg-orange-100">
@@ -1254,6 +1254,8 @@ export default function QuoteBuilder({
                       </button>
                     ))}
                   </div>
+                  {/* Three rows stay above a phone's keyboard; past that, a narrower name finds them. */}
+                  {nameMatches.length > 3 && <p className="text-xs text-gray-500 mt-1" data-quote-customer-more>More on file. Keep typing (last name, phone or email) to narrow it.</p>}
                 </div>
               )}
             </div>

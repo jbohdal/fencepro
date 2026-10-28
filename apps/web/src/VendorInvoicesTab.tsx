@@ -713,7 +713,7 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
         {inv.docType === 'quote' && <p className="text-sm text-purple-800 break-words">Quotation{inv.revision ? ` · revision ${inv.revision}` : ''}{inv.ordered ? ` · ordered${inv.orderedBy ? ` by ${inv.orderedBy}` : ''}: treated as the invoice` : ''}</p>}
         {backordered.length > 0 && (
           <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-1" data-backordered>
-            <p className="text-sm font-semibold text-amber-900">Backordered, not on this bill</p>
+            <p className="text-sm font-semibold text-amber-900">Backordered, not on this {inv.docType === 'quote' ? 'quotation' : 'bill'}</p>
             <ul className="text-sm text-amber-900 space-y-1">
               {backordered.map(x => <li key={`${x.page}-${x.row}`} className="break-words">{x.qty} {x.unit} {x.description} · {unitPrice(x.unitPriceHc ?? null)} each</li>)}
             </ul>

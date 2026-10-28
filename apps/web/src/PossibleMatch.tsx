@@ -119,7 +119,7 @@ export default function PossibleMatch({ customerId, onMerged, onOpenCustomer, hi
         <div key={m.id} className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-2" data-possible-match-notice={m.id} data-match-customer={m.customer.id}>
           <p className="text-sm text-blue-950">
             <b>Possible match:</b> {m.customer.name}{m.customer.phone ? `, ${formatPhone(m.customer.phone)}` : ''}{m.customer.email ? `, ${m.customer.email}` : ''}. Use {m.customer.name}?
-            <span className="block text-xs text-blue-900/80 mt-0.5">Same {m.reason}. This customer was made by a website or phone lead; merging moves everything of theirs to {m.customer.name} and leaves {m.customer.name}'s details as they are.</span>
+            <span className="block text-xs text-blue-900/80 mt-0.5">Same {m.reason}, another name. Merging moves everything of theirs to {m.customer.name} and leaves {m.customer.name}'s details as they are.</span>
           </p>
           {view.textConsent !== m.customer.textConsent && (
             <p className="text-xs text-blue-950 rounded-lg bg-white/70 px-2 py-1" data-match-text-consent={`${view.textConsent}|${m.customer.textConsent}`}>

@@ -32,6 +32,15 @@ describe('Customer name step: customers on file as typed', () => {
   test('at most the limit', () => {
     expect(customersMatching(ON_FILE, '352', 2)).toHaveLength(2)
   })
+  test('names that start with what was typed come first, even past the limit', () => {
+    const people = [
+      { id: 'o', firstName: 'Steven', lastName: 'Ojohn' },
+      { id: 'j1', firstName: 'John', lastName: 'Ruiz' },
+      { id: 'j2', firstName: 'Ann', lastName: 'Johnson' },
+    ]
+    expect(customersMatching(people, 'john').map(x => x.id)).toEqual(['j1', 'j2', 'o'])
+    expect(customersMatching(people, 'john', 2).map(x => x.id)).toEqual(['j1', 'j2'])
+  })
 })
 
 describe('Save of a new customer whose phone or email is on file', () => {
