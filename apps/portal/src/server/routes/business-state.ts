@@ -24,6 +24,7 @@ import { businessPatchRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
+import { materialsFollowOrders } from '../lib/materialsFromOrders.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -117,8 +118,14 @@ router.patch('/', async (req: any, res) => {
       }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
-    // A Sales Order marked Ordered closes its job's "Order materials for …" task (lib/taskAutoClose.ts).
-    if (updateData.pendingOrders !== undefined) closeTasksSoon()
+    if (updateData.pendingOrders !== undefined) {
+      // A Sales Order marked Ordered or Received: its job's materials follow, never backward (lib/materialsFromOrders.ts),
+      // saved before the answer so this browser's next read of the jobs has it.
+      await materialsFollowOrders(accountId, (saved as any)?.pendingOrders ?? [], s.pendingOrders, { by: `Sales Order, ${req.user.email ?? 'staff'}` })
+        .catch(e => console.error('[business-state] materials follow orders:', e))
+      // ...and closes its job's "Order materials for …" task (lib/taskAutoClose.ts).
+      closeTasksSoon()
+    }
     // Settings saved here (company config, appointments, templates...) go to the change log (Settings > Change log).
     for (const f of SETTINGS_FIELDS) {
       if (updateData[f] !== undefined) await auditSettingChange(req, `business-state/${f}`, (saved as any)?.[f] ?? null, (s as any)[f], { version: s.version })

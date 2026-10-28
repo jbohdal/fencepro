@@ -12,7 +12,7 @@
  */
 
 import type { LineItem } from './materialCalculator'
-import { getBusinessField, setBusinessField } from './businessStateStore'
+import { getBusinessField, setBusinessField, whenBusinessStateSaved } from './businessStateStore'
 
 export type PendingOrderStatus = 'pending' | 'ordered' | 'received' | 'cancelled'
 
@@ -99,6 +99,11 @@ export function updatePendingOrderStatus(id: string, status: PendingOrderStatus)
     cancelledAt: status === 'cancelled' ? now : prev.cancelledAt,
   }
   save(all)
+  // Ordered or Received: the server raises the job's materials to match (portal lib/materialsFromOrders.ts);
+  // once the order is saved, the jobs are read again so the job page and the Schedule window say so here too.
+  if (status === 'ordered' || status === 'received') {
+    void whenBusinessStateSaved().then(ok => ok ? import('./jobStore').then(m => m.refreshJobs()) : undefined).catch(() => {})
+  }
   // On received: formally deduct from inventory
   if (status === 'received') {
     try { deductInventoryForOrder(all[idx]) } catch { /* noop */ }
