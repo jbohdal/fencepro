@@ -99,6 +99,9 @@ export const LISTS: ListSpec[] = [
     words: opsWords,
     minHits: 3,
     owners: ['web/src/opsStageModel.ts', 'portal/src/server/lib/opsStageModel.ts'],
+    allowed: {
+      'portal/src/server/lib/waitingStageMove.ts': "Jonathan's move rule (Oct 27 2026) names the built in waiting stages it acts on, like opsStageModel's waitingStageOf; the board's list itself is read from Settings",
+    },
     defaults: ['START_OPS_STAGES'],
     defaultUsers: {
       'web/src/opsStagesStore.ts': 'the store: the start list until the server answers',
