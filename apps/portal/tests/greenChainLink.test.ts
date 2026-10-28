@@ -59,9 +59,9 @@ describe('green chain link from 06-251707', () => {
     // Gates as the sheet counts them for black 4 ft: leaves by width, hardware per gate, once per job parts.
     expect(parts('walkGate')).toEqual([`1 Chainlink, Green, Gate, 1-3/8", 4' x 4' (.055)`, '2 Green, Hinge, Female, 1-3/8" x 5/8"', '2 Green, Hinge, Male, 2-1/2"', '2 Green, Bolt, 3/8" x 2" w/ Nut', '2 Green, Bolt, 3/8" x 3" w/ Nut'].sort())
     expect(parts('dblGate')).toEqual([`2 Chainlink, Green, Gate, 1-3/8", 4' x 4' (.055)`, '6 Green, Hinge, Female, 1-3/8" x 5/8"', '4 Green, Hinge, Male, 2-1/2"', '4 Green, Bolt, 3/8" x 3" w/ Nut'].sort())
-    expect(parts('walkGate5')).toContain(`1 Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`)
-    expect(parts('dblGate10')).toContain(`2 Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`)
-    expect(parts('dblGate12')).toContain(`2 Chainlink, Green, Gate, 1-3/8", 4' x 6' (.065)`)
+    expect(parts('walkGate5')).toContain(`1 Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`)
+    expect(parts('dblGate10')).toContain(`2 Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`)
+    expect(parts('dblGate12')).toContain(`2 Chainlink, Green, Gate, 1-3/8", 4' x 6' (.055)`)
     expect(parts('anyGate')).toEqual(['1 Green, Collar, PS, 1-3/8" (Set of 2)'])
     expect(parts('anyWalkGate')).toEqual(['1 Green, Fork, PS, 2-1/2"'])
     expect(parts('anyDblGate')).toEqual(['1 Drop Rod, 30", Green', '1 Green, Fork, PS, 1-3/8"'])
@@ -103,8 +103,8 @@ describe('green chain link from 06-251707', () => {
     expect(greenLineFor("ENS DOM VNL TENS WIRE 9ga SMOOTH (1000')")?.part).toBe('Green, Wire, Tension, 9GA')
     expect(greenLineFor("ENS DOM VNL TENS WIRE 9ga SMOOTH (1000')")?.note).toMatch(/no color/)
     expect(plan.noGreen.map(n => n.part).sort()).toEqual([
-      `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`,
-      `Chainlink, Green, Gate, 1-3/8", 4' x 6' (.065)`,
+      `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`,
+      `Chainlink, Green, Gate, 1-3/8", 4' x 6' (.055)`,
       'DS, Pipe, Green, Line Post, 1-5/8" 0.055 wall, 4\' Chain Link',
       'DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4\' Chain Link',
       'Green, Bolt, 3/8" x 2" w/ Nut',
@@ -247,8 +247,8 @@ describe('green chain link from 06-251707', () => {
     const out = planGreenBlackPrices(m, st, '2026-10-27')
     expect(out.missing).toEqual([])
     expect(out.priced.map(r => [r.part, r.black])).toEqual([
-      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, `Chainlink, Black, Gate, 1-3/8", 4' x 5' (.065)`],
-      [`Chainlink, Green, Gate, 1-3/8", 4' x 6' (.065)`, `Chainlink, Black, Gate, 1-3/8", 4' x 6' (.065)`],
+      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`, `Chainlink, Black, Gate, 1-3/8", 4' x 5' (.065)`],
+      [`Chainlink, Green, Gate, 1-3/8", 4' x 6' (.055)`, `Chainlink, Black, Gate, 1-3/8", 4' x 6' (.065)`],
       ['DS, Pipe, Green, Line Post, 1-5/8" 0.055 wall, 4\' Chain Link', 'DS, Pipe, Blk, Line Post, 1-5/8" 0.055 wall, 4\' Chain Link'],
       ['DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4\' Chain Link', 'DS, Pipe, Blk, Terminal Post, 2-1/2" 0.055 wall, 4\' Chain Link'],
       ['Green, Bolt, 3/8" x 2" w/ Nut', 'Black, Bolt, 3/8" x 2" w/ Nut'],
@@ -323,3 +323,52 @@ describe('green chain link from 06-251707', () => {
   })
 })
 
+
+describe('green gate leaves named .055 (Jonathan, Oct 28 2026)', () => {
+  // Live as made Oct 27: the 4' x 5' and 4' x 6' leaves named ".065" after the black leaves, in Inventory and in the kits.
+  const OLD5 = `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, NEW5 = `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`
+  const OLD6 = `Chainlink, Green, Gate, 1-3/8", 4' x 6' (.065)`, NEW6 = `Chainlink, Green, Gate, 1-3/8", 4' x 6' (.055)`
+  const asMadeOct27 = () => {
+    const st = JSON.parse(JSON.stringify(planGreenChainLink(m, start()).state))
+    const back = (s: string) => s.replace(NEW5, OLD5).replace(NEW6, OLD6)
+    for (const i of st.items) i.name = back(i.name)
+    for (const k of st.kits) {
+      for (const ps of Object.values(k.kits ?? {}) as any[]) for (const p of ps) p.part = back(p.part)
+      if (k.followsKit) k.followsKit.key = kitKey(k)
+    }
+    const g5 = st.items.find((i: any) => i.name === OLD5)
+    Object.assign(g5, { id: 'live-g45', unitCost: 198.22, priceUpdatedAt: '2023-07-13', priceFrom: { part: `Chainlink, Black, Gate, 1-3/8", 4' x 5' (.065)`, cents: 13369, on: '2026-10-27', words: FROM_BLACK_WORDS } })
+    return st
+  }
+
+  test('the parts are named again in Inventory and every kit; id, price and marks kept; nothing added; the kits keep following Black', () => {
+    const st = asMadeOct27()
+    // A Green kit edited by hand uses the old name too: it is named again, and stays left alone otherwise.
+    const nd = kitOf(st, 'chain/4/green/res/nd')
+    nd.kits.section[0].qty = Number(nd.kits.section[0].qty) + 1
+    const f = planGreenFollowsBlack(m, st)
+    expect(f.renamed).toEqual([`"${OLD5}" → "${NEW5}"`, `"${OLD6}" → "${NEW6}"`])
+    expect(f.items).toEqual([])
+    expect(f.state.items.some((i: any) => i.name === OLD5 || i.name === OLD6)).toBe(false)
+    expect(f.state.items.find((i: any) => i.name === NEW5)).toMatchObject({ id: 'live-g45', unitCost: 198.22, priceUpdatedAt: '2023-07-13', priceFrom: { cents: 13369 } })
+    for (const k of f.state.kits) for (const ps of Object.values(k.kits ?? {}) as any[]) for (const p of ps) expect(p.part).not.toMatch(/Green, Gate.*\(\.065\)/)
+    expect(kitOf(f.state, 'chain/4/green/res/ds').kits.walkGate5.map((p: any) => p.part)).toContain(NEW5)
+    expect(kitOf(f.state, 'chain/4/green/res/ds').kits.dblGate12.map((p: any) => p.part)).toContain(NEW6)
+    expect(f.updated).toEqual([])
+    expect(f.skipped).toEqual([expect.stringMatching(/^chain\/4\/green\/res\/nd: edited/)])
+    expect(kitOf(f.state, 'chain/4/green/res/nd').kits.walkGate5.map((p: any) => p.part)).toContain(NEW5)
+    // The dig set kit still follows Black: a black change still reaches it.
+    const again = planGreenFollowsBlack(m, f.state)
+    expect([again.renamed, again.updated, again.items]).toEqual([[], [], []])
+    kitOf(again.state, 'chain/4/black/res/ds').kits.dblGate.find((p: any) => /Hinge, Female/.test(p.part)).qty = 7
+    expect(planGreenFollowsBlack(m, again.state).updated.map(u => u.kit)).toEqual(['chain/4/green/res/ds'])
+  })
+
+  test('a part already in Inventory under the new name: both left as they are', () => {
+    const st = asMadeOct27()
+    st.items.push({ id: 'typed', name: NEW5, unitCost: 200, category: 'Chainlink Green' })
+    const f = planGreenFollowsBlack(m, st)
+    expect(f.renamed).toEqual([`"${OLD6}" → "${NEW6}"`])
+    expect(f.state.items.filter((i: any) => i.name === OLD5 || i.name === NEW5).map((i: any) => i.id).sort()).toEqual(['live-g45', 'typed'])
+  })
+})

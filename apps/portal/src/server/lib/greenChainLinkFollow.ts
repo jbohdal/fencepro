@@ -39,7 +39,7 @@ export async function ensureGreenFollowsBlack(accountId: string): Promise<GreenF
     const prices = await followBorrowedReport(plan.state.items)
     plan.state.items = prices.items
     plan.pricesFollowed = prices.followed
-    if (plan.updated.length || plan.items.length || plan.marked.length || plan.tidied.length || plan.removed.length || prices.followed.length) {
+    if (plan.renamed?.length || plan.updated.length || plan.items.length || plan.marked.length || plan.tidied.length || plan.removed.length || prices.followed.length) {
       await tx.inventoryState.update({ where: { accountId }, data: { items: plan.state.items as any, kits: plan.state.kits as any, version: { increment: 1 } } })
     }
     return plan
@@ -53,6 +53,7 @@ export async function ensureGreenFollowsBlackAll(): Promise<void> {
     try {
       const out = await ensureGreenFollowsBlack(r.accountId)
       if (!out) continue
+      for (const n of out.renamed ?? []) console.log(`[green chain link] ${r.accountId}: named again: ${n}`)
       for (const u of out.updated) console.log(`[green chain link] ${r.accountId}: ${u.kit} follows ${u.from} again: ${u.changes.join(' | ')}`)
       for (const f of out.pricesFollowed ?? []) console.log(`[green chain link] ${r.accountId}: ${f.part} follows ${f.from}: $${(f.wasCents / 100).toFixed(2)} → $${(f.nowCents / 100).toFixed(2)}`)
       if (out.items.length) console.log(`[green chain link] ${r.accountId}: added with no price: ${out.items.join('; ')}`)

@@ -113,8 +113,46 @@ const chainDims = (cat: any) => arr(arr(cat?.materials).find((m: any) => m?.key 
 export const greenOption = (cat: any) => arr(chainDims(cat)?.options).find((o: any) => String(o?.label ?? '').trim().toLowerCase() === GREEN_LABEL.toLowerCase() && !o.archived) ?? null
 const tagOf = (opt: any) => `chain:finish:${opt.key}`
 
-/** The rename from the swapped green name to the part 06-251707 sells. */
-const RENAME = new Map(GREEN_LINES.filter(g => g.swappedFrom).map(g => [norm(g.swappedFrom!), g.part]))
+/**
+ * Green parts named again with no document line of their own. Jonathan, Oct 28
+ * 2026: "Yes, rename the green gate leaves to .055." (the frame Stephens sells in
+ * green, as on the 4' x 4' leaf 06-251707 prices).
+ */
+export const GREEN_NAME_FIXES: Array<{ from: string; to: string }> = [
+  { from: `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, to: `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)` },
+  { from: `Chainlink, Green, Gate, 1-3/8", 4' x 6' (.065)`, to: `Chainlink, Green, Gate, 1-3/8", 4' x 6' (.055)` },
+]
+
+/** The rename from the swapped green name to the part 06-251707 sells (or the name Jonathan gave it). */
+const RENAME = new Map([
+  ...GREEN_LINES.filter(g => g.swappedFrom).map(g => [norm(g.swappedFrom!), g.part] as [string, string]),
+  ...GREEN_NAME_FIXES.map(f => [norm(f.from), f.to] as [string, string]),
+])
+
+/**
+ * GREEN_NAME_FIXES on what is saved: the Inventory part keeps its id, price,
+ * history and marks under the new name, and every kit set using the old name
+ * uses the new one (a set still following Black keeps following). A part
+ * already in Inventory under the new name is left, and so is the old one. Pure
+ * on `st`; the names changed, "old" → "new".
+ */
+export function renameGreenParts(st: GreenState, tag: string): string[] {
+  const done: string[] = []
+  for (const f of GREEN_NAME_FIXES) {
+    const old = st.items.find((i: any) => norm(String(i?.name ?? '')) === norm(f.from) && (i?.madeFor === tag || i?.category === GREEN_CATEGORY))
+    if (!old || st.items.some((i: any) => norm(String(i?.name ?? '')) === norm(f.to))) continue
+    old.name = f.to
+    for (const k of st.kits) {
+      const before = kitKey(k)
+      let hit = false
+      for (const parts of Object.values(k?.kits ?? {})) for (const p of arr(parts)) if (norm(String(p?.part ?? '')) === norm(f.from)) { p.part = f.to; hit = true }
+      if (Array.isArray(k?.roundUp)) k.roundUp = k.roundUp.map((r: string) => (norm(String(r)) === norm(f.from) ? (hit = true, f.to) : r))
+      if (hit && k.followsKit?.key === before) k.followsKit = { ...k.followsKit, key: kitKey(k) }
+    }
+    done.push(`"${f.from}" → "${f.to}"`)
+  }
+  return done
+}
 
 /**
  * A Green kit set's kits, derived from a black kit set as it is now: every
@@ -232,6 +270,8 @@ export interface GreenFollow {
   tidied: string[]
   /** Green parts this work added to Inventory with no price that no kit uses and 06-251707 does not sell: taken out. */
   removed: string[]
+  /** Green parts named again (GREEN_NAME_FIXES), "old" → "new". */
+  renamed?: string[]
   /** Green parts still priced from Black that took Black's price now (set by the server start, lib/greenChainLinkFollow.ts). */
   pricesFollowed?: Array<{ id: string; part: string; from: string; wasCents: number; nowCents: number }>
 }
@@ -276,6 +316,7 @@ export function planGreenFollowsBlack(m: GreenModule, st0: GreenState, opts: { m
   const words = blackWords(st.fenceCatalog, opt)
   if (!words.length) { out.skipped.push('Green has no color it was copied from'); return out }
   const tag = tagOf(opt)
+  out.renamed = renameGreenParts(st, tag)
   const madeAt = opts.madeAt ? Date.parse(opts.madeAt) : NaN
   for (const s of greenStyles(st, opt)) {
     const set = st.kits.find((k: any) => k.styleName === s.name && !k.archived)

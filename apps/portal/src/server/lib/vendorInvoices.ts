@@ -543,12 +543,12 @@ export function newerPriceKept(item: { unitCost?: unknown; priceUpdatedAt?: unkn
  * Put one item's landed cost into Inventory (the `item` object is changed in
  * place; the caller saves the items) and write its history row.
  */
-async function applyItem(tx: any, inv: { accountId: string; id: string | null; invoiceDate: string }, vendor: KnownVendor, item: any, unit: { cents: number; exact: number }, actor: Actor, approved: boolean, printedCents: number | null, extra: { lineId?: string; source?: string } = {}): Promise<{ changed: boolean; note: string }> {
+async function applyItem(tx: any, inv: { accountId: string; id: string | null; invoiceDate: string }, vendor: KnownVendor, item: any, unit: { cents: number; exact: number }, actor: Actor, approved: boolean, printedCents: number | null, extra: { lineId?: string; source?: string; overNewer?: boolean } = {}): Promise<{ changed: boolean; note: string }> {
   const prevCents = itemCents(item)
   const prevDate = typeof item.priceUpdatedAt === 'string' ? item.priceUpdatedAt : null
   const prevImported = typeof item.priceImported === 'boolean' ? item.priceImported : null
-  // Inventory already has a price from after this invoice: keep it, record this one for history.
-  const newer = newerPriceKept(item, inv.invoiceDate, printedCents)
+  // Inventory already has a price from after this invoice: keep it, record this one for history (unless Jonathan said to use this one).
+  const newer = !extra.overNewer && newerPriceKept(item, inv.invoiceDate, printedCents)
   await tx.priceHistory.create({
     data: {
       accountId: inv.accountId, inventoryItemId: item.id, vendorId: vendor.id, vendorName: vendor.name, invoiceId: inv.id,
@@ -903,9 +903,11 @@ export interface OnceResult { changed: boolean; cents: number; prevCents: number
  * does not wait. Landed as the document worked it out (freight, fees and tax
  * spread; estimated tax when none printed; never fuel). The line leaves Needs
  * a match; the document is Applied once no line waits. Only on an ordered
- * quote or an invoice. Never over a newer price (newerPriceKept).
+ * quote or an invoice. Never over a newer price (newerPriceKept), unless
+ * `overNewer`: Jonathan named this document's price for the part (Oct 28 2026,
+ * "set the three Green bolts to the 06-251707 landed prices").
  */
-export async function applyLineOnce(accountId: string, lineId: string, pick: { inventoryItemId: string; vendorPer?: number; invPer?: number; why: string }, actor: Actor): Promise<OnceResult> {
+export async function applyLineOnce(accountId: string, lineId: string, pick: { inventoryItemId: string; vendorPer?: number; invPer?: number; why: string; overNewer?: boolean }, actor: Actor): Promise<OnceResult> {
   const vendorPer = pick.vendorPer ?? 1, invPer = pick.invPer ?? 1
   if (!(vendorPer > 0) || !(invPer > 0)) throw new InvoiceError('The unit needs two numbers above zero.')
   return prisma.$transaction(async (tx: any) => {
@@ -928,7 +930,7 @@ export async function applyLineOnce(accountId: string, lineId: string, pick: { i
     const unit = unitLanded(landed, 0, invQty)
     const printed = unitLanded(line.totalCents ?? 0, 0, invQty).cents
     const prev = itemCents(item)
-    const r = await applyItem(tx, inv, vendor, item, unit, actor, true, printed, { lineId: line.id })
+    const r = await applyItem(tx, inv, vendor, item, unit, actor, true, printed, { lineId: line.id, overNewer: !!pick.overNewer })
     await tx.vendorInvoiceLine.update({
       where: { id: line.id },
       data: {

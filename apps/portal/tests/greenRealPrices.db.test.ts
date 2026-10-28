@@ -166,17 +166,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('green prices from documents, and
     const vs = await prisma.vendorState.findUnique({ where: { accountId } })
     const sps = (vs.vendors as any[]).find(v => /stephens/i.test(v.name))
     const prices = [
-      { inventoryItemId: named(before, `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`).id, vendorId: sps.id, vendorName: sps.name, docNumber: '06-120125', day: '2023-07-13', unitCents: 19822, unitExact: 198.2246, printedCents: 17230 },
+      { inventoryItemId: named(before, `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`).id, vendorId: sps.id, vendorName: sps.name, docNumber: '06-120125', day: '2023-07-13', unitCents: 19822, unitExact: 198.2246, printedCents: 17230 },
       { inventoryItemId: named(before, 'Green, Fork, PS, 2-1/2"').id, vendorId: sps.id, vendorName: sps.name, docNumber: '06-120125', day: '2023-07-13', unitCents: 368, unitExact: 3.6815, printedCents: 320 },
     ]
     const r = await lib.applyFilePrices(accountId, prices, actor)
     const gate0 = blackCents(`Chainlink, Black, Gate, 1-3/8", 4' x 5' (.065)`), fork0 = blackCents('Black, Fork, PS, 2-1/2"')
     expect(r.map(x => [x.item, x.changed, x.prevCents, x.cents])).toEqual([
-      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, true, gate0, 19822],
+      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`, true, gate0, 19822],
       ['Green, Fork, PS, 2-1/2"', true, fork0, 368],
     ])
     const after = await items()
-    const gate = named(after, `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`)
+    const gate = named(after, `Chainlink, Green, Gate, 1-3/8", 4' x 5' (.055)`)
     expect([centsOf(gate), gate.priceUpdatedAt, gate.priceImported]).toEqual([19822, '2023-07-13', false])
     const hist = await prisma.priceHistory.findMany({ where: { accountId, source: 'vendor_file:06-120125' } })
     expect(hist.map((h: any) => [h.day, h.unitLandedCents, h.prevUnitCents]).sort()).toEqual([['2023-07-13', 19822, gate0], ['2023-07-13', 368, fork0]].sort())
