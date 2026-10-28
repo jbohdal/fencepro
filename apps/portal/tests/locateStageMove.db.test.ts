@@ -12,8 +12,15 @@
  *     history; permit Approved: → Need Drawing; another browser reads it;
  *   - a good to dig day still ahead ("Called") does not move it; the sweep
  *     moves it on that day, once;
- *   - the quote has a drawing: Need Drawing is passed over (→ Materials Ordered);
+ *   - the quote has a drawing but nothing is ordered: → Need Drawing, never
+ *     Materials Ordered (round 2, Oct 28 2026), its history line saying it is
+ *     drawn and moves on when the Sales Order is marked Ordered; with its
+ *     materials already ordered: → Materials Ordered;
  *   - a repair: → Ready to Pull (the stage that stands for ready to schedule);
+ *     on a company made for the test with a stage "  ready   TO schedule "
+ *     added after Ready to Pull: → that stage, and Advance from Ready to Pull
+ *     reaches it; one placed after Scheduled is not used (it stands for
+ *     scheduled): → Ready to Pull;
  *   - dragged back: saving the locate or permit again (already clear / issued)
  *     and the next sweep leave it where the office put it;
  *   - a job the office put further along stays (never backward).
@@ -35,7 +42,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
   const { default: automations } = await import('../src/server/routes/automations.js')
   const { default: changeOrders } = await import('../src/server/routes/change-orders.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
-  const { locatesClearSweep, LOCATE_SWEEP_KEY, AUTO_MOVE_KIND } = await import('../src/server/lib/waitingStageMove.js')
+  const { locatesClearSweep, stageFollowsLocateAndPermit, readyStageOf, LOCATE_SWEEP_KEY, LOCATE_REASON, AUTO_MOVE_KIND, DRAWN_WAITS_WORDS } = await import('../src/server/lib/waitingStageMove.js')
+  const { OPS_STAGES_KEY, loadOpsStages } = await import('../src/server/lib/opsStages.js')
+  const { START_OPS_STAGES, advanceStageOf, phaseOf } = await import('../src/server/lib/opsStageModel.js')
 
   const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: { in: ['super_admin', 'admin'] as any } }, orderBy: { createdAt: 'asc' } }))!
   const accountId = user.crmAccountId!
@@ -50,7 +59,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
 
   const tag = `lsm-${crypto.randomUUID().slice(0, 8)}`
-  const made = { jobs: [] as string[], quotes: [] as string[], account: '' }
+  const made = { jobs: [] as string[], quotes: [] as string[], account: '', accounts: [] as string[] }
   const fl = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   const today = fl(new Date())
   const tomorrow = fl(new Date(Date.now() + 86_400_000))
@@ -82,9 +91,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
     await prisma.activityLog.deleteMany({ where: { entityType: 'job', entityId: { in: made.jobs } } })
     await prisma.savedJob.deleteMany({ where: { id: { in: made.jobs } } })
     await prisma.savedQuote.deleteMany({ where: { id: { in: made.quotes } } })
-    if (made.account) {
-      await prisma.accountKeyValue.deleteMany({ where: { accountId: made.account } })
-      await prisma.crmAccount.delete({ where: { id: made.account } }).catch(() => {})
+    for (const a of [made.account, ...made.accounts].filter(Boolean)) {
+      await prisma.accountKeyValue.deleteMany({ where: { accountId: a } })
+      await prisma.crmAccount.delete({ where: { id: a } }).catch(() => {})
     }
     server.close()
   })
@@ -130,18 +139,73 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
     expect((await job(id)).opsStage).toBe('need_drawing')
   })
 
-  test('the quote has a drawing: Need Drawing is passed over', async () => {
+  test('the quote has a drawing but nothing is ordered: Need Drawing, never Materials Ordered; ordered already: Materials Ordered', async () => {
     const id = await mk('C', {}, { layout: { yard: { sides: [] } } })
     await prisma.permit.create({ data: { accountId, jobId: id, status: 'approved' } })
     await call('PUT', `/api/saved-jobs/${id}/locate`, clear)
-    expect((await job(id)).opsStage).toBe('materials_ordered')
-    expect(await notes(id)).toEqual(['Moved to Materials Ordered by itself: 811 locate is clear to dig.'])
+    const c = await job(id)
+    expect([c.opsStage, c.materialsStatus]).toEqual(['need_drawing', 'not_ordered'])
+    // The stage rule's "drawing not done" is not written by a move by itself: the job keeps what it had.
+    expect(c.drawingComplete).toBe(false)
+    expect(await notes(id)).toEqual([`Moved to Need Drawing by itself: 811 locate is clear to dig. ${DRAWN_WAITS_WORDS}`])
+
+    // Its materials were ordered before the locate cleared: it belongs in Materials Ordered.
+    const o = await mk('C2', { materialsStatus: 'ordered' }, { layout: { widgetDrawing: { lines: [] } } })
+    await prisma.permit.create({ data: { accountId, jobId: o, status: 'not_needed' } })
+    await call('PUT', `/api/saved-jobs/${o}/locate`, clear)
+    expect((await job(o)).opsStage).toBe('materials_ordered')
+    expect(await notes(o)).toEqual(['Moved to Materials Ordered by itself: 811 locate is clear to dig.'])
   })
 
   test('a repair (permit Not needed): → Ready to Pull, the stage for ready to schedule', async () => {
     const id = await mk('D', {}, { work: { type: 'repair' } })
     await call('PUT', `/api/saved-jobs/${id}/locate`, clear)
     expect((await job(id)).opsStage).toBe('ready_to_pull')
+  })
+
+  test('Ready to Schedule: a stage of that name added in Settings (any case, extra spaces) takes repairs; placed after Scheduled it is not used', async () => {
+    const S = (id: string, name: string, at: number) => ({ id, name, color: '#0ea5e9', order: 0, hidden: false, isFirst: false, isComplete: false, lane: 'main' as const, at })
+    /** A company made for the test with the start list plus one stage put after the stage `after`. */
+    async function company(name: string, after: string) {
+      const acct = (await prisma.crmAccount.create({ data: { name: `Test ${tag} ${name}` } })).id
+      made.accounts.push(acct)
+      const list: any[] = START_OPS_STAGES.map(s => ({ ...s }))
+      list.splice(list.findIndex(s => s.id === after) + 1, 0, S('stage_rts_' + name.toLowerCase(), '  ready   TO schedule ', 0))
+      await prisma.accountKeyValue.create({ data: { accountId: acct, key: OPS_STAGES_KEY, value: list.map(({ at: _a, ...s }, i) => ({ ...s, order: i })) } })
+      return acct
+    }
+    const repairOn = async (acct: string, n: string) => {
+      const id = await mk(n, { locateTicket: clear.ticket, locateCalledDate: today, locatesDate: today, locatesExpDate: clear.expDate }, { work: { type: 'repair' } }, acct)
+      await stageFollowsLocateAndPermit(acct, id, LOCATE_REASON, 'test')
+      return job(id)
+    }
+
+    // After Ready to Pull, where it belongs: a waiting stage, the last one before Scheduled.
+    const good = await company('Good', 'ready_to_pull')
+    const { stages } = await loadOpsStages(good)
+    expect(readyStageOf(stages)).toBe('stage_rts_good')
+    expect(phaseOf(stages, 'stage_rts_good')).toBe('staging')
+    const r1 = await repairOn(good, 'R1')
+    expect([r1.opsStage, r1.status]).toEqual(['stage_rts_good', 'staging'])
+    expect(await notes(r1.id)).toEqual(['Moved to ready   TO schedule by itself: 811 locate is clear to dig.'])
+    // On the board it sits between Ready to Pull and Scheduled: Advance from Ready to Pull reaches it, and from it Scheduled.
+    expect(advanceStageOf(stages, 'ready_to_pull')?.id).toBe('stage_rts_good')
+    expect(advanceStageOf(stages, 'stage_rts_good')?.id).toBe('scheduled')
+    // A new fence still goes to Need Drawing (only repairs go to Ready to Schedule).
+    const nf = await mk('N1', { locateTicket: clear.ticket, locateCalledDate: today, locatesDate: today, locatesExpDate: clear.expDate }, undefined, good)
+    await prisma.permit.create({ data: { accountId: good, jobId: nf, status: 'approved' } })
+    await stageFollowsLocateAndPermit(good, nf, LOCATE_REASON, 'test')
+    expect((await job(nf)).opsStage).toBe('need_drawing')
+
+    // Placed after Scheduled it stands for scheduled; a move by itself does not schedule a job: Ready to Pull, as before.
+    const late = await company('Late', 'scheduled')
+    const ls = (await loadOpsStages(late)).stages
+    expect(phaseOf(ls, 'stage_rts_late')).toBe('scheduled')
+    expect(readyStageOf(ls)).toBe('ready_to_pull')
+    expect((await repairOn(late, 'R2')).opsStage).toBe('ready_to_pull')
+
+    // No such stage (the start list): Ready to Pull.
+    expect(readyStageOf(START_OPS_STAGES)).toBe('ready_to_pull')
   })
 
   test('never backward: a job the office put in Materials Ordered stays there', async () => {

@@ -307,6 +307,46 @@ export function waitingStageOf(list: OpsStageDef[], job: { locatesDate?: string 
   return stageById(list, want) ? want : firstStageFor(list, 'staging')
 }
 
+/** A stage name as typed, for matching: any letter case; spaces at the ends or doubled do not count. */
+export const stageNameKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/** The name of the stage repairs go to once their locate is clear and permit in (Jonathan, Oct 27 and 28 2026). */
+export const READY_TO_SCHEDULE_KEY = 'ready to schedule'
+
+/**
+ * The stage that stands for ready to schedule: a shown board stage named
+ * "Ready to Schedule" (added in Settings > Operations Stages; any letter case,
+ * extra spaces) that is a waiting stage, i.e. on the board before Scheduled.
+ * One placed after Scheduled stands for scheduled (phaseOf), and a move by
+ * itself never schedules a job, so it is not used. Else Ready to Pull (by
+ * id, renamed or not), else the last board stage before the scheduled ones.
+ * Another stage added after Ready to Pull ("Waiting on HOA") is never taken
+ * for it.
+ */
+export function readyStageOf(list: OpsStageDef[]): string | null {
+  const waiting = boardStages(list).filter(s => phaseOf(list, s.id) === 'staging')
+  const named = waiting.find(s => stageNameKey(s.name) === READY_TO_SCHEDULE_KEY)
+  if (named) return named.id
+  return (waiting.find(s => s.id === 'ready_to_pull') ?? waiting[waiting.length - 1])?.id ?? null
+}
+
+/**
+ * Settings: where a stage named Ready to Schedule has to move for repairs to
+ * go to it: the place (index in `list`, in its order) just before the first
+ * board stage that is not a waiting stage (Scheduled). Null when it is
+ * already a waiting stage, is not so named, or is hidden or a side lane (it
+ * says so another way).
+ */
+export function readyToScheduleMoveTo(list: OpsStageDef[], id: string): number | null {
+  const sorted = sortedStages(list)
+  const s = stageById(sorted, id)
+  if (!s || stageNameKey(s.name) !== READY_TO_SCHEDULE_KEY || s.lane !== 'main' || s.hidden) return null
+  if (phaseOf(sorted, id) === 'staging') return null
+  const rest = sorted.filter(x => x.id !== id)
+  const at = rest.findIndex(x => x.lane === 'main' && phaseOf(rest, x.id) !== 'staging')
+  return at < 0 ? null : at
+}
+
 /** Jobs that are in a stage (by the same rule the board uses). */
 export function jobsInStage<T extends OpsJobLike>(list: OpsStageDef[], jobs: T[], id: string): T[] {
   return jobs.filter(j => stageOfJob(list, j) === id)

@@ -10,6 +10,7 @@ import { styleLabel } from './fenceCatalog'
 import { soldStyleLabel } from './soldStyleLabel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
+import { hasDrawing } from './jobDrawing'
 import { workScope, type SavedWork } from './moveRepair'
 import { isRepairJob, jobInstallWord } from './jobWork'
 import { InstallPacketPanel, fetchCrewInstall, crewInstallCached, CREW_INSTALL_EVENT, type CrewInstall } from './installPacket'
@@ -105,6 +106,13 @@ export function buildUnifiedList(): UnifiedJob[] {
 export function kindOfQuote(quoteId: string | null | undefined): 'repair' | 'move' | null {
   const t = quoteId ? (getQuotes().find(q => q.id === quoteId) as { work?: { type?: string } | null } | undefined)?.work?.type : null
   return t === 'repair' || t === 'move' ? t : null
+}
+
+/** The job has its drawing: marked drawn, or its quote has a builder yard or the customer's website drawing (jobDrawing.ts, the server's jobHasDrawing). */
+export function jobIsDrawn(j: { drawingComplete?: boolean; rawJob?: { drawingComplete?: boolean | null; quoteId?: string | null } }): boolean {
+  const quoteId = j.rawJob?.quoteId
+  const quote = quoteId ? getQuotes().find(q => q.id === quoteId) as { layout?: { yard?: unknown; widgetDrawing?: unknown } | null } | undefined : null
+  return hasDrawing({ drawingComplete: j.rawJob?.drawingComplete ?? j.drawingComplete }, quote)
 }
 
 /** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move; a sold best price job names its panels (soldStyleLabel). */
@@ -304,7 +312,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* What the milestones do not cover. */}
         <Section title="Readiness Signals">
-          <CheckItem label="Drawing" done={job.drawingComplete} />
+          {/* Drawn in the quote builder or on the website counts too (the same test that moves the card; round 2, Oct 28 2026). */}
+          <CheckItem label="Drawing" done={jobIsDrawn(job)} />
           <CheckItem label="Pull Sheet" done={job.rawJob?.pullSheetPulled || false} detail={MATERIALS_WORDS[job.materialsStatus] ? `Materials: ${MATERIALS_WORDS[job.materialsStatus]}` : undefined} />
         </Section>
 

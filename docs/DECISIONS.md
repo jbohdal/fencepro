@@ -17,19 +17,29 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
 - **Warning:** the quote builder shows "Price may be low: N green parts are priced from Black", naming each part and Black's price, in the Style step and right under the price in the Price step, for the Salesman and the office; an offered proposal option that uses one says so on its card. Never on the proposal, the customer's page or the PDF.
 - In lib/greenRealPrices.ts, lib/followBorrowed.ts, lib/vendorInvoices.ts (applyLineOnce, applyFilePrices), web priceAge.ts and FromBlackWarning.tsx; done by scripts/green-prices-2026-10-28.ts (dry run by default); pinned in tests/greenRealPrices.test.ts, greenRealPrices.db.test.ts and e2e/green-from-black.mjs.
 - **Asked of Jonathan:** the 2023 prices are three years old (green 4' x 5' $198.22 landed; the 4' x 4' is $213.63 from Oct 2026): use them, or get a current Stephens price for the 4' x 5' and 4' x 6' green leaves and the 6 ft green 0.055 posts? Rename the green 4' x 5' / 4' x 6' leaves to (.055), the frame Stephens sells green?
+## 2026-10-28: a drawn job waits in Need Drawing until its materials are ordered; Ready to Schedule takes repairs once added
+
+- **Jonathan** (Oct 28, after the round 2 review):
+  3. "A drawn job must not land in Materials Ordered before materials are ordered. Fix it."
+  4. "I'll add a Ready to Schedule stage myself. Once it exists, repairs go there instead of Ready to Pull."
+- **How the app reads it** (lib/waitingStageMove.ts, lib/materialsFromOrders.ts, opsStageModel readyStageOf):
+  - Rule 2 of Oct 27 ("skip Need Drawing") now skips it only into a stage that is true: a drawn job with nothing ordered waits in Need Drawing (the last stage whose step, the materials order, is still ahead), its card and history line saying it is drawn and moves on when its Sales Order is marked Ordered. Staying in Permit Pending was the other choice; it was not taken because the permit is in and the office would chase it.
+  - Marked Ordered moves a drawn job to Materials Ordered (only there, forward only). This is the one change to rule 5 of Oct 27 ("Ordered only updates the materials status; it does not move the card"): without it a drawn job would sit in Need Drawing until Received and never be in Materials Ordered. A job still to be drawn keeps its stage on Ordered.
+  - A hand move into Ready to Pull or Materials Ordered (Advance, Move to, stage buttons, drag, bulk) asks first when it would record materials Received or Ordered that the job does not have; the stage rule still records them when the office says yes (a job without a Sales Order is tracked by hand).
+  - Ready to Schedule: a shown board stage of that name (any letter case, extra spaces) placed before Scheduled. Settings offers to put it there (+ Add stage puts a new stage after Paid). Until it exists, repairs go to Ready to Pull (by id).
 
 ## 2026-10-27: Operations jobs move on by themselves once the 811 locate is clear and the permit is in
 
 - **Jonathan** (answers to the rule questions, Oct 27):
   1. "Yes, move on by itself once the locate is Clear to dig and the permit is in (Issued/Approved) or Not needed."
-  2. "If the quote already has a drawing, skip Need Drawing and go to the next stage the board's order gives."
+  2. "If the quote already has a drawing, skip Need Drawing and go to the next stage the board's order gives." (Changed Oct 28: not into Materials Ordered before materials are ordered; see 2026-10-28.)
   3. "A repair goes to Ready to Schedule once its locate is clear."
   4. "'Locate in' means Clear to dig, not just a date entered." A future good to dig date ("Called") does not count; a daily check moves the job on the day the locate becomes clear, once, at that change.
   5. "Received moves the card forward (to Ready to Pull or the stage your rules give). Ordered only updates the materials status; it does not move the card."
   - For every automatic move: only forward; each move leaves a line in the job's history saying why ("Moved to Permit Pending by itself: 811 locate is clear to dig."); it can be dragged back, and a job dragged back is not pushed forward again by the next save: it moves only when the locate becomes clear, the permit becomes issued or not needed, or the order becomes Received.
 - **How the app reads it** (apps/portal/src/server/lib/waitingStageMove.ts):
   - Has a drawing: the job is marked drawn (drawingComplete), or its quote has a yard drawn in the quote builder (layout.yard) or the customer's website drawing (layout.widgetDrawing); the same test as Smart Schedule's Need Drawing tag (web jobDrawing.ts). Customer site plans (Files) are not counted: they belong to the customer, not the quote.
-  - Ready to Schedule: there is no Operations stage by that name (the start list, dev and live). The app uses a stage named "Ready to Schedule" if one is added in Settings, else the last board stage before Scheduled: Ready to Pull (id `ready_to_pull`). A repair also waits for its permit when the office set it to Needed (it starts Not needed).
+  - Ready to Schedule: there is no Operations stage by that name (the start list, dev and live). The app uses a stage named "Ready to Schedule" if one is added in Settings (before Scheduled; see 2026-10-28), else Ready to Pull (id `ready_to_pull`). A repair also waits for its permit when the office set it to Needed (it starts Not needed).
   - Only from Awaiting Locates or Permit Pending on a locate or permit change; on Received from any of the job's own waiting stages. Stage rules can still refuse a move.
 ## 2026-10-27 (evening): Green Chain Link 4 ft switched on; green parts not on 06-251707 at the black price
 

@@ -15,7 +15,7 @@ import {
   useOpsStages, saveOpsStages, getStageUsage, deleteOpsStage, getOpsStages,
   type OpsStageDef, type StageUsage,
 } from './opsStagesStore'
-import { newStageId, stagesProblem, sortedStages, stageOfJob } from './opsStageModel'
+import { newStageId, stagesProblem, sortedStages, stageOfJob, stageNameKey, READY_TO_SCHEDULE_KEY, readyToScheduleMoveTo } from './opsStageModel'
 import { getJobs } from './jobStore'
 import { toast } from './toast'
 import { useBackLayer } from './nav'
@@ -167,6 +167,7 @@ export default function OperationsStagesSettings() {
                   </label>
                   <button type="button" onClick={() => void remove(s)} className="btn btn-quiet btn-sm text-red-600 ml-auto" aria-label={`Delete ${s.name}`} data-ops-stage-delete>Delete</button>
                 </div>
+                {stageNameKey(s.name) === READY_TO_SCHEDULE_KEY && <ReadyToScheduleNote stages={stages} stage={s} onMove={to => move(i, to)} />}
               </div>
             </div>
           )
@@ -191,6 +192,30 @@ export default function OperationsStagesSettings() {
 }
 
 /** A stage in use: which jobs and automations use it, and where they go before it is deleted. */
+/**
+ * Under a stage named Ready to Schedule: repairs go there by themselves once
+ * their 811 locate is clear and the permit is in (portal lib/waitingStageMove.ts,
+ * opsStageModel readyStageOf), but only while it is a waiting stage, on the
+ * board before Scheduled. + Add stage puts a new stage at the end of the board
+ * (after Paid), so it says so and offers to put it in place (round 2, Oct 28 2026).
+ */
+function ReadyToScheduleNote({ stages, stage, onMove }: { stages: OpsStageDef[]; stage: OpsStageDef; onMove: (to: number) => void }) {
+  const to = readyToScheduleMoveTo(stages, stage.id)
+  if (stage.lane !== 'main' || stage.hidden) {
+    return <p className="basis-full text-xs text-amber-800 pl-1" data-ready-to-schedule-note="off">Repairs go to Ready to Schedule only while it is a shown board stage (not hidden, not a side lane). Until then they go to {stages.find(x => x.id === 'ready_to_pull')?.name ?? 'Ready to Pull'}.</p>
+  }
+  if (to === null) {
+    return <p className="basis-full text-xs text-emerald-800 pl-1" data-ready-to-schedule-note="ok">Repairs move here by themselves once their 811 locate is clear and the permit is in or not needed.</p>
+  }
+  const before = sortedStages(stages).filter(x => x.id !== stage.id)[to]
+  return (
+    <div className="basis-full flex flex-wrap items-center gap-2 text-xs text-amber-800 pl-1" data-ready-to-schedule-note="move">
+      <span>Repairs go here only when it is before {before?.name ?? 'Scheduled'} on the board. Until then they go to {stages.find(x => x.id === 'ready_to_pull')?.name ?? 'Ready to Pull'}.</span>
+      <button type="button" className="btn btn-secondary btn-sm min-h-[40px]" onClick={() => onMove(to)} data-ready-to-schedule-move>Put it before {before?.name ?? 'Scheduled'}</button>
+    </div>
+  )
+}
+
 function DeleteStageDialog({ stage, usage, options, onClose, onDone }: {
   stage: OpsStageDef; usage: StageUsage; options: OpsStageDef[]; onClose: () => void; onDone: () => void
 }) {

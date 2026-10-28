@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import {
   START_OPS_STAGES, legacyStageOfJob, stageOfJob, reconcileOpsStage, phaseOf, fieldsForStage, nextStage, stagesProblem, advanceStageOf, permitIsOk,
   normalizeStages, cleanStages, boardStages, sideStages, firstStageFor, stageIdsInRule, swapStageInRule, newStageId, stagesFromOldList,
-  ADDED_STAGE_ID, type OpsStageDef, type OpsJobLike,
+  ADDED_STAGE_ID, readyStageOf, readyToScheduleMoveTo, stageNameKey, type OpsStageDef, type OpsJobLike,
 } from '../../web/src/opsStageModel'
 
 const list = () => START_OPS_STAGES.map(s => ({ ...s }))
@@ -218,5 +218,45 @@ describe('the start list from the old Settings list', () => {
   })
   test('nothing saved: the start list', () => {
     expect(stagesFromOldList(null).stages).toEqual(list())
+  })
+})
+
+describe('Ready to Schedule (Jonathan, Oct 28 2026: repairs go there once he adds it)', () => {
+  const rts = (name: string): OpsStageDef => ({ id: 'stage_rts1', name, color: '#0ea5e9', order: 0, hidden: false, isFirst: false, isComplete: false, lane: 'main' })
+  /** The start list with the stage put at `at` (the place + Add stage uses: the end of the board, before the side lanes). */
+  const withAt = (name: string, at: number) => { const l = START_OPS_STAGES.map(s => ({ ...s })); l.splice(at, 0, rts(name)); return l.map((s, i) => ({ ...s, order: i })) }
+  const endOfBoard = START_OPS_STAGES.findIndex(s => s.lane === 'side')
+  const afterPull = START_OPS_STAGES.findIndex(s => s.id === 'ready_to_pull') + 1
+
+  test('the name in any letter case, with extra spaces', () => {
+    expect(stageNameKey('  ready   TO schedule ')).toBe('ready to schedule')
+    for (const n of ['Ready to Schedule', 'READY TO SCHEDULE', ' ready  to  schedule']) expect(readyStageOf(withAt(n, afterPull))).toBe('stage_rts1')
+    expect(readyStageOf(withAt('Ready to Scheduled', afterPull))).toBe('ready_to_pull')
+    expect(readyStageOf(START_OPS_STAGES)).toBe('ready_to_pull')
+    // Another stage added after Ready to Pull is not taken for it: repairs keep going to Ready to Pull.
+    expect(readyStageOf(withAt('Waiting on HOA', afterPull))).toBe('ready_to_pull')
+  })
+  test('before Scheduled it is a waiting stage and is used; after it (+ Add stage puts it after Paid) it is not, and Settings offers the place', () => {
+    const good = withAt('Ready to Schedule', afterPull)
+    expect(phaseOf(good, 'stage_rts1')).toBe('staging')
+    expect(readyToScheduleMoveTo(good, 'stage_rts1')).toBeNull()
+    expect(advanceStageOf(good, 'ready_to_pull')?.id).toBe('stage_rts1')
+
+    const added = withAt('Ready to Schedule', endOfBoard)
+    expect(phaseOf(added, 'stage_rts1')).toBe('paid')
+    expect(readyStageOf(added)).toBe('ready_to_pull')
+    const to = readyToScheduleMoveTo(added, 'stage_rts1')!
+    const rest = added.filter(s => s.id !== 'stage_rts1')
+    expect(rest[to].id).toBe('scheduled')
+    // Moved there (as the Settings button does): used.
+    rest.splice(to, 0, added.find(s => s.id === 'stage_rts1')!)
+    const moved = rest.map((s, i) => ({ ...s, order: i }))
+    expect(readyStageOf(moved)).toBe('stage_rts1')
+    expect(readyToScheduleMoveTo(moved, 'stage_rts1')).toBeNull()
+
+    // Hidden or a side lane: not used, nothing to move.
+    const hidden = good.map(s => (s.id === 'stage_rts1' ? { ...s, hidden: true } : s))
+    expect(readyStageOf(hidden)).toBe('ready_to_pull')
+    expect(readyToScheduleMoveTo(hidden, 'stage_rts1')).toBeNull()
   })
 })

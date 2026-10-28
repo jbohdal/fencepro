@@ -24,7 +24,7 @@ import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
-  buildUnifiedList, DetailPanel, fenceText,
+  buildUnifiedList, DetailPanel, fenceText, jobIsDrawn,
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob, getJob } from './jobStore'
 import { whenSaved, statusOf } from './outbox'
@@ -36,6 +36,7 @@ import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
 import { useMilestoneSummary, permitOkOf } from './jobTruthApi'
 import { isRepairJob } from './jobWork'
+import { materialsMoveQuestion, bulkMaterialsMoveQuestion } from './materialsMoveQuestion'
 import { toast } from './toast'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import PopMenu, { PopItem } from './PopMenu'
@@ -262,11 +263,14 @@ export default function OperationsBoard() {
    * Move a job to a stage. False when nothing was sent (Cancel on the Reopen question, not allowed, nothing to change);
    * true when the move went to the server. Say "Moved" only through `sayWhenMoved`, once the server has it.
    */
-  function moveJobToStage(j: UnifiedJob, targetStage: string): boolean {
+  function moveJobToStage(j: UnifiedJob, targetStage: string, opts: { asked?: boolean } = {}): boolean {
     if (j.source !== 'job' || !j.rawJob) return false
     const target = stageInfo(targetStage)
     const updates = stageFields(targetStage, j.rawJob, TODAY()) as Partial<Job> | null
     if (!target || !updates) return false
+    // Materials Ordered and Ready to Pull record the materials: asked first when they are not so yet (round 2, Oct 28 2026).
+    const q = opts.asked ? null : materialsMoveQuestion(targetStage, target.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName })
+    if (q && !window.confirm(q)) return false
     // A closed job (Complete, Invoiced, Paid) goes back only with Reopen, by the owner or the office (the server refuses it otherwise).
     const reopen = isDoneStage(j.opsStage) && movesBack(j.opsStage, targetStage)
     if (reopen) {
@@ -319,8 +323,12 @@ export default function OperationsBoard() {
     if (moveJobToStage(j, done.id)) void sayWhenMoved(j.id, done.id, 'Job marked complete', `${j.customerName} moved to ${done.name}; their pipeline card moves to ${pipelineStageName(pipelineRoleId('complete'))}`)
   }
 
-  function onAdvance(j: UnifiedJob) {
-    if (j.source !== 'job' || !j.rawJob) return
+  /** Advance one stage. False when nothing was moved (the materials question answered Cancel). */
+  function onAdvance(j: UnifiedJob): boolean {
+    if (j.source !== 'job' || !j.rawJob) return false
+    const next = advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob))
+    const q = next ? materialsMoveQuestion(next.id, next.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }) : null
+    if (q && !window.confirm(q)) return false
     const fromStatus = j.rawJob.status
     const result = advanceJob(j.id, permitOkOf(j.id), isRepairJob(j.rawJob))
     if (result && !isDoneStage(j.opsStage) && isDonePhase(result.status)) {
@@ -331,6 +339,7 @@ export default function OperationsBoard() {
       })
     }
     refresh()
+    return !!result
   }
 
   function onHold(j: UnifiedJob) {
@@ -561,7 +570,11 @@ export default function OperationsBoard() {
           onBulkChange={setBulkSelected}
           onBulkMove={(toStage) => {
             const ids = bulkSelected
-            jobs.filter(j => ids.has(j.id)).forEach(j => moveJobToStage(j, toStage))
+            const picked = jobs.filter(j => ids.has(j.id))
+            // One question for the lot when the move would record materials for some of them (round 2, Oct 28 2026).
+            const q = bulkMaterialsMoveQuestion(toStage, stageName(toStage), picked.map(j => ({ materialsStatus: j.rawJob?.materialsStatus })))
+            if (q && !window.confirm(q)) return
+            picked.forEach(j => moveJobToStage(j, toStage, { asked: true }))
             setBulkSelected(new Set())
           }}
           onExportSelected={() => {
@@ -589,7 +602,7 @@ export default function OperationsBoard() {
         <DetailPanel
           job={selectedNow}
           onClose={() => setSelected(null)}
-          onAdvance={() => { onAdvance(selectedNow); setSelected(null) }}
+          onAdvance={() => { if (onAdvance(selectedNow)) setSelected(null) }}
           onHold={() => onHold(selectedNow)}
           onUnhold={() => onUnhold(selectedNow)}
           onMoveStage={(stage) => {
@@ -670,6 +683,10 @@ function OpsCard({
           <span className="px-2 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: hex }} data-ops-stage-pill={stage.id}>{stage.name}</span>
         )}
       </div>
+      {/* A drawn job waits in Need Drawing for its materials order, never in Materials Ordered before it (round 2, Oct 28 2026). */}
+      {job.opsStage === 'need_drawing' && job.source === 'job' && jobIsDrawn(job) && (
+        <p className="mt-1.5 text-[11px] font-semibold text-emerald-700" data-ops-card-drawn>✓ Drawn: order materials</p>
+      )}
 
       <div className="flex items-center justify-between mt-2 text-[11px]">
         {/* A finished job says when it was installed, never its old (or still ahead) install dates. */}
