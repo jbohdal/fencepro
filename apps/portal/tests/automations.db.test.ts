@@ -61,6 +61,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
 
   const MIN = 60_000
   const later = (ms: number) => new Date(Date.now() + ms)
+  /**
+   * Midday (Florida) n calendar days from today. The time triggers count Florida calendar days, and
+   * now + n x 24 hours is not n days ahead just after midnight across a clock change (run at 00:30 on
+   * Oct 28, 2026, now + 5 x 24 h is 11:30 pm on Nov 1, not Nov 2). 16:00 UTC is noon EDT, 11 am EST.
+   */
+  const dayAhead = (n: number) => {
+    const d = new Date(`${floridaDay(new Date())}T16:00:00Z`)
+    d.setUTCDate(d.getUTCDate() + n)
+    return d
+  }
 
   async function makeRule(r: { name?: string; board: 'sales' | 'ops'; trigger: any; conditions?: any[]; steps: any[] }) {
     const row = await prisma.automationRule.create({ data: { accountId, name: `${tag} ${r.name ?? 'rule'}`, board: r.board, enabled: true, enabledAt: new Date(Date.now() - 3600_000), trigger: r.trigger, conditions: r.conditions ?? [], steps: r.steps } })
@@ -246,13 +256,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
   test('in a stage for X days: fires once when due, catches up after downtime, never twice', async () => {
     const rule = await makeRule({ name: '3 days in Job Prep', board: 'sales', trigger: { type: 'in_stage_days', stage: 'Job Prep', days: 3 }, steps: [{ type: 'create_task', title: 'Job Prep is slow for {name}', description: '', assignTo: '', dueInDays: 0 }] })
     const card = await addCard('Job Prep')
-    expect(await Q.scanTimeTriggers(later(1 * 86_400_000))).toBe(0)
+    // Day 1: not due yet for this card. (The scan's own count covers every card: real dev cards that have
+    // sat in Job Prep since before the rule was switched on are rightly due, so it is not this card's count.)
+    await Q.scanTimeTriggers(dayAhead(1))
     // The app was down from day 2 to day 6: on start it catches up, once.
     const made = await prisma.automationEvent.count({ where: { entityId: card, type: 'time' } })
     expect(made).toBe(0)
-    await Q.tick(later(6 * 86_400_000), { scan: true, sweeps: false })
-    await Q.tick(later(6 * 86_400_000 + 5 * MIN), { scan: true, sweeps: false })
-    await Q.tick(later(7 * 86_400_000), { scan: true, sweeps: false })
+    await Q.tick(dayAhead(6), { scan: true, sweeps: false })
+    await Q.tick(new Date(dayAhead(6).getTime() + 5 * MIN), { scan: true, sweeps: false })
+    await Q.tick(dayAhead(7), { scan: true, sweeps: false })
     expect(await prisma.automationEvent.count({ where: { entityId: card, type: 'time', data: { path: ['ruleId'], equals: rule.id } } })).toBe(1)
     // Counted for this card only: any real dev card that has sat in Job Prep 3 days gets its own task, as it should.
     expect(await tasksFor(rule.id, card)).toHaveLength(1)
@@ -279,15 +291,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
   test('X days before the install date: email from Gmail (fake), caught up once; Gmail not connected fails clearly, retries with backoff, Run again', async () => {
     const jobId = jobIds[0]
     // The rule covers every job: real dev jobs (a copy of live) installing soon get it too, so only this job's emails are counted.
-    const install = floridaDay(later(5 * 86_400_000))
+    const install = floridaDay(dayAhead(5))
     await call('PATCH', `/api/saved-jobs/${jobId}`, { scheduledDate: install, status: 'scheduled' })
     await prisma.automationEvent.updateMany({ where: { entityId: jobId, processedAt: null }, data: { processedAt: new Date() } })
     const rule = await makeRule({ name: '2 days before install', board: 'ops', trigger: { type: 'date_offset', dateField: 'install', days: 2, when: 'before' }, steps: [{ type: 'email_customer', subject: `${tag} install on {install date}`, body: 'Hi {first name}, see you {install date}.' }] })
-    await Q.tick(later(1 * 86_400_000), { scan: true, sweeps: false })
+    await Q.tick(dayAhead(1), { scan: true, sweeps: false })
     expect(emails.filter(e => e.subject.includes(tag) && e.to === 'testy@example.com')).toHaveLength(0)
     // Down on the due day (day 3), back on day 4: it goes once.
-    await Q.tick(later(4 * 86_400_000), { scan: true, sweeps: false })
-    await Q.tick(later(4 * 86_400_000 + 10 * MIN), { scan: true, sweeps: false })
+    await Q.tick(dayAhead(4), { scan: true, sweeps: false })
+    await Q.tick(new Date(dayAhead(4).getTime() + 10 * MIN), { scan: true, sweeps: false })
     const sent = emails.filter(e => e.subject.includes(tag) && e.to === 'testy@example.com')
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('testy@example.com')
