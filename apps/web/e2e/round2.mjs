@@ -246,8 +246,9 @@ try {
     // Round 2 review: the OK clears the office's notice and tells her, opening her card at the change order.
     const after = (await call(office.token, 'GET', '/api/automations/notifications')).json.data?.notifications ?? []
     check('office: the "to OK" notice is cleared once OK\'d', after.filter(n => n.jobId === B.jobId && /^Change order to OK/.test(n.title) && !n.read).length === 0 && after.some(n => n.jobId === B.jobId && /^Change order OK'd/.test(n.title) && n.read))
-    const hers = ((await call(sales.token, 'GET', '/api/automations/notifications')).json.data?.notifications ?? []).find(n => /^OK'd: send it to /.test(n.title) && n.jobId === B.jobId)
-    check('salesman: her bell says "OK\'d: send it to <customer>", opening her card at it', !!hers && hers.link === `/pipeline?card=${encodeURIComponent(B.cardId)}&co=${co.id}`, `${hers?.title} ${hers?.link}`)
+    // Titled "Change order OK'd: CO-1, <customer>. Send it to the customer." since Oct 27 (5fc7981: it names the step she is at).
+    const hers = ((await call(sales.token, 'GET', '/api/automations/notifications')).json.data?.notifications ?? []).find(n => n.title === `Change order OK'd: CO-${co.number}, ${B.name}. Send it to the customer.` && n.jobId === B.jobId)
+    check('salesman: her bell says "Change order OK\'d: CO-1, <customer>. Send it to the customer.", opening her card at it', !!hers && !hers.read && hers.link === `/pipeline?card=${encodeURIComponent(B.cardId)}&co=${co.id}`, `${hers?.title} ${hers?.link}`)
     await o.ctx.close()
   }
   check('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '))

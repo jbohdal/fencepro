@@ -30,7 +30,8 @@ const API = process.env.API_URL || 'http://localhost:4001'
 const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.E2E_SHOTS || process.env.SHOTS || ''
 const UPLOAD = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../portal', process.env.UPLOAD_DIR || 'uploads')
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+// The dev copy (4001) or a worktree's own dev server on another port; never 4000 (live).
+if (!/^http:\/\/localhost:\d+$/.test(APP) || !/^http:\/\/localhost:\d+$/.test(API) || /:4000$/.test(APP) || /:4000$/.test(API)) { console.error('Refusing to run: the dev copy only (localhost, not 4000).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
@@ -143,7 +144,7 @@ try {
   jobId = stored?.[4] || null
   const file = stored ? fs.readFileSync(path.join(UPLOAD, stored[1])) : Buffer.alloc(0)
   const last = pdfText(file, true)
-  check('the stored PDF\'s last page: the signer, the IP, the time with its zone, the option and price', last.includes(`Signed by ${SIGNER}`) && last.includes(`IP address ${FUNNEL_IP}`) && /Date and time [A-Z][a-z]+ \d{1,2}, 2026 at \d{1,2}:\d{2}:\d{2} [AP]M E[DS]T/.test(last) && last.includes('Accepted Better: Better option at $10,000.00'), last.slice(-260))
+  check('the stored PDF\'s last page: the signer, the IP, the time with its zone, the option and price', last.includes(`Signed by ${SIGNER}`) && last.includes(`IP address ${FUNNEL_IP}`) && /Date and time [A-Z][a-z]+ \d{1,2}, 2026 at \d{1,2}:\d{2}:\d{2} [AP]M E[DS]T/.test(last) && last.includes('Accepted Better option at $10,000.00') && !last.includes('Better: '), last.slice(-260)) // the plain fence name, never the tier word (a24eba1, review Oct 27 2026)
   // Sent again (the answer was lost): it stands, and no second document.
   const again = await fetch(`${API}/p/${token}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': FUNNEL_IP }, body: JSON.stringify({ option: 1, name: SIGNER, signature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' }) })
   check('a repeat accept stands and makes no second document', again.status === 200 && sql(`SELECT count(*) FROM "SignedDocument" WHERE "quoteId" = '${quoteId}'`) === '1')

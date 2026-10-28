@@ -12,7 +12,7 @@ import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import { getConfig, getRailOptimizerConfig, type AppConfig } from './configStore'
 import { getInventory, getInventoryUnitCost, getKitSets, saveKitSets, INVENTORY_UPDATED_EVENT } from './inventoryStore'
-import { allKitSets, kitSetFor, withKitSets, withoutBellStandIns, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
+import { allKitSets, kitSetFor, withKitSets, withoutBellStandIns, bellSectionCostEntered, BELL_STYLES, BELL_SECTION_PART, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
 import { calculateQuote } from './quoteCalc'
 import { layoutGateWidths } from './yardLayout'
 import { getQuotes } from './quoteStore'
@@ -94,6 +94,15 @@ export default function MaterialKitsTab() {
     window.addEventListener(INVENTORY_UPDATED_EVENT, on)
     return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, on)
   }, [saved])
+
+  // The cost reminder shows while the style is flagged for a cost review, and for the Bell until
+  // the Catalog has a real cost for its section (above $0, not the $154.34 placeholder): the same
+  // rule as Finish setup's Bell item (routes/system.ts), whose Open lands here.
+  const styleRow = cfg.fenceStyles.find(s => s.name === style)
+  const isBell = (BELL_STYLES as readonly string[]).includes(style)
+  const bellCost = isBell ? getInventoryUnitCost(BELL_SECTION_PART) ?? 0 : 0
+  const bellWaiting = isBell && !bellSectionCostEntered(bellCost)
+  const costReview = styleRow?.needsCostReview || bellWaiting ? { note: styleRow?.costReviewNote || '', bell: bellWaiting } : null
 
   const shown = useMemo(() => allKitSets(styleNames, draft), [styleNames, draft])
   const byStyle = (name: string) => shown.filter(s => s.styleName === name)
@@ -177,10 +186,12 @@ export default function MaterialKitsTab() {
         )}
       </div>
 
-      {cfg.fenceStyles.find(s => s.name === style)?.needsCostReview && (
+      {costReview && (
         <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3" data-kit-cost-review={style}>
-          {cfg.fenceStyles.find(s => s.name === style)?.costReviewNote
-            ? `Cost to review: ${cfg.fenceStyles.find(s => s.name === style)!.costReviewNote}. Put the right part and its cost in this fence's kits (a color added with Settings → Price List → Vinyl Colors: edit the color there), then save. Saving this style's kits clears the reminder.`
+          {costReview.bell
+            ? `Cost to review: this fence is priced with 6'x6' vinyl privacy section parts until the real supplier cost of its section is entered. The Catalog's "${BELL_SECTION_PART}" ${bellCost > 0 ? `still has the takeoff sheet's ${money(bellCost)} placeholder` : 'has no cost yet'}. Enter the real cost there and keep that part in the Section kit and in each gate's section parts, then Save kits. This reminder clears once the real cost is entered.`
+            : costReview.note
+            ? `Cost to review: ${costReview.note}. Put the right part and its cost in this fence's kits (a color added with Settings → Price List → Vinyl Colors: edit the color there), then save. Saving this style's kits clears the reminder.`
             : "Cost to review: this fence is priced with 6'x6' vinyl privacy section parts for now. Put its real section part in the Section kit and in each gate's section parts (the part's cost is set in the Catalog), then Save kits. Saving this style's kits clears the reminder."}
         </p>
       )}

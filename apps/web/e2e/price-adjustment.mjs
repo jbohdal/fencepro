@@ -143,16 +143,25 @@ try {
   const cp = await cust.newPage()
   await cp.goto(`${new URL(APP).origin}/p/${token}`)
   await cp.waitForSelector('.price', { timeout: 20000 })
-  const n = await cp.locator('.opt').count()
-  let allShown = n === opts.length
-  for (let i = 0; i < n; i++) {
-    const o = cp.locator('.opt').nth(i)
+  // The cards the customer sees (apps/web/src/proposalOptions.ts): an unsent best price quote's own
+  // option is folded into the tier it is the fence of (frozen as proposal.ownTier when saved), shown
+  // in that tier's place; an option that is the same fence at the same price as an earlier one is not
+  // shown again. Each card says which saved option it is (data-option).
+  const fold = saved?.proposal?.ownTier ?? null
+  const sameKey = o => Array.isArray(o?.snapshot?.pullSheet) && o.snapshot.pullSheet.length
+    ? `${Math.round(o.finalPrice * 100)}#${o.warranty?.name ?? ''}#${o.snapshot.pullSheet.map(l => `${String(l?.item ?? l?.name ?? '').trim()}×${Math.round((Number(l?.qty) || 0) * 1000) / 1000}`).sort().join('|')}` : ''
+  const firstOf = new Map(), dupOf = opts.map((o, i) => { const k = sameKey(o); if (!k) return false; if (firstOf.has(k)) return true; firstOf.set(k, i); return false })
+  const wantCards = opts.map((_o, i) => i).filter(i => !dupOf[i] && (!fold || i !== fold.own)).map(i => (fold && i === fold.tier ? fold.own : i))
+  const cards = await cp.locator('.opt[data-option]').evaluateAll(els => els.map(e => Number(e.getAttribute('data-option'))))
+  let allShown = cards.length > 0 && cards.join() === wantCards.join()
+  for (const i of cards) {
+    const o = cp.locator(`.opt[data-option="${i}"]`)
     const l = dollars(await o.locator('[data-list-price]').innerText().catch(() => ''))
     const dsc = await o.locator('[data-discount]').innerText().catch(() => '')
     const f = dollars(await o.locator('[data-final-price]').innerText().catch(() => ''))
-    if (!(l === Math.round(opts[i].finalPrice * 100) + 3000 && /Discount\s*−\$30\b/.test(dsc) && f === Math.round(opts[i].finalPrice * 100))) allShown = false
+    if (!(opts[i] && l === Math.round(opts[i].finalPrice * 100) + 3000 && /Discount\s*−\$30\b/.test(dsc) && f === Math.round(opts[i].finalPrice * 100))) allShown = false
   }
-  check('customer page, box ticked: each option shows the list price, Discount −$30 and the final', allShown, `${n} options`)
+  check('customer page, box ticked: each option shows the list price, Discount −$30 and the final', allShown, `${cards.length} cards (options ${cards.join(',')}; expected ${wantCards.join(',')}${fold ? `, best price folded into option ${fold.tier}` : ''})`)
   await shot(cp, 'adjust-2-proposal-discount.png')
 
   // ── Unchecked: the final only ──
@@ -170,8 +179,12 @@ try {
   // ── The customer accepts: sold at the final, the deposit from the final ──
   const rec = saved2.proposal.recommended ?? 0
   const own = saved2.proposal.options.findIndex(o => o.fenceStyle === saved2.fenceStyle)
-  const pick = own >= 0 ? own : rec
-  await cp.locator('.opt').nth(pick).click(); await sleep(300)
+  // The quote's own option is signed on the card that shows it: its own card (folded into its tier, or
+  // the only one), else the earlier option that is the same fence at the same price.
+  const ownKey = own >= 0 ? sameKey(saved2.proposal.options[own]) : ''
+  const twin = ownKey ? saved2.proposal.options.findIndex(o => sameKey(o) === ownKey) : -1
+  const pick = own < 0 ? rec : twin >= 0 && twin < own ? twin : own
+  await cp.locator(`.opt[data-option="${pick}"]`).click(); await sleep(300)
   const pickCents = Math.round(saved2.proposal.options[pick].finalPrice * 100)
   await cp.locator('#name').fill('E2E Price Adjust')
   const sig = await cp.locator('#sig').boundingBox()
