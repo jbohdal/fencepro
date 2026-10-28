@@ -13,6 +13,8 @@ import { refreshJobs } from './jobStore'
 
 const STATUSES: Array<[string, string]> = [['not_needed', 'Not needed'], ['needed', 'Needed'], ['applied', 'Applied'], ['approved', 'Approved'], ['inspection_scheduled', 'Inspection scheduled'], ['passed', 'Passed']]
 type Portal = { name: string; url: string; info: string; note: string } | null
+/** No permit record and not a repair: no status until the office picks one (shown "Not set", never saved). */
+const NOT_SET = ''
 const EMPTY = { status: 'needed', permitNumber: '', county: 'Marion', parcelId: '', appliedAt: '', approvedAt: '', inspectionAt: '', passedAt: '', notes: '' }
 
 export default function PermitPanel({ jobId }: { jobId: string }) {
@@ -30,9 +32,10 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
       .then(d => {
         if (!live) return
         setSaved(d.permit); setPortal(d.portal)
-        // No permit yet: it starts as the server says (Needed; Not needed for a repair, Oct 26 2026).
+        // No permit yet: as every screen reads it (portal lib/permitStatus.ts): Not needed for a repair (Oct 26 2026),
+        // else Not set until the office picks one (review Oct 28 2026: it showed Needed, with Save greyed out).
         if (d.permit) setForm({ ...EMPTY, ...pickForm(d.permit) })
-        else { setForm({ ...EMPTY, status: d.defaultStatus || EMPTY.status }); setStartsAs(d.defaultStatus || EMPTY.status) }
+        else { setForm({ ...EMPTY, status: d.defaultStatus || NOT_SET }); setStartsAs(d.defaultStatus || NOT_SET) }
         setLoaded(true)
       })
       .catch(err => { if (live) { setError((err as Error).message); setLoaded(true) } })
@@ -69,7 +72,9 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
     setBusy('packet'); setError('')
     try { await openPdf(`/api/automations/permits/${encodeURIComponent(jobId)}/packet.pdf`) } catch (err) { setError((err as Error).message) } finally { setBusy('') }
   }
-  const dirty = !saved || JSON.stringify(pickForm(saved)) !== JSON.stringify(form)
+  // Made by an automation (the Signed Contract permit step) and never saved by a person: Save confirms it as shown.
+  const byAutomation = !!saved && saved.updatedBy === 'automation'
+  const dirty = !saved || byAutomation || JSON.stringify(pickForm(saved)) !== JSON.stringify(form)
   const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-base sm:text-sm bg-white'
   const label = 'block text-xs font-semibold text-gray-700 mb-1'
 
@@ -80,10 +85,12 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
     <fieldset disabled={locked} className="space-y-3 min-w-0 border-0 p-0 m-0" data-permit-panel={jobId}>
       {!saved && (startsAs === 'not_needed'
         ? <p className="text-sm text-gray-600" data-permit-default="not_needed">A repair: no permit unless you set it to Needed and press Save. No permit reminders until then.</p>
-        : <p className="text-sm text-gray-600">No permit status yet. Set it and press Save.</p>)}
+        : <p className="text-sm text-gray-600" data-permit-default="not_set">No permit status yet (Not set). Pick one and press Save.</p>)}
+      {byAutomation && <p className="text-sm text-gray-600" data-permit-by-automation>Set to {STATUSES.find(([k]) => k === saved!.status)?.[1] ?? saved!.status} by an automation when the contract was signed; nobody has saved it yet. Press Save to confirm it, or pick another status.</p>}
       <div>
         <label className={label} htmlFor={`permit-status-${jobId}`}>Status</label>
         <select id={`permit-status-${jobId}`} value={form.status} onChange={e => setStatus(e.target.value)} className={input} data-permit-status>
+          {form.status === NOT_SET && <option value={NOT_SET}>Not set</option>}
           {STATUSES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
       </div>
@@ -111,7 +118,7 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
       <div><label className={label}>Notes</label><textarea className={input} rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} /></div>
       {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn btn-primary" disabled={!!busy || !dirty} onClick={save} data-permit-save>{busy === 'save' ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn btn-primary" disabled={!!busy || !dirty || form.status === NOT_SET} onClick={save} data-permit-save>{busy === 'save' ? 'Saving…' : 'Save'}</button>
         <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={packet} data-permit-packet>{busy === 'packet' ? 'Making…' : 'Permit packet (PDF)'}</button>
         {portal && form.status !== 'not_needed' && <a className="btn btn-quiet" href={portal.url} target="_blank" rel="noreferrer">{portal.name}</a>}
       </div>

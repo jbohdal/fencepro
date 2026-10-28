@@ -25,7 +25,7 @@ export interface Meta {
   walkthroughInstalled: boolean; isAdmin: boolean; permitPortals: Record<string, { name: string; url: string; info: string; note: string }>
 }
 export interface DryRun { entity: { board: Board; id: string; name: string; stage: string }; trigger: string; conditions: Array<{ field: string; ok: boolean; actual: string }>; wouldRun: boolean; steps: Array<{ index: number; type: string; would: string; warning?: string }> }
-export interface Permit { id: string; jobId: string; status: string; permitNumber: string; county: string; parcelId: string; appliedAt: string; approvedAt: string; inspectionAt: string; passedAt: string; notes: string; updatedAt: string }
+export interface Permit { id: string; jobId: string; status: string; permitNumber: string; county: string; parcelId: string; appliedAt: string; approvedAt: string; inspectionAt: string; passedAt: string; notes: string; updatedAt: string; updatedBy?: string | null }
 export interface Task { id: string; title: string; description: string | null; assignedTo: string | null; jobId: string | null; jobName: string | null; status: string; dueDate: string | null; completedAt?: string | null; createdBy: string | null }
 
 /** Call the API; resolves the data or throws a plain sentence. */
