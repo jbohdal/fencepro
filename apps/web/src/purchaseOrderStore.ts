@@ -3,7 +3,9 @@
  *
  * Draft PO records linked to jobs, kept in the business record
  * (BusinessState.purchaseOrders). A draft is made when a job's materials are
- * first marked Ordered from this app (jobStore updateJob). Money is integer
+ * first marked Ordered from this app (jobStore updateJob); it shows in Pending
+ * Orders marked Draft until the office marks it ordered or discards it
+ * (draftPOs.ts, PendingOrdersPage.tsx; Oct 28 2026). Money is integer
  * cents (unitCostCents, totalCents, subtotalCents; audit #53, Oct 28 2026);
  * drafts saved before then in dollars were changed by
  * portal scripts/po-cents-2026-10-28.ts.
@@ -37,11 +39,14 @@ export interface PurchaseOrder {
   confirmedAt?: string
   orderedAt?: string
   receivedAt?: string
+  /** A draft discarded in Pending Orders (draftPOs.ts closeDraft). */
+  cancelledAt?: string
   createdBy: string       // 'auto' or user name
 }
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
 import { lineTotalCents, type PoLineInput } from './poLines'
+import { closeDraft } from './draftPOs'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 
@@ -172,4 +177,16 @@ export function consolidatePOs(poIds: string[]): PurchaseOrder | null {
   pos.unshift(consolidated)
   savePurchaseOrders(pos)
   return consolidated
+}
+
+/**
+ * Close a draft shown in Pending Orders: 'ordered' (the office placed the
+ * order; the page marks the job's Sales Order Ordered first) or 'cancelled'
+ * (discarded). Null when it is gone or no longer a draft.
+ */
+export function closeDraftPO(poId: string, to: 'ordered' | 'cancelled'): PurchaseOrder | null {
+  const next = closeDraft(getPurchaseOrders(), poId, to, new Date().toISOString())
+  if (!next) return null
+  savePurchaseOrders(next)
+  return next.find(p => p.id === poId) ?? null
 }

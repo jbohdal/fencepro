@@ -3,6 +3,20 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-28: draft purchase orders show in Pending Orders, marked Draft
+
+- **Jonathan** (Oct 28): "Draft purchase orders from a hand move show in Pending Orders, marked Draft."
+- **Where:** Inventory → Sales Orders (the Pending Orders page, PendingOrdersPage.tsx), in a "Draft purchase orders" list above the Sales Orders, and under its own "Drafts" filter. Who opens it is unchanged: owner, admin, manager, office and the Installer (Inventory); the Salesman has no Inventory. The drafts carry costs, so they show only to a login with costs.view; the Installer's phone never receives them (the server leaves BusinessState.purchaseOrders out of the Installer's answers, lib/costRedact.ts BOOKS_KEYS) and cannot change them (billing.change).
+- **A draft shows:** the customer, the job's address and fence (style, feet), a purple "Draft" mark, its PO number, the supplier ("Not set": the hand move's draft names none), the day it was made, each line with quantity × unit cost and line total, and the subtotal (integer cents, formatted on screen). Lines are stacked, not a table, so a phone needs no sideways scroll.
+- **One "ordered" truth: the Sales Order.** A draft is made from the quote's pull sheet when the job's materials are marked Ordered; the job's Sales Order lists the same parts and also follows approved change orders, and it is what moves the job (lib/materialsFromOrders.ts). So the draft is a working copy, not a second order record (web draftPOs.ts):
+  - It names the job's Sales Order (the job's own, else its quote's; never a cancelled one) and says "Same parts as the job's Sales Order (Ordered)" or, part by part, how they differ ("The Sales Order follows change orders; order from it"). "Show the Sales Order" opens it on the same page.
+  - **Mark ordered:** marks the Sales Order Ordered when it is still pending (the same step as Mark Ordered on the Sales Order: the job's materials follow) and closes the draft as ordered. A Sales Order already Ordered or Received is left as it is. When the two differ, it asks first and says the Sales Order's parts are the ones kept.
+  - **Discard draft:** closes it as cancelled (dated); the job and its Sales Order stay as they are. Not deleted, so a second hand move does not make it again (createDraftPO makes one per job).
+  - **Open job:** the job's window in Operations (jobPagePath). Not offered when the job is no longer on the board.
+  - A closed draft (ordered or discarded) leaves Pending Orders.
+- **Not added** (questions, not buttons): sending a draft to the supplier (no supplier on a hand move's draft, and no PO email exists); editing a draft's lines (the Sales Order is the list to correct); merging drafts for one supplier (purchaseOrderStore consolidatePOs exists but no draft names a supplier).
+- In web draftPOs.ts, purchaseOrderStore.ts closeDraftPO and PendingOrdersPage.tsx; pinned in portal tests/draftPOs.test.ts and draftPOs.db.test.ts.
+
 ## 2026-10-28 (morning): Jonathan's answers to the night's list
 
 - **Green prices:** applied on live (06:56, Oct 28). The 2023 green prices stay for now; he will ask Stephens for current green 4' x 5' and 4' x 6' leaves and 6 ft green .055 dig set posts.
