@@ -39,10 +39,12 @@ export const SALESMAN_JOB_READ_ONLY = 'The Salesman\'s login shows jobs read onl
 export interface SalesmanLogin { id: string; accountId: string; name: string; firstName: string }
 
 /** The signed in Salesman, from the database (the cookie's session or the token names the login). */
-export async function salesmanLogin(userId: string): Promise<SalesmanLogin | null> {
+export async function salesmanLogin(userId: string, accountId?: string | null): Promise<SalesmanLogin | null> {
   const u = await prisma.crmUser.findUnique({ where: { id: userId }, select: { id: true, crmAccountId: true, firstName: true, lastName: true } })
-  if (!u?.crmAccountId) return null
-  return { id: u.id, accountId: u.crmAccountId, name: repName(u), firstName: (u.firstName ?? '').trim() }
+  // The company the request is signed in for (as every route reads it), else the login's own.
+  const account = accountId || u?.crmAccountId
+  if (!u || !account) return null
+  return { id: u.id, accountId: account, name: repName(u), firstName: (u.firstName ?? '').trim() }
 }
 
 // Which jobs are the Salesman's is lib/salesScope.ts's rule, the same one the job list, quotes and customers use
@@ -50,14 +52,14 @@ export async function salesmanLogin(userId: string): Promise<SalesmanLogin | nul
 
 /** Every job of the account that is the Salesman's. */
 export async function salesmanJobIds(me: SalesmanLogin): Promise<Set<string>> {
-  return (await scopeFor(me.id))?.jobIds ?? new Set()
+  return (await scopeFor(me.id, me.accountId))?.jobIds ?? new Set()
 }
 
 /** Is this one job the Salesman's? */
 export async function salesmanOwnsJob(me: SalesmanLogin, jobId: string): Promise<boolean> {
   const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId: me.accountId }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } })
   if (!job) return false
-  const scope = await scopeFor(me.id)
+  const scope = await scopeFor(me.id, me.accountId)
   return !!scope && inSalesScope('jobs', scope, job)
 }
 
@@ -143,7 +145,7 @@ export async function salesmanJobScope(req: any, res: any, next: any): Promise<v
   const who = verifyStaffBearer(req)
   if (!who || !isSalesman(who.role)) { next(); return }
   try {
-    const me = await salesmanLogin(String(who.sub))
+    const me = await salesmanLogin(String(who.sub), who.crmAccountId ?? req?.user?.crmAccountId)
     if (!me) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your login is not linked to a company.' }); return }
     const parts = String(req.path || '/').split('/').filter(Boolean)
     const first = parts[0]

@@ -248,7 +248,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
   })
 
   test('an approved change order moves the Final, logged; owner amount edit and adjustment are logged; a Salesman may not', async () => {
-    const { jobId, quoteId } = await soldJob(5000)
+    const { jobId, quoteId, contactId } = await soldJob(5000)
+    // The Salesman's own customer (Oct 28 2026: the Salesman reaches only the Salesman's own records), so the refusal below is for the amount edit itself.
+    await prisma.crmContact.update({ where: { id: contactId }, data: { ownerId } })
     const co = await call(owner, 'POST', '/api/change-orders', { quoteId, reason: 'Add a gate', lines: [{ id: 'l1', description: 'Walk gate', amountCents: 50000 }], status: 'approved', verbalReason: 'Customer agreed on site' })
     expect(co.status).toBeLessThan(300)
     let s = await view(jobId)

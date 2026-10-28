@@ -99,34 +99,38 @@ export function buildSalesScope(input: {
 /** Rows whose rep could be one of these names (a cheap first cut; sameName decides). */
 const repLike = (names: string[]) => names.map(n => ({ salesRep: { contains: n.split(' ')[0], mode: 'insensitive' as const } }))
 
-/** The Salesman's scope, read from the database. Null: not a login of a company. */
-export async function salesScope(userId: string): Promise<SalesScope | null> {
+/**
+ * The Salesman's scope, read from the database, in the company the request is
+ * signed in for (`accountId`, the token's, as every route reads it), else the
+ * login's own. Null: not a login of a company.
+ */
+export async function salesScope(userId: string, accountIdIn?: string | null): Promise<SalesScope | null> {
   const me = await prisma.crmUser.findUnique({ where: { id: userId }, select: { crmAccountId: true, firstName: true, lastName: true } })
-  if (!me?.crmAccountId) return null
-  const accountId = me.crmAccountId
+  const accountId = accountIdIn || me?.crmAccountId
+  if (!me || !accountId) return null
   const names = [...new Set([repName(me), (me.firstName ?? '').trim()].filter(Boolean))]
   const first = (me.firstName ?? '').trim() || repName(me)
   const like = first ? repLike([first]) : []
   const [contacts, ownQuotes, ownJobs, cardRows, appointments] = await Promise.all([
-    prisma.crmContact.findMany({ where: { accountId, OR: [{ ownerId: userId }, ...like] }, select: { id: true, ownerId: true, salesRep: true } }),
-    prisma.savedQuote.findMany({ where: { accountId, OR: [{ ownerId: userId }, ...like] }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }),
-    prisma.savedJob.findMany({ where: { accountId, ...(like.length ? { OR: like } : { id: '' }) }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } }),
+    prisma.crmContact.findMany({ where: { accountId, deletedAt: null, OR: [{ ownerId: userId }, ...like] }, select: { id: true, ownerId: true, salesRep: true } }),
+    prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, OR: [{ ownerId: userId }, ...like] }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }),
+    prisma.savedJob.findMany({ where: { accountId, deletedAt: null, ...(like.length ? { OR: like } : { id: '' }) }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } }),
     // The board's cards (on it and archived) whose rep could be the Salesman, read in the database, not the whole board.
     first ? prisma.$queryRaw<Array<{ customerId: string | null; assignedRep: string | null }>>`
       SELECT l->>'customerId' AS "customerId", l->>'assignedRep' AS "assignedRep"
       FROM "PipelineState" p, jsonb_array_elements(COALESCE(p.leads::jsonb, '[]'::jsonb) || COALESCE(p."archivedLeads"::jsonb, '[]'::jsonb)) l
       WHERE p."accountId" = ${accountId} AND jsonb_typeof(l) = 'object' AND l->>'assignedRep' ILIKE ${'%' + first + '%'}` : Promise.resolve([]),
-    prisma.appointment.findMany({ where: { accountId, OR: [{ assignedToUserId: userId }, ...(first ? [{ assignedTo: { contains: first, mode: 'insensitive' as const } }] : [])] }, select: { crmContactId: true, assignedToUserId: true, assignedTo: true } }),
+    prisma.appointment.findMany({ where: { accountId, deletedAt: null, OR: [{ assignedToUserId: userId }, ...(first ? [{ assignedTo: { contains: first, mode: 'insensitive' as const } }] : [])] }, select: { crmContactId: true, assignedToUserId: true, assignedTo: true } }),
   ])
   // First the Salesman's own customers; then every quote of theirs, then the jobs of the quotes in scope.
   const base = { userId, accountId, names, contacts, cards: cardRows, appointments }
   const direct = [...buildSalesScope({ ...base, quotes: [], jobs: [] }).directContactIds]
-  const customerQuotes = direct.length ? await prisma.savedQuote.findMany({ where: { accountId, crmContactId: { in: direct } }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }) : []
+  const customerQuotes = direct.length ? await prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, crmContactId: { in: direct } }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }) : []
   const ownIds = new Set(ownQuotes.map(q => q.id))
   const quotes = [...ownQuotes, ...customerQuotes.filter(q => !ownIds.has(q.id))]
   const quoteIdList = [...buildSalesScope({ ...base, quotes, jobs: [] }).quoteIds]
   const jobsByQuoteOrCustomer = (quoteIdList.length || direct.length)
-    ? await prisma.savedJob.findMany({ where: { accountId, OR: [...(quoteIdList.length ? [{ quoteId: { in: quoteIdList } }] : []), ...(direct.length ? [{ crmContactId: { in: direct } }] : [])] }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } })
+    ? await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, OR: [...(quoteIdList.length ? [{ quoteId: { in: quoteIdList } }] : []), ...(direct.length ? [{ crmContactId: { in: direct } }] : [])] }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } })
     : []
   const ownJobIds = new Set(ownJobs.map(j => j.id))
   const jobs = [...ownJobs, ...jobsByQuoteOrCustomer.filter(j => !ownJobIds.has(j.id))]
@@ -141,17 +145,18 @@ export async function salesScope(userId: string): Promise<SalesScope | null> {
 const MEMORY_MS = 4_000
 const memory = new Map<string, { at: number; scope: Promise<SalesScope | null> }>()
 
-export function scopeFor(userId: string): Promise<SalesScope | null> {
-  const hit = memory.get(userId)
+export function scopeFor(userId: string, accountId?: string | null): Promise<SalesScope | null> {
+  const key = `${userId}|${accountId ?? ''}`
+  const hit = memory.get(key)
   if (hit && Date.now() - hit.at < MEMORY_MS) return hit.scope
-  const scope = salesScope(userId).catch(() => null)
-  memory.set(userId, { at: Date.now(), scope })
+  const scope = salesScope(userId, accountId).catch(() => null)
+  memory.set(key, { at: Date.now(), scope })
   if (memory.size > 200) for (const [k, v] of memory) if (Date.now() - v.at >= MEMORY_MS) memory.delete(k)
   return scope
 }
 
 export function forgetScope(userId: string | null | undefined): void {
-  if (userId) memory.delete(userId)
+  if (userId) for (const k of [...memory.keys()]) if (k.startsWith(`${userId}|`)) memory.delete(k)
 }
 
 /** The Salesman's scope for this request, or null for every other login (and for a request with no staff login). */
@@ -162,7 +167,7 @@ export async function salesScopeOf(req: any): Promise<SalesScope | null> {
   if (!id) return null
   // A save can bring a record into scope: the next request reads the scope again.
   if (req.method !== 'GET' && req.method !== 'HEAD' && typeof req?.res?.on === 'function') req.res.on('finish', () => forgetScope(String(id)))
-  return scopeFor(String(id))
+  return scopeFor(String(id), who?.crmAccountId ?? req?.user?.crmAccountId)
 }
 
 // ── Records ─────────────────────────────────────────────────────────────────
@@ -211,7 +216,7 @@ export function salesScoped(kind: SalesKind) {
     if (!isSalesman(staffRoleOf(req))) { next(); return }
     const who = verifyStaffBearer(req)
     const userId = who?.sub ? String(who.sub) : null
-    const scope = userId ? await scopeFor(userId) : null
+    const scope = userId ? await scopeFor(userId, who?.crmAccountId ?? req?.user?.crmAccountId) : null
     if (!scope) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your login is not linked to a company.' }); return }
     // A save by the Salesman can bring a record into scope (a quote for a customer, a new customer): read it again next time.
     if (req.method !== 'GET' && req.method !== 'HEAD') res.on('finish', () => forgetScope(userId))

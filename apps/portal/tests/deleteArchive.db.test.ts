@@ -289,6 +289,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('delete, restore, archive (dev da
 
   test('only the owner or an admin deletes; a salesman, the office and a manager archive instead', async () => {
     const x = await makeCustomer('roles')
+    // The salesman's own customer (Oct 28 2026: the Salesman reaches only the Salesman's own records).
+    await prisma.crmContact.update({ where: { id: x.c.id }, data: { ownerId: users.sales } })
     for (const who of ['sales', 'worker', 'manager']) {
       expect((await call(who, 'DELETE', `/api/crm-contacts/${x.c.id}`)).status).toBe(403)
       expect((await call(who, 'DELETE', `/api/pipeline/cards/${x.card.id}`)).status).toBe(403)

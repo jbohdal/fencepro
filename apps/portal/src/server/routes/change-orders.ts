@@ -257,7 +257,7 @@ router.get('/pick-price', requireCan('quotes.change'), async (req: any, res) => 
 router.get('/timeline', requireCan('prices.view'), async (req: any, res) => {
   try {
     const jobId = String(req.query.jobId ?? '')
-    const salesman = isSalesman(roleOf(req)) ? await salesmanLogin(String(req.user.id)) : null
+    const salesman = isSalesman(roleOf(req)) ? await salesmanLogin(String(req.user.id), req.user.crmAccountId) : null
     if (isSalesman(roleOf(req)) && (!salesman || !(await salesmanOwnsJob(salesman, jobId)))) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     const out = await jobTimeline(req.user.crmAccountId, jobId)
     if (!out) { res.status(404).json({ success: false, error: 'Job not found' }); return }

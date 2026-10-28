@@ -188,8 +188,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Pipeline stages (dev database)',
     const after = (await prisma.pipelineState.findUnique({ where: { accountId } }))!
     expect(after.stages).toEqual(THIRTEEN)
     expect((after.leads as any[]).find(l => l.id === fc.id).stage).toBe('Appointment')
-    // Even a salesman's old app: ignored, not refused.
-    const rep = await call('PATCH', '/api/pipeline', { upsert: [{ lead: { ...fc, stage: 'First Contact' } }], remove: [], stages: [], baseVersion: after.version }, tokens.sales_rep)
+    // Even a salesman's old app: ignored, not refused (on the salesman's own card: Oct 28 2026, the Salesman reaches only the Salesman's own cards).
+    const repName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+    await prisma.pipelineState.update({ where: { accountId }, data: { leads: (after.leads as any[]).map(l => (l.id === fc.id ? { ...l, assignedRep: repName } : l)) } })
+    const rep = await call('PATCH', '/api/pipeline', { upsert: [{ lead: { ...fc, assignedRep: repName, stage: 'First Contact' } }], remove: [], stages: [], baseVersion: after.version }, tokens.sales_rep)
     expect(rep.status).toBe(200)
   })
 
