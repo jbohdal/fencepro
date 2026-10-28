@@ -158,7 +158,8 @@ function SaveModal({
   const [lastName, setLastName]   = useState(() => splitOnLastSpace(initialCustomerName).lastName)
   const [phone, setPhone]         = useState('')
   const [email, setEmail]         = useState('')
-  const [address, setAddress]     = useState('')
+  // A new customer's address starts as the draft's (audit #52: an empty box looked as if the address was lost).
+  const [address, setAddress]     = useState(initialAddress || '')
   const [leadSource, setLeadSource] = useState('')
   const [salesRep, setSalesRep]   = useState('')
   const [status, setStatus]       = useState<SavedQuote['status']>(initialStatus)

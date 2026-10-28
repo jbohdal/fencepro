@@ -832,7 +832,8 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
             <Row k="Subtotal" v={inv.subtotalCents == null ? 'not printed' : money(inv.subtotalCents)} />
             <Row k="Tax" v={inv.taxFound ? money(inv.taxCents) : 'none printed'} />
             <Row k="Freight / delivery" v={money(inv.freightCents)} />
-            {inv.fees.map((f, i) => <Row key={i} k={isFuelFee(f.label) ? `${f.label} (bill only, not in item prices)` : f.label} v={money(f.cents)} />)}
+            {/* A card convenience fee is spread like freight; only fuel stays out (Jonathan, Oct 28 2026). */}
+            {inv.fees.map((f, i) => <Row key={i} k={isFuelFee(f.label) ? `${f.label} (bill only, not in item prices)` : `${f.label} (spread into item prices)`} v={money(f.cents)} />)}
             <Row k="Total" v={money(inv.totalCents)} bold />
             {inv.estTaxCents > 0 && <p className="text-xs text-amber-800 pt-1" data-est-tax-row>Estimated tax {inv.estTaxBp != null ? pctOfBp(inv.estTaxBp) : ''} added to item landed costs: {money(inv.estTaxCents)} (not on the document or the bill)</p>}
           </div>
