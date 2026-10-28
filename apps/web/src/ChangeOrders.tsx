@@ -1045,8 +1045,12 @@ function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }:
 
 interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
 
-/** The job's timeline: the contract as signed, change orders, the payment schedule following, pull sheet revisions; and a schedule warning. */
-export function JobTimeline({ jobId }: { jobId: string }) {
+/**
+ * The job's timeline: the contract as signed, change orders, the payment schedule following, pull sheet revisions; and a schedule warning.
+ * `refreshKey` changes when the job changes (its stage, or its saved copy coming back from the server): the history is read again, so a
+ * stage move or a line the server added shows while the window is open (review Oct 28 2026: only after reopening the window).
+ */
+export function JobTimeline({ jobId, refreshKey = '' }: { jobId: string; refreshKey?: string }) {
   const [data, setData] = useState<{ items: TimelineItem[]; scheduleWarning: string | null; contractRev: number } | null>(null)
   const [all, setAll] = useState(false)
   const [n, setN] = useState(0)
@@ -1054,7 +1058,7 @@ export function JobTimeline({ jobId }: { jobId: string }) {
     let live = true
     sendJson('GET', `/api/change-orders/timeline?jobId=${encodeURIComponent(jobId)}`).then(r => { if (live && r.result.ok) setData(r.json.data) })
     return () => { live = false }
-  }, [jobId, n])
+  }, [jobId, n, refreshKey])
   useEffect(() => {
     const h = () => setN(x => x + 1)
     window.addEventListener(CO_EVENT, h)
