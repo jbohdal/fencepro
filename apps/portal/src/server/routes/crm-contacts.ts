@@ -36,6 +36,7 @@ import { addressParts } from '../lib/addressIndex.js'
 import { onCardMoves } from '../lib/followUps.js'
 import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
+import { findPossibleMatches } from '../lib/customerMerge.js'
 
 const router = Router()
 
@@ -218,6 +219,12 @@ router.post('/', requireAccount, async (req: any, res) => {
               isCompleted: data.isCompleted ?? false,
             },
           })
+          // Asked for (the quote builder's Save of a new customer whose phone or email is on file under another name):
+          // those customers are Possible matches on the new one, to merge with one tap (lib/customerMerge.ts, audit #44).
+          if (isNew && req.body?.recordMatches === true) {
+            const matches = await findPossibleMatches(tx, accountId, { phone: contact.phone, email: contact.email }, contact.id)
+            if (matches.length) await tx.customerPossibleMatch.createMany({ data: matches.map(m => ({ accountId, contactId: contact.id, matchId: m.id, reason: m.reason })) })
+          }
           let pipelineVersion: number | null = null
           if (card) {
             const lead = { ...card, customerId: contact.id }

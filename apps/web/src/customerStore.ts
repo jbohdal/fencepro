@@ -216,9 +216,12 @@ export function findDuplicate(data: { phone?: string; email?: string }): Custome
  * the API write in the background. A known id is an edit of that customer
  * (fields merged, non empty wins). Anything else is a new customer with the
  * given id: a matching phone, email or name never makes it someone else, and
- * never changes the customer who has them.
+ * never changes the customer who has them. `recordMatches`: the server keeps
+ * customers on file with the same phone or email as Possible matches on the
+ * new one, to merge with one tap (portal lib/customerMerge.ts; the quote
+ * builder's Save, web customerPick.ts).
  */
-export function upsertCustomer(partial: Partial<Customer> & { firstName: string }, opts: { stage?: string } = {}): { customer: Customer; created: boolean } {
+export function upsertCustomer(partial: Partial<Customer> & { firstName: string }, opts: { stage?: string; recordMatches?: boolean } = {}): { customer: Customer; created: boolean } {
   const existing = partial.id ? cache.find(c => c.id === partial.id) : null
 
   if (existing) {
@@ -286,7 +289,7 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   const leadBefore = lead ? addCardWithCustomer(lead) : null
   void enqueue<CreatePayload>({
     key: `customer:${tempId}`, kind: 'customer.create',
-    payload: { customer: fresh, lead, leadBefore },
+    payload: { customer: fresh, lead, leadBefore, ...(opts.recordMatches ? { recordMatches: true } : {}) },
     label: `${nameOf(fresh)}, new customer`,
   })
 
@@ -308,7 +311,7 @@ function partsAfter(prev: Customer, next: Partial<Customer>): Pick<Customer, 'ci
 
 const nameOf = (c: Pick<Customer, 'firstName' | 'lastName'>) => `${c.firstName} ${c.lastName}`.trim() || 'Customer'
 
-interface CreatePayload { customer: Customer; lead: Record<string, unknown> | null; leadBefore: string | null }
+interface CreatePayload { customer: Customer; lead: Record<string, unknown> | null; leadBefore: string | null; recordMatches?: boolean }
 
 /** Send the newest copy of a customer. Goes after its create and earlier edits. */
 function pushCustomerUpdate(id: string): void {
@@ -321,8 +324,8 @@ registerKind<CreatePayload>('customer.create', {
   refused: () => reloadCustomers(),
   what: () => 'This customer',
   send: async (op: Op<CreatePayload>) => {
-    const { customer, lead, leadBefore } = op.payload
-    const r = await sendJson('POST', '/api/crm-contacts', { ...toApiPayload(customer), id: customer.id, ...(lead ? { lead, leadBefore } : {}) })
+    const { customer, lead, leadBefore, recordMatches } = op.payload
+    const r = await sendJson('POST', '/api/crm-contacts', { ...toApiPayload(customer), id: customer.id, ...(lead ? { lead, leadBefore } : {}), ...(recordMatches ? { recordMatches: true } : {}) })
     if (r.result.ok) pipelineSavedElsewhere(r.json?.pipelineVersion)
     return r.result
   },

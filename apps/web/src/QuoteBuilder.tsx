@@ -15,6 +15,7 @@ import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer, findPossibleMatches } from './customerStore'
+import { customersMatching, decideNewCustomer } from './customerPick'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { getRailOptimizerConfig } from './configStore'
@@ -172,16 +173,12 @@ function SaveModal({
     return getCustomers() as SavedCustomer[]
   }, [])
 
-  const filtered = allCustomers.filter(c => {
-    const q = search.toLowerCase()
-    return !q ||
-      `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
-      c.phone.includes(q) ||
-      c.email.toLowerCase().includes(q)
-  }).slice(0, 6)
+  const filtered = customersMatching(allCustomers, search)
 
-  // Someone on file with the phone or email typed for a new customer: offered, not assumed.
+  // Someone on file with the phone or email typed for a new customer: offered. On Save, the same name
+  // goes on them; a different name is a new customer with a Possible match (customerPick decideNewCustomer).
   const matches = mode === 'new' ? (findPossibleMatches({ phone, email }) as SavedCustomer[]) : []
+  const onFile = decideNewCustomer({ first: firstName, last: lastName }, matches)
 
   // A pick links the quote to that customer; their record is not changed. Their
   // address fills Property address only when the quote has none yet.
@@ -195,16 +192,17 @@ function SaveModal({
   const submitted = useRef(false)
   function handleSubmit() {
     if (submitted.current) return
-    if (mode === 'search' && selectedCustomer) {
+    const onto = mode === 'search' ? selectedCustomer : mode === 'new' && firstName.trim() && onFile.kind === 'attach' ? onFile.to : null
+    if (onto) {
       submitted.current = true
       onSave({
-        customerId: selectedCustomer.id,
-        customerName: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`,
-        customerPhone: selectedCustomer.phone,
-        customerEmail: selectedCustomer.email,
-        customerAddress: propertyAddress.trim() || selectedCustomer.serviceAddress,
-        leadSource: selectedCustomer.leadSource,
-        salesRep: selectedCustomer.salesRep,
+        customerId: onto.id,
+        customerName: `${onto.firstName} ${onto.lastName}`,
+        customerPhone: onto.phone,
+        customerEmail: onto.email,
+        customerAddress: propertyAddress.trim() || onto.serviceAddress,
+        leadSource: onto.leadSource,
+        salesRep: onto.salesRep,
         status,
         notes,
         leadTemp,
@@ -214,8 +212,8 @@ function SaveModal({
     if (mode === 'new') {
       if (!firstName.trim()) return
       submitted.current = true
-      // Always a new customer (a phone or email on file is only offered above, with Use).
-      // Their address, if left empty, is this property; the quote's property, if left empty, is theirs.
+      // A new customer; with a phone or email on file under another name, marked Possible match on the server
+      // (Merge is one tap on their page). Their address, if left empty, is this property; the quote's property, if left empty, is theirs.
       const { customer } = upsertCustomer({
         id: newCustomerId,
         firstName: firstName.trim(),
@@ -225,7 +223,7 @@ function SaveModal({
         serviceAddress: address.trim() || propertyAddress.trim(),
         leadSource,
         salesRep,
-      })
+      }, { recordMatches: onFile.kind === 'new_possible' })
       onSave({
         customerId: customer.id,
         customerName: `${customer.firstName} ${customer.lastName}`.trim(),
@@ -332,7 +330,9 @@ function SaveModal({
               </div>
               {matches.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1.5" data-possible-match>
-                  <p className="text-xs text-amber-800">Already on file with this phone or email. Save makes a new customer unless you pick one.</p>
+                  <p className="text-xs text-amber-800">{onFile.kind === 'attach'
+                    ? `Already on file with this phone or email, same name: Save puts the quote on ${`${onFile.to.firstName} ${onFile.to.lastName}`.trim()}.`
+                    : 'Already on file with this phone or email, another name: Save makes a new customer, marked Possible match to merge if it is the same person. Or pick one.'}</p>
                   {matches.slice(0, 3).map(c => (
                     <div key={c.id} className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</span>
@@ -487,6 +487,12 @@ export default function QuoteBuilder({
   const initPricing: QuotePricingOverrides = oldPrice != null && !keepOldPrice ? {} : (init?.pricing ?? {})
 
   const [customerName, setCustomerName] = useState(init?.customerName ?? '')
+  // A customer on file picked at the Customer name step (audit #44): Save puts the quote on them, never a second copy.
+  // A quote that already has its customer (opened from them, or saved) is not offered others here; Save's Change customer is.
+  const [pickedCustomerId, setPickedCustomerId] = useState<string | null>(null)
+  const quoteCustomerId = init?.customerId || pickedCustomerId || ''
+  const pickedCustomer = pickedCustomerId ? getCustomerById(pickedCustomerId) : null
+  const nameMatches = useMemo(() => (quoteCustomerId ? [] : customersMatching(getCustomers(), customerName, 5)), [quoteCustomerId, customerName])
   const [styleId, setStyleId]           = useState(() => {
     if (!init) return ''
     const found = FENCE_STYLES.find(s => s.name === init.fenceStyle)
@@ -1223,8 +1229,33 @@ export default function QuoteBuilder({
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 placeholder="Customer name (required when saving)"
                 value={customerName}
-                onChange={e => setCustomerName(e.target.value)}
+                onChange={e => { setCustomerName(e.target.value); setPickedCustomerId(null) }}
+                data-quote-customer-name
               />
+              {pickedCustomer ? (
+                <div className="mt-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2" data-quote-customer-picked={pickedCustomer.id}>
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500">Quote for this customer on file</p>
+                    <p className="text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{`${pickedCustomer.firstName} ${pickedCustomer.lastName}`.trim()}</p>
+                    <p className="text-xs text-gray-500 [overflow-wrap:anywhere]">{[formatPhone(pickedCustomer.phone), pickedCustomer.serviceAddress].filter(Boolean).join(' · ')}</p>
+                  </div>
+                  <button type="button" onClick={() => setPickedCustomerId(null)} className="btn btn-quiet btn-sm shrink-0 min-h-[44px]" data-quote-customer-unpick>Not them</button>
+                </div>
+              ) : nameMatches.length > 0 && (
+                <div className="mt-2" data-quote-customer-matches>
+                  <p className="text-xs text-gray-500 mb-1">Already a customer? Tap them so this quote goes on their record.</p>
+                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
+                    {nameMatches.map(c => (
+                      <button key={c.id} type="button" data-quote-customer-option={c.id}
+                        onClick={() => { setPickedCustomerId(c.id); setCustomerName(`${c.firstName} ${c.lastName}`.trim()) }}
+                        className="w-full min-h-[48px] text-left px-3 py-2 hover:bg-orange-50 active:bg-orange-100">
+                        <span className="block text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{`${c.firstName} ${c.lastName}`.trim()}</span>
+                        <span className="block text-xs text-gray-500 [overflow-wrap:anywhere]">{[formatPhone(c.phone), c.serviceAddress].filter(Boolean).join(' · ') || 'No phone or address on file'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
           </div>
@@ -2140,7 +2171,7 @@ export default function QuoteBuilder({
       {showSaveModal && (
         <SaveModal
           initialCustomerName={customerName}
-          initialCustomerId={init?.customerId}
+          initialCustomerId={quoteCustomerId || undefined}
           initialAddress={init?.customerAddress}
           initialStatus={init?.status ?? 'DRAFT'}
           initialNotes={[init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}

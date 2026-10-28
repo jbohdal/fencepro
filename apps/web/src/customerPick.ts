@@ -1,0 +1,65 @@
+/**
+ * Finding a customer already on file while a quote is made (audit #44, Oct 28
+ * 2026: the quote builder's Customer name step did not look, so a repeat
+ * customer could be typed in twice), and what a new customer's save does when
+ * someone on file has the same phone or email.
+ *
+ * Jonathan's rule for customers that come in (Oct 23 2026; portal
+ * lib/customerImport.ts decideMatch, the same words here): a match is only by
+ * exact phone or email, never by name alone.
+ *   - one with the same name             the quote goes on that customer
+ *   - a different name                   a NEW customer, with a Possible match
+ *                                        notice to merge with one tap
+ *   - several, exactly one same name     that one
+ *   - several, none or several by name   a new customer with Possible matches
+ *                                        (a screen can't skip; it is never guessed)
+ * "Same name" is portal sameName: letters only, either all the same, or every
+ * word of one (two or more, each two letters or more) is in the other.
+ *
+ * No imports: the portal tests use it too.
+ */
+
+export interface PickCustomer { id: string; firstName: string; lastName: string; phone?: string | null; email?: string | null; serviceAddress?: string | null }
+
+const words = (s: string) => String(s || '').normalize('NFD').toLowerCase().split(/[^a-z]+/).filter(Boolean)
+
+/** True when two people's names are the same (portal lib/customerImport.ts sameName). */
+export function sameName(a: { first: string; last: string }, b: { first: string; last: string }): boolean {
+  const wa = words(`${a.first} ${a.last}`), wb = words(`${b.first} ${b.last}`)
+  if (!wa.length || !wb.length) return false
+  if (wa.join('') === wb.join('')) return true
+  const within = (x: string[], y: string[]) => x.length >= 2 && x.every(w => w.length >= 2 && y.includes(w))
+  return within(wa, wb) || within(wb, wa)
+}
+
+/**
+ * Customers whose name, phone or email has what was typed: every word of it
+ * in the name, any order ("ann lee" finds "Lee, Ann" and "Annie Leeds");
+ * 3 or more digits in the phone; an email with it. Nothing under 2 letters.
+ */
+export function customersMatching<C extends PickCustomer>(all: C[], typed: string, limit = 6): C[] {
+  const q = typed.trim().toLowerCase()
+  if (q.length < 2) return []
+  const qWords = q.split(/\s+/).filter(Boolean)
+  const qd = q.replace(/\D/g, '')
+  const out: C[] = []
+  for (const c of all) {
+    const name = `${c.firstName} ${c.lastName}`.toLowerCase()
+    const hit = qWords.every(w => name.includes(w))
+      || (!/[a-z]/.test(q) && qd.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(qd))
+      || (!!c.email && c.email.toLowerCase().includes(q))
+    if (hit) out.push(c)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+export type NewCustomerDecision<C> = { kind: 'attach'; to: C } | { kind: 'new_possible'; matches: C[] } | { kind: 'new' }
+
+/** What saving a new customer named `first last` does, when `hits` are on file with its phone or email. */
+export function decideNewCustomer<C extends PickCustomer>(name: { first: string; last: string }, hits: C[]): NewCustomerDecision<C> {
+  if (!hits.length) return { kind: 'new' }
+  const named = hits.filter(h => sameName(name, { first: h.firstName, last: h.lastName }))
+  if (named.length === 1) return { kind: 'attach', to: named[0] }
+  return { kind: 'new_possible', matches: hits }
+}
