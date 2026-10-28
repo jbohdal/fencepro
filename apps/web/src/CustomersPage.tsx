@@ -234,7 +234,10 @@ function CustomerNotHere({ id }: { id: string }) {
         : <>Deleted{on}. The owner or an admin can bring them back from Settings &gt; Deleted Records.</>,
       can('records.delete') ? <button type="button" className="btn btn-primary" onClick={() => navigate('/settings?tab=deleted')} data-open-deleted-records>Open Deleted Records</button> : null)
   }
-  return box('Customer not found', 'This link names a customer who is not in the app.')
+  // The Salesman's list has the Salesman's own customers and the ones assigned (the server sends no others).
+  return box('Customer not found', signedInRole() === 'sales_rep'
+    ? 'This link names a customer who is not on your list. Your list has your own customers and the ones assigned to you; ask the office if you need this one.'
+    : 'This link names a customer who is not in the app.')
 }
 
 // ── Customer Form ─────────────────────────────────────────────────────────────

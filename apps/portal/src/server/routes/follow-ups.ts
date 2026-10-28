@@ -32,6 +32,7 @@ import {
 } from '../lib/followUps.js'
 import { addDays, isDay } from '../lib/followUpRules.js'
 import { toTable } from '../lib/listTable.js'
+import { salesScopeOf, cardInScope, type SalesScope } from '../lib/salesScope.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -55,6 +56,24 @@ async function requireUser(req: any, res: any, next: any) {
   }
 }
 router.use(requireUser)
+
+/**
+ * The Salesman's cards only (lib/salesScope.ts): a card the Salesman cannot see on the board is not there for
+ * an answer, a date or its history either (404).
+ */
+async function ownCard(req: any, res: any, cardId: string | null): Promise<boolean> {
+  const scope = await salesScopeOf(req)
+  if (!scope || !cardId) return true
+  const pipe = await prisma.pipelineState.findUnique({ where: { accountId: req.user.crmAccountId }, select: { leads: true, archivedLeads: true } })
+  const all = [...(((pipe?.leads as any[]) ?? [])), ...(((pipe as any)?.archivedLeads as any[]) ?? [])]
+  if (cardInScope(scope, all, cardId)) return true
+  res.status(404).json({ success: false, error: 'That card is not on the board' })
+  return false
+}
+
+/** A follow up row the Salesman sees: the Salesman's own card, or one of a customer in scope. */
+const rowInScope = (scope: SalesScope, r: { ownerId: string | null; customerId: string | null }) =>
+  r.ownerId === scope.userId || (!!r.customerId && scope.contactIds.has(r.customerId))
 
 const fail = (res: any, err: unknown, what: string) => {
   if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -95,7 +114,9 @@ router.put('/settings', requireCan('settings.change'), async (req: any, res) => 
 
 router.get('/board', async (req: any, res) => {
   try {
-    const { rows, today } = await cardRows(req.user.crmAccountId)
+    const scope = await salesScopeOf(req)
+    const { rows: all, today } = await cardRows(req.user.crmAccountId)
+    const rows = scope ? all.filter(r => rowInScope(scope, r)) : all
     const card = (r: (typeof rows)[number]) => ({ dueOn: r.dueOn, dueKind: r.dueKind, status: r.status, days: r.days, badge: r.badge, stepIndex: r.stepIndex, stepCount: r.stepCount, lastOutcome: r.lastOutcome, lastContactAt: r.lastContactAt, ownerName: r.ownerName, state: r.state, opened: r.opened })
     // ?shape=table: the cards as one table, the field names once (lib/listTable.ts; web followUpStore.ts turns it
     // back into the same cards). Every card of the board is here, so the names were most of the 0.7 MB (audit #17).
@@ -135,6 +156,7 @@ const callSchema = z.object({
 router.post('/calls', async (req: any, res) => {
   try {
     const input = callSchema.parse(req.body)
+    if (!(await ownCard(req, res, input.cardId))) return
     if (input.outcome === 'not_now' && !(isDay(input.pickedOn) && input.pickedOn > floridaDay(new Date(Date.now() - 2 * 86_400_000)))) {
       res.status(400).json({ success: false, error: 'Pick the day to call back.' }); return
     }
@@ -150,6 +172,7 @@ const nextSchema = z.object({ dueOn: z.string().nullable().optional(), keep: z.b
 router.put('/cards/:cardId/next', async (req: any, res) => {
   try {
     const body = nextSchema.parse(req.body ?? {})
+    if (!(await ownCard(req, res, String(req.params.cardId)))) return
     if (!body.keep && body.dueOn != null && !isDay(body.dueOn)) { res.status(400).json({ success: false, error: 'Pick a day.' }); return }
     const state = await changeNext(req.user.crmAccountId, req.user.id, String(req.params.cardId), body)
     await audit(req, 'update', 'CardFollowUp', String(req.params.cardId), { newValues: { dueOn: state.dueOn, keep: !!body.keep } })
@@ -163,6 +186,10 @@ router.get('/history', async (req: any, res) => {
   try {
     const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : null
     const cardId = typeof req.query.cardId === 'string' ? req.query.cardId : null
+    // The Salesman: a customer or card outside the scope has no history to show (404).
+    const scope = await salesScopeOf(req)
+    if (scope && customerId && !scope.contactIds.has(customerId)) { res.status(404).json({ success: false, error: 'Customer not found' }); return }
+    if (!(await ownCard(req, res, customerId ? null : cardId))) return
     if (customerId) {
       const c = await prisma.crmContact.findFirst({ where: { id: customerId, accountId: req.user.crmAccountId, deletedAt: null }, select: { id: true } }).catch(() => null)
       if (!c) { res.json({ success: true, data: await customerHistory(req.user.crmAccountId, { cardId }) }); return }

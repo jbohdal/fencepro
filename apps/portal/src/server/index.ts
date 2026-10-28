@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { crewScoped, refuseScopedCrew, refuseCrewWith } from './lib/crewScope.js'
+import { salesScoped, refuseSalesman } from './lib/salesScope.js'
 import express from 'express'
 import compression from 'compression'
 import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
@@ -217,6 +218,14 @@ app.use('/api/saved-jobs', crewScoped('jobs'))
 app.use('/api/saved-quotes', crewScoped('quotes'))
 app.use('/api/appointments', crewScoped('appointments'))
 app.use('/api/pipeline', crewScoped('pipeline'))
+// The Salesman gets only the Salesman's own customers, quotes, jobs, cards and appointments and the ones assigned
+// to the Salesman; one outside them opened by id is a 404 (lib/salesScope.ts; Jonathan, Oct 28 2026).
+app.use('/api/crm-contacts', salesScoped('contacts'))
+app.use('/api/saved-jobs', salesScoped('jobs'))
+app.use('/api/saved-quotes', salesScoped('quotes'))
+app.use('/api/appointments', salesScoped('appointments'))
+app.use('/api/pipeline', salesScoped('pipeline'))
+app.use('/api/intake', refuseSalesman('Website and phone leads are the office\'s until one is assigned to you.'))
 app.use('/api/portal/messages', refuseScopedCrew)
 app.use('/api/portal/customer', refuseScopedCrew)
 app.use('/api/portal/accounts', refuseScopedCrew)

@@ -37,6 +37,7 @@ import { onCardMoves } from '../lib/followUps.js'
 import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
 import { findPossibleMatches } from '../lib/customerMerge.js'
+import { salesScopeOf } from '../lib/salesScope.js'
 
 const router = Router()
 
@@ -191,6 +192,11 @@ router.post('/', requireAccount, async (req: any, res) => {
       }
     }
     let decision = await decideClientId(clientId, accountId, id => prisma.crmContact.findUnique({ where: { id } }))
+    // The Salesman's phone holds only the Salesman's customers, so it cannot see that this phone or email is on
+    // file under someone else's: the server always looks, and any customer it finds is a Possible match for the
+    // owner and office to merge (lib/salesScope.ts; docs/DECISIONS.md). The Salesman is told only how many.
+    const scope = await salesScopeOf(req)
+    let onFileElsewhere = 0
 
     let result: { contact: any; isNew: boolean; pipelineVersion: number | null } | null = null
     for (let attempt = 0; attempt < 5 && !result; attempt++) {
@@ -221,9 +227,10 @@ router.post('/', requireAccount, async (req: any, res) => {
           })
           // Asked for (the quote builder's Save of a new customer whose phone or email is on file under another name):
           // those customers are Possible matches on the new one, to merge with one tap (lib/customerMerge.ts, audit #44).
-          if (isNew && req.body?.recordMatches === true) {
+          if (isNew && (req.body?.recordMatches === true || scope)) {
             const matches = await findPossibleMatches(tx, accountId, { phone: contact.phone, email: contact.email }, contact.id)
             if (matches.length) await tx.customerPossibleMatch.createMany({ data: matches.map(m => ({ accountId, contactId: contact.id, matchId: m.id, reason: m.reason })) })
+            if (scope) onFileElsewhere = matches.filter(m => !scope.contactIds.has(m.id)).length
           }
           let pipelineVersion: number | null = null
           if (card) {
@@ -265,7 +272,7 @@ router.post('/', requireAccount, async (req: any, res) => {
       console.log(`[crm-contacts] created ${contact.id} (${contact.firstName} ${contact.lastName})${card ? ` with pipeline card ${card.id}` : ''} for user ${req.user.id}`)
       await audit(req, 'create', 'CrmContact', contact.id, { newValues: { ...contact, pipelineCard: card?.id ?? null } })
     }
-    res.status(isNew ? 201 : 200).json({ success: true, data: contact, pipelineVersion })
+    res.status(isNew ? 201 : 200).json({ success: true, data: contact, pipelineVersion, ...(onFileElsewhere ? { onFileElsewhere } : {}) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] create error:', err)
