@@ -77,7 +77,12 @@ async function onceOutside<T>(key: string, runId: string, fn: () => Promise<T>, 
 }
 
 const entityLink = (e: EntityContext) => e.board === 'sales' ? `/pipeline?card=${encodeURIComponent(e.entityId)}` : `/operations?job=${encodeURIComponent(e.entityId)}`
-const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000)
+// n Florida calendar days after d, at midday Florida (16:00 UTC: noon EDT, 11 am EST). Adding n × 24 h landed on the
+// wrong day in the hour after midnight when the clocks change (Oct 28 2026).
+const addDays = (d: Date, n: number) => {
+  const [y, m, day] = floridaDay(d).split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, day + n, 16))
+}
 /** sms: link with the text filled in; "?&body=" opens with the text on both iPhone and Android. */
 export function smsLink(phone: string, body: string): string {
   const digits = phone.replace(/[^\d+]/g, '')
