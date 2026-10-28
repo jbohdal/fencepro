@@ -19,6 +19,8 @@
  * imports): the portal tests use it too.
  */
 
+import { posToCents } from '../../portal/src/server/lib/poCents'
+
 export interface DraftLineLike { id: string; itemName: string; quantity: number; unitCostCents: number; totalCents: number }
 
 export interface DraftLike {
@@ -46,6 +48,19 @@ export interface SalesOrderLike {
   createdAt: string
   orderedAt?: string
   receivedAt?: string
+}
+
+/**
+ * The saved purchase orders, money in integer cents. A draft saved in dollars
+ * before audit #53 (unitCost, total, subtotal) is turned into cents once, as
+ * it is read, by the same rule as the backfill (portal lib/poCents.ts,
+ * scripts/po-cents-2026-10-28.ts): review Oct 28 2026, such a draft showed
+ * "—" for every price and its subtotal. Nothing in dollars: the list as kept.
+ * The copy in cents is what the next change saves.
+ */
+export function purchaseOrdersInCents<T>(saved: unknown): T[] {
+  const { list, changed } = posToCents(saved)
+  return (changed ? list : Array.isArray(saved) ? saved : []) as T[]
 }
 
 /** The supplier a draft is made with when its lines name none (purchaseOrderStore createDraftPO). */

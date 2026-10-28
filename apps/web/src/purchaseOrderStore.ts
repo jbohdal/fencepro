@@ -8,7 +8,10 @@
  * (draftPOs.ts, PendingOrdersPage.tsx; Oct 28 2026). Money is integer
  * cents (unitCostCents, totalCents, subtotalCents; audit #53, Oct 28 2026);
  * drafts saved before then in dollars were changed by
- * portal scripts/po-cents-2026-10-28.ts.
+ * portal scripts/po-cents-2026-10-28.ts. One such draft still in dollars
+ * (a company the script has not run on yet) is read in cents here, once, by
+ * the same rule (portal lib/poCents.ts): before, every price on it and its
+ * subtotal showed "—" (review Oct 28 2026).
  */
 
 export type POStatus = 'draft' | 'confirmed' | 'ordered' | 'received' | 'cancelled'
@@ -46,12 +49,12 @@ export interface PurchaseOrder {
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
 import { lineTotalCents, type PoLineInput } from './poLines'
-import { closeDraft } from './draftPOs'
+import { closeDraft, purchaseOrdersInCents } from './draftPOs'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 
 export function getPurchaseOrders(): PurchaseOrder[] {
-  return getBusinessField('purchaseOrders') as PurchaseOrder[]
+  return purchaseOrdersInCents<PurchaseOrder>(getBusinessField('purchaseOrders'))
 }
 
 export function savePurchaseOrders(pos: PurchaseOrder[]): void {

@@ -5,7 +5,7 @@
  * a draft as ordered or discarded.
  */
 import { describe, test, expect } from 'vitest'
-import { shownDrafts, salesOrderOfDraft, compareToSalesOrder, relationText, orderedStep, closeDraft, supplierOf, type DraftLike, type SalesOrderLike } from '../../web/src/draftPOs'
+import { shownDrafts, salesOrderOfDraft, compareToSalesOrder, relationText, orderedStep, closeDraft, supplierOf, purchaseOrdersInCents, type DraftLike, type SalesOrderLike } from '../../web/src/draftPOs'
 
 const draft = (id: string, extra: Partial<DraftLike> = {}): DraftLike => ({
   id, poNumber: `PO-${id}`, jobId: 'job-1', jobName: 'Pat Smith', jobAddress: '1 Main St, Ocala', supplier: 'Default Supplier', status: 'draft',
@@ -96,5 +96,32 @@ describe('Mark ordered and Discard draft', () => {
     const now = '2026-10-28T18:00:00.000Z'
     expect(closeDraft([draft('a', { status: 'ordered' })], 'a', 'cancelled', now)).toBeNull()
     expect(closeDraft([draft('a')], 'zz', 'ordered', now)).toBeNull()
+  })
+})
+
+/** Review Oct 28 2026: a draft saved in dollars before audit #53 showed "—" for every price and its subtotal. */
+describe('a draft saved in dollars is read in cents', () => {
+  const dollars = {
+    id: 'old', poNumber: 'PO-0002', jobId: 'job-1', jobName: 'Marlowe Testa', supplier: 'Default Supplier', status: 'draft', notes: '',
+    createdAt: '2026-10-28T08:37:17.859Z', createdBy: 'auto', subtotal: 292.96,
+    lineItems: [
+      { id: 'a', itemName: '*Vinyl, White, Post, Corner, 5" x 5" x 78"', quantity: 4, unitCost: 13.5, total: 54 },
+      { id: 'b', itemName: 'ND, Donut', quantity: 58, unitCost: 4.12, total: 238.96 },
+    ],
+  }
+  test('prices, line totals and the subtotal in whole cents; no dollar fields left', () => {
+    const [po] = purchaseOrdersInCents<DraftLike & Record<string, unknown>>([dollars])
+    expect(po.subtotalCents).toBe(29296)
+    expect(po.lineItems.map(l => [l.unitCostCents, l.totalCents])).toEqual([[1350, 5400], [412, 23896]])
+    for (const k of ['subtotal']) expect(k in po).toBe(false)
+    for (const l of po.lineItems) { expect('unitCost' in l).toBe(false); expect('total' in l).toBe(false) }
+    // It shows in Pending Orders with its money.
+    expect(shownDrafts([po]).map(p => p.subtotalCents)).toEqual([29296])
+  })
+  test('a list already in cents is the list as kept; nothing saved reads as none', () => {
+    const kept = [draft('a')]
+    expect(purchaseOrdersInCents(kept)).toBe(kept)
+    expect(purchaseOrdersInCents(undefined)).toEqual([])
+    expect(purchaseOrdersInCents([draft('a'), dollars]).map((p: any) => p.subtotalCents)).toEqual([131296, 29296])
   })
 })
