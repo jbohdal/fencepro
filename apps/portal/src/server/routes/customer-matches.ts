@@ -16,6 +16,8 @@ import { requireAuth } from '../middleware/auth.js'
 import { requireCan } from '../lib/permissions.js'
 import { audit } from '../lib/auditLog.js'
 import { MergeError, matchView, mergeMatch, dismissMatch, undoMerge } from '../lib/customerMerge.js'
+import prisma from '../lib/prisma.js'
+import { salesScopeOf } from '../lib/salesScope.js'
 
 const router = Router()
 router.use(requireAuth)
@@ -36,9 +38,24 @@ router.use((req: any, res, next) => {
   next()
 })
 
+const EMPTY_VIEW = { textConsent: 'unknown', matches: [], mergedInto: null, merges: [] }
+
+/**
+ * The Salesman (lib/salesScope.ts): the possible matches on the Salesman's own customers, only with customers
+ * the Salesman may see. A match with someone else's customer stays for the owner and office to decide (they
+ * see it on the customer's page); the Salesman is never shown that customer's name, phone or address.
+ * A customer outside the scope reads as one not on file (nothing to show).
+ */
 router.get('/customer/:id', async (req: any, res) => {
   try {
-    res.json({ success: true, data: await matchView(accountOf(req)!, String(req.params.id)) })
+    const scope = await salesScopeOf(req)
+    if (scope && !scope.contactIds.has(String(req.params.id))) { res.json({ success: true, data: EMPTY_VIEW }); return }
+    const view = await matchView(accountOf(req)!, String(req.params.id))
+    if (scope) {
+      view.matches = view.matches.filter(m => scope.contactIds.has(m.customer.id))
+      if (view.mergedInto && !scope.contactIds.has(view.mergedInto.id)) view.mergedInto = { ...view.mergedInto, name: 'another customer' }
+    }
+    res.json({ success: true, data: view })
   } catch (err) {
     // Not on the server (yet: a brand new customer still being saved), or not this company's: nothing to show, not a 404.
     if (err instanceof MergeError && err.status === 404) { res.json({ success: true, data: { textConsent: 'unknown', matches: [], mergedInto: null, merges: [] } }); return }
@@ -46,7 +63,25 @@ router.get('/customer/:id', async (req: any, res) => {
   }
 })
 
-router.post('/:id/merge', requireCan('records.archive'), async (req: any, res) => {
+/** Merge or Not the same person by the Salesman: both customers must be ones the Salesman sees (else 404). */
+async function bothInScope(req: any, res: any, next: any) {
+  const scope = await salesScopeOf(req)
+  if (!scope) { next(); return }
+  const m = await prisma.customerPossibleMatch.findFirst({ where: { id: String(req.params.id), accountId: accountOf(req)! }, select: { contactId: true, matchId: true } }).catch(() => null)
+  if (!m || !scope.contactIds.has(m.contactId) || !scope.contactIds.has(m.matchId)) { res.status(404).json({ success: false, error: 'That possible match is not there any more.' }); return }
+  next()
+}
+
+/** Undo a merge by the Salesman: only of a customer the Salesman sees (else 404). */
+async function keptInScope(req: any, res: any, next: any) {
+  const scope = await salesScopeOf(req)
+  if (!scope) { next(); return }
+  const mg = await prisma.customerMerge.findFirst({ where: { id: String(req.params.id), accountId: accountOf(req)! }, select: { keptId: true } }).catch(() => null)
+  if (!mg || !scope.contactIds.has(mg.keptId)) { res.status(404).json({ success: false, error: 'That merge is not there.' }); return }
+  next()
+}
+
+router.post('/:id/merge', requireCan('records.archive'), bothInScope, async (req: any, res) => {
   try {
     const r = await mergeMatch(actorOf(req), String(req.params.id))
     await audit(req, 'merged', 'CrmContact', r.keptId, { newValues: { mergeId: r.mergeId, kept: r.keptId, merged: r.mergedId, mergedName: r.mergedName, moved: r.movedIds } })
@@ -55,7 +90,7 @@ router.post('/:id/merge', requireCan('records.archive'), async (req: any, res) =
   } catch (err) { fail(res, err, 'merge') }
 })
 
-router.post('/:id/dismiss', requireCan('records.archive'), async (req: any, res) => {
+router.post('/:id/dismiss', requireCan('records.archive'), bothInScope, async (req: any, res) => {
   try {
     await dismissMatch(actorOf(req), String(req.params.id))
     await audit(req, 'update', 'CustomerPossibleMatch', String(req.params.id), { newValues: { status: 'dismissed' } })
@@ -63,7 +98,7 @@ router.post('/:id/dismiss', requireCan('records.archive'), async (req: any, res)
   } catch (err) { fail(res, err, 'save that') }
 })
 
-router.post('/merges/:id/undo', requireCan('records.archive'), async (req: any, res) => {
+router.post('/merges/:id/undo', requireCan('records.archive'), keptInScope, async (req: any, res) => {
   try {
     const r = await undoMerge(actorOf(req), String(req.params.id))
     await audit(req, 'merge_undone', 'CrmContact', r.keptId, { newValues: { mergeId: r.mergeId, kept: r.keptId, merged: r.mergedId, movedBack: r.moved, gone: r.gone } })

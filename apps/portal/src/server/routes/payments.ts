@@ -41,9 +41,24 @@ import {
 import { METHODS } from '../lib/paymentMath.js'
 import { isSignedQuote } from '../lib/quoteLock.js'
 import { closeOutIfDone, receivables, paymentsReceived, cardFollowsJob } from '../lib/jobTruth.js'
+import { salesScopeOf } from '../lib/salesScope.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
+
+// The Salesman (lib/salesScope.ts): a job's or customer's payments only for the Salesman's own jobs and
+// customers (another's is not there: 404), and what is owed only on those.
+router.use(async (req: any, res, next) => {
+  const scope = await salesScopeOf(req)
+  if (!scope) { next(); return }
+  const m = /^\/(job|customer)\/([^/]+)/.exec(req.path)
+  if (m && !(m[1] === 'job' ? scope.jobIds : scope.contactIds).has(decodeURIComponent(m[2]))) { res.status(404).json({ success: false, error: m[1] === 'job' ? 'Job not found' : 'Customer not found' }); return }
+  if (req.method === 'GET' && req.path === '/receivables') {
+    const json = res.json.bind(res)
+    res.json = (body: any) => json(body && Array.isArray(body.data) ? { ...body, data: body.data.filter((r: any) => scope.jobIds.has(r.jobId) || (!!r.customerId && scope.contactIds.has(r.customerId))) } : body)
+  }
+  next()
+})
 
 async function actor(req: any): Promise<Actor> {
   const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)

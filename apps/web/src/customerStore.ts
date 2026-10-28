@@ -24,6 +24,7 @@ import {
   type CrmContactPayload, lastListServerTime } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
 import { businessDate } from './businessDate'
+import { toast } from './toast'
 
 const EVT = 'fencepro:customers:updated'
 /** A new customer reached the server ({ id }). */
@@ -327,6 +328,12 @@ registerKind<CreatePayload>('customer.create', {
     const { customer, lead, leadBefore, recordMatches } = op.payload
     const r = await sendJson('POST', '/api/crm-contacts', { ...toApiPayload(customer), id: customer.id, ...(lead ? { lead, leadBefore } : {}), ...(recordMatches ? { recordMatches: true } : {}) })
     if (r.result.ok) pipelineSavedElsewhere(r.json?.pipelineVersion)
+    // The Salesman's phone lists only the Salesman's customers: the server found this phone or email on
+    // someone else's, kept this one as new and marked it for the office to check (portal routes/crm-contacts.ts).
+    const elsewhere = Number(r.json?.onFileElsewhere) || 0
+    if (r.result.ok && elsewhere > 0) {
+      try { toast.info('The office will check this customer', `This phone or email is already on file for ${elsewhere === 1 ? 'another customer' : `${elsewhere} other customers`}. ${nameOf(customer)} is saved as a new customer; the office will merge them if they are the same person.`) } catch { /* no screen */ }
+    }
     return r.result
   },
   confirmed: (op, data) => {

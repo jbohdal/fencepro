@@ -50,7 +50,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     prisma = (await import('../src/server/lib/prisma.js')).default
     recordIntake = (await import('../src/server/lib/intake.js')).recordIntake
     accountId = (await prisma.crmAccount.create({ data: { name: `Test ${tag}`, status: 'active' } })).id
-    for (const [key, role] of [['owner', 'super_admin'], ['sales', 'sales_rep'], ['crew', 'field_crew']] as const) {
+    for (const [key, role] of [['owner', 'super_admin'], ['office', 'office_staff'], ['sales', 'sales_rep'], ['crew', 'field_crew']] as const) {
       const u = await prisma.crmUser.create({ data: { email: `${tag}-${key}@example.test`, firstName: 'Test', lastName: key, role, status: 'active', mustChangePassword: false, passwordHash: await bcrypt.hash(password, 4), crmAccountId: accountId } })
       users[key] = u.id
     }
@@ -112,8 +112,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     expect(matchRow).toMatchObject({ matchId: kept.id, reason: 'email', status: 'open' })
     expect(await prisma.intakeLead.count({ where: { sourceRef: `${tag}-1`, crmContactId: newId } })).toBe(1)
     expect(await rawRow(kept.id)).toBe(before)
-    const view = await call('sales', 'GET', `/api/customer-matches/customer/${newId}`)
+    const view = await call('office', 'GET', `/api/customer-matches/customer/${newId}`)
     expect(view.json.data.matches).toEqual([{ id: matchRow.id, reason: 'email', customer: { id: kept.id, name: `Kate Kept ${tag}`, phone: '(352) 555-0123', email: kept.email, address: '1 Kept Ln, Ocala, FL', textConsent: 'unknown' } }])
+    // The Salesman (Oct 28 2026, lib/salesScope.ts): a lead nobody assigned to the Salesman is not on the Salesman's list, nor its matches.
+    expect((await call('sales', 'GET', `/api/customer-matches/customer/${newId}`)).json.data.matches).toEqual([])
+    expect((await call('sales', 'POST', `/api/customer-matches/${matchRow.id}/dismiss`)).status).toBe(404)
   })
 
   test('the same delivery twice (at once, then again later) makes one customer', async () => {
@@ -132,12 +135,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     const m = await prisma.customerPossibleMatch.findFirst({ where: { contactId: pat.id } })
     expect((await call('crew', 'POST', `/api/customer-matches/${m.id}/dismiss`)).status).toBe(403)
     expect((await call('crew', 'POST', `/api/customer-matches/${m.id}/merge`)).status).toBe(403)
-    expect((await call('sales', 'POST', `/api/customer-matches/${m.id}/dismiss`)).status).toBe(200)
+    expect((await call('office', 'POST', `/api/customer-matches/${m.id}/dismiss`)).status).toBe(200)
     expect((await prisma.customerPossibleMatch.findUnique({ where: { id: m.id } })).status).toBe('dismissed')
-    expect((await call('sales', 'GET', `/api/customer-matches/customer/${pat.id}`)).json.data.matches).toEqual([])
-    expect((await call('sales', 'POST', `/api/customer-matches/${m.id}/merge`)).status).toBe(409)
+    expect((await call('office', 'GET', `/api/customer-matches/customer/${pat.id}`)).json.data.matches).toEqual([])
+    expect((await call('office', 'POST', `/api/customer-matches/${m.id}/merge`)).status).toBe(409)
     // A customer not on the server yet (a new customer page still saving): nothing to show, not a 404.
-    const early = await call('sales', 'GET', `/api/customer-matches/customer/${crypto.randomUUID()}`)
+    const early = await call('office', 'GET', `/api/customer-matches/customer/${crypto.randomUUID()}`)
     expect([early.status, early.json.data]).toEqual([200, { textConsent: 'unknown', matches: [], mergedInto: null, merges: [] }])
   })
 
@@ -189,7 +192,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     await giveRecords()
     expect(await owners()).toEqual(all(newId))
     const before = await rawRow(kept.id)
-    const r = await call('sales', 'POST', `/api/customer-matches/${matchRow.id}/merge`)
+    const r = await call('office', 'POST', `/api/customer-matches/${matchRow.id}/merge`)
     expect(r.status).toBe(200)
     expect(r.json.data).toMatchObject({ keptId: kept.id, mergedId: newId })
     expect(await owners()).toEqual(all(kept.id))
@@ -220,10 +223,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     const audit = await prisma.crmAuditLog.findFirst({ where: { action: 'merged', entityId: kept.id } })
     expect(audit?.newValues).toMatchObject({ mergeId: mg.id, merged: newId })
     // Both pages: the kept one has the history, the merged one says where it went.
-    const keptView = (await call('sales', 'GET', `/api/customer-matches/customer/${kept.id}`)).json.data
+    const keptView = (await call('office', 'GET', `/api/customer-matches/customer/${kept.id}`)).json.data
     expect(keptView.merges[0]).toMatchObject({ id: mg.id, mergedId: newId, undoneAt: null, details: { name: 'Nina Newlead', email: kept.email } })
     expect(keptView.merges[0].moved).toEqual(expect.arrayContaining(['2 quotes', '1 job', '1 card', '1 invoice', '1 activity line']))
-    expect((await call('sales', 'GET', `/api/customer-matches/customer/${newId}`)).json.data).toMatchObject({ matches: [], mergedInto: { id: kept.id, mergeId: mg.id } })
+    expect((await call('office', 'GET', `/api/customer-matches/customer/${newId}`)).json.data).toMatchObject({ matches: [], mergedInto: { id: kept.id, mergeId: mg.id } })
     expect(keptView.merges[0].textConsent).toEqual({ kept: 'unknown', merged: 'no' })
     // The merged one's "no" is never lost: texts to Kate stay blocked until a yes is recorded on Kate.
     const { mergedTextNo } = await import('../src/server/lib/textConsent.js')
@@ -232,13 +235,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     await recordTextConsent(kept.id, { consent: 'yes', source: 'verbal', byName: 'Test' } as any)
     expect(await mergedTextNo(kept.id)).toBeNull()
     // A second tap does nothing more.
-    expect((await call('sales', 'POST', `/api/customer-matches/${matchRow.id}/merge`)).status).toBe(409)
+    expect((await call('office', 'POST', `/api/customer-matches/${matchRow.id}/merge`)).status).toBe(409)
     made.mergeId = mg.id
   })
 
   test('undo puts exactly those back and brings the merged customer back', async () => {
     const before = await rawRow(kept.id)
-    const r = await call('sales', 'POST', `/api/customer-matches/merges/${made.mergeId}/undo`)
+    const r = await call('office', 'POST', `/api/customer-matches/merges/${made.mergeId}/undo`)
     expect(r.status).toBe(200)
     expect(await owners()).toEqual(all(newId))
     // Kate's own things stayed hers.
@@ -251,7 +254,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     expect((await prisma.customerPossibleMatch.findUnique({ where: { id: matchRow.id } })).status).toBe('open')
     expect((await prisma.customerMerge.findUnique({ where: { id: made.mergeId } })).undoneAt).not.toBeNull()
     expect(await prisma.crmAuditLog.count({ where: { action: 'merge_undone', entityId: kept.id } })).toBe(1)
-    expect((await call('sales', 'POST', `/api/customer-matches/merges/${made.mergeId}/undo`)).status).toBe(409)
+    expect((await call('office', 'POST', `/api/customer-matches/merges/${made.mergeId}/undo`)).status).toBe(409)
   })
 
   test('undo is refused, changing nothing, after a moved record was put with another customer', async () => {

@@ -120,6 +120,8 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     leadTemp: q.leadTemp ?? 0,
     pricing: q.pricing ?? null,
     work: q.work ?? null,
+    // The list's slim copy is never sent back: the server keeps the proposal as saved (portal lib/quoteSlim.ts).
+    ...(q.proposal?.slim ? { proposal: undefined } : {}),
     ...(q.needsResend !== undefined ? { needsResend: !!q.needsResend } : {}),
     // A Salesman's or Installer's save: the quote builder's inputs, so the server works out the costs.
     ...(q.priceRequest ? { priceRequest: q.priceRequest } : {}),
@@ -172,6 +174,54 @@ async function loadArchivedQuotes(): Promise<void> {
 
 export function getQuoteById(id: string): SavedQuote | null {
   return cache.find(q => q.id === id) || null
+}
+
+// ── One quote, whole (the phone load cut, Oct 28 2026) ──────────────────────
+// The list comes without each proposal's drawing and option copies (portal
+// lib/quoteSlim.ts; proposal.slim). A screen that opens one quote and needs
+// them (the quote builder, the Send box) asks for the whole quote here; it
+// replaces the list's copy, and stays whole while the screen has it open.
+
+/** Is this the list's slim copy (no drawing, no option copies)? */
+export const isSlimQuote = (q: { proposal?: { slim?: true } | null } | null | undefined): boolean => !!q?.proposal?.slim
+
+/** Quotes a screen has open: a newer slim copy from a refresh is made whole again. */
+const wanted = new Map<string, number>()
+const loading = new Map<string, Promise<SavedQuote | null>>()
+
+/**
+ * The quote with its whole proposal: from this phone when it has it, else read
+ * from the server (and kept). Null: not on the server for this login, or no
+ * signal (the caller says so).
+ */
+export function loadFullQuote(id: string): Promise<SavedQuote | null> {
+  const have = cache.find(q => q.id === id) ?? archivedCache.find(q => q.id === id) ?? null
+  if (have && !isSlimQuote(have)) return Promise.resolve(have)
+  const going = loading.get(id)
+  if (going) return going
+  const p = (async () => {
+    const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(id)}`)
+    if (!r.result.ok || !r.json?.data) return null
+    const full = fromApi(r.json.data as SavedQuoteRecord)
+    // An edit made on this phone meanwhile wins; only the proposal is taken (it is the part the list left out).
+    const merge = (list: SavedQuote[]) => list.map(q => (q.id === id ? (isSlimQuote(q) ? { ...q, proposal: full.proposal } : q) : q))
+    cache = merge(cache)
+    archivedCache = merge(archivedCache)
+    emit()
+    return cache.find(q => q.id === id) ?? archivedCache.find(q => q.id === id) ?? full
+  })().finally(() => loading.delete(id))
+  loading.set(id, p)
+  return p
+}
+
+/** A screen has this quote open (whole); call the returned function when it closes. */
+export function holdFullQuote(id: string): () => void {
+  wanted.set(id, (wanted.get(id) ?? 0) + 1)
+  void loadFullQuote(id)
+  return () => {
+    const n = (wanted.get(id) ?? 1) - 1
+    if (n > 0) wanted.set(id, n); else wanted.delete(id)
+  }
 }
 
 export function getQuotesForCustomer(customerId: string): SavedQuote[] {
@@ -347,4 +397,6 @@ export async function refreshQuotes(): Promise<void> {
   } else { cache = rows.map(fromApi); void loadArchivedQuotes() }
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
   if (!r.json.partial || rows.length) { reapply('quote.'); emit() }
+  // A quote a screen has open came back as the list's slim copy: read it whole again.
+  for (const id of wanted.keys()) if (isSlimQuote(cache.find(q => q.id === id))) void loadFullQuote(id)
 }

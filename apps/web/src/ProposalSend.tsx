@@ -15,7 +15,7 @@ import { shownOptions, proposalFold } from './proposalOptions'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { toast } from './toast'
-import { updateQuote } from './quoteStore'
+import { updateQuote, holdFullQuote, loadFullQuote, isSlimQuote } from './quoteStore'
 import { useQuotePhotos, PhotoTickGrid } from './CustomerPhotoTicks'
 import { moveRepairSettings } from './moveRepair'
 import WarrantyUpdateSend from './WarrantyUpdateSend'
@@ -48,6 +48,16 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
     if (!ticking && all && all.length > 0 && !quote.acceptedAt && (photos === 0 || photoBlock)) setTicking(true)
   }, [ticking, all, photos, photoBlock, quote.acceptedAt])
   useEffect(() => { onTicksShown?.(ticking) }, [ticking])  // eslint-disable-line react-hooks/exhaustive-deps
+  // The list's copy has no option copies, which say which options the customer sees: the whole quote is read
+  // while this is open (quoteStore.ts), so the count below is the customer's page's.
+  const [notLoaded, setNotLoaded] = useState(false)
+  useEffect(() => holdFullQuote(quote.id), [quote.id])
+  useEffect(() => {
+    if (!isSlimQuote(quote)) return
+    let live = true
+    void loadFullQuote(quote.id).then(full => { if (live && (!full || isSlimQuote(full))) setNotLoaded(true) })
+    return () => { live = false }
+  }, [quote.id, quote.proposal])  // eslint-disable-line react-hooks/exhaustive-deps
   function sendAnyway() {
     const r = reason.trim()
     if (!r || !quote.work) return
@@ -57,6 +67,11 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
   }
   if (!p) {
     return <p className="text-sm text-gray-600" data-proposal-missing>Open this quote and save it once to make its proposal.</p>
+  }
+  if (p.slim) {
+    return notLoaded
+      ? <p className="text-sm text-gray-600" data-proposal-loading="failed">The proposal did not load. Usually that is weak signal; close this and open it again when you have signal.</p>
+      : <p className="text-sm text-gray-600" data-proposal-loading>Loading the proposal…</p>
   }
   const first = (quote.customerName || '').split(' ')[0] || 'there'
 

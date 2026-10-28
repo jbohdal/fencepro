@@ -24,6 +24,7 @@ import { loadPipelineStages } from '../lib/pipelineStages.js'
 import { stageById } from '../lib/pipelineStageModel.js'
 import { hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { boardPages, columnPage, findCard, loadBoard, loadValueInputs, searchCards } from '../lib/pipelinePages.js'
+import { salesScopeOf, inSalesScope, type SalesScope } from '../lib/salesScope.js'
 
 const router = Router()
 
@@ -117,12 +118,60 @@ router.get('/', async (req: any, res) => {
   }
 })
 
+// ── The Salesman's cards (lib/salesScope.ts) ──
+// The Salesman's board is the Salesman's own cards and the ones of customers in scope: the pages, search and
+// one card by id read only those. A save from the Salesman never touches a card the Salesman cannot see.
+
+/** The board with only the Salesman's cards (every other login: as it is). */
+function scopedBoard<B extends { leads: any[]; archived: any[] }>(b: B, scope: SalesScope | null): B {
+  if (!scope) return b
+  return { ...b, leads: b.leads.filter(l => inSalesScope('pipeline', scope, l)), archived: b.archived.filter(l => inSalesScope('pipeline', scope, l)) }
+}
+
+/**
+ * A Salesman's change that reaches outside the Salesman's cards: a card on the board the Salesman cannot see
+ * (changed or removed), or a card put on a customer outside the scope. Null: the change is the Salesman's own.
+ */
+function outsideSalesScope(scope: SalesScope, onBoard: any[], upserts: any[], removes: string[]): string | null {
+  const byId = new Map(onBoard.filter(l => l?.id).map(l => [l.id, l]))
+  for (const id of removes) { const was = byId.get(id); if (was && !inSalesScope('pipeline', scope, was)) return id }
+  for (const l of upserts) {
+    const was = byId.get(l?.id)
+    if (was && !inSalesScope('pipeline', scope, was)) return String(l.id)
+    // A card for a customer: one in scope (or one the Salesman just made: their own card names them).
+    if (l?.customerId && (!was || was.customerId !== l.customerId) && !scope.contactIds.has(l.customerId)) return String(l.id)
+  }
+  return null
+}
+
+/**
+ * The whole board as a Salesman sent it: the Salesman's cards in the order sent, every other card kept where it
+ * was (the Salesman's copy never had them, so leaving them out is not a removal).
+ */
+function withHiddenCards(scope: SalesScope, saved: any[], sent: any[]): any[] {
+  const out = [...sent]
+  saved.forEach((l, i) => {
+    if (!l?.id || inSalesScope('pipeline', scope, l) || out.some(x => x?.id === l.id)) return
+    out.splice(Math.min(i, out.length), 0, l)
+  })
+  return out
+}
+
+/** One card by id (archive, unarchive, delete): a card outside the Salesman's scope is not there (404). */
+async function ownCardOnly(req: any, res: any, next: any) {
+  const scope = await salesScopeOf(req)
+  if (!scope) { next(); return }
+  const board = await loadBoard(req.user.crmAccountId).then(b => scopedBoard(b, scope)).catch(() => null)
+  if (!board || !findCard(board.leads, board.archived, String(req.params.id))) { res.status(404).json({ success: false, error: 'That card is not on the board' }); return }
+  next()
+}
+
 // ── The board a page at a time (read only; lib/pipelinePages.ts) ──
 // Saves still go through PUT / PATCH below on the one board record, so every
 // answer carries the board's version.
 async function pagedRead(req: any, res: any, what: string, answer: (b: Awaited<ReturnType<typeof loadBoard>>) => Promise<unknown> | unknown) {
   try {
-    const board = await loadBoard(req.user.crmAccountId)
+    const board = scopedBoard(await loadBoard(req.user.crmAccountId), await salesScopeOf(req))
     res.json({ success: true, version: board.version, data: await answer(board) })
   } catch (err) {
     console.error(`[pipeline] ${what} error:`, err)
@@ -141,7 +190,8 @@ router.get('/column/:stage', (req: any, res) => pagedRead(req, res, 'column', b 
 router.get('/search', (req: any, res) => pagedRead(req, res, 'search', b => searchCards(b.leads, req.query.q, req.query.limit)))
 // One card by id (a link to a card), on the board or archived.
 router.get('/cards/:id', async (req: any, res) => {
-  const board = await loadBoard(req.user.crmAccountId).catch(() => null)
+  const scope = await salesScopeOf(req)
+  const board = await loadBoard(req.user.crmAccountId).then(b => scopedBoard(b, scope)).catch(() => null)
   if (!board) { res.status(500).json({ success: false, error: 'Failed to load pipeline' }); return }
   const hit = findCard(board.leads, board.archived, String(req.params.id))
   if (!hit) { res.status(404).json({ success: false, error: 'That card is not on the board' }); return }
@@ -158,6 +208,12 @@ router.put('/', async (req: any, res) => {
     const fields = { leads: oneById(JSON.parse(JSON.stringify(data.leads)) as any[]) }
     // Stage rules: a card cannot enter a stage whose requirements are not met (the app puts it back and says what is missing).
     const prev = await prisma.pipelineState.findUnique({ where: { accountId } })
+    const scope = await salesScopeOf(req)
+    if (scope) {
+      const saved = (prev?.leads as any[]) ?? []
+      if (outsideSalesScope(scope, saved, fields.leads, [])) { res.status(404).json({ success: false, error: 'Not found' }); return }
+      fields.leads = withHiddenCards(scope, saved, fields.leads)
+    }
     fields.leads = keepCardPrices(req, fields.leads, (prev?.leads as any[]) ?? [])
     const unwelcome = await cardsNotWelcome(accountId, prev, fields.leads)
     if (unwelcome.size) fields.leads = fields.leads.filter(l => !unwelcome.has(l?.id))
@@ -226,6 +282,8 @@ router.patch('/', async (req: any, res) => {
     const current = await prisma.pipelineState.findUnique({ where: { accountId } })
     // Same rule as a whole save: only onto the version it was built on.
     if (!current || current.version !== base) { refuseStale(res, current, current?.version ?? 0); return }
+    const scope = await salesScopeOf(req)
+    if (scope && outsideSalesScope(scope, (current.leads as any[]) ?? [], delta.upsert.map(u => u.lead), delta.remove)) { res.status(404).json({ success: false, error: 'Not found' }); return }
     const kept = keepCardPrices(req, delta.upsert.map(u => u.lead), (current.leads as any[]) ?? [])
     delta.upsert = delta.upsert.map((u, i) => ({ ...u, lead: kept[i] }))
     const unwelcome = await cardsNotWelcome(accountId, current, delta.upsert.map(u => u.lead))
@@ -281,6 +339,11 @@ async function cardAction(req: any, res: any, run: () => Promise<unknown>) {
 // A quote marked Sold in the app: its card to Signed Contract, moved here on the server (lib/jobTruth.ts).
 router.post('/sold-quote/:quoteId', requireCan('quotes.change'), async (req: any, res) => {
   try {
+    const scope = await salesScopeOf(req)
+    if (scope && !scope.quoteIds.has(String(req.params.quoteId))) {
+      const q = await prisma.savedQuote.findFirst({ where: { id: String(req.params.quoteId), accountId: req.user.crmAccountId }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } })
+      if (!q || !inSalesScope('quotes', scope, q)) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
+    }
     res.json({ success: true, data: await moveCardForSoldQuote(req.user.crmAccountId, String(req.params.quoteId)) })
   } catch (err) {
     console.error('[pipeline] sold quote card:', err)
@@ -288,17 +351,17 @@ router.post('/sold-quote/:quoteId', requireCan('quotes.change'), async (req: any
   }
 })
 
-router.post('/cards/:id/archive', requireCan('records.archive'), (req: any, res) => cardAction(req, res, async () => {
+router.post('/cards/:id/archive', requireCan('records.archive'), ownCardOnly, (req: any, res) => cardAction(req, res, async () => {
   const r = await setArchived(actorOf(req), 'card', String(req.params.id), true)
   await audit(req, 'update', 'PipelineCard', String(req.params.id), { newValues: { archivedAt: r.archivedAt } })
   return r
 }))
-router.post('/cards/:id/unarchive', requireCan('records.archive'), (req: any, res) => cardAction(req, res, async () => {
+router.post('/cards/:id/unarchive', requireCan('records.archive'), ownCardOnly, (req: any, res) => cardAction(req, res, async () => {
   const r = await setArchived(actorOf(req), 'card', String(req.params.id), false)
   await audit(req, 'update', 'PipelineCard', String(req.params.id), { newValues: { archivedAt: null } })
   return r
 }))
-router.delete('/cards/:id', requireCan('records.delete'), (req: any, res) => cardAction(req, res, async () => {
+router.delete('/cards/:id', requireCan('records.delete'), ownCardOnly, (req: any, res) => cardAction(req, res, async () => {
   const r = await deleteRecord(actorOf(req), 'card', String(req.params.id), typeof req.body?.reason === 'string' ? req.body.reason : null)
   await audit(req, 'soft_delete', 'PipelineCard', String(req.params.id), { newValues: r })
   return r
