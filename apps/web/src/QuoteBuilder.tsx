@@ -36,6 +36,7 @@ import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, ownTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
 import { proposalSent } from './proposalOptions'
+import { sentTierCards, sentTiersNote } from './sentTiers'
 import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
 import { useTierSets } from './tierSetsApi'
 import { getContractSections } from './contractStore'
@@ -692,6 +693,23 @@ export default function QuoteBuilder({
   const liveTierSet = tierSetFor(tierSets, style)
   const usingSentTiers = keepSentTiers && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
   const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
+  // What prices the tiers: the fence, its gates, its pricing choices and the tier choices. Changed since the quote
+  // opened, the Price step prices them anew; unchanged, a sent proposal's tiers show as the customer reads them.
+  const fenceKey = JSON.stringify([style?.name ?? '', effRuns, effCorners, effEnds, effWalk, effDbl, effGateWidths, effTeeLines, tearOutSec, tearOutGates,
+    // (Not wholeDollar: it follows any edit, a name or a note too.)
+    parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust, cleanOverrides({ ...pricingOverrides, wholeDollar: undefined }), tierPrefs, jobType])
+  const fenceRef = useRef('')
+  fenceRef.current = fenceKey
+  // As it opened, once settled (as the unsaved work check does).
+  const openFence = useRef<string | null>(null)
+  useEffect(() => { const t = setTimeout(() => { openFence.current = fenceRef.current }, 400); return () => clearTimeout(t) }, [])
+  const fenceChanged = openFence.current !== null && openFence.current !== fenceKey
+  // The tiers as the customer reads them on the proposal that went out (sentTiers.ts): its frozen prices and fences,
+  // never priced again here (review Oct 27 2026: Good $8,780 here at today's costs, $9,407 on the proposal).
+  const sentCards = useMemo(() => (usingSentTiers && init?.proposal
+    ? sentTierCards(init.proposal as Parameters<typeof sentTierCards>[0], init as Parameters<typeof sentTierCards>[1], n => cfg.fenceStyles.find(s => s.name === n))
+    : null), [usingSentTiers, init, cfg.fenceStyles])
+  const showSentCards = !!sentCards && Object.keys(sentCards).length > 0 && !fenceChanged
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
@@ -1608,17 +1626,33 @@ export default function QuoteBuilder({
                     {can('settings.change') && <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
                       onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>}
                   </div>
-                  {usingSentTiers && (
-                    <p className="text-xs text-gray-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-tiers-as-sent>
-                      Tiers as they were when this proposal was sent.{' '}
-                      <button type="button" className="underline font-semibold min-h-[44px]" onClick={() => setKeepSentTiers(false)} data-tiers-use-current>Use the current tiers</button>
-                    </p>
-                  )}
+                  {usingSentTiers && (() => {
+                    // Said as it is (review Oct 27 2026): the prices the customer has, or new prices once the fence is changed.
+                    const note = sentTiersNote({ asSent: showSentCards, fenceChanged, signed: signedQuote, sentPricesChanged: !!sentPricesChanged })
+                    return (
+                      <p className={`text-xs rounded-lg px-2 py-1.5 border ${note.kind === 'changed' ? 'text-amber-900 bg-amber-50 border-amber-300' : 'text-gray-700 bg-blue-50 border-blue-200'}`} data-tiers-as-sent={note.kind}>
+                        {note.text}{' '}
+                        <button type="button" className="underline font-semibold min-h-[44px]" onClick={() => setKeepSentTiers(false)} data-tiers-use-current>Use the current tiers</button>
+                      </p>
+                    )
+                  })()}
                   {!tierSet && tierSets === null && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-tiers-not-loaded>Good, Better, Best have not loaded yet (weak signal). They are tried again every few seconds; a proposal saved now would not show them.</p>}
                   {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. {can('settings.change') ? 'Tap Edit tiers to add one.' : 'Ask Jonathan to add one.'}</p>}
                   {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. {can('settings.change') ? 'Tap Edit tiers to add them.' : 'Ask Jonathan to add them.'}</p>}
                   {tiers.map(t => {
-                    if (!t.style || !t.option) return (
+                    // A sent proposal, the fence unchanged: each tier as the customer reads it (frozen price and fence).
+                    const sent = showSentCards ? sentCards![t.spec.key] : undefined
+                    if (showSentCards && !sent) return (
+                      <div key={t.spec.key} className="rounded-lg border border-dashed border-gray-300 p-3 opacity-80" data-tier={t.spec.key} data-tier-not-sent>
+                        <label className="flex items-center gap-2 min-w-0">
+                          <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} aria-label={`Offer ${t.spec.name}`}
+                            onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
+                          <span className="font-bold text-gray-900" data-tier-name>{t.spec.name}</span>
+                        </label>
+                        <p className="text-xs text-gray-600 mt-1">Not on the proposal that was {signedQuote ? 'signed' : 'sent'}.</p>
+                      </div>
+                    )
+                    if (!sent && (!t.style || !t.option)) return (
                       <div key={t.spec.key} className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3" data-tier={t.spec.key}>
                         <p className="font-bold text-gray-900">{t.spec.name}</p>
                         <p className="text-xs text-amber-900 mt-1" data-tier-reason>Not offered on this quote: {t.reason}</p>
@@ -1630,10 +1664,10 @@ export default function QuoteBuilder({
                       </div>
                     )
                     // The tier whose card is the quote's own best price option on the proposal: its price, its panels.
-                    const folded = t.spec.key === foldedTier
-                    const main = folded || t.style.name === style?.name
-                    const price = main ? adjPrice : t.option.finalPrice
-                    const perFoot = folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option.perFoot
+                    const folded = sent ? sent.own : t.spec.key === foldedTier
+                    const main = folded || (!!t.style && t.style.name === style?.name)
+                    const price = sent ? sent.price : main ? adjPrice : t.option!.finalPrice
+                    const perFoot = sent ? sent.perFoot : folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option!.perFoot
                     return (
                       <div key={t.spec.key} className={`rounded-lg border p-3 ${main ? 'border-orange-500 bg-orange-50' : 'border-gray-200'} ${t.off ? 'opacity-60' : ''}`} data-tier={t.spec.key}>
                         <div className="flex items-start justify-between gap-2">
@@ -1648,13 +1682,13 @@ export default function QuoteBuilder({
                             <span className="block text-xs text-gray-600 tabular-nums">{fmt(perFoot)}/ft</span>
                           </span>
                         </div>
-                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{folded ? ownPanelsLabel : optionLabel(t.style.name)}</p>
+                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
                         {t.spec.text && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{t.spec.text}</p>}
-                        {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{t.widthFt ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
-                        {!folded && t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
-                        {t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
+                        {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{!sent && t.widthFt && t.option ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
+                        {!sent && !folded && t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
+                        {!sent && t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
                         <div className="flex gap-2 mt-2">
-                          <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main}
+                          <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main || !t.style}
                             onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style!.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
                           <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
                             onChange={e => setTierPrefs(p => { const swap = { ...p.swap }; if (e.target.value) swap[t.spec.key] = e.target.value; else delete swap[t.spec.key]; return { ...p, swap } })} data-tier-swap>
