@@ -81,7 +81,8 @@ try {
 
   // ── The Sent one: as the customer saw it (to the cent), no rounding line ──
   await open(sentId)
-  const sentToday = cents(await page.locator('[data-bar-price]').first().innerText())
+  // The bar shows the customer's sent price; the builder's own price at today's costs is on data-builder-cents.
+  const sentToday = Number(await page.locator('[data-bar-price]').first().getAttribute('data-builder-cents'))
   check('Sent before the rule: opens priced to the cent, no rounding line', Number.isFinite(sentToday) && (await page.locator('[data-quote-rounding]').count()) === 0, String(sentToday))
   await page.goto(`${APP}/quotes`); await sleep(800)
 

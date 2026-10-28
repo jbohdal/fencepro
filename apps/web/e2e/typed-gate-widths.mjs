@@ -77,7 +77,9 @@ try {
   const green = page.locator('[data-tree-option^="chain:finish:"]', { hasText: 'Green' })
   if (await green.count()) {
     const t = (await green.first().textContent()) || ''
-    check('Green (switched off) says it is switched off, then what it waits for', /Switched off\. It is also waiting for prices on \d+ parts? in Inventory/.test(t) || /Switched off: fully priced/.test(t), t.slice(0, 200))
+    // Green 4 ft was switched on for quoting on Oct 27 2026; while it is on, it must say so and not "Switched off".
+    if (/available for quoting/i.test(t)) check('Green (switched on) says it is available for quoting, not switched off', !/Switched off/.test(t), t.slice(0, 200))
+    else check('Green (switched off) says it is switched off, then what it waits for', /Switched off\. It is also waiting for prices on \d+ parts? in Inventory/.test(t) || /Switched off: fully priced/.test(t), t.slice(0, 200))
     await green.first().scrollIntoViewIfNeeded(); if (SHOTS) await page.screenshot({ path: `${SHOTS}/settings-green-switched-off.png` })
   } else {
     // Green Chain Link is made on the dev copy only (scripts/stephens-quotes-2026-10-26b.ts, docs/FEATURES.md
