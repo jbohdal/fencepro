@@ -682,6 +682,7 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 ## 9au. Small broken items found by reviewers (Oct 28 2026)
 
 * **Main option in a uniform yard.** A best price quote whose runs all took the same panel width is the same fence at the same price as one tier, so the proposal shows that tier's card and opens with it selected; the Price step now marks that card "Main option" and highlights it (before: all three said "Make main", none highlighted; a mixed yard already showed it, 9ap). The same on a Salesman's phone (the server's quote view twinTierKey) and on a sent quote (sentTiers.ts twin). Prices unchanged. tiers.ts twinTierKey. Tests: builderOwnTier.test.ts. **DEV**
+* **Invite emails name the role as people read it.** The team invite and its resend said "as field crew" (also "sales rep", "office staff", "super admin"); they now say Installer, Salesman, Office, Manager, Admin, Owner, the same words as Team and the sidebar (lib/feedbackModel.ts roleDisplayName). Tests: emailHonest.db.test.ts (each role's invite and resend, through a fake mail server). **DEV**
 
 ## 10. Reliability (top priority)
 

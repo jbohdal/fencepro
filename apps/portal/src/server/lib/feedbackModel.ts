@@ -88,3 +88,10 @@ export function deviceText(ua: string): string {
 export const FEEDBACK_ROLE_LABEL: Record<string, string> = {
   super_admin: 'Owner', admin: 'Admin', manager: 'Manager', sales_rep: 'Salesman', office_staff: 'Office', field_crew: 'Installer',
 }
+
+/**
+ * A role as people read it ("Installer", never "field crew"): the invite emails and anywhere the server writes a role
+ * in words (review Oct 28 2026: an Installer's invite said "as field crew"). A customer login reads "Customer".
+ */
+export const roleDisplayName = (role: string | null | undefined): string =>
+  (role && FEEDBACK_ROLE_LABEL[role]) || (role === 'customer' ? 'Customer' : String(role ?? '').replace(/_/g, ' '))
