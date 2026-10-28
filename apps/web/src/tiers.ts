@@ -16,7 +16,7 @@ import { layoutPanelFt } from './gateSlide'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
 import { styleLabel, colorNamesOf } from './fenceCatalog'
-import { styleParts, type StyleParts } from './proposalOptions'
+import { styleParts, ownTierFold, type StyleParts, type StyleRecordOf } from './proposalOptions'
 
 export { styleParts, type StyleParts }
 
@@ -202,6 +202,31 @@ export function tierOptions(tiers: ResolvedTier[], photoIds: Record<string, stri
     badge: t.popular ? 'Most popular' : undefined,
     photoId: photoIds[tierPhotoName(t.category, t.spec.key)] ?? undefined,
   }))
+}
+
+/**
+ * The tier whose card shows a best price quote's own option on the proposal (proposalOptions.ts ownTierFold),
+ * worked out on the options exactly as the proposal is saved: the tiers offered first, then the quote's own
+ * option at the quote's price (`own`). The quote builder's Price step shows that tier at the quote's price and
+ * panels, so the Salesman reads the number the customer reads (review Oct 27 2026: the builder said Better
+ * $8,593, all 8 ft panels; the proposal's Better card said $8,409, 6 ft and 8 ft panels). null: no fold.
+ */
+export function ownTierKey(tiers: ResolvedTier[], own: ProposalOption | null | undefined, styleOf: StyleRecordOf = () => null, tierSpecs?: Array<{ key: string; width?: string }> | null): TierKey | null {
+  if (!own) return null
+  const opts = tierOptions(tiers)
+  if (opts.some(o => o.fenceStyle === own.fenceStyle)) return null
+  const fold = ownTierFold([...opts, own], { fenceStyle: own.fenceStyle }, styleOf, tierSpecs)
+  return fold ? opts[fold.tier]?.tier?.key ?? null : null
+}
+
+/**
+ * The fold a quote's proposal keeps once sent ("Sent proposals must never reprice", lib/ownTier.ts): the tier key of
+ * the fold frozen on it when saved; null when none was frozen (sent before folding existed, or nothing to fold).
+ */
+export function frozenOwnTierKey(p: { ownTier?: { own: number; tier: number } | null; options?: Array<{ tier?: { key?: string } | null }> | null } | null | undefined): TierKey | null {
+  const f = p?.ownTier
+  if (!f || !Array.isArray(p?.options)) return null
+  return p!.options![f.tier]?.tier?.key ?? null
 }
 
 /** The tier set for a style's category, if there is one. */
