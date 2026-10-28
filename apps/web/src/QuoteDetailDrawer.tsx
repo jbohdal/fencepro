@@ -9,7 +9,7 @@
 
 import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
-import { can, canOpenOperations, signedInRole } from './permissions'
+import { can, canOpenOperations, jobPagePath, signedInRole } from './permissions'
 import { seesCommission, shownMargin, savedCommission } from './salesmanCommission'
 import { styleLabel } from './fenceCatalog'
 import { soldStyleLabel } from './soldStyleLabel'
@@ -109,7 +109,9 @@ export default function QuoteDetailDrawer({
     return () => window.removeEventListener(CO_EVENT, h)
   }, [signedForChange, quote.id])
   const changeNote = signedForChange ? quoteChangeNote(getOrdersForQuote(quote.id), Math.round(quote.finalPrice * 100)) : null
-  const changedJob = changeNote ? getJobByQuoteId(quote.id) : null
+  // The sold quote's job (the Salesman's phone has only the Salesman's own jobs).
+  const quoteJob = getJobByQuoteId(quote.id)
+  const changedJob = changeNote ? quoteJob : null
   // The job's pull sheet (the customer page's Pull sheets tab, opened on the job's), for the office and the Salesman.
   const jobPullSheetPath = quote.customerId
     ? `/customers/${encodeURIComponent(quote.customerId)}?tab=pullsheets${changedJob ? `&ps=${encodeURIComponent(`j_${changedJob.id}`)}` : ''}`
@@ -179,6 +181,14 @@ export default function QuoteDetailDrawer({
                 </button>
               )}
             </div>
+          )}
+
+          {/* The job of this sold quote: its window in Operations, or for the Salesman the job page, read only (JobPage.tsx). */}
+          {quoteJob && !(changedJob && canOpenOperations()) && (
+            <button type="button" onClick={() => navigate(jobPagePath(quoteJob.id), { from: `Quote #${quoteNumber(quote.id)}` })}
+              className="btn btn-secondary w-full min-h-[48px]" data-quote-job-page={quoteJob.id}>
+              Open the job
+            </button>
           )}
 
           {/* Top price bar */}

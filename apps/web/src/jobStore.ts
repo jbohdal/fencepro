@@ -270,6 +270,18 @@ export function getJobByQuoteId(quoteId: string): Job | null {
   return cache.find(j => j.quoteId === quoteId) || null
 }
 
+/**
+ * One job read from the server, for the job page opened by its address
+ * (the Salesman's read only page, JobPage.tsx). The server answers 404 for a
+ * job that is not there or not the Salesman's (portal lib/salesmanJobs.ts).
+ */
+export async function fetchJob(id: string): Promise<{ ok: true; job: Job } | { ok: false; notFound: boolean; error: string }> {
+  const r = await sendJson('GET', `/api/saved-jobs/${encodeURIComponent(id)}`)
+  if (r.result.ok && r.json?.data) return { ok: true, job: fromApi(r.json.data as SavedJobRecord) }
+  if (r.status === 404) return { ok: false, notFound: true, error: 'This job is not one of yours, or it was deleted.' }
+  return { ok: false, notFound: false, error: r.status === 0 ? 'No signal. Try again when the phone has signal.' : r.json?.error || 'Could not open the job. Try again.' }
+}
+
 /* ───────── create from quote ───────── */
 
 export function createJobFromQuote(quote: SavedQuote): Job {

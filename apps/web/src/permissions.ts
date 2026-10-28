@@ -113,12 +113,19 @@ export function isFullRole(role: string | null = current): boolean {
 /**
  * Can this login open Operations (the job board and its job window)? Owner,
  * admin, manager, office and the Installer can; the Salesman cannot (App.tsx
- * NAV_GROUPS). A screen that links to a job asks this first, so a Salesman's
- * tap opens what she can see for that job (its sold quote with its change
- * orders, or its pipeline card) and never bounces her home (round 3 recheck).
+ * NAV_GROUPS). A screen that links to a job uses jobPagePath below, so the
+ * Salesman's tap opens the job page read only and never bounces home.
  */
 export function canOpenOperations(role: string | null = current): boolean {
   return !!role && role !== 'sales_rep'
+}
+
+/**
+ * Where a link to a job goes: its window in Operations, or for the Salesman
+ * the job page, read only and without costs (JobPage.tsx; audit #49, Oct 28 2026).
+ */
+export function jobPagePath(jobId: string, role: string | null = current): string {
+  return canOpenOperations(role) ? `/operations?job=${encodeURIComponent(jobId)}` : `/job?id=${encodeURIComponent(jobId)}`
 }
 
 /** For screens: re-renders when the login changes. */

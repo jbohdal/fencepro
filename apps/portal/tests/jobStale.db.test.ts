@@ -166,8 +166,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the job window and the job flow,
     expect(hold).toMatchObject({ status: 409, json: { code: 'REOPEN_NEEDED' } })
     // Paid → Complete is back too.
     expect((await save(job, now, { opsStage: 'completed' }, office)).json.code).toBe('REOPEN_NEEDED')
-    // The Salesman cannot reopen, even saying Reopen.
-    expect((await save(job, now, { opsStage: 'punch_list' }, sales, { reopen: true })).json.code).toBe('REOPEN_NEEDED')
+    // The Salesman cannot reopen, even saying Reopen: the Salesman's job page is read only (audit #49, lib/salesmanJobs.ts).
+    expect((await save(job, now, { opsStage: 'punch_list' }, sales, { reopen: true }))).toMatchObject({ status: 403, json: { code: 'NOT_ALLOWED' } })
     expect((await jobOf(job))?.status).toBe('paid')
     // The office says Reopen: back in progress, no completed date.
     const yes = await save(job, now, { opsStage: 'punch_list' }, office, { reopen: true })

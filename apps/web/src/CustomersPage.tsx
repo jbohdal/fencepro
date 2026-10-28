@@ -1308,14 +1308,10 @@ function CustomerDetail({
   const [quoteLimit, setQuoteLimit] = useState(LIST_PAGE)
   const [importedLimit, setImportedLimit] = useState(LIST_PAGE)
   const [jobLimit, setJobLimit] = useState(LIST_PAGE)
-  // A Jobs row: the job's window in Operations; for the Salesman (no Operations) its sold quote's window
-  // with its change orders, else the customer's pipeline card, never a bounce (customerPage.ts jobRowTarget).
+  // A Jobs row: the job's window in Operations; for the Salesman (no Operations) the job page, read only
+  // and without costs, never a bounce (customerPage.ts jobRowTarget, JobPage.tsx).
   function openJob(j: Job) {
-    const card = (getPipeline().leads || []).find((l: { customerId?: string; id: string }) => l.customerId === customer.id)
-    const t = jobRowTarget({ jobId: j.id, canOpenOperations: canOpenOperations(), quoteId: j.quoteId, quoteOnPhone: !!(j.quoteId && getQuoteById(j.quoteId)), cardId: card?.id })
-    if (t.kind === 'operations' || t.kind === 'card') navigate(t.path, { from: name || 'Customer' })
-    else if (t.kind === 'quote') onQuoteClick?.(t.quoteId)
-    else toast.info('This job opens from the office', 'Its quote is not on your phone. Ask the office to open it for you.')
+    navigate(jobRowTarget({ jobId: j.id, canOpenOperations: canOpenOperations() }).path, { from: name || 'Customer' })
   }
   const pad = detailsColumn ? '' : 'px-4 lg:px-6'
   const sold = quotes.some(q => q.status === 'SOLD')

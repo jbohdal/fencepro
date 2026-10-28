@@ -152,20 +152,15 @@ export function newestFirst<T extends { takenAt?: unknown }>(items: readonly T[]
 }
 
 /**
- * What a tap on a Jobs tab row opens (round 3 recheck, Oct 26 2026). A login
- * that can open Operations gets the job's window there. The Salesman cannot
- * open Operations (she was bounced home): she gets what she can see for that
- * job, its sold quote's window (with its change orders), else the customer's
- * pipeline card window; only when neither is on her phone, a plain word why.
+ * What a tap on a Jobs tab row opens (round 3 recheck, Oct 26 2026; audit
+ * #49, Oct 28 2026). A login that can open Operations gets the job's window
+ * there. The Salesman cannot open Operations: the Salesman gets the job page,
+ * read only and without costs (JobPage.tsx), never a bounce home.
  */
 export type JobRowTarget =
   | { kind: 'operations'; path: string }
-  | { kind: 'quote'; quoteId: string }
-  | { kind: 'card'; path: string }
-  | { kind: 'none' }
-export function jobRowTarget(o: { jobId: string; canOpenOperations: boolean; quoteId?: string | null; quoteOnPhone: boolean; cardId?: string | null }): JobRowTarget {
+  | { kind: 'job'; path: string }
+export function jobRowTarget(o: { jobId: string; canOpenOperations: boolean }): JobRowTarget {
   if (o.canOpenOperations) return { kind: 'operations', path: `/operations?job=${encodeURIComponent(o.jobId)}` }
-  if (o.quoteId && o.quoteOnPhone) return { kind: 'quote', quoteId: o.quoteId }
-  if (o.cardId) return { kind: 'card', path: `/pipeline?card=${encodeURIComponent(o.cardId)}` }
-  return { kind: 'none' }
+  return { kind: 'job', path: `/job?id=${encodeURIComponent(o.jobId)}` }
 }

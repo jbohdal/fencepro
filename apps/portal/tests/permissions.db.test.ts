@@ -177,7 +177,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
     refused(await call('sales', 'DELETE', `/api/crm-contacts/${contactId}/notes/${noteId}`), /cannot delete/)
     const job = await call('sales', 'POST', '/api/saved-jobs', { id: crypto.randomUUID(), crmContactId: contactId, customerName: 'Perm Test', fenceStyle: "CL - 4' Galv", quoteId })
     expect([200, 201]).toContain(job.status)
-    refused(await call('sales', 'DELETE', `/api/saved-jobs/${job.json.data.id}`), /owner or an admin can delete/)
+    // The Salesman's jobs are read only (audit #49, lib/salesmanJobs.ts).
+    refused(await call('sales', 'DELETE', `/api/saved-jobs/${job.json.data.id}`), /read only/)
     refused(await call('office', 'DELETE', `/api/crm-contacts/${contactId}`), /owner or an admin can delete/)
   })
 
