@@ -130,3 +130,63 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
   }
   return out
 }
+
+/**
+ * The other way round (audit #54, Oct 28 2026): a hand move (Materials
+ * Ordered, Ready to Pull: opsStageModel fieldsForStage) records the job's
+ * materials Ordered or Received, after the office said yes to "Mark the
+ * materials Ordered and move it?". Its Sales Order stayed Pending, so
+ * Inventory > Sales Orders offered only Mark Ordered and the job and its order
+ * disagreed. Now the job's orders follow, forward only, as Mark Ordered and
+ * Mark Received set them (web pendingOrderStore updatePendingOrderStatus):
+ *
+ *   job ordered    order pending → ordered (orderedAt)
+ *   job received   order pending or ordered → received (orderedAt kept or set, receivedAt)
+ *
+ * A cancelled or received order stays as it is. Only the order's status and
+ * dates change: what Mark Received does to stock in the browser (on hand and
+ * set aside counts) is not done here; the hand move does not say the parts
+ * were counted in. The job's orders: those with its jobId, and those of its
+ * quote that name no job (the same link materialsFollowOrders reads).
+ */
+export function ordersAfterJobMaterials(orders: unknown, job: { id: string; quoteId?: string | null }, to: 'ordered' | 'received', now: string): { orders: unknown[]; changed: string[] } {
+  const all = Array.isArray(orders) ? (orders as any[]) : []
+  const from = to === 'ordered' ? ['pending'] : ['pending', 'ordered']
+  const changed: string[] = []
+  const out = all.map(o => {
+    if (!o || typeof o !== 'object') return o
+    const mine = o.jobId ? o.jobId === job.id : !!job.quoteId && o.quoteId === job.quoteId
+    if (!mine || !from.includes(o.status)) return o
+    changed.push(String(o.id))
+    return { ...o, status: to, updatedAt: now, orderedAt: o.orderedAt || now, ...(to === 'received' ? { receivedAt: now } : {}) }
+  })
+  return { orders: out, changed }
+}
+
+/**
+ * Bring the job's Sales Orders up to its materials after a save that raised
+ * them by hand (routes/saved-jobs.ts PATCH). Saved version checked, like every
+ * write to the business record; it does not run materialsFollowOrders (the
+ * job already says so). The ids of the orders changed. Never throws.
+ */
+export async function ordersFollowJobMaterials(accountId: string, job: { id: string; quoteId?: string | null; customerName?: string | null }, to: string | null | undefined, by: string): Promise<string[]> {
+  if (to !== 'ordered' && to !== 'received') return []
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const s = await prisma.businessState.findUnique({ where: { accountId }, select: { pendingOrders: true, version: true } })
+      if (!s) return []
+      const plan = ordersAfterJobMaterials(s.pendingOrders, job, to, new Date().toISOString())
+      if (!plan.changed.length) return []
+      const done = await prisma.businessState.updateMany({ where: { accountId, version: s.version }, data: { pendingOrders: plan.orders as any, version: { increment: 1 } } })
+      if (done.count === 1) {
+        await auditSystem('update', 'BusinessState', accountId, { newValues: { salesOrders: plan.changed, status: to, why: `${job.customerName || 'job'}'s materials marked ${to === 'ordered' ? 'Ordered' : 'Received'} by a stage move`, by } })
+        return plan.changed
+      }
+    }
+    console.error(`[orders follow job] ${job.id}: the business record kept changing; its Sales Order was not marked ${to}`)
+    return []
+  } catch (e) {
+    console.error('[orders follow job]:', e)
+    return []
+  }
+}

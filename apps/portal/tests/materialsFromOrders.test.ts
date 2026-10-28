@@ -1,6 +1,6 @@
 /** The job's materials follow its Sales Order, never backward (lib/materialsFromOrders.ts; review Oct 27 2026). */
 import { describe, test, expect } from 'vitest'
-import { materialsOfOrder, raisedMaterials, ordersNowBought } from '../src/server/lib/materialsFromOrders.js'
+import { materialsOfOrder, raisedMaterials, ordersNowBought, ordersAfterJobMaterials } from '../src/server/lib/materialsFromOrders.js'
 import { heldForDrawing } from '../src/server/lib/waitingStageMove.js'
 import { START_OPS_STAGES } from '../src/server/lib/opsStageModel.js'
 
@@ -49,5 +49,30 @@ describe('materials follow the Sales Order', () => {
     expect(heldForDrawing(l, 'materials_ordered', 'ready_to_pull', undrawn)).toBe('ready_to_pull')
     // Need Drawing hidden in Settings: nothing to hold it in.
     expect(heldForDrawing(l.map(x => (x.id === 'need_drawing' ? { ...x, hidden: true } : x)), 'permit_pending', 'ready_to_pull', undrawn)).toBe('ready_to_pull')
+  })
+
+  test('the Sales Order follows materials a hand move records, forward only (audit #54)', () => {
+    const now = '2026-10-28T16:00:00.000Z'
+    const orders = [
+      { id: 'mine', jobId: 'j1', quoteId: 'q1', status: 'pending' },
+      { id: 'byQuote', quoteId: 'q1', status: 'pending' },
+      { id: 'other', jobId: 'j2', quoteId: 'q1', status: 'pending' },
+      { id: 'gone', jobId: 'j1', status: 'cancelled' },
+      { id: 'in', jobId: 'j1', status: 'received', receivedAt: '2026-10-01T00:00:00.000Z' },
+    ]
+    const o = ordersAfterJobMaterials(orders, { id: 'j1', quoteId: 'q1' }, 'ordered', now)
+    expect(o.changed).toEqual(['mine', 'byQuote'])
+    const by = (id: string) => (o.orders as any[]).find(x => x.id === id)
+    expect([by('mine').status, by('mine').orderedAt, by('mine').updatedAt, by('mine').receivedAt]).toEqual(['ordered', now, now, undefined])
+    expect(by('other').status).toBe('pending')
+    expect(by('gone').status).toBe('cancelled')
+    expect(by('in')).toEqual(orders[4])
+
+    // Received: a pending or ordered order is received; an ordered one keeps the day it was ordered.
+    const r = ordersAfterJobMaterials([{ ...by('mine'), orderedAt: '2026-10-20T00:00:00.000Z' }, orders[1]], { id: 'j1', quoteId: 'q1' }, 'received', now)
+    expect((r.orders as any[]).map(x => [x.status, x.orderedAt, x.receivedAt])).toEqual([['received', '2026-10-20T00:00:00.000Z', now], ['received', now, now]])
+    // Nothing of the job's to change, or no list: nothing changes.
+    expect(ordersAfterJobMaterials(orders, { id: 'j9', quoteId: null }, 'ordered', now).changed).toEqual([])
+    expect(ordersAfterJobMaterials('junk', { id: 'j1' }, 'received', now)).toEqual({ orders: [], changed: [] })
   })
 })

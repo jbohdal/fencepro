@@ -264,7 +264,10 @@ export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk
  * Received). Only a hand move, which asks first (web materialsMoveQuestion),
  * records materials, and only forward: a move back never lowers them (audit
  * #43, Oct 28 2026: a Received job dragged back to Materials Ordered was
- * marked Ordered again). The Sales Order is the record of what came in.
+ * marked Ordered again). The Sales Order is the record of what came in; a
+ * hand move that records materials marks the job's Sales Order the same
+ * (routes/saved-jobs.ts, lib/materialsFromOrders.ts ordersFollowJobMaterials,
+ * audit #54).
  */
 /** How far along materials are; a stage move only raises them. */
 export const MATERIALS_RANK: Record<string, number> = { not_ordered: 0, ordered: 1, received: 2, loaded: 3 }

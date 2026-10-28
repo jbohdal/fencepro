@@ -6,7 +6,9 @@
  * card's Move to, the stage buttons, a drag, a bulk move) now asks first when
  * the move would record more than the job's materials say, and says where the
  * real record comes from (the Sales Order). A job whose materials already say
- * so is moved without a question. No imports: the portal tests use it too.
+ * so is moved without a question. The job's Sales Order is marked the same
+ * by the server (portal lib/materialsFromOrders.ts ordersFollowJobMaterials,
+ * audit #54). No imports: the portal tests use it too.
  */
 
 const SAID: Record<string, string> = { not_ordered: 'not ordered yet', ordered: 'ordered, not received yet' }
@@ -16,10 +18,10 @@ export function materialsMoveQuestion(stageId: string, stageName: string, job: {
   const m = job.materialsStatus || 'not_ordered'
   const who = job.customerName ? `${job.customerName}'s` : "This job's"
   if (stageId === 'ready_to_pull' && (m === 'not_ordered' || m === 'ordered')) {
-    return `${who} materials are ${SAID[m]}. Moving it to ${stageName} records them as Received.\n\nOnly do this if the materials really are in. Marking its Sales Order Received (Inventory > Sales Orders) records it and moves the job by itself.\n\nMark the materials Received and move it?`
+    return `${who} materials are ${SAID[m]}. Moving it to ${stageName} records them as Received, and its Sales Order (Inventory > Sales Orders) as Received too.\n\nOnly do this if the materials really are in. Marking its Sales Order Received records it and moves the job by itself.\n\nMark the materials Received and move it?`
   }
   if (stageId === 'materials_ordered' && m === 'not_ordered') {
-    return `${who} materials are not ordered yet. Moving it to ${stageName} records them as Ordered.\n\nMarking its Sales Order Ordered (Inventory > Sales Orders) records it, and moves a drawn job here by itself.\n\nMark the materials Ordered and move it?`
+    return `${who} materials are not ordered yet. Moving it to ${stageName} records them as Ordered, and its Sales Order (Inventory > Sales Orders) as Ordered too.\n\nMarking its Sales Order Ordered records it, and moves a drawn job here by itself.\n\nMark the materials Ordered and move it?`
   }
   return null
 }
@@ -29,5 +31,5 @@ export function bulkMaterialsMoveQuestion(stageId: string, stageName: string, jo
   const n = jobs.filter(j => materialsMoveQuestion(stageId, stageName, { materialsStatus: j.materialsStatus }) !== null).length
   if (!n) return null
   const what = stageId === 'ready_to_pull' ? 'Received' : 'Ordered'
-  return `${n} of the ${jobs.length} selected job${jobs.length === 1 ? '' : 's'} do not have materials ${what.toLowerCase()} yet. Moving them to ${stageName} records their materials as ${what}.\n\nMove them and mark the materials ${what}?`
+  return `${n} of the ${jobs.length} selected job${jobs.length === 1 ? '' : 's'} do not have materials ${what.toLowerCase()} yet. Moving them to ${stageName} records their materials as ${what}, and their Sales Orders too.\n\nMove them and mark the materials ${what}?`
 }
