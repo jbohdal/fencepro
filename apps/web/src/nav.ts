@@ -295,8 +295,19 @@ function snapshotScreen() {
 export function navigate(url: string, opts: { replace?: boolean; from?: string } = {}) {
   whenSettled(() => {
     const target = new URL(url, window.location.origin)
+    // A window named in the address (/operations?job=<id>) opens the way a reload or a link opens it
+    // (startNav): the screen's entry is the plain screen, and the window pushes its own entry on top as
+    // it opens. Kept in the screen's entry, the window's address was there twice: its × went back to an
+    // entry that opened it again, and Back took two presses (review Oct 28 2026: Open job on a draft PO).
+    const windowParams = new URLSearchParams()
+    for (const k of [...target.searchParams.keys()]) {
+      if (LAYER_PARAMS.has(k)) { windowParams.set(k, target.searchParams.get(k)!); target.searchParams.delete(k) }
+    }
     const to = target.pathname + target.search + target.hash
-    if (to === currentUrl() && !layers.length) return
+    const opensWindow = windowParams.toString() !== ''
+    // Handed to the screen as it draws (takeOpenedParam), never while an earlier Back is still arriving.
+    const handOver = () => { if (opensWindow) openedWith = windowParams }
+    if (to === currentUrl() && !layers.length) { if (opensWindow) { handOver(); emit() } return }
     if (to !== currentUrl() && !leaveAllowed(to)) return
     const open = [...layers].sort((a, b) => b.depth - a.depth)
     let popups = 0
@@ -304,6 +315,7 @@ export function navigate(url: string, opts: { replace?: boolean; from?: string }
     layers.length = 0
     for (const l of open) { l.gone = true; l.close() }
     const go = () => {
+      handOver()
       if (opts.replace) write('replace', { ez: 1, i: index, depth: 0, from: opts.from ?? state()?.from }, to)
       else { snapshotScreen(); index += 1; write('push', { ez: 1, i: index, depth: 0, from: opts.from }, to) }
       emit()
