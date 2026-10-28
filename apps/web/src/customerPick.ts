@@ -15,6 +15,10 @@
  *                                        (a screen can't skip; it is never guessed)
  * "Same name" is portal sameName: letters only, either all the same, or every
  * word of one (two or more, each two letters or more) is in the other.
+ * Put on that customer, a phone or email typed that they have none of is added
+ * to them; one where they already have another is not saved, and the dialog
+ * says so before Save (contactToAdd; audit #48, Oct 28 2026). A customer has
+ * one phone and one email, so theirs is never overwritten.
  *
  * No imports: the portal tests use it too.
  */
@@ -63,4 +67,28 @@ export function decideNewCustomer<C extends PickCustomer>(name: { first: string;
   const named = hits.filter(h => sameName(name, { first: h.firstName, last: h.lastName }))
   if (named.length === 1) return { kind: 'attach', to: named[0] }
   return { kind: 'new_possible', matches: hits }
+}
+
+export interface ContactAdd { add: { phone?: string; email?: string }; kept: Array<{ what: 'phone' | 'email'; typed: string; theirs: string }> }
+
+const digits = (s: string | null | undefined) => String(s || '').replace(/\D/g, '')
+const mail = (s: string | null | undefined) => String(s || '').trim().toLowerCase()
+
+/**
+ * A phone and email typed for a new customer that goes on `to` (decideNewCustomer attach): what is added to
+ * them (they have none of it), and what is not saved because they have another (theirs kept, never overwritten).
+ */
+export function contactToAdd(to: Pick<PickCustomer, 'phone' | 'email'>, typed: { phone?: string; email?: string }): ContactAdd {
+  const out: ContactAdd = { add: {}, kept: [] }
+  const phone = String(typed.phone || '').trim()
+  if (digits(phone)) {
+    if (!digits(to.phone)) out.add.phone = phone
+    else if (digits(phone) !== digits(to.phone)) out.kept.push({ what: 'phone', typed: phone, theirs: String(to.phone) })
+  }
+  const email = String(typed.email || '').trim()
+  if (mail(email)) {
+    if (!mail(to.email)) out.add.email = email
+    else if (mail(email) !== mail(to.email)) out.kept.push({ what: 'email', typed: email, theirs: String(to.email) })
+  }
+  return out
 }

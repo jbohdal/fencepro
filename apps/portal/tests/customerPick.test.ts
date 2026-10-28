@@ -2,11 +2,13 @@
  * The quote builder's Customer name step offers customers on file, and a new
  * customer's Save follows the import rule (audit #44, Oct 28 2026; web
  * src/customerPick.ts): same phone or email and the same name goes on that
- * customer; another name is a new customer with a Possible match.
+ * customer; another name is a new customer with a Possible match. A phone or
+ * email typed that they have none of is added to them; one where they have
+ * another is not saved and is named in the dialog (audit #48).
  */
 
 import { describe, test, expect } from 'vitest'
-import { customersMatching, decideNewCustomer, sameName } from '../../web/src/customerPick'
+import { customersMatching, decideNewCustomer, sameName, contactToAdd } from '../../web/src/customerPick'
 import { sameName as serverSameName } from '../src/server/lib/customerImport'
 
 const c = (id: string, firstName: string, lastName: string, phone = '', email = '', serviceAddress = '') => ({ id, firstName, lastName, phone, email, serviceAddress })
@@ -65,5 +67,20 @@ describe('Save of a new customer whose phone or email is on file', () => {
     for (const [f1, l1, f2, l2] of pairs) {
       expect(sameName({ first: f1, last: l1 }, { first: f2, last: l2 })).toBe(serverSameName({ first: f1, last: l1 }, { first: f2, last: l2 }))
     }
+  })
+})
+
+describe('Put on the customer on file: the phone or email typed (audit #48)', () => {
+  test('one they have none of is added; the same one (any format) is nothing', () => {
+    // Hector Valle, found by phone, has no email.
+    expect(contactToAdd(ON_FILE[1], { phone: '(352) 555-0199', email: ' hv@example.invalid ' })).toEqual({ add: { email: 'hv@example.invalid' }, kept: [] })
+    // Annie Leeds, found by email (any case), has no phone.
+    expect(contactToAdd(ON_FILE[2], { phone: '352 555 0444', email: 'ALeeds@Example.invalid' })).toEqual({ add: { phone: '352 555 0444' }, kept: [] })
+    expect(contactToAdd(ON_FILE[0], { phone: '3525550100', email: 'ann@example.invalid' })).toEqual({ add: {}, kept: [] })
+    expect(contactToAdd(ON_FILE[1], { phone: '', email: '' })).toEqual({ add: {}, kept: [] })
+  })
+  test('another one where they have theirs: kept, never overwritten', () => {
+    expect(contactToAdd(ON_FILE[0], { phone: '(352) 555-0100', email: 'ann.new@example.invalid' })).toEqual({ add: {}, kept: [{ what: 'email', typed: 'ann.new@example.invalid', theirs: 'ann@example.invalid' }] })
+    expect(contactToAdd(ON_FILE[0], { phone: '352-555-0777', email: 'ann@example.invalid' })).toEqual({ add: {}, kept: [{ what: 'phone', typed: '352-555-0777', theirs: '(352) 555-0100' }] })
   })
 })

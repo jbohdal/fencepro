@@ -15,7 +15,7 @@ import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer, findPossibleMatches } from './customerStore'
-import { customersMatching, decideNewCustomer } from './customerPick'
+import { customersMatching, decideNewCustomer, contactToAdd } from './customerPick'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { getRailOptimizerConfig } from './configStore'
@@ -179,6 +179,8 @@ function SaveModal({
   // goes on them; a different name is a new customer with a Possible match (customerPick decideNewCustomer).
   const matches = mode === 'new' ? (findPossibleMatches({ phone, email }) as SavedCustomer[]) : []
   const onFile = decideNewCustomer({ first: firstName, last: lastName }, matches)
+  // Put on them: a phone or email typed that they have none of is added; one where they have another is not saved, said below (audit #48).
+  const contact = onFile.kind === 'attach' ? contactToAdd(onFile.to, { phone, email }) : null
 
   // A pick links the quote to that customer; their record is not changed. Their
   // address fills Property address only when the quote has none yet.
@@ -195,11 +197,14 @@ function SaveModal({
     const onto = mode === 'search' ? selectedCustomer : mode === 'new' && firstName.trim() && onFile.kind === 'attach' ? onFile.to : null
     if (onto) {
       submitted.current = true
+      // New Customer that is someone on file: what they had none of is added to them (their own are kept).
+      const add = mode === 'new' && contact ? contact.add : {}
+      const who = add.phone || add.email ? upsertCustomer({ id: onto.id, firstName: onto.firstName, ...add }).customer : onto
       onSave({
         customerId: onto.id,
         customerName: `${onto.firstName} ${onto.lastName}`,
-        customerPhone: onto.phone,
-        customerEmail: onto.email,
+        customerPhone: who.phone,
+        customerEmail: who.email,
         customerAddress: propertyAddress.trim() || onto.serviceAddress,
         leadSource: onto.leadSource,
         salesRep: onto.salesRep,
@@ -333,6 +338,13 @@ function SaveModal({
                   <p className="text-xs text-amber-800">{onFile.kind === 'attach'
                     ? `Already on file with this phone or email, same name: Save puts the quote on ${`${onFile.to.firstName} ${onFile.to.lastName}`.trim()}.`
                     : 'Already on file with this phone or email, another name: Save makes a new customer, marked Possible match to merge if it is the same person. Or pick one.'}</p>
+                  {contact?.add.phone && <p className="text-xs text-amber-800" data-contact-added="phone">They have no phone on file: Save adds {formatPhone(contact.add.phone)}.</p>}
+                  {contact?.add.email && <p className="text-xs text-amber-800 [overflow-wrap:anywhere]" data-contact-added="email">They have no email on file: Save adds {contact.add.email}.</p>}
+                  {contact?.kept.map(k => (
+                    <p key={k.what} className="text-xs font-semibold text-red-700 [overflow-wrap:anywhere]" data-contact-not-saved={k.what}>
+                      The {k.what} typed, {k.what === 'phone' ? formatPhone(k.typed) : k.typed}, is not saved: they have {k.what === 'phone' ? formatPhone(k.theirs) : k.theirs} on file, and it stays. If theirs changed, change it on their page.
+                    </p>
+                  ))}
                   {matches.slice(0, 3).map(c => (
                     <div key={c.id} className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm text-gray-800 min-w-0 [overflow-wrap:anywhere]">{`${c.firstName} ${c.lastName}`.trim()}{c.phone ? ` · ${formatPhone(c.phone)}` : ''}</span>
