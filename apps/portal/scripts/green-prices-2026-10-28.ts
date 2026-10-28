@@ -66,7 +66,7 @@ import { parseInvoice, findVendor } from '../src/server/lib/invoiceParse.js'
 import { dollars, invoiceNumberKey, pctText } from '../src/server/lib/invoiceMath.js'
 import { contentKey, estTaxBpOf } from '../src/server/lib/vendorInvoices.js'
 import { greenOption } from '../src/server/lib/greenChainLink.js'
-import { GREEN_PRICES_KEY, planGreenRealPrices, docLanded, withReviewFix, type Doc, type GreenPricePlan, type PrintedGreen } from '../src/server/lib/greenRealPrices.js'
+import { GREEN_PRICES_KEY, planGreenRealPrices, docLanded, type Doc, type GreenPricePlan, type PrintedGreen } from '../src/server/lib/greenRealPrices.js'
 
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
@@ -100,8 +100,6 @@ const dayWords = (d: string) => { const [y, m, dd] = d.split('-').map(Number); r
 // ── The documents ───────────────────────────────────────────────────────────
 
 interface FileRead { file: string; doc: Doc; key: string }
-/** Documents corrected as the office would in Needs review, and what was corrected. */
-const fixes = new Map<Doc, string>()
 
 async function readDocs(): Promise<{ files: FileRead[]; docs: Doc[] }> {
   const files: FileRead[] = []
@@ -125,8 +123,8 @@ async function readDocs(): Promise<{ files: FileRead[]; docs: Doc[] }> {
     if (d) d.files.push(f.file)
     else byKey.set(f.key, { ...f.doc, files: [f.file] })
   }
-  // A document the reader misreads gets the correction the office would make in Needs review (lib/greenRealPrices REVIEW_FIXES).
-  const docs = [...byKey.values()].map(d => { const r = withReviewFix(d); if (r.fix) fixes.set(r.doc, r.fix); return r.doc })
+  // Stephens' 2023 layout (06-120125: fuel and freight in one box) is read by the reader itself (lib/invoiceParse splitByReadingOrder).
+  const docs = [...byKey.values()]
   return { files, docs: docs.sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number)) }
 }
 
@@ -219,7 +217,6 @@ function report(files: Array<{ file: string; doc: Doc }>, docs: Doc[], st: State
     const L = docLanded(d, estBp)
     say(`   ${d.number} of ${d.date}: ${d.lines.length} lines, items ${money(d.subtotalCents)}, freight ${money(d.freightCents || null)}, tax ${d.taxFound ? dollars(d.taxCents) : 'none printed'}, fuel ${L.fuelCents ? dollars(L.fuelCents) : 'none'}, total ${money(d.totalCents)}${L.ok ? '' : `  DOES NOT ADD UP: ${L.problems.join('; ')}`}`)
     say(`      ${d.files.length > 1 ? `the same document in ${d.files.length} files: ` : 'file: '}${d.files.join(' | ')}`)
-    if (fixes.has(d)) say(`      CORRECTED as the office would in Needs review: ${fixes.get(d)}; it adds up after`)
   }
 
   const plan = planGreenRealPrices(docs, st.items, estBp, (i: any) => m.borrowedPrice(i))

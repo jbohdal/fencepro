@@ -24,7 +24,13 @@ import { fileURLToPath } from 'url'
 
 const run = promisify(execFile)
 
-export interface Word { t: string; x: number; y: number; w: number; h: number; c: number; l?: number }
+/**
+ * A word and its place on the page (fractions of the page, top left 0,0).
+ * `n` is its place in the order the reader gave the words (a text PDF: the
+ * order they are drawn), set when rows are made; it is how two totals the PDF
+ * puts in one box at one height are told apart (Stephens 2023, parseInvoice).
+ */
+export interface Word { t: string; x: number; y: number; w: number; h: number; c: number; l?: number; n?: number }
 export interface Row {
   /** Index on its page, top to bottom. */
   i: number
@@ -173,7 +179,8 @@ export function wordsToRows(input: Word[], page: number, aspect = 0.77): Row[] {
   const words = placeStrayWords(input, aspect)
   const tilt = measureTilt(words, aspect)
   const cos = Math.cos(-tilt), sin = Math.sin(-tilt)
-  const placed = words.map(w => {
+  const placed = words.map((w0, n) => {
+    const w = { ...w0, n }
     const cx = (w.x + w.w / 2) * aspect, cy = w.y + w.h / 2
     return { w, sx: cx * cos - cy * sin, sy: cx * sin + cy * cos }
   })
