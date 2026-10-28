@@ -265,7 +265,8 @@ export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk
  * records materials, and only forward: a move back never lowers them (audit
  * #43, Oct 28 2026: a Received job dragged back to Materials Ordered was
  * marked Ordered again). The Sales Order is the record of what came in; a
- * hand move that records materials marks the job's Sales Order the same
+ * hand move that records materials marks the job's pending Sales Order
+ * Ordered, never Received (Mark Received in Inventory does the stock)
  * (routes/saved-jobs.ts, lib/materialsFromOrders.ts ordersFollowJobMaterials,
  * audit #54).
  */

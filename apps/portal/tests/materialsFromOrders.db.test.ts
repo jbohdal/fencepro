@@ -50,10 +50,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
 
   const tag = `mfo-${crypto.randomUUID().slice(0, 8)}`
-  const ids = { a: '', b: '', c: '', d: '', e: '', f: '' }
+  const ids = { a: '', b: '', c: '', d: '', e: '', f: '', g: '' }
   let quoteD = ''
   const quoteC = `${tag}-quote`
-  const orderIds = [`${tag}-oa`, `${tag}-ob`, `${tag}-oc`, `${tag}-od`, `${tag}-oe`, `${tag}-of`]
+  const orderIds = [`${tag}-oa`, `${tag}-ob`, `${tag}-oc`, `${tag}-od`, `${tag}-oe`, `${tag}-of`, `${tag}-og`]
 
   const mk = (name: string, extra: Record<string, unknown>) => prisma.savedJob.create({ data: { accountId, customerName: `Testy ${tag} ${name}`, status: 'staging', ...extra } as any })
   const order = (id: string, extra: Record<string, unknown>) => ({ id, quoteName: `Test ${tag}`, customerName: `Testy ${tag}`, status: 'pending', totalCostCents: 1000, items: [], notes: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra })
@@ -84,13 +84,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     quoteD = (await prisma.savedQuote.create({ data: { accountId, customerName: `Testy ${tag} D`, customerAddress: '1 Test Ln, Ocala, FL', fenceStyle: "WV-ND 6'x8' Privacy", runs: [40], pullSheet: [], finalPrice: 900, status: 'SOLD', soldAt: new Date(), layout: { yard: { sides: [] } } } as any })).id
     ids.d = (await mk('D', { opsStage: 'need_drawing', quoteId: quoteD, locateTicket: '1', locateCalledDate: '2026-10-15', locatesDate: '2026-10-20', locatesExpDate: '2099-12-31' })).id
     await prisma.permit.create({ data: { accountId, jobId: ids.d, status: 'approved' } })
-    // Moved by hand (audit #54): E with a pending order, F whose order the office cancelled.
+    // Moved by hand (audit #54): E and G with a pending order, F whose order the office cancelled.
     ids.e = (await mk('E', { opsStage: 'need_drawing', drawingComplete: true })).id
     ids.f = (await mk('F', { opsStage: 'need_drawing', drawingComplete: true })).id
+    ids.g = (await mk('G', { opsStage: 'need_drawing', drawingComplete: true })).id
     for (let i = 0; i < 10; i++) {
       const s = await prisma.businessState.findUnique({ where: { accountId } })
       const list = [order(orderIds[0], { jobId: ids.a, quoteId: `${tag}-qa` }), order(orderIds[1], { jobId: ids.b, quoteId: `${tag}-qb` }), order(orderIds[2], { quoteId: quoteC }), order(orderIds[3], { jobId: ids.d, quoteId: quoteD }),
-        order(orderIds[4], { jobId: ids.e, quoteId: `${tag}-qe` }), order(orderIds[5], { jobId: ids.f, quoteId: `${tag}-qf`, status: 'cancelled' }), ...(((s?.pendingOrders as any[]) ?? []))]
+        order(orderIds[4], { jobId: ids.e, quoteId: `${tag}-qe` }), order(orderIds[5], { jobId: ids.f, quoteId: `${tag}-qf`, status: 'cancelled' }), order(orderIds[6], { jobId: ids.g, quoteId: `${tag}-qg` }), ...(((s?.pendingOrders as any[]) ?? []))]
       const d = await prisma.businessState.updateMany({ where: { accountId, version: s!.version }, data: { pendingOrders: list, version: { increment: 1 } } })
       if (d.count) break
     }
@@ -186,25 +187,32 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     expect((await lines()).at(-1)).toBe('Moved to Ready to Pull by itself: materials received (Sales Order marked Received).')
   }, 30_000)
 
-  test('a hand move that records materials marks the job\'s Sales Order the same (audit #54)', async () => {
+  test('a hand move that records materials marks the job\'s pending Sales Order Ordered, never Received (audit #54)', async () => {
     const orderOf = async (id: string) => ((await call('GET', '/api/business-state')).json.data.pendingOrders as any[]).find(o => o?.id === id)
     // Into Materials Ordered by hand: the job says Ordered, and so does its order (Inventory then offers Mark Received).
     const m = await call('PATCH', `/api/saved-jobs/${ids.e}`, { opsStage: 'materials_ordered' })
     expect(m.status).toBe(200)
     expect([m.json.data.opsStage, m.json.data.materialsStatus]).toEqual(['materials_ordered', 'ordered'])
     const o1 = await orderOf(orderIds[4])
-    expect(o1.status).toBe('ordered')
-    expect(typeof o1.orderedAt).toBe('string')
-    expect(o1.receivedAt).toBeUndefined()
-    // On to Ready to Pull by hand: Received on both, the day it was ordered kept.
+    expect([o1.status, typeof o1.orderedAt, o1.receivedAt]).toEqual(['ordered', 'string', undefined])
+    // On to Ready to Pull by hand: the job says Received; its order stays Ordered, for Mark Received in Inventory (the stock counts).
     const r = await call('PATCH', `/api/saved-jobs/${ids.e}`, { opsStage: 'ready_to_pull' })
     expect([r.json.data.opsStage, r.json.data.materialsStatus]).toEqual(['ready_to_pull', 'received'])
-    const o2 = await orderOf(orderIds[4])
-    expect([o2.status, o2.orderedAt, typeof o2.receivedAt]).toEqual(['received', o1.orderedAt, 'string'])
+    expect(await orderOf(orderIds[4])).toEqual(o1)
+    // Straight to Ready to Pull with a pending order: the order is marked Ordered, not Received.
+    const g = await call('PATCH', `/api/saved-jobs/${ids.g}`, { opsStage: 'ready_to_pull' })
+    expect([g.json.data.opsStage, g.json.data.materialsStatus]).toEqual(['ready_to_pull', 'received'])
+    const og = await orderOf(orderIds[6])
+    expect([og.status, typeof og.orderedAt, og.receivedAt]).toEqual(['ordered', 'string', undefined])
+    // The office then marks it Received in Inventory: the order is Received; the job, already Received, does not move.
+    await mark({ [orderIds[6]]: 'received' })
+    expect((await orderOf(orderIds[6])).status).toBe('received')
+    const ga = await job(ids.g)
+    expect([ga.opsStage, ga.materialsStatus]).toEqual(['ready_to_pull', 'received'])
     // Dragged back to Materials Ordered: neither goes back.
     await call('PATCH', `/api/saved-jobs/${ids.e}`, { opsStage: 'materials_ordered' })
     expect((await job(ids.e)).materialsStatus).toBe('received')
-    expect((await orderOf(orderIds[4])).status).toBe('received')
+    expect((await orderOf(orderIds[4])).status).toBe('ordered')
     // A cancelled order stays cancelled.
     await call('PATCH', `/api/saved-jobs/${ids.f}`, { opsStage: 'materials_ordered' })
     expect((await job(ids.f)).materialsStatus).toBe('ordered')

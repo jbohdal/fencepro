@@ -371,7 +371,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       return row
     })
     await audit(req, 'update', 'SavedJob', updated.id, { oldValues: existing, newValues: updated })
-    // Materials raised by hand (a move into Materials Ordered or Ready to Pull): its Sales Order says the same (audit #54, lib/materialsFromOrders.ts).
+    // Materials raised by hand (a move into Materials Ordered or Ready to Pull): its pending Sales Order is marked Ordered, never Received (audit #54, lib/materialsFromOrders.ts).
     if ((MATERIALS_RANK[updated.materialsStatus as string] ?? 0) > (MATERIALS_RANK[existing.materialsStatus as string] ?? 0)) {
       await ordersFollowJobMaterials(req.user.crmAccountId, updated, updated.materialsStatus, req.user.email ?? 'staff')
     }

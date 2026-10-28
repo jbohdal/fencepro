@@ -67,7 +67,7 @@ describe('materials follow the Sales Order', () => {
     expect(HELD_FOR_DRAWING_WORDS).toBe('Materials in; waits for its drawing')
   })
 
-  test('the Sales Order follows materials a hand move records, forward only (audit #54)', () => {
+  test('a hand move that records materials marks the job\'s pending Sales Order Ordered, never Received (audit #54)', () => {
     const now = '2026-10-28T16:00:00.000Z'
     const orders = [
       { id: 'mine', jobId: 'j1', quoteId: 'q1', status: 'pending' },
@@ -76,7 +76,7 @@ describe('materials follow the Sales Order', () => {
       { id: 'gone', jobId: 'j1', status: 'cancelled' },
       { id: 'in', jobId: 'j1', status: 'received', receivedAt: '2026-10-01T00:00:00.000Z' },
     ]
-    const o = ordersAfterJobMaterials(orders, { id: 'j1', quoteId: 'q1' }, 'ordered', now)
+    const o = ordersAfterJobMaterials(orders, { id: 'j1', quoteId: 'q1' }, now)
     expect(o.changed).toEqual(['mine', 'byQuote'])
     const by = (id: string) => (o.orders as any[]).find(x => x.id === id)
     expect([by('mine').status, by('mine').orderedAt, by('mine').updatedAt, by('mine').receivedAt]).toEqual(['ordered', now, now, undefined])
@@ -84,11 +84,12 @@ describe('materials follow the Sales Order', () => {
     expect(by('gone').status).toBe('cancelled')
     expect(by('in')).toEqual(orders[4])
 
-    // Received: a pending or ordered order is received; an ordered one keeps the day it was ordered.
-    const r = ordersAfterJobMaterials([{ ...by('mine'), orderedAt: '2026-10-20T00:00:00.000Z' }, orders[1]], { id: 'j1', quoteId: 'q1' }, 'received', now)
-    expect((r.orders as any[]).map(x => [x.status, x.orderedAt, x.receivedAt])).toEqual([['received', '2026-10-20T00:00:00.000Z', now], ['received', now, now]])
+    // An order already Ordered stays Ordered, with the day it was ordered: Mark Received in Inventory does the rest (stock counts).
+    const ordered = { ...by('mine'), orderedAt: '2026-10-20T00:00:00.000Z' }
+    const r = ordersAfterJobMaterials([ordered], { id: 'j1', quoteId: 'q1' }, now)
+    expect(r).toEqual({ orders: [ordered], changed: [] })
     // Nothing of the job's to change, or no list: nothing changes.
-    expect(ordersAfterJobMaterials(orders, { id: 'j9', quoteId: null }, 'ordered', now).changed).toEqual([])
-    expect(ordersAfterJobMaterials('junk', { id: 'j1' }, 'received', now)).toEqual({ orders: [], changed: [] })
+    expect(ordersAfterJobMaterials(orders, { id: 'j9', quoteId: null }, now).changed).toEqual([])
+    expect(ordersAfterJobMaterials('junk', { id: 'j1' }, now)).toEqual({ orders: [], changed: [] })
   })
 })
