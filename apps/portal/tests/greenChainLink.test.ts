@@ -24,7 +24,8 @@ import { estimateConfig } from '../../web/src/estimate'
 import { setMaterialPriceSource, inventoryPriceSource } from '../../web/src/materialCalculator'
 import { setSavedKitSets, kitSetFor, builtInKitSet } from '../../web/src/materialKits'
 import { isQuotable } from '../../web/src/styleAvailability'
-import { GREEN_LINES, GREEN_ASK, greenLineFor, greenAskFor, greenKitFrom, kitKey, planGreenChainLink, planGreenFollowsBlack, STEPHENS } from '../src/server/lib/greenChainLink'
+import { GREEN_LINES, GREEN_ASK, greenLineFor, greenAskFor, greenKitFrom, kitKey, planGreenChainLink, planGreenFollowsBlack, planGreenBlackPrices, planGreenSwitchOn, greenCopyDiffs, FROM_BLACK_WORDS, STEPHENS } from '../src/server/lib/greenChainLink'
+import { priceAgeLabel, borrowedPrice } from '../../web/src/priceAge'
 
 const prices: Record<string, number> = JSON.parse(fs.readFileSync(new URL('./fixtures/inventory-prices-2026-10-14.json', import.meta.url), 'utf8'))
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, '')
@@ -225,4 +226,100 @@ describe('green chain link from 06-251707', () => {
     const ds = kitOf(plan.state, 'chain/4/green/res/ds')
     expect(ds.kits.anyDblGate.map((x: any) => x.part)).toContain('Green, Fork, PS, 1-3/8"')
   })
+
+  // Oct 27, Jonathan: "If a green part isn't on the quote, use the black price and list it for me." He OK'd switching it on.
+  /** Green made, then 06-251707 ordered: each green part a quote line prices gets a price (any price will do here). */
+  function ordered() {
+    const plan = planGreenChainLink(m, start())
+    const st = JSON.parse(JSON.stringify(plan.state))
+    for (const g of GREEN_LINES) { const it = st.items.find((i: any) => norm(i.name) === norm(g.part)); if (it) { it.unitCost = 9.99; it.priceUpdatedAt = '2026-10-26'; it.priceImported = false } }
+    // The black dig set posts as live has them (06-251126 ordered, Oct 26); the Oct 14 fixture has them with no price.
+    for (const [name, cost] of [['DS, Pipe, Blk, Line Post, 1-5/8" 0.055 wall, 4\' Chain Link', 11.74], ['DS, Pipe, Blk, Terminal Post, 2-1/2" 0.055 wall, 4\' Chain Link', 16.94]] as const) {
+      const it = st.items.find((i: any) => norm(i.name) === norm(name))
+      if (it) it.unitCost = cost; else st.items.push({ id: `ds-${cost}`, name, unitCost: cost, category: 'Chainlink Black' })
+    }
+    return st
+  }
+
+  test('black price fallback: every green part still without a price takes the black part\'s price, marked; no black price changes', () => {
+    const st = ordered()
+    const before = JSON.parse(JSON.stringify(st.items))
+    const out = planGreenBlackPrices(m, st, '2026-10-27')
+    expect(out.missing).toEqual([])
+    expect(out.priced.map(r => [r.part, r.black])).toEqual([
+      [`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`, `Chainlink, Black, Gate, 1-3/8", 4' x 5' (.065)`],
+      [`Chainlink, Green, Gate, 1-3/8", 4' x 6' (.065)`, `Chainlink, Black, Gate, 1-3/8", 4' x 6' (.065)`],
+      ['DS, Pipe, Green, Line Post, 1-5/8" 0.055 wall, 4\' Chain Link', 'DS, Pipe, Blk, Line Post, 1-5/8" 0.055 wall, 4\' Chain Link'],
+      ['DS, Pipe, Green, Terminal Post, 2-1/2" 0.055 wall, 4\' Chain Link', 'DS, Pipe, Blk, Terminal Post, 2-1/2" 0.055 wall, 4\' Chain Link'],
+      ['Green, Bolt, 3/8" x 2" w/ Nut', 'Black, Bolt, 3/8" x 2" w/ Nut'],
+      ['Green, Bolt, 3/8" x 3" w/ Nut', 'Black, Bolt, 3/8" x 3" w/ Nut'],
+      ['Green, Bolt, 5/16 x 1-1/4" w/ Nut', 'Black, Bolt, 5/16 x 1-1/4" w/ Nut'],
+      ['Green, Fork, PS, 2-1/2"', 'Black, Fork, PS, 2-1/2"'],
+    ])
+    const item = (items: any[], name: string) => items.find((i: any) => norm(i.name) === norm(name))
+    for (const r of out.priced) {
+      const black = item(before, r.black)
+      expect(r.cents).toBe(Math.round(black.unitCost * 100))
+      const g = item(out.state.items, r.part)
+      expect(Math.round(g.unitCost * 100)).toBe(r.cents)
+      // Marked, and unconfirmed: a vendor document or a typed price replaces it.
+      expect(g.priceFrom).toEqual({ part: r.black, cents: r.cents, on: '2026-10-27', words: FROM_BLACK_WORDS })
+      expect(g.priceImported).toBe(true)
+      expect(priceAgeLabel(g)).toBe(`From Black until a green price is entered (${r.black})`)
+    }
+    // Only the green items changed: every other item is exactly as it was (never a black price).
+    const changed = out.state.items.filter((i: any) => JSON.stringify(i) !== JSON.stringify(item(before, i.name)))
+    expect(changed.map((i: any) => i.name).sort()).toEqual(out.priced.map(r => r.part).sort())
+    // The parts 06-251707 priced keep the quote's price.
+    for (const g of GREEN_LINES) { const it = item(out.state.items, g.part); if (it) expect(it.unitCost).toBe(9.99) }
+    // The input is not changed, and run again it prices nothing.
+    expect(st.items).toEqual(before)
+    expect(planGreenBlackPrices(m, out.state, '2026-10-28').priced).toEqual([])
+    // A green price entered later ends the mark (the label shows its date again).
+    const typed = { ...item(out.state.items, out.priced[0].part), unitCost: 150, priceUpdatedAt: '2026-10-28', priceImported: false }
+    expect(borrowedPrice(typed)).toBeNull()
+  })
+
+  test('black price fallback: a black part with no price leaves the green part unpriced and listed', () => {
+    const st = ordered()
+    const fork = st.items.find((i: any) => i.name === 'Black, Fork, PS, 2-1/2"')
+    fork.unitCost = 0
+    const out = planGreenBlackPrices(m, st, '2026-10-27')
+    expect(out.missing.map(r => [r.part, r.black, r.cents])).toEqual([['Green, Fork, PS, 2-1/2"', 'Black, Fork, PS, 2-1/2"', null]])
+    expect(out.state.items.find((i: any) => i.name === 'Green, Fork, PS, 2-1/2"').unitCost).toBe(0)
+    expect(out.priced).toHaveLength(7)
+  })
+
+  test('switched on: both Green fences are available for quoting once every part has a price, with the plain names the customer reads', () => {
+    const fb = planGreenBlackPrices(m, ordered(), '2026-10-27')
+    const on = planGreenSwitchOn(m, fb.state)
+    expect(on.switched).toBe(true)
+    expect(planGreenSwitchOn(m, on.state).switched).toBe(false)
+    setMaterialPriceSource(inventoryPriceSource(on.state.items))
+    setSavedKitSets(() => on.state.kits)
+    const cfg = estimateConfig({ fenceStyles: on.state.fenceStyles, fenceCatalog: on.state.fenceCatalog, pricing: { overheadPct: 30 } } as any)
+    const green = cfg.fenceStyles.filter(x => x.material === 'chain' && x.choices?.finish === 'green')
+    expect(green.map(x => x.label).sort()).toEqual(['Green Chain Link, 4 ft, Residential, Dig set', 'Green Chain Link, 4 ft, Residential, No dig'])
+    for (const r of green) { expect(r.held).toBeUndefined(); expect(isQuotable(r)).toBe(true) }
+    // Switched on but a part without a price: held back, said why.
+    const fork = on.state.items.find((i: any) => i.name === 'Green, Fork, PS, 2-1/2"')
+    fork.unitCost = 0
+    setMaterialPriceSource(inventoryPriceSource(on.state.items))
+    const cfg2 = estimateConfig({ fenceStyles: on.state.fenceStyles, fenceCatalog: on.state.fenceCatalog, pricing: { overheadPct: 30 } } as any)
+    for (const r of cfg2.fenceStyles.filter(x => x.material === 'chain' && x.choices?.finish === 'green')) expect(isQuotable(r)).toBe(false)
+  })
+
+  test('a faithful copy: Green reads the same labor, gate labor, margin, profit and section width as Black 4 ft', () => {
+    const on = planGreenSwitchOn(m, planGreenBlackPrices(m, ordered(), '2026-10-27').state).state
+    setMaterialPriceSource(inventoryPriceSource(on.items))
+    setSavedKitSets(() => on.kits)
+    const cfg = estimateConfig({ fenceStyles: on.fenceStyles, fenceCatalog: on.fenceCatalog, pricing: { overheadPct: 30 } } as any)
+    const pairs = on.fenceStyles.filter((s: any) => s.choices?.finish === 'green').map((s: any) => [s.madeFrom, s.name] as [string, string])
+    expect(pairs).toHaveLength(2)
+    expect(greenCopyDiffs(cfg.fenceStyles, pairs)).toEqual([])
+    // A difference is caught.
+    const off = cfg.fenceStyles.map(s => (s.name === pairs[0][1] ? { ...s, sectionsPerMH: 9 } : s))
+    expect(greenCopyDiffs(off, pairs).map(d => d.field)).toEqual(['sectionsPerMH'])
+  })
 })
+

@@ -15,6 +15,20 @@ export interface PricedItem {
   priceUpdatedAt?: string
   /** Came in by import and nobody has confirmed it since. */
   priceImported?: boolean
+  /** Priced from another part until it has its own price (green chain link parts at the black part's price, Oct 27 2026). */
+  priceFrom?: PriceFrom
+}
+
+/** Where a borrowed price came from: the part, its price then (cents), the day, and the words shown. */
+export interface PriceFrom { part: string; cents: number; on: string; words: string }
+
+/** The borrowed price still stands: the cost is still that part's price and nobody has confirmed it. */
+export function borrowedPrice(item: PricedItem): PriceFrom | null {
+  const f = item.priceFrom
+  if (!f || typeof f.cents !== 'number') return null
+  if (Math.round(Number(item.unitCost) * 100) !== f.cents) return null
+  if (item.priceUpdatedAt && !item.priceImported) return null
+  return f
 }
 
 export type PriceAge = 'unconfirmed' | 'old' | 'fresh'
@@ -38,8 +52,10 @@ export function compareByPriceAge(a: PricedItem, b: PricedItem): number {
   return key(a).localeCompare(key(b))
 }
 
-/** "Mar 4, 2026", or "Imported, not yet confirmed". */
+/** "Mar 4, 2026", "Imported, not yet confirmed", or where a borrowed price came from ("From Black until a green price is entered (Black, Bolt, ...)"). */
 export function priceAgeLabel(item: PricedItem): string {
+  const from = borrowedPrice(item)
+  if (from) return `${from.words} (${from.part})`
   if (!item.priceUpdatedAt || item.priceImported) return 'Imported, not yet confirmed'
   const [y, m, d] = item.priceUpdatedAt.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
