@@ -12,7 +12,7 @@
 import { calculateQuote, widthComparison, type QuoteCalc, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import { totalMaterialCost, type GateWidths, type LineItem } from './materialCalculator'
 import { gateWidthsOf, type YardLayout } from './yardLayout'
-import { resolveTiers, tierOptions, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
+import { resolveTiers, tierOptions, ownTierKey, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
 import { compareStyles, priceOption, workOption, type ProposalOption } from './proposal'
 import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
@@ -86,6 +86,8 @@ export interface QuoteJob {
   compareRows: Array<{ style: QuoteStyle; option: ProposalOption }>
   /** The proposal's options, priced (tiers, then the quote's own style and the ones ticked; or the move / repair options). */
   proposalOptions: ProposalOption[]
+  /** A best price quote: the tier whose card shows its own option on a proposal saved now, at its price and panels (tiers.ts ownTierKey); null when none. */
+  ownTierKey: string | null
   /** What the quote saves as its pricing choices (with the cost factor and overhead it was priced at). */
   pricing: QuotePricingOverrides | undefined
 }
@@ -211,6 +213,11 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     const offered = [style, ...styles.filter(s => (req.offer ?? []).includes(s.name) && s.name !== style.name)]
     for (const s of offered) if (!proposalOptions.some(o => o.fenceStyle === s.name)) proposalOptions.push(priceOption(calcInput, s))
   }
+  // The quote's own option as the proposal saves it (at the quote's price), and the tier card it shows as.
+  const ownOpt = !work && style ? proposalOptions.find(o => !o.tier && o.fenceStyle === style.name) : undefined
+  const ownTier = ownOpt && price > 0
+    ? ownTierKey(tiers, { ...ownOpt, finalPrice: price }, n => cfg.fenceStyles.find(s => s.name === n), req.tierSet?.tiers)
+    : null
 
   const pricing = cleanOverrides({
     ...req.overrides,
@@ -222,7 +229,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   return {
     style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, totals,
     pullSheet: work ? work.pullSheet : calc.materials.items,
-    tiers, compareRows, proposalOptions, pricing,
+    tiers, compareRows, proposalOptions, ownTierKey: ownTier, pricing,
   }
 }
 
@@ -277,6 +284,7 @@ export function quoteView(job: QuoteJob) {
     })),
     compare: job.compareRows.map(r => ({ styleName: r.style.name, option: optionView(r.option) })),
     proposalOptions: job.proposalOptions.map(optionView),
+    ownTierKey: job.ownTierKey,
   }
 }
 export type QuoteView = ReturnType<typeof quoteView>

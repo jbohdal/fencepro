@@ -34,7 +34,9 @@ import { getQuotes } from './quoteStore'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
-import { resolveTiers, tierOptions, tierSetFor, type TierPrefs, type TierKey } from './tiers'
+import { resolveTiers, tierOptions, tierSetFor, ownTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
+import { proposalSent } from './proposalOptions'
+import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
 import { useTierSets } from './tierSetsApi'
 import { getContractSections } from './contractStore'
 import { listStylePhotos } from './stylePhotosApi'
@@ -821,6 +823,18 @@ export default function QuoteBuilder({
     ? resolveTiers(calcInput, cfg.fenceStyles, tierSet, tierPrefs)
     : []), [tierSet, style, sections, JSON.stringify(calcInput), tierPrefs, invTick, internal])  // eslint-disable-line react-hooks/exhaustive-deps
   const tiers = internal ? tiersLocal : viewTiers(sv, FENCE_STYLES)
+  // A best price quote's own option is shown on the proposal as one tier's card, at the quote's price and with the
+  // panels its runs took (proposalOptions.ts ownTierFold): that tier shows the same here (review Oct 27 2026: Better
+  // read $8,593 all 8 ft here, $8,409 6 ft and 8 ft on the proposal). A sent proposal keeps only the fold it went out with.
+  const ownTierNow = useMemo(() => {
+    if (jobType !== 'new' || !style || sections <= 0) return null
+    if (!internal) return sv?.ownTierKey ?? null
+    if (!tiersLocal.length || !(adjPrice > 0)) return null
+    return ownTierKey(tiersLocal, { ...priceOption(calcInput, style), finalPrice: adjPrice }, n => cfg.fenceStyles.find(s => s.name === n), tierSet?.tiers)
+  }, [jobType, style, sections, internal, sv, tiersLocal, adjPrice, JSON.stringify(calcInput), tierSet, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  const foldedTier: TierKey | null = ownTierNow && (!init?.id || !proposalSent(init as Parameters<typeof proposalSent>[0]) || frozenOwnTierKey(init.proposal as Parameters<typeof frozenOwnTierKey>[0]) === ownTierNow) ? ownTierNow : null
+  // The panels the quote's runs took, as the customer reads them ("6 ft and 8 ft panels"; lib/customerFenceName.ts).
+  const ownPanelsLabel = style ? customerFenceName(optionLabel(style.name), effRuns.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0).map(x => calc.perRunRail[x.i])) : ''
   // Compare options: the same yard as the styles that make sense for this one.
   const compareRowsLocal = useMemo(() => (internal && showCompare && style && sections > 0
     ? compareStyles(style, FENCE_STYLES).map(s => ({ style: s, option: priceOption(calcInput, s) }))
@@ -1615,8 +1629,11 @@ export default function QuoteBuilder({
                         </select>
                       </div>
                     )
-                    const main = t.style.name === style?.name
+                    // The tier whose card is the quote's own best price option on the proposal: its price, its panels.
+                    const folded = t.spec.key === foldedTier
+                    const main = folded || t.style.name === style?.name
                     const price = main ? adjPrice : t.option.finalPrice
+                    const perFoot = folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option.perFoot
                     return (
                       <div key={t.spec.key} className={`rounded-lg border p-3 ${main ? 'border-orange-500 bg-orange-50' : 'border-gray-200'} ${t.off ? 'opacity-60' : ''}`} data-tier={t.spec.key}>
                         <div className="flex items-start justify-between gap-2">
@@ -1628,12 +1645,13 @@ export default function QuoteBuilder({
                           </label>
                           <span className="text-right">
                             <span className="block font-bold tabular-nums" data-tier-price>{fmt(price)}</span>
-                            <span className="block text-xs text-gray-600 tabular-nums">{fmt(t.option.perFoot)}/ft</span>
+                            <span className="block text-xs text-gray-600 tabular-nums">{fmt(perFoot)}/ft</span>
                           </span>
                         </div>
-                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{optionLabel(t.style.name)}</p>
+                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{folded ? ownPanelsLabel : optionLabel(t.style.name)}</p>
                         {t.spec.text && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{t.spec.text}</p>}
-                        {t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
+                        {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{t.widthFt ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
+                        {!folded && t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
                         {t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
                         <div className="flex gap-2 mt-2">
                           <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main}
@@ -1867,7 +1885,7 @@ export default function QuoteBuilder({
                     const profitOf = (price: number, rounding: number, adj: number) => splitDollars({ price, materials: materialCost, labor: laborCost + tearOutCost, commission: showCommission ? commAmt : 0, overheadPct: overheadNow, roundingCents: rounding, adjustmentCents: adj }).find(x => x.part === 'profit')!.dollars
                     const netAfter = profitOf(adjPrice, roundingCents, adjApplied)
                     const netBefore = profitOf(listPrice, roundingCents, 0)
-                    const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size : (work ? 1 : 0)
+                    const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size - (foldedTier ? 1 : 0) : (work ? 1 : 0)
                     return (
                       <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 space-y-1 text-sm" data-adjust-summary>
                         <div className="flex justify-between"><span className="text-gray-600">Price before adjustment</span><span className="tabular-nums" data-adjust-list>{fmt(listPrice)}</span></div>
