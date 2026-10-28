@@ -118,7 +118,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
     // The job window's Job history shows it: from → to, by itself, the reason, one line each (lib/jobMoveHistory.ts, audit #47).
     const tl = await call('GET', `/api/change-orders/timeline?jobId=${id}`)
     const moves = (tl.json.data.items as any[]).filter(i => i.kind === 'stage')
-    expect(moves.map(i => i.title)).toEqual(['Moved from Permit Pending to Need Drawing automatically', 'Moved from Awaiting Locates to Permit Pending automatically'])
+    expect(moves.map(i => i.title)).toEqual(['Moved from Permit Pending to Need Drawing automatically:', 'Moved from Awaiting Locates to Permit Pending automatically:'])
     expect(moves[0].detail).toMatch(/^permit is Approved\. \(Permit saved, /)
     expect(moves[1].detail).toMatch(/^811 locate is clear to dig\. \(811 locate saved, /)
     // A second browser, on its next read.

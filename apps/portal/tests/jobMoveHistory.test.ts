@@ -28,11 +28,11 @@ describe('job move history', () => {
     const used = new Set<number>()
     const items = moveHistoryItems(START_OPS_STAGES, rows, notes, names, used)
     expect(items.map(i => [i.kind, i.title, i.detail, i.by])).toEqual([
-      ['stage', 'Moved from Materials Ordered to Ready to Pull automatically', 'materials received (Sales Order marked Received). (Sales Order, bob@example.invalid)', ''],
+      ['stage', 'Moved from Materials Ordered to Ready to Pull automatically:', 'materials received (Sales Order marked Received). (Sales Order, bob@example.invalid)', ''],
       ['materials', 'Materials: Ordered → Received automatically', '(Sales Order, bob@example.invalid)', ''],
       ['stage', 'Moved from Permit Pending to Materials Ordered', '', 'Jane Smith'],
       ['materials', 'Materials: Not ordered yet → Ordered', '', 'Jane Smith'],
-      ['stage', 'Moved from Awaiting Locates to Permit Pending automatically', '811 locate is clear to dig. (811 locate saved, Jane Smith)', ''],
+      ['stage', 'Moved from Awaiting Locates to Permit Pending automatically:', '811 locate is clear to dig. (811 locate saved, Jane Smith)', ''],
       ['stage', 'Job made in Awaiting Locates', '', 'Jane Smith'],
     ])
     expect([...used].sort()).toEqual([0, 1])
@@ -50,6 +50,6 @@ describe('job move history', () => {
 
   test('a move by itself with no note keeps its own reason (the crew tapped Start)', () => {
     const items = moveHistoryItems(START_OPS_STAGES, [row(0, { userEmail: 'system', userName: null, oldValues: { status: 'scheduled', opsStage: 'scheduled' }, newValues: { status: 'in_progress', opsStage: 'in_progress', why: 'The crew tapped Start' } })])
-    expect(items).toEqual([{ at: t(0).toISOString(), kind: 'stage', title: 'Moved from Scheduled to In Progress automatically', detail: 'The crew tapped Start.', by: '' }])
+    expect(items).toEqual([{ at: t(0).toISOString(), kind: 'stage', title: 'Moved from Scheduled to In Progress automatically:', detail: 'The crew tapped Start.', by: '' }])
   })
 })

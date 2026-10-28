@@ -81,6 +81,8 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
     const e = String((a.newValues as any)?.by ?? '').match(/[^\s,]+@[^\s,]+/)?.[0]
     if (e) emails.add(e)
   }
+  // Billing lines and change orders that kept who by email ("aud-office@…") get the name too (review, Oct 28 2026).
+  for (const it of items) if (it.by.includes('@')) emails.add(it.by)
   const ids = audits.map(a => a.userId).filter((x): x is string => !!x)
   const users = await prisma.crmUser.findMany({ where: { OR: [{ id: { in: ids } }, { email: { in: [...emails] } }] }, select: { id: true, email: true, firstName: true, lastName: true } })
   const fullName = (u: { firstName: string; lastName: string } | undefined) => (u ? `${u.firstName} ${u.lastName}`.trim() || null : null)
@@ -89,5 +91,6 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
   const used = new Set<number>()
   items.push(...moveHistoryItems(stages, audits.map(a => ({ ...a, userName: fullName(users.find(u => u.id === a.userId)) ?? (a.userEmail ? byEmail(a.userEmail) : null) })), notes, byEmail, used))
   notes.forEach((m, i) => { if (!used.has(i)) items.push({ at: m.createdAt.toISOString(), kind: 'stage', title: m.body, detail: '', by: '' }) })
+  for (const it of items) if (it.by.includes('@')) it.by = byEmail(it.by) ?? it.by
   return { items: items.sort((a, b) => b.at.localeCompare(a.at)), scheduleWarning: await scheduleFit(accountId, jobId), contractRev }
 }

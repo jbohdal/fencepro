@@ -4,7 +4,7 @@
  * table every job save already writes (CrmAuditLog, entity SavedJob):
  *
  *   "Moved from Awaiting Locates to Permit Pending" · Jane Smith
- *   "Moved from Permit Pending to Ready to Pull automatically" 811 locate is clear to dig. (811 locate saved, Jane Smith)
+ *   "Moved from Permit Pending to Ready to Pull automatically:" 811 locate is clear to dig. (811 locate saved, Jane Smith)
  *   "Materials: Not ordered yet → Ordered" · Jane Smith
  *
  * Review Oct 28 2026 (audit #47): who moved the job, or changed its
@@ -75,7 +75,7 @@ export function moveHistoryItems(stages: OpsStageDef[], rows: JobAuditRow[], not
           let reason = why
           if (n >= 0) { notesUsed.add(n); reason = notes[n].body.replace(/^.*? by itself: /, '') || why }
           const detail = [reason && !/[.!?]$/.test(reason) ? `${reason}.` : reason, sysBy ? `(${sysBy})` : ''].filter(Boolean).join(' ')
-          lines.push({ at, kind: 'stage', title: `Moved from ${name(from)} to ${name(to)} automatically`, detail, by: '' })
+          lines.push({ at, kind: 'stage', title: `Moved from ${name(from)} to ${name(to)} automatically${detail ? ':' : ''}`, detail, by: '' })
         } else lines.push({ at, kind: 'stage', title: `Moved from ${name(from)} to ${name(to)}`, detail: '', by })
       }
       stage = to
