@@ -415,12 +415,13 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">{item.category}</td>
                     {can('costs.view') && <td className="px-3 py-2.5 text-right">
-                      <div className="flex items-center justify-end">
+                      {/* View only (no prices.change: the office, the Salesman): the cost as text, not a box that looks editable (review Oct 28 2026). */}
+                      {canPrice ? <div className="flex items-center justify-end">
                         <span className="text-gray-400 mr-1 text-xs">$</span>
                         <input type="number" step="0.01" min="0"
                           className="w-20 text-right border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400 font-mono"
                           value={item.unitCost} onChange={e => updateItem(item.id, 'unitCost', parseFloat(e.target.value) || 0)} />
-                      </div>
+                      </div> : <span className="text-xs font-mono text-gray-700 tabular-nums" data-unit-cost-readonly>{fmt(item.unitCost)}</span>}
                     </td>}
                     <td className="px-3 py-2.5" data-price-age={ageOf(item)} data-price-item={item.id}>
                       <div className="flex items-center gap-2">
