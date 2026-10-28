@@ -20,6 +20,9 @@ import { roleOf } from './permissions.js'
 
 export const SALESMAN_ROLE = 'sales_rep'
 
+/** Every lead assignment note starts with this (lib/leadAssign.ts); the History shows it as "Lead assigned". */
+export const ASSIGN_NOTE_PREFIX = 'Lead assigned to '
+
 export const repName = (u: { firstName?: string | null; lastName?: string | null }): string =>
   `${u.firstName ?? ''} ${u.lastName ?? ''}`.replace(/\s+/g, ' ').trim()
 

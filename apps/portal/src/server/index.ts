@@ -66,6 +66,7 @@ import { tagDocVersions } from './lib/docVersions.js'
 import kvRoutes from './routes/kv.js'
 import intakeRoutes, { quotingRouter, retellRouter } from './routes/intake.js'
 import leadChatRoutes from './routes/lead-chat.js'
+import leadAssignRoutes from './routes/lead-assign.js'
 import knowledgeRoutes from './routes/knowledge.js'
 import googleCalendarRoutes from './routes/google-calendar.js'
 import ezBudgetRoutes, { ezBudgetPublicRoutes } from './routes/ez-budget.js'
@@ -357,6 +358,7 @@ app.use('/api/pipeline-stages', pipelineStagesRoutes)
 app.use('/api/option-lists', optionListsRoutes)
 app.use('/api/vinyl-colors', vinylColorRoutes)
 app.use('/api/intake', intakeRoutes)
+app.use('/api/lead-assign', leadAssignRoutes) // Website and phone leads waiting for a rep; one tap Assign (lib/leadAssign.ts). Owner and office only.
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)
 app.use('/api/deleted-records', deletedRecordRoutes)
 app.use('/api/customer-matches', customerMatchRoutes) // Possible matches on website and phone leads; merge and Undo merge (lib/customerMerge.ts)

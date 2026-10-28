@@ -13,6 +13,7 @@ import { withLock } from './once.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId } from './pipelineStageModel.js'
 import { findPossibleMatches } from './customerMerge.js'
+import { pushNewLeadSoon } from './leadAssign.js'
 
 export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
 
@@ -25,6 +26,8 @@ export interface IntakeInput {
   email?: string
   address?: string
   fenceType?: string
+  /** Feet of fence asked for, when known (the owner's push says it; not stored). */
+  feet?: number | null
   /** Plain text shown on the contact's Notes tab and in the notification. */
   summary: string
   estimate?: number | null
@@ -177,6 +180,14 @@ async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<I
       link: `/customers?customer=${encodeURIComponent(contact.id)}`,
     },
   }).catch(err => console.error('[intake] notification failed:', err))
+
+  // Nobody is assigned to a new lead yet: push the owner with a one tap Assign (lib/leadAssign.ts). In the
+  // background, so the website and the phone agent get their answer at once; a failed push leaves the lead
+  // on the app's waiting list all the same.
+  pushNewLeadSoon(accountId, contact.id, {
+    name: displayName || input.phone || '', source: input.source, address: input.address, fenceType: input.fenceType, feet: input.feet,
+    callbackAt: input.callbackAt, asked: input.source === 'website_chat' ? input.summary.split('\n')[0].replace(/^Booked an estimate on the website chat for /, 'estimate ').replace(/\.$/, '') : null,
+  })
 
   return { intakeId: row.id, contactId: contact.id, duplicate: false, contactName: displayName }
 }
