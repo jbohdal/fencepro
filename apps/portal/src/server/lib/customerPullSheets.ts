@@ -20,6 +20,7 @@
  */
 
 import prisma from './prisma.js'
+import { nyDay } from './warranties.js'
 import { plainStyleName } from './estimates.js'
 import { toCents, qty } from './jobCostingMath.js'
 import { quotedCostFor, quotedNow, actualFor, linesOf as takeoffLinesOf } from './jobCosting.js'
@@ -99,9 +100,11 @@ export interface PullSheetEntry {
   packetToken: string | null
 }
 
-const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : '')
+// Florida's day, not UTC's: a sheet signed after 8 pm Eastern is still that day (review, Oct 27 2026).
+const day = (d: Date | null | undefined) => (d ? nyDay(d) : '')
 const words = (iso: string) => {
-  const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`)
+  const ymd = iso.length > 10 && !Number.isNaN(new Date(iso).getTime()) ? nyDay(new Date(iso)) : iso.slice(0, 10)
+  const d = new Date(`${ymd}T12:00:00Z`)
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' })
 }
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : 0)
