@@ -6,7 +6,11 @@
  *   - an order marked Ordered: its job says ordered (job row, the list a
  *     second browser reads with ?since=, the Materials Confirmed milestone);
  *     a job in its own Need Drawing stage, locates in and permit not needed,
- *     keeps its board stage (Ordered only records the materials);
+ *     keeps its board stage (Ordered only records the materials of a job
+ *     still to be drawn);
+ *   - a drawn job waiting in Need Drawing for its order (round 2, Oct 28
+ *     2026): Ordered moves it to Materials Ordered, Received to Ready to
+ *     Pull, each with a line in its history;
  *   - marked Received: the job says received and moves on to Ready to Pull
  *     (locate clear, permit not needed), with a line in its history;
  *   - a job already Loaded stays Loaded when its order says Ordered (never backward);
@@ -43,9 +47,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
 
   const tag = `mfo-${crypto.randomUUID().slice(0, 8)}`
-  const ids = { a: '', b: '', c: '' }
+  const ids = { a: '', b: '', c: '', d: '' }
+  let quoteD = ''
   const quoteC = `${tag}-quote`
-  const orderIds = [`${tag}-oa`, `${tag}-ob`, `${tag}-oc`]
+  const orderIds = [`${tag}-oa`, `${tag}-ob`, `${tag}-oc`, `${tag}-od`]
 
   const mk = (name: string, extra: Record<string, unknown>) => prisma.savedJob.create({ data: { accountId, customerName: `Testy ${tag} ${name}`, status: 'staging', ...extra } as any })
   const order = (id: string, extra: Record<string, unknown>) => ({ id, quoteName: `Test ${tag}`, customerName: `Testy ${tag}`, status: 'pending', totalCostCents: 1000, items: [], notes: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra })
@@ -64,9 +69,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     await prisma.permit.create({ data: { accountId, jobId: ids.a, status: 'not_needed' } })
     ids.b = (await mk('B', { materialsStatus: 'loaded' })).id
     ids.c = (await mk('C', { quoteId: quoteC })).id
+    // Drawn in the quote builder, locate clear and permit in: it waits in Need Drawing for its materials order.
+    quoteD = (await prisma.savedQuote.create({ data: { accountId, customerName: `Testy ${tag} D`, customerAddress: '1 Test Ln, Ocala, FL', fenceStyle: "WV-ND 6'x8' Privacy", runs: [40], pullSheet: [], finalPrice: 900, status: 'SOLD', soldAt: new Date(), layout: { yard: { sides: [] } } } as any })).id
+    ids.d = (await mk('D', { opsStage: 'need_drawing', quoteId: quoteD, locateTicket: '1', locateCalledDate: '2026-10-15', locatesDate: '2026-10-20', locatesExpDate: '2099-12-31' })).id
+    await prisma.permit.create({ data: { accountId, jobId: ids.d, status: 'approved' } })
     for (let i = 0; i < 10; i++) {
       const s = await prisma.businessState.findUnique({ where: { accountId } })
-      const list = [order(orderIds[0], { jobId: ids.a, quoteId: `${tag}-qa` }), order(orderIds[1], { jobId: ids.b, quoteId: `${tag}-qb` }), order(orderIds[2], { quoteId: quoteC }), ...(((s?.pendingOrders as any[]) ?? []))]
+      const list = [order(orderIds[0], { jobId: ids.a, quoteId: `${tag}-qa` }), order(orderIds[1], { jobId: ids.b, quoteId: `${tag}-qb` }), order(orderIds[2], { quoteId: quoteC }), order(orderIds[3], { jobId: ids.d, quoteId: quoteD }), ...(((s?.pendingOrders as any[]) ?? []))]
       const d = await prisma.businessState.updateMany({ where: { accountId, version: s!.version }, data: { pendingOrders: list, version: { increment: 1 } } })
       if (d.count) break
     }
@@ -88,6 +97,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: jobIds } } })
     await prisma.activityLog.deleteMany({ where: { entityType: 'job', entityId: { in: jobIds } } })
     await prisma.savedJob.deleteMany({ where: { id: { in: jobIds } } })
+    if (quoteD) await prisma.savedQuote.deleteMany({ where: { id: quoteD } })
     server.close()
   })
 
@@ -123,7 +133,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     const lines = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.a } })
     expect(lines.map(l => l.body)).toEqual(['Moved to Ready to Pull by itself: materials received (Sales Order marked Received).'])
 
-    // Put back to pending: the job keeps what it has.
+    // Put back to pending: the job keeps what it has (D is looked at in its own test below).
     await mark({ [orderIds[0]]: 'pending', [orderIds[2]]: 'pending' })
     expect((await job(ids.a)).materialsStatus).toBe('received')
     expect((await job(ids.c)).materialsStatus).toBe('ordered')
@@ -131,5 +141,25 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     // An order Ordered again on a job already received: not backward.
     await mark({ [orderIds[0]]: 'ordered' })
     expect((await job(ids.a)).materialsStatus).toBe('received')
+  }, 30_000)
+
+  test('a drawn job waits in Need Drawing for its order: Ordered → Materials Ordered, Received → Ready to Pull', async () => {
+    const lines = async () => (await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.d }, orderBy: { createdAt: 'asc' } })).map(l => l.body)
+    expect((await job(ids.d)).opsStage).toBe('need_drawing')
+    await mark({ [orderIds[3]]: 'ordered' })
+    const d = await job(ids.d)
+    expect([d.opsStage, d.materialsStatus, d.status]).toEqual(['materials_ordered', 'ordered', 'staging'])
+    expect(await lines()).toEqual(['Moved to Materials Ordered by itself: materials ordered (Sales Order marked Ordered) and the drawing is done.'])
+
+    // Dragged back to Need Drawing, then put back to pending and Ordered again: nothing changes (materials already ordered).
+    await prisma.savedJob.update({ where: { id: ids.d }, data: { opsStage: 'need_drawing' } })
+    await mark({ [orderIds[3]]: 'pending' })
+    await mark({ [orderIds[3]]: 'ordered' })
+    expect((await job(ids.d)).opsStage).toBe('need_drawing')
+
+    await mark({ [orderIds[3]]: 'received' })
+    const r = await job(ids.d)
+    expect([r.opsStage, r.materialsStatus]).toEqual(['ready_to_pull', 'received'])
+    expect((await lines()).at(-1)).toBe('Moved to Ready to Pull by itself: materials received (Sales Order marked Received).')
   }, 30_000)
 })

@@ -6,16 +6,23 @@
  *     arrives: the daily sweep below), or the permit becomes issued (Approved,
  *     Inspection scheduled, Passed) or Not needed: from Awaiting Locates or
  *     Permit Pending;
- *   - the Sales Order is marked Received (lib/materialsFromOrders.ts). Marked
- *     Ordered only records the materials; the card does not move.
+ *   - the Sales Order is marked Received (lib/materialsFromOrders.ts);
+ *   - the Sales Order is marked Ordered, for a job that already has its
+ *     drawing only (it is passed over Need Drawing the moment it belongs in
+ *     Materials Ordered). An undrawn job's card does not move on Ordered.
  *
  * Where to: the waiting stage its records put it in (opsStageModel
  * waitingStageOf), where the locate counts only when it is Clear to dig (a
  * good to dig day still ahead does not):
  *   no clear locate → Awaiting Locates; permit not issued or not set → Permit
  *   Pending; materials received → Ready to Pull; ordered → Materials Ordered;
- *   else Need Drawing, passed over to the next stage on the board when the
- *   job already has its drawing (jobHasDrawing).
+ *   else (nothing ordered) Need Drawing, drawn or not.
+ * Round 2 (Jonathan, Oct 28 2026: "A drawn job must not land in Materials
+ * Ordered before materials are ordered."): a drawn job is no longer passed
+ * over to Materials Ordered while nothing is ordered. It waits in Need Drawing
+ * (the last stage whose step is still ahead of it: the materials order), its
+ * history line saying it is drawn and moves on when the order is marked
+ * Ordered; the card says "Drawn: order materials".
  * A repair whose locate is clear and permit issued or not needed goes to the
  * stage that stands for ready to schedule (readyStageOf).
  *
@@ -37,7 +44,7 @@ import { loadOpsStages } from './opsStages.js'
 import { permitStatusOf } from './permitStatus.js'
 import { installWord } from './workWords.js'
 import { locateOf, locateStatus } from './locates.js'
-import { boardStages, nextStage, permitIsOk, phaseOf, sortedStages, stageById, stageOfJob, waitingStageOf, type OpsStageDef } from './opsStageModel.js'
+import { permitIsOk, phaseOf, readyStageOf, sortedStages, stageById, stageOfJob, waitingStageOf, type OpsStageDef } from './opsStageModel.js'
 
 type Json = any
 
@@ -63,26 +70,22 @@ export function jobHasDrawing(job: { drawingComplete?: boolean | null }, quote: 
   return !!job.drawingComplete || !!layout?.yard || !!layout?.widgetDrawing
 }
 
-/** The stage that stands for ready to schedule: one named so, else the last board stage before the scheduled ones (Ready to Pull). */
-export function readyStageOf(stages: OpsStageDef[]): string | null {
-  const cols = boardStages(stages)
-  const named = cols.find(s => s.name.trim().toLowerCase() === 'ready to schedule')
-  if (named) return named.id
-  const waiting = cols.filter(s => phaseOf(stages, s.id) === 'staging')
-  return waiting[waiting.length - 1]?.id ?? null
-}
+/** The stage that stands for ready to schedule (opsStageModel readyStageOf, kept there so Settings can say where it must sit). */
+export { readyStageOf }
 
 /** Where the job's records put it (see the top of the file), or null. */
 export function autoStageOf(stages: OpsStageDef[], job: Json, f: MoveFacts): string | null {
   const clear = locateClear(job, f.today)
   if (f.repair && clear && permitIsOk(f.permit)) return readyStageOf(stages)
-  let w = waitingStageOf(stages, { locatesDate: clear ? job.locatesDate : null, materialsStatus: job.materialsStatus }, f.permit)
-  if (w === 'need_drawing' && (f.drawing || f.repair)) {
-    const n = nextStage(stages, w)
-    w = n && phaseOf(stages, n.id) === 'staging' ? n.id : null
-  }
-  return w
+  // Nothing ordered → Need Drawing even when drawn: never Materials Ordered before the materials are (round 2, Oct 28 2026).
+  return waitingStageOf(stages, { locatesDate: clear ? job.locatesDate : null, materialsStatus: job.materialsStatus }, f.permit)
 }
+
+/** Said in the history line of a drawn job that waits in Need Drawing for its materials order. */
+export const DRAWN_WAITS_WORDS = 'Already drawn: it moves to Materials Ordered when its Sales Order is marked Ordered.'
+
+/** The words after "Moved to … by itself: <reason>." for a move to `to`. */
+export const moveMoreWords = (to: string, f: MoveFacts) => (to === 'need_drawing' && f.drawing ? DRAWN_WAITS_WORDS : '')
 
 /** The facts for a job: its permit, whether it is a repair, whether it has its drawing, today. */
 export async function moveFactsOf(accountId: string, job: Json, now = new Date()): Promise<MoveFacts> {
@@ -113,12 +116,12 @@ export async function waitingStageMove(
   return blocked ? null : w
 }
 
-/** "Moved to Permit Pending by itself: 811 locate is clear to dig." */
-export const autoMoveWords = (stages: OpsStageDef[], to: string, reason: string) => `Moved to ${stageById(stages, to)?.name ?? to} by itself: ${reason}.`
+/** "Moved to Permit Pending by itself: 811 locate is clear to dig." and `more` after it, when given. */
+export const autoMoveWords = (stages: OpsStageDef[], to: string, reason: string, more = '') => `Moved to ${stageById(stages, to)?.name ?? to} by itself: ${reason}.${more ? ` ${more}` : ''}`
 
 /** Keep the move in the job's history (the job window's Job history and the customer's Activity). */
-export async function noteAutoMove(jobId: string, stages: OpsStageDef[], to: string, reason: string, db: Json = prisma): Promise<void> {
-  await db.activityLog.create({ data: { entityType: 'job', entityId: jobId, actor: 'system', body: autoMoveWords(stages, to, reason), metadata: { kind: AUTO_MOVE_KIND, to } } })
+export async function noteAutoMove(jobId: string, stages: OpsStageDef[], to: string, reason: string, db: Json = prisma, more = ''): Promise<void> {
+  await db.activityLog.create({ data: { entityType: 'job', entityId: jobId, actor: 'system', body: autoMoveWords(stages, to, reason, more), metadata: { kind: AUTO_MOVE_KIND, to } } })
 }
 
 const PERMIT_WORDS: Record<string, string> = { not_needed: 'Not needed', approved: 'Approved', inspection_scheduled: 'Inspection scheduled', passed: 'Passed' }
@@ -147,7 +150,7 @@ export async function stageFollowsLocateAndPermit(accountId: string, jobId: stri
       if (!d.count) return null
       const r = await tx.savedJob.findUniqueOrThrow({ where: { id: jobId } })
       await recordJobChanges(accountId, job, r, tx)
-      await noteAutoMove(jobId, stages, w, reason, tx)
+      await noteAutoMove(jobId, stages, w, reason, tx, moveMoreWords(w, facts))
       return r
     })
     if (!row) return null
