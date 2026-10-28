@@ -9,9 +9,12 @@
  * job answers 404, the same as a job that is not there.
  *
  * Read only: the Salesman reads jobs and makes the job when a quote is sold
- * (POST /api/saved-jobs, the signed contract flow). Every other job write
- * (stage moves, Advance, hold, notes, materials, the locate, milestone
- * ticks, archive, delete, import) is refused with a plain sentence.
+ * (POST /api/saved-jobs, the signed contract flow). One more write stays, as
+ * before: booking an install appointment linked to the Salesman's own job
+ * (BookingDialog.tsx) gives the job that appointment's dates and "scheduled"
+ * (installBookingSave below). Every other job write (stage moves, Advance,
+ * hold, notes, materials, the locate, milestone ticks, archive, delete,
+ * import) is refused with a plain sentence.
  *
  * Without costs: every answer a Salesman gets from the job routes goes out
  * through redactCosts (lib/costRedact.ts: margin, material and labor cost,
@@ -25,6 +28,7 @@ import prisma from './prisma.js'
 import { redactCosts, MONEY_MARK } from './costRedact.js'
 import { verifyStaffBearer } from './secrets.js'
 import { sameName, repName, SALESMAN_ROLE } from './salesRep.js'
+import { floridaDay } from './automations/context.js'
 
 export const isSalesman = (role: string | null | undefined): boolean => role === SALESMAN_ROLE
 
@@ -111,6 +115,43 @@ export function forSalesman<T>(body: T): T {
   return scrubText(redactCosts(body)) as T
 }
 
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+const YMD = /^\d{4}-\d{2}-\d{2}$/
+/** What the booking changes on the job; opsStage follows the status (the server works it out). */
+const BOOKING_KEYS = new Set(['scheduledDate', 'scheduledEndDate', 'status'])
+
+/**
+ * The job save that follows booking an install appointment on the Salesman's
+ * own job (BookingDialog.tsx: the appointment is saved, then the job takes its
+ * dates with status "scheduled"). The PATCH carries the whole job and the copy
+ * it was edited from (base); it counts as that booking only when what changed
+ * is the install days (and the status, to scheduled), and an install
+ * appointment linked to this job has those very days. Returns the body to save
+ * (only those fields), or null: anything else is refused.
+ */
+export async function installBookingSave(me: SalesmanLogin, jobId: string, body: unknown): Promise<Record<string, unknown> | null> {
+  if (!body || typeof body !== 'object') return null
+  const b = body as Record<string, unknown>
+  const base = b.base
+  if (!base || typeof base !== 'object' || b.reopen) return null
+  const was = base as Record<string, unknown>
+  const changed = Object.keys(b).filter(k => k !== 'base' && k !== 'reopen' && k !== 'opsStage' && !same(b[k], was[k]))
+  if (!changed.length || changed.some(k => !BOOKING_KEYS.has(k)) || !changed.includes('scheduledDate')) return null
+  if (changed.includes('status') && b.status !== 'scheduled') return null
+  const start = b.scheduledDate
+  const end = b.scheduledEndDate ?? null
+  if (typeof start !== 'string' || !YMD.test(start) || (end !== null && (typeof end !== 'string' || !YMD.test(end)))) return null
+  const appts = await prisma.appointment.findMany({
+    where: { accountId: me.accountId, jobId, type: 'install', deletedAt: null, archivedAt: null, status: { not: 'cancelled' }, startAt: { not: null }, endAt: { not: null } },
+    select: { startAt: true, endAt: true },
+  })
+  const booked = appts.some(a => floridaDay(a.startAt!) === start && (end === null || floridaDay(new Date(a.endAt!.getTime() - 1)) === end))
+  if (!booked) return null
+  const out: Record<string, unknown> = { base: { scheduledDate: was.scheduledDate, scheduledEndDate: was.scheduledEndDate ?? null, status: was.status, opsStage: was.opsStage } }
+  for (const k of changed) out[k] = b[k]
+  return out
+}
+
 /** Words in a job route path that are not a job id. */
 const NOT_IDS = new Set(['milestones', 'sync'])
 
@@ -130,7 +171,10 @@ export async function salesmanJobScope(req: any, res: any, next: any): Promise<v
     const parts = String(req.path || '/').split('/').filter(Boolean)
     const first = parts[0]
     const creating = req.method === 'POST' && parts.length === 0
-    if (req.method !== 'GET' && !creating) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: SALESMAN_JOB_READ_ONLY }); return }
+    // Booking an install on the Salesman's own job: only its days and "scheduled" are saved.
+    const booking = req.method === 'PATCH' && parts.length === 1 && (await salesmanOwnsJob(me, first)) ? await installBookingSave(me, first, req.body) : null
+    if (booking) req.body = booking
+    if (req.method !== 'GET' && !creating && !booking) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: SALESMAN_JOB_READ_ONLY }); return }
     if (first && !NOT_IDS.has(first) && !(await salesmanOwnsJob(me, first))) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     const listing = req.method === 'GET' && (parts.length === 0 || (first === 'milestones' && parts[1] === 'summary'))
     const mine = listing ? await salesmanJobIds(me) : null

@@ -7,7 +7,9 @@
  *   customer assigned to the Salesman), its milestones and its history;
  * - another salesman's job answers 404, and the lists leave it out;
  * - nothing the Salesman gets carries a cost field or a cost figure in words;
- * - every job write from the Salesman is refused, and nothing changes;
+ * - every job write from the Salesman is refused, and nothing changes, but
+ *   one: booking an install appointment on the Salesman's own job gives the
+ *   job its days and "scheduled", as before;
  * - the owner is unchanged: costs, every job, writes.
  *
  * Everything happens in a throwaway company, removed afterwards.
@@ -93,6 +95,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman job page (dev datab
     server?.close()
     if (!accountId) return
     const jobIds = Object.values(jobs)
+    await prisma.appointment.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: jobIds } } })
     await prisma.activityLog.deleteMany({ where: { entityId: { in: jobIds } } })
     for (const m of ['billingLog', 'paymentSchedule', 'savedJob', 'savedQuote', 'crmContact', 'businessState']) {
@@ -172,6 +175,42 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman job page (dev datab
     expect(after.scheduledDate).toBe(before.scheduledDate)
     expect(after.archivedAt).toBeNull()
     expect(after.deletedAt).toBeNull()
+  })
+
+  test('booking an install on the Salesman\'s own job gives the job its days, as before; nothing else rides along', async () => {
+    const contact = await prisma.crmContact.create({ data: { accountId, ownerId: users.sally.id, firstName: 'D', lastName: tag } })
+    // The appointment, as BookingDialog saves it first: Mon Nov 2 to Tue Nov 3, 2026 (Florida days).
+    const appt = (job: string) => prisma.appointment.create({ data: { accountId, crmContactId: contact.id, jobId: job, type: 'install', allDay: true, startAt: new Date('2026-11-02T12:00:00Z'), endAt: new Date('2026-11-03T22:00:00Z') } })
+    await appt(jobs.a)
+    await appt(jobs.b)
+    // Then the job save from the phone (jobStore updateJob): the whole job as the Salesman's phone has it, and the copy it was edited from.
+    const shown = (await call('sally', 'GET', `/api/saved-jobs/${jobs.a}`)).json.data
+    const job = { status: shown.status, opsStage: shown.opsStage, customerName: shown.customerName, notes: shown.notes, contractValue: shown.contractValue, materialsStatus: shown.materialsStatus, crewAssigned: shown.crewAssigned, scheduledDate: shown.scheduledDate, scheduledEndDate: shown.scheduledEndDate }
+    const booked = { ...job, scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-03', status: 'scheduled', opsStage: 'scheduled' }
+    const beforeA = await prisma.savedJob.findUnique({ where: { id: jobs.a } })
+
+    // Something else riding along (notes, materials, another day, another status): refused, nothing saved.
+    for (const extra of [{ notes: 'changed' }, { materialsStatus: 'ordered' }, { crewAssigned: 'c1' }, { status: 'completed' }, { scheduledDate: '2026-11-09' }]) {
+      const r = await call('sally', 'PATCH', `/api/saved-jobs/${jobs.a}`, { ...booked, ...extra, base: job })
+      expect(r.status, JSON.stringify(extra)).toBe(403)
+    }
+    // Sam's job, even with its install booked: refused.
+    const shownB = (await call('owner', 'GET', `/api/saved-jobs/${jobs.b}`)).json.data
+    const jobB = { status: shownB.status, scheduledDate: shownB.scheduledDate, scheduledEndDate: shownB.scheduledEndDate }
+    expect((await call('sally', 'PATCH', `/api/saved-jobs/${jobs.b}`, { ...jobB, scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-03', status: 'scheduled', base: jobB })).status).toBe(403)
+    expect((await prisma.savedJob.findUnique({ where: { id: jobs.b } })).scheduledDate).toBe(shownB.scheduledDate)
+    expect(await prisma.savedJob.findUnique({ where: { id: jobs.a } })).toMatchObject({ scheduledDate: beforeA.scheduledDate, status: beforeA.status, notes: beforeA.notes })
+
+    // The booking itself: saved, and the answer has no cost.
+    const ok = await call('sally', 'PATCH', `/api/saved-jobs/${jobs.a}`, { ...booked, base: job })
+    expect(ok.status).toBe(200)
+    expect(ok.json.data).toMatchObject({ scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-03', status: 'scheduled' })
+    expect(costKeys(ok.json)).toEqual([])
+    const after = await prisma.savedJob.findUnique({ where: { id: jobs.a } })
+    expect(after).toMatchObject({ scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-03', status: 'scheduled' })
+    // The notes the Salesman's phone had (figures left out) never replace the saved ones; the margin stays.
+    expect(after.notes).toBe(beforeA.notes)
+    expect(after.gmPct).toBe(0.38)
   })
 
   test('the owner is unchanged: every job, the costs, and writes', async () => {
