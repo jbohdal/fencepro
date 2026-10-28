@@ -8,7 +8,7 @@ import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents, crewTime 
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
-import { stalePartsOnQuote, borrowedPartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import { stalePartsOnQuote, borrowedPartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS, stalePricesHeading, monthsText } from './priceAge'
 import FromBlackWarning from './FromBlackWarning'
 import StyleChoices from './StyleChoices'
 import { catalogOf } from './fenceCatalog'
@@ -35,7 +35,7 @@ import { getQuotes } from './quoteStore'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
-import { resolveTiers, tierOptions, tierSetFor, ownTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
+import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
 import { proposalSent, ownTierToStamp } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
@@ -858,6 +858,13 @@ export default function QuoteBuilder({
     if (!tiersLocal.length || !(adjPrice > 0)) return null
     return ownTierKey(tiersLocal, { ...priceOption(calcInput, style), finalPrice: adjPrice }, n => cfg.fenceStyles.find(s => s.name === n), tierSet?.tiers)
   }, [jobType, style, sections, internal, sv, tiersLocal, adjPrice, JSON.stringify(calcInput), tierSet, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  // A best price quote that came out all one width: the tier that is the same fence at the same price is the quote's card.
+  const twinTier = useMemo(() => {
+    if (jobType !== 'new' || !style || sections <= 0) return null
+    if (!internal) return sv?.twinTierKey ?? null
+    if (!tiersLocal.length || !(adjPrice > 0)) return null
+    return twinTierKey(tiersLocal, { ...priceOption(calcInput, style), finalPrice: adjPrice })
+  }, [jobType, style, sections, internal, sv, tiersLocal, adjPrice, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   const foldedTier: TierKey | null = ownTierNow && (!init?.id || !proposalSent(init as Parameters<typeof proposalSent>[0]) || frozenOwnTierKey(init.proposal as Parameters<typeof frozenOwnTierKey>[0]) === ownTierNow) ? ownTierNow : null
   // The panels the quote's runs took, as the customer reads them ("6 ft and 8 ft panels"; lib/customerFenceName.ts).
   const ownPanelsLabel = style ? customerFenceName(optionLabel(style.name), effRuns.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0).map(x => calc.perRunRail[x.i])) : ''
@@ -1703,7 +1710,8 @@ export default function QuoteBuilder({
                     )
                     // The tier whose card is the quote's own best price option on the proposal: its price, its panels.
                     const folded = sent ? sent.own : t.spec.key === foldedTier
-                    const main = folded || (!!t.style && t.style.name === style?.name)
+                    const twin = sent ? sent.twin : t.spec.key === twinTier
+                    const main = folded || twin || (!!t.style && t.style.name === style?.name)
                     const price = sent ? sent.price : main ? adjPrice : t.option!.finalPrice
                     const perFoot = sent ? sent.perFoot : folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option!.perFoot
                     return (
@@ -1775,14 +1783,14 @@ export default function QuoteBuilder({
                     <p className="text-xs font-semibold text-gray-800">Job lot pricing from {jobLot.supplier}, quoted {fmtYmd(jobLot.quotedOn)}</p>
                     <p className="text-xs text-gray-600 leading-snug">{jobLot.color} sections, posts and gates are priced from that quote; the parts they include show at $0 on the pull sheet. Internal only.</p>
                   </>)}
-                  {jobLotOld && <p className="text-xs text-amber-800 leading-snug" data-job-lot-old>That job lot quote is older than {staleMonths} months. Ask {jobLot.supplier} for a new one and update it in Settings → Fence styles.</p>}
+                  {jobLotOld && <p className="text-xs text-amber-800 leading-snug" data-job-lot-old>That job lot quote is older than {monthsText(staleMonths)}. Ask {jobLot.supplier} for a new one and update it in Settings → Fence styles.</p>}
                 </div>
               )}
 
               {staleParts.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5" data-stale-prices>
                   <p className="text-xs font-semibold text-amber-800">
-                    {staleParts.length} part{staleParts.length === 1 ? '' : 's'} on this quote {staleParts.length === 1 ? 'has a price' : 'have prices'} older than {staleMonths} months or never confirmed
+                    {stalePricesHeading(staleParts.length, staleMonths)}
                   </p>
                   {staleParts.slice(0, 6).map(({ item }) => (
                     <p key={item.id} className="text-xs text-amber-800 leading-snug" data-stale-part={item.name}>{item.name.replace(/^\*/, '')} · {priceAgeLabel(item)}</p>

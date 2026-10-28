@@ -20,6 +20,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { can, refuse } from '../lib/permissions.js'
 import { inviteStepsHtml } from '../lib/inviteSteps.js'
+import { roleDisplayName } from '../lib/feedbackModel.js'
 import { startStaffSession, endStaffSessionOf, cookieOnly, sessionEndsAt, staffCookieOf, cookieHash, STAFF_WRITE_HEADER } from '../lib/staffSession.js'
 import { sessionRefusal } from '../lib/sessionGuard.js'
 import { verifyStaffBearer } from '../lib/secrets.js'
@@ -483,7 +484,7 @@ router.post('/invite', async (req, res) => {
     const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(email)}`)
     const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
     const inviterName = `${payloadFirstName(payload)}`.trim() || 'A teammate'
-    const roleLabel = data.role.replace(/_/g, ' ')
+    const roleLabel = roleDisplayName(data.role)
     const mail = await sendEmail({
       to: email,
       subject: `You've been invited to join ${companyName} on EZ Biz`,
@@ -544,7 +545,7 @@ router.post('/invite/:userId/resend', async (req, res) => {
     const inviteUrl = buildFrontendUrl(`/accept-invite?token=${rawToken}&email=${encodeURIComponent(user.email)}`)
     const companyName = process.env.COMPANY_NAME || 'Getter Done Fence'
     const inviterName = `${payloadFirstName(payload)}`.trim()
-    const roleLabel = (user.role || '').replace(/_/g, ' ')
+    const roleLabel = roleDisplayName(user.role)
     const mail = await sendEmail({
       to: user.email,
       subject: `Reissued: your invitation to ${companyName} on EZ Biz`,

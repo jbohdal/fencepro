@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { staleCutoff, priceAge, stampPriceChanges, confirmPrices, stalePartsOnQuote, compareByPriceAge, priceAgeLabel } from '../../web/src/priceAge'
+import { staleCutoff, priceAge, stampPriceChanges, confirmPrices, stalePartsOnQuote, compareByPriceAge, priceAgeLabel, stalePricesHeading, DEFAULT_PRICE_STALE_MONTHS } from '../../web/src/priceAge'
 
 const item = (id: string, unitCost: number, extra: Record<string, unknown> = {}) => ({ id, name: `*Vinyl, ${id}`, unitCost, ...extra })
 const norm = (s: string) => s.replace(/^\*/, '').toLowerCase()
@@ -49,5 +49,12 @@ describe('price age', () => {
   test('oldest first, never confirmed at the top', () => {
     const sorted = [item('new', 1, { priceUpdatedAt: '2026-09-01' }), item('none', 1), item('old', 1, { priceUpdatedAt: '2025-02-01' })].sort(compareByPriceAge)
     expect(sorted.map(i => i.id)).toEqual(['none', 'old', 'new'])
+  })
+
+  test("the quote's heading names the Settings months in plain words (review Oct 28 2026)", () => {
+    expect(DEFAULT_PRICE_STALE_MONTHS).toBe(6)
+    expect(stalePricesHeading(3, 6)).toBe('3 parts on this quote have prices not confirmed in the last 6 months')
+    expect(stalePricesHeading(1, 3)).toBe('1 part on this quote has a price not confirmed in the last 3 months')
+    expect(stalePricesHeading(2, 1)).toBe('2 parts on this quote have prices not confirmed in the last 1 month')
   })
 })

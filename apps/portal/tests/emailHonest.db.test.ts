@@ -143,6 +143,22 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('email: never a fake "sent" (dev 
       expect(m.raw).toMatch(/^From: Getter Done Fence Pros <office@gdfence\.test>/m)
       expect(m.raw).toMatch(/customer portal is ready/)
 
+      // A team invite names the role as people read it (review Oct 28 2026: an Installer's said "as field crew").
+      const words: Record<string, string> = { field_crew: 'Installer', sales_rep: 'Salesman', office_staff: 'Office', manager: 'Manager', admin: 'Admin' }
+      for (const [role, word] of Object.entries(words)) {
+        const to = `${tag}-${role.replace('_', '')}@example.test`
+        const ti = await call('POST', '/api/crm-auth/invite', { firstName: 'Role', lastName: 'Words', email: to, role })
+        expect(ti.json.data).toMatchObject({ emailSent: true })
+        const rs = await call('POST', `/api/crm-auth/invite/${ti.json.data.id}/resend`)
+        expect(rs.json.data).toMatchObject({ emailSent: true })
+        const sent = got.filter(g => g.to.includes(to)).map(g => g.raw.replace(/=\r?\n/g, ''))
+        expect(sent).toHaveLength(2)
+        for (const raw of sent) {
+          expect(raw).toContain(`as <strong>${word}</strong>`)
+          expect(raw).not.toMatch(/field crew|sales rep|office staff/i)
+        }
+      }
+
       const list = await call('GET', '/api/integrations')
       const card = list.json.data.find((c: any) => c.slug === 'email')
       expect(card).toMatchObject({ isActive: true, email: { configured: true, provider: 'smtp', host: '127.0.0.1', fromEmail: 'office@gdfence.test', mode: 'starttls' } })

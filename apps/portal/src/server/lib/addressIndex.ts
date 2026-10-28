@@ -41,6 +41,23 @@ const WORDS: Record<string, string> = {
   SR: 'HWY', US: 'HWY', CR: 'HWY', FL: 'HWY',
 }
 const DIRS = new Set(['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW'])
+/** Each direction spelled out, for a word typed part way ("Southe" is SE). */
+const DIR_WORDS: Record<string, string> = { N: 'NORTH', S: 'SOUTH', E: 'EAST', W: 'WEST', NE: 'NORTHEAST', NW: 'NORTHWEST', SE: 'SOUTHEAST', SW: 'SOUTHWEST' }
+
+/** The direction of a street (the first direction word after the house number), or ''. */
+export function directionOf(words: string[]): string {
+  return words.slice(1).find(w => DIRS.has(w)) ?? ''
+}
+
+/**
+ * Do two directions name the same side of town? The same, or one is part of the other: "SE Fort King St" and the
+ * county's "E Fort King St" (review Oct 28 2026: for "2200 SE Fort King St" the suggestions were W and E only).
+ * W is never SE. A street with no direction fits any.
+ */
+export function directionsFit(a: string, b: string): boolean {
+  if (!a || !b || a === b) return true
+  return (a.length === 2 && a.includes(b)) || (b.length === 2 && b.includes(a))
+}
 
 /** Address words in the county's form: "17008 Southeast 60th St." -> ["17008","SE","60","ST"]; "FL-40" -> ["HWY","40"]. */
 export function addressWords(s: string): string[] {
@@ -60,7 +77,9 @@ export function matches(typed: string[], street: string[]): boolean {
   for (let i = 1; i < typed.length; i++) {
     const t = typed[i]
     const last = i === typed.length - 1
-    while (j < street.length && !(last ? street[j].startsWith(t) : street[j] === t || (WORDS[t] ?? t) === street[j])) {
+    // The last word may be typed part way, a direction too: "Southe" is SE, "Nor" is N, NE or NW.
+    const fits = (w: string) => last ? w.startsWith(t) || (t.length >= 2 && DIRS.has(w) && DIR_WORDS[w].startsWith(t)) : w === t || (WORDS[t] ?? t) === w
+    while (j < street.length && !fits(street[j])) {
       // Only a direction (or "HWY" before a road number) may be skipped.
       if (!DIRS.has(street[j]) && street[j] !== 'HWY') return false
       j++
@@ -149,14 +168,22 @@ export function streetEstimate(address: string): Suggestion | null {
   const typed = addressWords(street)
   if (typed.length < 2 || !/^\d+$/.test(typed[0])) return null
   const n = Number(typed[0])
-  const name = typed.slice(1).join(' ')
   const zip = rest.join(' ').match(/\b(\d{5})\b/)?.[1]
-  const same: Array<{ n: number; r: AddressRow }> = []
-  for (let i = 0; i < rows.length; i++) {
-    const k = keys[i]
-    if (!/^\d+$/.test(k[0]) || k.slice(1).join(' ') !== name) continue
-    if (zip && rows[i][2] !== zip) continue
-    same.push({ n: Number(k[0]), r: rows[i] })
+  const onStreet = (name: string) => {
+    const out: Array<{ n: number; r: AddressRow }> = []
+    for (let i = 0; i < rows.length; i++) {
+      const k = keys[i]
+      if (!/^\d+$/.test(k[0]) || k.slice(1).join(' ') !== name) continue
+      if (zip && rows[i][2] !== zip) continue
+      out.push({ n: Number(k[0]), r: rows[i] })
+    }
+    return out
+  }
+  let same = onStreet(typed.slice(1).join(' '))
+  // "SE Fort King St" when the county writes that street "E Fort King St" (and no SE one): placed on the county's
+  // street of the same name with the one letter direction, the typed SE kept (review Oct 28 2026).
+  if (!same.length && typed[1]?.length === 2 && DIRS.has(typed[1])) {
+    for (const d of typed[1].split('')) same = same.concat(onStreet([d, ...typed.slice(2)].join(' ')))
   }
   if (!same.length) return null
   // The ZIP most of the street is in, when none was typed (a long road crosses towns: the nearest numbers decide).
@@ -285,14 +312,18 @@ export async function suggestCensusAll(q: string): Promise<Suggestion[]> {
   if (words.length < 3 || !/^\d+$/.test(words[0])) return []
   const seen = new Set<string>()
   const out: Suggestion[] = []
+  // A direction typed (SE) keeps the Census matches on that side of town only (never W for SE), the same one first.
+  const typedDir = directionOf(addressWords(q.split(',')[0]))
   for (const ask of censusQueries(q)) {
     for (const s of censusSuggestions(await census(ask), SERVICE_CENTER, SERVICE_RADIUS_MILES, inMarion)) {
+      if (!directionsFit(typedDir, directionOf(addressWords(s.line1)))) continue
       if (seen.has(s.formatted)) continue
       seen.add(s.formatted); out.push(s)
     }
     if (out.some(s => inMarion(s.zip))) break
   }
-  return out.sort((a, b) => Number(inMarion(b.zip)) - Number(inMarion(a.zip)))
+  const sameDir = (s: Suggestion) => Number(!!typedDir && directionOf(addressWords(s.line1)) === typedDir)
+  return out.sort((a, b) => Number(inMarion(b.zip)) - Number(inMarion(a.zip)) || sameDir(b) - sameDir(a))
 }
 
 /** The first Census suggestion, or null. */

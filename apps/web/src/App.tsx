@@ -714,9 +714,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       // The card moves on to the Ready to quote stage (Settings > Pipeline Stages; Estimating to start) when it is
       // still before it, as a visit closed "Ready to quote" does (audit Oct 26 2026: it stayed in Appointment).
       const movedTo = toSend && q.customerId ? applyQuoteSaved(q.customerId) : null
-      if (toSend) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
+      // Saved over the Quotes page (its New quote buttons, a row's Edit, search): the quote's window opens there too, as
+      // after a visit (review Oct 28 2026: the office had to find and click the row after saving).
+      const toOpen = !toSend && active === 'Quotes' && !!q.id
+      if (toSend || toOpen) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
-      if (toSend) toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
+      if (toOpen && q.status !== 'SOLD') toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
+      else if (toSend) toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
       // "Sold, job created" only on the save that sold it; saving an already signed quote again is just stored.
       else toast.info(q.status === 'SOLD' && !wasSold ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
 

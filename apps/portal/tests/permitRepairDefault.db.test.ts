@@ -116,10 +116,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a repair job\'s permit starts No
     expect((await jobScheduleFacts(accountId, repair))?.permitStatus).toBe('needed')
   })
 
-  test('a new fence and a fence move: Needed, as before', async () => {
+  test('a new fence and a fence move: the panel reads Not set (null, as every screen does) until saved; the automation makes it Needed', async () => {
     for (const kind of [null, 'move'] as const) {
       const jobId = await jobOfKind(kind)
-      expect((await call('GET', `/api/automations/permits/${jobId}`)).json.data.defaultStatus).toBe('needed')
+      expect((await call('GET', `/api/automations/permits/${jobId}`)).json.data.defaultStatus).toBeNull()
       expect((await ensurePermit(accountId, jobId)).status).toBe('needed')
     }
   })

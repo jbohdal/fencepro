@@ -27,20 +27,30 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
   }
   const [material, setMaterial] = useState<string>(() => fromStyle()?.material ?? '')
   const [sel, setSel] = useState<Record<string, string>>(() => fromStyle()?.sel ?? {})
+  // A choice changed by itself because the one just tapped is not made with it (review Oct 28 2026: Green chain link,
+  // then 5 ft, went to Galvanized without a word; green is made only at 4 ft). Said under the choice that changed, close to
+  // the tap that changed it (on a phone the bottom of the picker is off screen), until the next tap.
+  const [changedNote, setChangedNote] = useState<{ dim: string; text: string } | null>(null)
   // Picked another way (the list, voice): show its choices.
   useEffect(() => {
     const f = fromStyle()
-    if (f) { setMaterial(f.material); setSel(f.sel) }
+    if (f) {
+      // Picked another way (not the tap that wrote the note): the note no longer applies.
+      const same = (a: Record<string, string>, b: Record<string, string>) => Object.keys({ ...a, ...b }).every(k => a[k] === b[k])
+      if (f.material !== material || !same(f.sel, sel)) setChangedNote(null)
+      setMaterial(f.material); setSel(f.sel)
+    }
   }, [value])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const matOk = useMemo(() => Object.fromEntries(catalog.materials.map(m => [m.key, styles.some(s => styleChoicesOf(s)?.material === m.key && isOk(s))])), [catalog, styles, isOk])
   const rows = useMemo(() => (material ? pickerState(styles, catalog, material, sel, isOk) : []), [styles, catalog, material, sel, isOk])
 
   /** Fill in the choices after `from` that no longer fit with the first that does, then pick the fence they name. */
-  function settle(mat: string, next: Record<string, string>) {
+  function settle(mat: string, next: Record<string, string>, tapped?: { dim: string; label: string }) {
     const m = catalog.materials.find(x => x.key === mat)
     if (!m) return
     const out = { ...next }
+    const notes: Array<{ dim: string; text: string }> = []
     for (let i = 0; i < m.dims.length; i++) {
       const st = pickerState(styles, catalog, mat, out, isOk)[i]
       const have = st.options.find(x => x.opt.key === out[m.dims[i].key])
@@ -48,8 +58,13 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
         const first = st.options.find(x => x.state === 'ok')
         if (first) out[m.dims[i].key] = first.opt.key
         else delete out[m.dims[i].key]
+        // A choice made before (not the one just tapped) that changed: say so.
+        if (tapped && have && m.dims[i].key !== tapped.dim && first && first.opt.key !== have.opt.key) {
+          notes.push({ dim: m.dims[i].key, text: `${have.opt.label} is not offered ${tapped.dim === 'height' ? 'at' : 'with'} ${tapped.label}, so the ${m.dims[i].label.toLowerCase()} changed to ${first.opt.label}.` })
+        }
       }
     }
+    setChangedNote(notes.length ? { dim: notes[0].dim, text: notes.map(n => n.text).join(' ') } : null)
     setSel(out)
     const s = styleForChoices(styles, catalog, mat, out)
     if (s && isOk(s)) onChange(s.id)
@@ -85,12 +100,15 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
                 <button key={opt.key} type="button" disabled={state !== 'ok' && !on} aria-pressed={on}
                   data-choice-dim={dim.key} data-choice-key={opt.key} data-choice-state={state}
                   title={state === 'held' ? 'Not available for quoting (Settings → Fence styles)' : state === 'none' ? 'There is no such fence' : undefined}
-                  className={chip(state, on)} onClick={() => settle(material, { ...sel, [dim.key]: opt.key })}>
+                  className={chip(state, on)} onClick={() => settle(material, { ...sel, [dim.key]: opt.key }, { dim: dim.key, label: opt.label })}>
                   {opt.label}{state === 'held' && !on ? <span className="ml-1 text-[10px] uppercase">off</span> : null}
                 </button>
               )
             })}
           </div>
+          {changedNote?.dim === dim.key && (
+            <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changedNote.text}</p>
+          )}
         </div>
       ))}
       {current && (

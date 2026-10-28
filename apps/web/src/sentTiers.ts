@@ -9,7 +9,7 @@
  * proposalFold, the customer page's rule) shows its own option in that tier's place. Nothing is priced here.
  */
 
-import { proposalFold, type StyleRecordOf } from './proposalOptions'
+import { proposalFold, sameFenceAs, type StyleRecordOf } from './proposalOptions'
 import { customerFenceName, railsOf } from '../../portal/src/server/lib/customerFenceName'
 
 export interface SentTierCard {
@@ -22,6 +22,8 @@ export interface SentTierCard {
   at: number
   /** The quote's own best price option shown as this tier. */
   own: boolean
+  /** The quote's own option is the same fence at the same price as this tier (a best price quote all one width), so this card is the quote's. */
+  twin: boolean
 }
 
 interface SentOption {
@@ -49,6 +51,9 @@ export function sentTierCards(
   const options = Array.isArray(p?.options) ? p!.options! : []
   if (!options.length) return out
   const fold = proposalFold(p as Parameters<typeof proposalFold>[0], quote as Parameters<typeof proposalFold>[1], styleOf)
+  // The quote's own option, when it is a twin of a tier card (the proposal shows the tier's card in its place).
+  const ownAt = quote.fenceStyle ? options.findIndex(o => !o?.tier && o?.fenceStyle === quote.fenceStyle) : -1
+  const twinOf = ownAt >= 0 ? sameFenceAs(options as Parameters<typeof sameFenceAs>[0])[ownAt] : -1
   options.forEach((o, i) => {
     const key = o?.tier?.key
     if (!key || out[key]) return
@@ -61,6 +66,7 @@ export function sentTierCards(
       label: customerFenceName(shown.label, railsOf(shown, shown.fenceStyle === quote.fenceStyle ? quote.runRails : null)),
       at,
       own: at !== i,
+      twin: twinOf === i,
     }
   })
   return out
