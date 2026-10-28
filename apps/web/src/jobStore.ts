@@ -543,7 +543,7 @@ export const MATERIALS_STATUS_CONFIG: Record<MaterialsStatus, { label: string; c
 export function advanceJob(id: string, permitOk = false, repair = false): Job | null {
   const job = getJob(id)
   if (!job || job.status === 'on_hold') return null
-  const next = advanceStage(stageOf(job), permitOk, repair)
+  const next = advanceStage(stageOf(job), permitOk, repair, job.materialsStatus)
   if (!next) return null
   const updates = stageFields(next.id, job, businessDate(new Date())) as Partial<Job> | null
   if (!updates) return null

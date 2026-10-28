@@ -163,7 +163,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
   // A repair has no drawing to make: Advance passes over Need Drawing, and the page says Repair, not Install (recheck Oct 27 2026).
   const repair = isRepairJob(job.rawJob)
   const W = jobInstallWord(job.rawJob)
-  const canAdvance = !inSideLane && !!advanceStage(job.opsStage, permitOk, repair)
+  const canAdvance = !inSideLane && !!advanceStage(job.opsStage, permitOk, repair, job.rawJob?.materialsStatus ?? job.materialsStatus)
   // The stages a job can go to; a hidden stage the job is in still shows, so you can see where it is.
   const choices = pickable()
   if (stage && !choices.some(s => s.id === stage.id)) choices.push(stage)
@@ -372,7 +372,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               ) : (
                 <button onClick={onAdvance} disabled={!canAdvance} data-ops-advance
                   className="btn btn-primary flex-1 disabled:opacity-40">
-                  {canAdvance ? `Advance to ${advanceStage(job.opsStage, permitOk, repair)!.name} →` : 'Advance Stage →'}
+                  {canAdvance ? `Advance to ${advanceStage(job.opsStage, permitOk, repair, job.rawJob?.materialsStatus ?? job.materialsStatus)!.name} →` : 'Advance Stage →'}
                 </button>
               )}
               {!closed && <button onClick={onHold} data-ops-hold

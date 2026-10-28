@@ -133,6 +133,13 @@ describe('moving jobs', () => {
     expect(advanceStageOf(l, 'completed', { permitOk: true })).toBeNull()
     expect(advanceStageOf(l, 'paid')).toBeNull()
     expect(advanceStageOf(l, 'on_hold')).toBeNull()
+    // Materials already in: Materials Ordered is passed over (audit #50: "Advance to Materials Ordered" with materials Received).
+    expect(advanceStageOf(l, 'need_drawing', { materials: 'received' })?.id).toBe('ready_to_pull')
+    expect(advanceStageOf(l, 'need_drawing', { materials: 'loaded' })?.id).toBe('ready_to_pull')
+    expect(advanceStageOf(l, 'need_drawing', { materials: 'ordered' })?.id).toBe('materials_ordered')
+    expect(advanceStageOf(l, 'need_drawing', { materials: null })?.id).toBe('materials_ordered')
+    expect(advanceStageOf(l, 'permit_pending', { permitOk: true, materials: 'received' })?.id).toBe('need_drawing')
+    expect(advanceStageOf(l, 'need_drawing', { repair: true, materials: 'received' })?.id).toBe('ready_to_pull')
   })
   test('a save keeps the stage, moves on purpose, or follows a status change', () => {
     const l = list()

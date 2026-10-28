@@ -25,6 +25,8 @@
  * Ordered; the card says "Drawn: order materials".
  * A repair whose locate is clear and permit issued or not needed goes to the
  * stage that stands for ready to schedule (readyStageOf).
+ * A job still to be drawn goes no further than Need Drawing until the office
+ * moves it past it, its materials received or not (heldForDrawing, audit #50).
  *
  * Only forward, only from the job's own staging stage on the board, never when
  * a stage rule refuses. Only when the thing that moves it changes (the
@@ -44,7 +46,7 @@ import { loadOpsStages } from './opsStages.js'
 import { permitStatusOf } from './permitStatus.js'
 import { installWord } from './workWords.js'
 import { locateOf, locateStatus } from './locates.js'
-import { permitIsOk, phaseOf, readyStageOf, sortedStages, stageById, stageOfJob, waitingStageOf, type OpsStageDef } from './opsStageModel.js'
+import { boardStages, permitIsOk, phaseOf, readyStageOf, sortedStages, stageById, stageOfJob, waitingStageOf, type OpsStageDef } from './opsStageModel.js'
 
 type Json = any
 
@@ -81,6 +83,22 @@ export function autoStageOf(stages: OpsStageDef[], job: Json, f: MoveFacts): str
   return waitingStageOf(stages, { locatesDate: clear ? job.locatesDate : null, materialsStatus: job.materialsStatus }, f.permit)
 }
 
+/**
+ * A job still to be drawn (no drawing, not a repair) that has not been put
+ * past Need Drawing goes no further than Need Drawing, whatever its materials
+ * say (audit #50, Oct 28 2026: an undrawn job in Need Drawing went to Ready to
+ * Pull when its Sales Order was marked Received). Its materials are still
+ * recorded; the office moves it on once it is drawn (Advance goes past
+ * Materials Ordered when the materials are in). A job the office already put
+ * past Need Drawing counts as drawn. `to` otherwise.
+ */
+export function heldForDrawing(stages: OpsStageDef[], was: string, to: string, f: Pick<MoveFacts, 'drawing' | 'repair'>): string {
+  if (f.drawing || f.repair || !boardStages(stages).some(s => s.id === 'need_drawing')) return to
+  const order = sortedStages(stages).map(s => s.id)
+  const at = order.indexOf('need_drawing')
+  return order.indexOf(was) <= at && order.indexOf(to) > at ? 'need_drawing' : to
+}
+
 /** Said in the history line of a drawn job that waits in Need Drawing for its materials order. */
 export const DRAWN_WAITS_WORDS = 'Already drawn: it moves to Materials Ordered when its Sales Order is marked Ordered.'
 
@@ -108,7 +126,8 @@ export async function waitingStageMove(
   if (!job.opsStage || !stageById(stages, job.opsStage)) return null
   if (job.status !== 'staging' || phaseOf(stages, was) !== 'staging' || stageById(stages, was)?.lane !== 'main') return null
   if (opts.from && !opts.from.includes(was)) return null
-  const w = autoStageOf(stages, after, facts)
+  const auto = autoStageOf(stages, after, facts)
+  const w = auto && heldForDrawing(stages, was, auto, facts)
   if (!w || (opts.to && !opts.to.includes(w))) return null
   const order = sortedStages(stages).map(s => s.id)
   if (order.indexOf(w) <= order.indexOf(was)) return null

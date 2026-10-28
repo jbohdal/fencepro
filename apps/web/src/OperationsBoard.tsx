@@ -326,7 +326,7 @@ export default function OperationsBoard() {
   /** Advance one stage. False when nothing was moved (the materials question answered Cancel). */
   function onAdvance(j: UnifiedJob): boolean {
     if (j.source !== 'job' || !j.rawJob) return false
-    const next = advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob))
+    const next = advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob), j.rawJob?.materialsStatus)
     const q = next ? materialsMoveQuestion(next.id, next.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }) : null
     if (q && !window.confirm(q)) return false
     const fromStatus = j.rawJob.status
@@ -545,7 +545,7 @@ export default function OperationsBoard() {
               showStageBadge={!j.scheduledDate}
               faded={matchesSearch !== null && !matchesSearch.has(j.id)}
               onNextStage={() => {
-                const next = advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob))
+                const next = advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob), j.rawJob?.materialsStatus)
                 if (next) {
                   if (next.isComplete) setConfirmComplete(j)
                   else moveJobToStage(j, next.id)
@@ -723,7 +723,7 @@ function OpsCard({
             triggerProps={{ 'aria-label': 'Card actions' }}>
             {close => <>
               <PopItem onClick={() => { close(); onClick() }}>View / Edit</PopItem>
-              {advanceStage(job.opsStage, permitOkOf(job.id), isRepairJob(job.rawJob)) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {advanceStage(job.opsStage, permitOkOf(job.id), isRepairJob(job.rawJob))!.name}</PopItem>}
+              {advanceStage(job.opsStage, permitOkOf(job.id), isRepairJob(job.rawJob), job.rawJob?.materialsStatus) && <PopItem onClick={() => { close(); onNextStage() }}>Move to {advanceStage(job.opsStage, permitOkOf(job.id), isRepairJob(job.rawJob), job.rawJob?.materialsStatus)!.name}</PopItem>}
               {/* A closed job (Complete, Invoiced, Paid): no Mark complete (Paid would go back) and no hold. */}
               {job.source === 'job' && !isDoneStage(job.opsStage) && <PopItem className="font-semibold !text-green-700" onClick={() => { close(); onComplete() }}>Mark complete</PopItem>}
               {!isDoneStage(job.opsStage) && <PopItem danger onClick={() => { close(); onRainDay() }}>Flag Rain Day</PopItem>}
@@ -983,7 +983,7 @@ function OpsListView({
                   <td className="px-3 py-2"><MiniProgress jobId={j.id} colorHex={hex} /></td>
                   <td className="px-3 py-2 text-xs text-gray-500">{daysSince(j.rawJob?.updatedAt || '')}d</td>
                   <td className="px-3 py-2 text-right">
-                    {j.source === 'job' && advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob)) && stagePhase(j.opsStage) !== 'on_hold' && (
+                    {j.source === 'job' && advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob), j.rawJob?.materialsStatus) && stagePhase(j.opsStage) !== 'on_hold' && (
                       <button onClick={e => { e.stopPropagation(); onAdvance(j) }}
                         className="text-xs text-orange-600 font-semibold hover:underline">Advance →</button>
                     )}

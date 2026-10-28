@@ -236,13 +236,18 @@ export const permitIsOk = (status: string | null | undefined) => status === 'not
  * needed or already issued (a repair, round 5 review Oct 26 2026: "Advance to
  * Permit Pending" on a repair with permit Not needed), as waitingStageOf does.
  * Need Drawing is passed over for a repair (`repair`): a repair has no drawing
- * to make (recheck Oct 27 2026: "Advance to Need Drawing" on a repair). Only
- * the button's next stage; a job can still be put in any stage by hand.
+ * to make (recheck Oct 27 2026: "Advance to Need Drawing" on a repair).
+ * Materials Ordered is passed over when the job's materials (`materials`) are
+ * already received or loaded (audit #50, Oct 28 2026: "Advance to Materials
+ * Ordered" on a job in Need Drawing whose Sales Order was marked Received).
+ * Only the button's next stage; a job can still be put in any stage by hand.
  */
-export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk?: boolean; repair?: boolean } = {}): OpsStageDef | null {
+export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk?: boolean; repair?: boolean; materials?: string | null } = {}): OpsStageDef | null {
   if (isDonePhase(phaseOf(list, id))) return null
+  const received = (MATERIALS_RANK[opts.materials || 'not_ordered'] ?? 0) >= MATERIALS_RANK.received
+  const passed = (s: OpsStageDef) => (opts.permitOk && s.id === 'permit_pending') || (opts.repair && s.id === 'need_drawing') || (received && s.id === 'materials_ordered')
   let next = nextStage(list, id)
-  while (next && ((opts.permitOk && next.id === 'permit_pending') || (opts.repair && next.id === 'need_drawing'))) next = nextStage(list, next.id)
+  while (next && passed(next)) next = nextStage(list, next.id)
   return next
 }
 

@@ -22,7 +22,8 @@
  * recorded; audit log). Marked Received also moves a job in its own waiting
  * stage on to the stage its records put it in (Ready to Pull once the locate
  * is clear and the permit issued or not needed), forward only, with a line in
- * its history (lib/waitingStageMove.ts; Jonathan, Oct 27 2026). Marked
+ * its history (lib/waitingStageMove.ts; Jonathan, Oct 27 2026); a job still
+ * to be drawn goes no further than Need Drawing (audit #50, heldForDrawing). Marked
  * Ordered changes only the materials, except for a job that already has its
  * drawing: it waited in Need Drawing for this order (round 2, Oct 28 2026: a
  * drawn job no longer lands in Materials Ordered before materials are

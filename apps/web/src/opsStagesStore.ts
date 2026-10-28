@@ -86,8 +86,8 @@ export const nextOpsStage = (id: string) => nextStage(list, id)
  * Advance from here: none from a done stage (Complete, Invoiced, Paid): a finished job is not pushed on by hand (Oct 25 2026: a paid, Complete job offered "Advance to Invoiced").
  * Permit Pending is passed over when the job's permit is not needed or issued (`permitOk`, jobTruthApi.permitOkOf).
  */
-/** The stage Advance moves a job to: past Permit Pending when `permitOk`, past Need Drawing for a `repair` (opsStageModel.ts advanceStageOf). */
-export const advanceStage = (id: string, permitOk = false, repair = false) => advanceStageOf(list, id, { permitOk, repair })
+/** The stage Advance moves a job to: past Permit Pending when `permitOk`, past Need Drawing for a `repair`, past Materials Ordered when its `materials` are in (opsStageModel.ts advanceStageOf). */
+export const advanceStage = (id: string, permitOk = false, repair = false, materials?: string | null) => advanceStageOf(list, id, { permitOk, repair, materials })
 export const pickable = () => pickableStages(list)
 /** Back from a closed stage: to one that is not done (or a hold), or to one before it on the board (the server's movesBack, routes/saved-jobs.ts). */
 export function movesBack(from: string, to: string): boolean {

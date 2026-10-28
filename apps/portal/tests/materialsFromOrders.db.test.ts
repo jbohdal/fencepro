@@ -11,8 +11,9 @@
  *   - a drawn job waiting in Need Drawing for its order (round 2, Oct 28
  *     2026): Ordered moves it to Materials Ordered, Received to Ready to
  *     Pull, each with a line in its history;
- *   - marked Received: the job says received and moves on to Ready to Pull
- *     (locate clear, permit not needed), with a line in its history;
+ *   - marked Received: the job says received; still to be drawn, it stays
+ *     in Need Drawing with no move in its history (audit #50, Oct 28 2026:
+ *     it went to Ready to Pull); Advance then takes it to Ready to Pull;
  *   - a job already Loaded stays Loaded when its order says Ordered (never backward);
  *   - an order found by its quote when it has no jobId;
  *   - an order put back to pending changes nothing on the job.
@@ -126,12 +127,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     const ms = await jobMilestones(accountId, ids.a)
     expect(ms.milestones.find(m => m.label === 'Materials Confirmed')?.detail).toBe('Materials: Ordered, not received')
 
-    // Received.
+    // Received: recorded, but a job still to be drawn stays in Need Drawing (audit #50).
     await mark({ [orderIds[0]]: 'received' })
-    expect((await job(ids.a)).materialsStatus).toBe('received')
-    expect((await job(ids.a)).opsStage).toBe('ready_to_pull')
-    const lines = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.a } })
-    expect(lines.map(l => l.body)).toEqual(['Moved to Ready to Pull by itself: materials received (Sales Order marked Received).'])
+    const ar = await job(ids.a)
+    expect([ar.opsStage, ar.materialsStatus, ar.status]).toEqual(['need_drawing', 'received', 'staging'])
+    const lines = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.a, metadata: { path: ['kind'], equals: 'ops.auto_move' } } })
+    expect(lines).toEqual([])
 
     // Put back to pending: the job keeps what it has (D is looked at in its own test below).
     await mark({ [orderIds[0]]: 'pending', [orderIds[2]]: 'pending' })
