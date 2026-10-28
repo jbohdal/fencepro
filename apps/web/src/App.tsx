@@ -967,7 +967,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       <div className={`mobile-nav-drawer bg-gray-900 flex flex-col ${mobileMenuOpen ? 'open' : ''}`} data-popup="nav-drawer">
         <div className="border-b border-white/10 px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
+            <img src="/logo-240.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
             <div>
               <p className="text-white text-base font-extrabold leading-tight [font-stretch:112%]">{companyName}</p>
               <p className="text-[#9C8FB5] text-xs mt-0.5">EZ Biz</p>
@@ -1032,10 +1032,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         {/* Brand */}
         <div className={`border-b border-white/10 flex items-center ${sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-4'}`}>
           {sidebarCollapsed ? (
-            <img src="/logo.png" alt={companyName} className="w-9 h-9 rounded-lg bg-white object-contain" />
+            <img src="/logo-240.png" alt={companyName} className="w-9 h-9 rounded-lg bg-white object-contain" />
           ) : (
             <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
+              <img src="/logo-240.png" alt="" className="w-10 h-10 rounded-lg bg-white object-contain shrink-0" />
               <div className="min-w-0">
                 <p className="text-white text-[15px] font-extrabold leading-tight [font-stretch:112%]">{companyName}</p>
                 <p className="text-[#9C8FB5] text-xs mt-0.5">EZ Biz</p>
@@ -1139,7 +1139,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             {/* Pages with their own header show their title there; the bar shows it only on the phone. */}
             {PAGES_WITH_HEADER.has(active) ? (
               <span className="flex items-center gap-2 min-w-0 lg:hidden">
-                <img src="/logo.png" alt="" className="w-8 h-8 rounded-md object-contain" />
+                <img src="/logo-240.png" alt="" className="w-8 h-8 rounded-md object-contain" />
                 <span className="text-base font-extrabold text-gray-900 truncate [font-stretch:112%]">{companyName}</span>
               </span>
             ) : (

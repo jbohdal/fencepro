@@ -653,6 +653,12 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Read only check on the live copy: 2 unsent drafts change on the Price step only (Jaziel Ortiz, Better $12,363.70 → $12,288.34 and $12,317.79, the prices their proposals already show); 0 of 25 sent quotes change. **DEV**
 * Tests: builderOwnTier.test.ts, builderProposalBetter.db.test.ts (dev database, read only: a 236 ft yard of 12, 50, 112, 50, 12 ft with a walk gate; the builder's Better and the proposal's Better card read the same price and panels; Good and Best unchanged; a sent proposal keeps its Better price). **DEV**
 
+## 9aq. iPhone Safari memory: the app's logo (audit #17)
+
+* The office app showed the company logo from /logo.png, a 2400 x 2400 picture (23 MB once Safari opens it), in a 32 to 56 px box on the sign in page, the top bar and the side menu. Measured in Playwright WebKit at iPhone size: every page load kept about 57 MB more in the page's process and 23 MB more in the GPU process until the browser threw it out under memory pressure. The sign in page by itself grew 57 MB a load; with a plain 240 px logo, 14 MB, and the GPU none. The Salesman's loop (Today, Quotes, a sold quote, its change order builder, /operations?job= sent on to Today) went from about 110 MB a loop, peaking at 1.4 to 1.7 GB plus 0.44 to 0.54 GB GPU, to a level 650 to 850 MB with the GPU at 75 to 95 MB over 40 loops. The app now uses /logo-240.png. /logo.png stays full size for the proposal and the papers. **DEV**
+* No growing timers, window listeners or DOM were found: with the loop staying inside the app, window and document listeners stay at 54, timers at 10 and page elements at 475 every loop. The crash itself did not happen in Playwright on the Mac either before or after; it is Safari on the phone that closes a page that uses too much memory.
+* Tests: appImagesSmall.test.ts (every picture the app names is at most 512 x 512; the app never shows /logo.png; the full size logo is still there). **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)
