@@ -70,7 +70,7 @@ export function sentTierCards(
  * The line over the tiers of a quote that has gone out, said as it is (review Oct 27 2026: after the yard was
  * changed it still said "as they were when this proposal was sent" over all new prices). A save freezes the
  * options it is saved with (routes/saved-quotes.ts); sending again freezes nothing new, so once the fence is
- * changed, saving the quote is what puts the new prices on the customer's link. A signed quote's proposal
+ * changed, a save asks first whether to keep the sent prices or save the new ones as a version to send again. A signed quote's proposal
  * never changes (a change order carries the change).
  */
 export function sentTiersNote(s: { asSent: boolean; fenceChanged: boolean; signed: boolean; sentPricesChanged: boolean }): { kind: 'sent' | 'changed' | 'repriced'; text: string } {
@@ -80,6 +80,6 @@ export function sentTiersNote(s: { asSent: boolean; fenceChanged: boolean; signe
   if (s.signed) return { kind: 'changed', text: 'The fence was changed after it was signed: these are new prices. The signed proposal does not change; the change goes on a change order.' }
   return {
     kind: 'changed',
-    text: `The fence was changed after this proposal was sent: these are new prices. The customer's proposal keeps the sent prices until this quote is saved; saving puts these new prices on it${s.sentPricesChanged ? ' (unless you keep the sent prices when asked)' : ''}.`,
+    text: "The fence was changed after this proposal was sent: these are new prices. The customer's proposal keeps the sent prices; saving asks whether to keep them or save these as a new version to send again.",
   }
 }

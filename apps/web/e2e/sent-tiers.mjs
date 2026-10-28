@@ -77,8 +77,58 @@ async function run(browserType, size, tag) {
   }
 }
 
+// SAVE_QUOTE_ID: a throwaway copy of such a quote (it is saved). A note only save asks first when any card the
+// customer reads would change; "Keep the sent prices" keeps them and saves the note; "Save new version" puts the
+// new prices on and flags it to be sent again; a save that changes nothing the customer reads asks nothing.
+async function saves(id) {
+  const browser = await chromium.launch()
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  try {
+    await signInByCookie(ctx, { api: API })
+    const get = async () => (await (await ctx.request.get(`${API}/api/saved-quotes/${id}`)).json()).data
+    const good = q => q.proposal.options.find(o => o.tier?.key === 'good').finalPrice
+    const start = await get()
+    const page = await ctx.newPage()
+    page.on('dialog', d => d.accept().catch(() => {}))
+    async function saveWithNote(note) {
+      await page.goto(`${APP}/?quote=${id}`)
+      const b = page.locator('[data-quote-builder]')
+      await b.waitFor({ timeout: 30000 })
+      await sleep(1500)
+      await page.locator('[data-save-open]').click()
+      const box = page.locator('textarea').last()
+      await box.fill(note)
+      await page.locator('[data-save-submit]').click()
+      await sleep(800)
+      return page.locator('[data-quote-lock-dialog="sent"]')
+    }
+    async function savedNote(note) { for (let i = 0; i < 20; i++) { const q = await get(); if (q.notes === note) return q; await sleep(500) } return get() }
+
+    let dlg = await saveWithNote('E2E note 1')
+    const msg = await dlg.isVisible() ? await page.locator('[data-quote-sent-message]').innerText() : ''
+    check('a note only save asks first, naming the card that would change', /Good: \$9,407\.00 then/.test(msg), msg)
+    await page.locator('[data-quote-sent-keep]').click()
+    let q = await savedNote('E2E note 1')
+    check('"Keep the sent prices": Good stays $9,407, the note saves, not flagged', good(q) === good(start) && q.notes === 'E2E note 1' && !q.needsResend && JSON.stringify(q.proposal.options) === JSON.stringify(start.proposal.options), `Good ${good(q)}`)
+
+    dlg = await saveWithNote('E2E note 2')
+    check('asked again on the next save', await dlg.isVisible())
+    await page.locator('[data-quote-sent-new]').click()
+    q = await savedNote('E2E note 2')
+    check('"Save new version": the new prices go on and it is flagged to be sent again', good(q) !== good(start) && q.needsResend === true, `Good ${good(q)}`)
+
+    dlg = await saveWithNote('E2E note 3')
+    check('nothing the customer reads changes: no question', !(await dlg.isVisible()))
+    q = await savedNote('E2E note 3')
+    check('and it saved', q.notes === 'E2E note 3')
+  } finally {
+    await browser.close()
+  }
+}
+
 await run(chromium, { width: 1440, height: 900 }, 'computer')
 await run(webkit, { width: 390, height: 844 }, 'iPhone size')
+if (process.env.SAVE_QUOTE_ID) await saves(process.env.SAVE_QUOTE_ID)
 const failed = results.filter(r => !r).length
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED')
 process.exit(failed ? 1 : 0)

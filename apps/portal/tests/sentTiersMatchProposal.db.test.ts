@@ -24,9 +24,7 @@ describe('the line over a sent quote\'s tiers says what they are', () => {
     expect(n.kind).toBe('changed')
     expect(n.text).not.toMatch(/\bas (they were when )?sent\b/i)
     expect(n.text).toMatch(/new prices/)
-    expect(n.text).toMatch(/keeps the sent prices until this quote is saved; saving puts these new prices on it\.$/)
-    // The quote's own price moved too: the save asks first.
-    expect(sentTiersNote({ asSent: false, fenceChanged: true, signed: false, sentPricesChanged: true }).text).toMatch(/unless you keep the sent prices when asked/)
+    expect(n.text).toMatch(/keeps the sent prices; saving asks whether to keep them or save these as a new version to send again\.$/)
     // Signed: the proposal stays; a change order carries the change.
     const s = sentTiersNote({ asSent: false, fenceChanged: true, signed: true, sentPricesChanged: false })
     expect(s.text).toMatch(/signed proposal does not change; the change goes on a change order/)

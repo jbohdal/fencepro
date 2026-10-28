@@ -35,8 +35,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, ownTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
-import { proposalSent } from './proposalOptions'
+import { proposalSent, ownTierToStamp } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
+import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
 import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
 import { useTierSets } from './tierSetsApi'
 import { getContractSections } from './contractStore'
@@ -577,7 +578,7 @@ export default function QuoteBuilder({
   // Signed (Sold or accepted): the price is locked, changes go on a change order. Sent: the price the customer saw.
   const signedQuote = !!init?.id && isSignedQuote({ status: init.status, acceptedAt: init.acceptedAt, soldAt: init.soldAt })
   const sentQuote = !!init?.id && !signedQuote && init.status === 'SENT'
-  const [pending, setPending] = useState<{ quote: SavedQuote; kind: 'locked' | 'sent' } | null>(null)
+  const [pending, setPending] = useState<{ quote: SavedQuote; kind: 'locked' | 'sent'; changes?: ProposalPriceChange[] } | null>(null)
   const [coPrefill, setCoPrefill] = useState<ChangeOrderPrefill | null>(null)
   useEffect(() => { if (signedQuote && init?.id) void refreshChangeOrders(init.id) }, [signedQuote, init?.id])
   // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
@@ -1063,7 +1064,20 @@ export default function QuoteBuilder({
       onSave(keepPrices(signedQuoteOf(init), { ...quote, date: init.date }))
       return
     }
-    if (init?.id && sentPricesChanged) { setPending({ quote, kind: 'sent' }); return }
+    // A sent or shared proposal never reprices unless the office chooses it (Jonathan's rule): a save that would change
+    // any price or fence the customer reads (a tier at today's costs, not only the quote's own price) asks first.
+    // The server keeps the sent prices on any save that did not choose new ones (routes/saved-quotes.ts).
+    const shared = !!init?.id && !signedQuote && (proposalSent(init as Parameters<typeof proposalSent>[0]) || !!init.shareToken)
+    if (shared) {
+      const styleOfCfg = (n: string) => cfg.fenceStyles.find(s => s.name === n)
+      const next = quote.proposal as Parameters<typeof ownTierToStamp>[0] | undefined
+      const changes = init!.proposal && next
+        ? proposalPriceChanges(init!.proposal as Parameters<typeof proposalPriceChanges>[0], init as Parameters<typeof proposalPriceChanges>[1],
+          { ...next, ownTier: ownTierToStamp(next, quote, init!.proposal as Parameters<typeof ownTierToStamp>[2], proposalSent(init as Parameters<typeof proposalSent>[0]), styleOfCfg) } as Parameters<typeof proposalPriceChanges>[2],
+          { ...init, ...quote } as Parameters<typeof proposalPriceChanges>[3], styleOfCfg)
+        : []
+      if (sentPricesChanged || changes.length) { setPending({ quote, kind: 'sent', changes }); return }
+    }
     onSave(quote)
   }
 
@@ -2105,10 +2119,15 @@ export default function QuoteBuilder({
               </>
             ) : (
               <>
-                <p className="text-base font-bold text-gray-900" data-quote-sent-message>Prices changed since this was sent (was {fmt(init!.finalPrice)}, now {fmt(openPriceRef.current ?? adjPrice)}). Save as a new version and send again, or keep the sent prices?</p>
+                <p className="text-base font-bold text-gray-900" data-quote-sent-message>{sentPricesChanged ? <>Prices changed since this was sent (was {fmt(init!.finalPrice)}, now {fmt(openPriceRef.current ?? adjPrice)}). </> : null}
+                  {pending.changes?.length
+                    ? <>Prices on the customer's proposal would change ({pending.changes.slice(0, 3).map(c => `${c.name}: ${c.wasCents == null ? 'not on it' : fmt(c.wasCents / 100)} then, ${c.nowCents == null ? 'gone' : fmt(c.nowCents / 100)} now`).join('; ')}{pending.changes.length > 3 ? `; ${pending.changes.length - 3} more` : ''}). </>
+                    : null}
+                  Save as a new version and send again, or keep the sent prices?</p>
                 <div className="flex flex-col gap-2">
-                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave({ ...q, needsResend: true }) }} data-quote-sent-new>Save new version (send it again)</button>
-                  <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(init!, q)) }} data-quote-sent-keep>Keep the sent prices</button>
+                  {/* Keeping the sent prices is the safe choice, first (a sent proposal never reprices unless chosen). */}
+                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(init!, q)) }} data-quote-sent-keep>Keep the sent prices</button>
+                  <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave({ ...q, needsResend: true }) }} data-quote-sent-new>Save new version (send it again)</button>
                   <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setPending(null)}>Back to the quote</button>
                 </div>
                 <p className="text-xs text-gray-500">Keep the sent prices saves notes and customer details only; the fence, price and proposal stay as sent.</p>

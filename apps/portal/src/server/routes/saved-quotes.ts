@@ -37,14 +37,15 @@ import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
-import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE } from '../lib/quoteLock.js'
+import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE, keepPrices } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
 import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
 import { stampQuoteTerms } from '../lib/contractTerms.js'
 import { workKindOf } from '../lib/installDays.js'
-import { stampOwnTier, proposalSent } from '../lib/ownTier.js'
+import { stampOwnTier, proposalSent, styleRecords } from '../lib/ownTier.js'
+import { pricingModule } from '../lib/estimates.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 
@@ -338,6 +339,19 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     const sentBefore = proposalSent(existing) || await signedNow(existing)
     if (data.proposal) data.proposal = await stampOwnTier(data.proposal, data.fenceStyle ?? existing.fenceStyle, existing.proposal, sentBefore) as any
     else if (!sentBefore && data.status && data.status !== 'DRAFT' && existing.proposal && (existing.proposal as any).ownTier === undefined) data.proposal = await stampOwnTier(existing.proposal, existing.fenceStyle, null, false) as any
+    // A sent or shared proposal never reprices unless the office chose it ("Save new version (send it again)",
+    // which sends needsResend). Any other save that would change a price or fence the customer reads (an old
+    // browser, a queued save) keeps the sent prices: the quote as saved, with only its words and details changed.
+    let keptSentPrices: Array<{ name: string; wasCents: number | null; nowCents: number | null }> = []
+    if (data.proposal && existing.proposal && data.needsResend !== true && (sentBefore || !!existing.shareToken) && !(await signedNow(existing))) {
+      const m = await pricingModule()
+      const changes = m.proposalPriceChanges(existing.proposal, existing, data.proposal, { ...existing, ...data }, await styleRecords())
+      if (changes.length) {
+        const kept = keepPrices(existing as any, data as any) as any
+        for (const k of Object.keys(data)) if (k !== 'crmContactId' && k !== 'leadSource' && k !== 'salesRep') (data as any)[k] = kept[k]
+        keptSentPrices = changes
+      }
+    }
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
       data: {
@@ -397,7 +411,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     }
     // Its job's payment schedule, when the job is there already (lib/contractBilling.ts; otherwise made with the job).
     if (updated.status === 'SOLD') await scheduleAfterSigning(updated.accountId, updated.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' })
-    res.json({ success: true, data: updated.status === 'SOLD' && !updated.soldAt ? await prisma.savedQuote.findUnique({ where: { id: updated.id } }) : updated })
+    res.json({ success: true, data: updated.status === 'SOLD' && !updated.soldAt ? await prisma.savedQuote.findUnique({ where: { id: updated.id } }) : updated, ...(keptSentPrices.length ? { keptSentPrices } : {}) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] update error:', err)
