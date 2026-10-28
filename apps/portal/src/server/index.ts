@@ -61,6 +61,7 @@ import pipelineRoutes from './routes/pipeline.js'
 import inventoryStateRoutes from './routes/inventory.js'
 import vendorStateRoutes from './routes/vendors-state.js'
 import businessStateRoutes from './routes/business-state.js'
+import { tagDocVersions } from './lib/docVersions.js'
 import kvRoutes from './routes/kv.js'
 import intakeRoutes, { quotingRouter, retellRouter } from './routes/intake.js'
 import leadChatRoutes from './routes/lead-chat.js'
@@ -168,7 +169,7 @@ app.use(cors((req, cb) => {
   const origin = req.headers.origin
   const sameSite = (() => { try { return !!origin && new URL(origin).host === req.headers.host } catch { return false } })()
   const ok = process.env.NODE_ENV === 'development' || !origin || sameSite || allowedOrigins.includes(origin)
-  cb(null, { origin: ok, credentials: true })
+  cb(null, { origin: ok, credentials: true, exposedHeaders: ['X-Doc-Versions'] })
 }))
 // Everything sent is compressed (lists of customers and quotes shrink about
 // ten times), which is what makes the app usable on weak cell signal.
@@ -195,6 +196,11 @@ app.use('/api', (req, res, next) => {
   }
   next()
 })
+
+// Every answer to a staff save says where the Sales Pipeline board and the business record are now
+// (X-Doc-Versions), so the browser reads its copy again before its next save of either instead of
+// being refused with 409 for a change the server made itself (lib/docVersions.ts).
+app.use('/api', tagDocVersions)
 
 // A Salesman's or Installer's login gets prices only: every answer is sent
 // without a cost, margin, profit, sub rate, wage, overhead or commission figure

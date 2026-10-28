@@ -25,6 +25,8 @@ import { registerKind, enqueue, pendingFor, allOps, type Op } from './outbox'
 import { sendJson } from './syncHttp'
 import { notifyStageBlocked, type BlockedMove } from './stageBlocked'
 import { toast } from './toast'
+import { onServerVersion, serverVersionOf } from './docVersions'
+import { cardsBefore, rebaseDelta, wireDelta, type QueuedDelta } from './pipelineRebase'
 
 const EVT = 'fencepro:pipeline:updated'
 
@@ -49,8 +51,14 @@ const pick = (d: any): PipelineDoc => {
 export function getArchivedCards(): any[] { return archivedCards }
 function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch { /* no window */ } }
 
+/** Each waiting change put on top of the server's copy of its cards (pipelineRebase.ts), before it is shown or sent. */
+function rebaseWaiting(server: PipelineDoc) {
+  for (const op of allOps()) if (op.kind === 'pipeline.delta') rebaseDelta(op.payload as QueuedDelta, server)
+}
+
 /** The server's copy with this phone's waiting changes on top. */
 function withPending(server: PipelineDoc): PipelineDoc {
+  rebaseWaiting(server)
   let doc = clone(server)
   for (const op of allOps()) {
     if (op.kind === 'customer.create' && op.payload?.lead && !doc.leads.some(l => l?.id === op.payload.lead.id)) {
@@ -118,8 +126,11 @@ function queueChanges() {
     if (cid && pendingFor(`customer:${cid}`).some(o => o.kind === 'customer.create')) waitFor.add(`customer:${cid}`)
   }
   const label = describe(delta)
+  // Each changed card as it was before this change, for putting it on top of a newer server copy (rebaseWaiting).
+  const was = cardsBefore(base, delta)
+  const payload: QueuedDelta = Object.keys(was).length ? { ...delta, was } : delta
   base = clone(cache)
-  void enqueue({ key: 'pipeline', kind: 'pipeline.delta', payload: delta, label, after: [...waitFor], coalesce: false })
+  void enqueue({ key: 'pipeline', kind: 'pipeline.delta', payload, label, after: [...waitFor], coalesce: false })
 }
 
 /**
@@ -147,7 +158,10 @@ registerKind<PipelineDelta>('pipeline.delta', {
   send: async (op: Op<PipelineDelta>) => {
     await initPipeline()
     if (!hydrated) return { ok: false, status: 0, error: 'not loaded' }
-    const r = await sendJson('PATCH', '/api/pipeline', { ...op.payload, baseVersion: version })
+    // The server said its board is newer than this phone's (it moved a card itself as part of another save:
+    // scheduling an install, a new job): read it first, this change on top, so the save goes once (docVersions.ts).
+    if (serverVersionOf('pipeline') > version) await reloadPipeline()
+    const r = await sendJson('PATCH', '/api/pipeline', { ...wireDelta(op.payload as QueuedDelta), baseVersion: version })
     if (r.result.ok) {
       if (typeof r.json?.version === 'number') version = r.json.version
       return r.result
@@ -207,6 +221,8 @@ export const PIPELINE_UPDATED_EVENT = EVT
 async function reloadPipeline(): Promise<void> {
   const r = await sendJson('GET', '/api/pipeline?shape=table')
   if (!r.result.ok || !r.json?.data) return
+  // An answer older than what this phone has (its own save landed while this read was on its way): keep the newer.
+  if (typeof r.json.data.version === 'number' && r.json.data.version < version) return
   version = typeof r.json.data.version === 'number' ? r.json.data.version : version
   cache = withPending(pick(r.json.data))
   base = clone(cache)
@@ -225,9 +241,20 @@ export async function refreshPipeline(): Promise<void> {
   // Only the version is compared first: an unchanged board costs almost nothing to check.
   const r = await sendJson('GET', `/api/pipeline?version=${version}&shape=table`)
   if (!r.result.ok || r.json?.unchanged || !r.json?.data || timer) return
-  if (typeof r.json.data.version === 'number' && r.json.data.version === version) return
+  if (typeof r.json.data.version === 'number' && r.json.data.version <= version) return
   version = typeof r.json.data.version === 'number' ? r.json.data.version : version
   cache = withPending(pick(r.json.data))
   base = clone(cache)
   emit()
 }
+
+// The server said its board moved on (an answer's X-Doc-Versions, docVersions.ts): read it now while
+// nothing of this phone's is on its way, so the next change is built on it. A change waiting or on its way
+// reads it itself before it is sent. A moment's wait first: a new customer's answer says its own card went
+// in (pipelineSavedElsewhere), which needs no read.
+onServerVersion('pipeline', () => {
+  setTimeout(() => {
+    if (!hydrated || timer || serverVersionOf('pipeline') <= version || pendingFor('pipeline').length) return
+    void refreshPipeline()
+  }, 250)
+})

@@ -18,6 +18,7 @@
  */
 
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { noteDocVersions } from './docVersions'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
@@ -77,6 +78,8 @@ function signedOutNow(): void {
 export async function fetchWithAuth(url: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(url, withApp(init))
   if (res.status === 401) signedOutNow()
+  // A save's answer says where the board and the business record are now (docVersions.ts).
+  noteDocVersions(res.headers?.get?.('X-Doc-Versions'))
   return res
 }
 
@@ -90,6 +93,7 @@ export async function authFetch<T = unknown>(path: string, options: RequestInit 
   } catch {
     throw new Error('No signal right now. Try again when there is signal.')
   }
+  noteDocVersions(res.headers?.get?.('X-Doc-Versions'))
   if (res.status === 401) {
     signedOutNow()
     throw new Error('Your sign in has ended. Please sign in again.')
