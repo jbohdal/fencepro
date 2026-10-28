@@ -11,6 +11,9 @@
  *   PATCH  /:id       — update (any field)
  *   DELETE /:id       — soft archive
  *   POST   /sync      — bulk push from a localStorage payload
+ *
+ * The Salesman gets the Salesman's own jobs only, read only and without
+ * costs (lib/salesmanJobs.ts).
  */
 
 import { cancelRunsLeftBehind } from '../lib/automations/queue.js'
@@ -40,6 +43,7 @@ import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
 import { syncSalesOrderSafe } from '../lib/salesOrders.js'
 import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
+import { salesmanJobScope } from '../lib/salesmanJobs.js'
 
 const router = Router()
 
@@ -52,6 +56,9 @@ export function movesBack(stages: OpsStageDef[], from: string, to: string): bool
 
 // Anything saved here may carry a date: keep Google Calendar in step, in the background.
 router.use(syncCalendarAfterWrite as any)
+
+// The Salesman: the Salesman's own jobs only, read only, without costs (lib/salesmanJobs.ts; audit #49, Oct 28 2026).
+router.use(salesmanJobScope)
 
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 

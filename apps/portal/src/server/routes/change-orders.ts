@@ -37,6 +37,7 @@ import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit, startOfChange, effectiveWork } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
+import { isSalesman, salesmanLogin, salesmanOwnsJob, forSalesman } from '../lib/salesmanJobs.js'
 import { signSchema } from './changeOrderPublic.js'
 import { safeSvg } from './proposal.js'
 import { changeOrderPhonesFor } from '../lib/signedDocuments.js'
@@ -252,11 +253,15 @@ router.get('/pick-price', requireCan('quotes.change'), async (req: any, res) => 
 })
 
 // The contract price is in it: the owner, admin, manager, office and Salesman only (an Installer's window has no Job history).
+// The Salesman: the Salesman's own jobs only, and no cost figure in its words (lib/salesmanJobs.ts; audit #49).
 router.get('/timeline', requireCan('prices.view'), async (req: any, res) => {
   try {
-    const out = await jobTimeline(req.user.crmAccountId, String(req.query.jobId ?? ''))
+    const jobId = String(req.query.jobId ?? '')
+    const salesman = isSalesman(roleOf(req)) ? await salesmanLogin(String(req.user.id)) : null
+    if (isSalesman(roleOf(req)) && (!salesman || !(await salesmanOwnsJob(salesman, jobId)))) { res.status(404).json({ success: false, error: 'Job not found' }); return }
+    const out = await jobTimeline(req.user.crmAccountId, jobId)
     if (!out) { res.status(404).json({ success: false, error: 'Job not found' }); return }
-    res.json({ success: true, data: out })
+    res.json({ success: true, data: salesman ? forSalesman(out) : out })
   } catch (e) { fail(res, e, 'load the job history') }
 })
 
