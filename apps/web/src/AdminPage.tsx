@@ -13,7 +13,7 @@ import {
 } from './inventoryStore'
 import { getConfig } from './configStore'
 import { businessDate } from './businessDate'
-import { priceAge, priceAgeLabel, compareByPriceAge, borrowedPrice, DEFAULT_PRICE_STALE_MONTHS, monthsText } from './priceAge'
+import { priceAge, priceAgeLabel, compareByPriceAge, borrowedPrice, borrowedBadge, borrowedNote, DEFAULT_PRICE_STALE_MONTHS, monthsText } from './priceAge'
 import BulkImportModal from './BulkImportModal'
 import MaterialKitsTab from './MaterialKitsTab'
 import FillInTab from './FillInTab'
@@ -405,6 +405,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
               const barcodeCount = (item.barcodes ?? []).length
               const isThresholdExpanded = thresholdExpandId === item.id
               const isBarcodesEditing = barcodesEditId === item.id
+              const from = borrowedPrice(item)
 
               return (
                 <React.Fragment key={item.id}>
@@ -429,11 +430,13 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                     </td>}
                     <td className="px-3 py-2.5" data-price-age={ageOf(item)} data-price-item={item.id}>
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs ${ageOf(item) === 'fresh' ? 'text-gray-600' : ageOf(item) === 'old' ? 'text-red-700 font-semibold' : 'text-amber-700'}`}>{priceAgeLabel(item)}</span>
-                        {borrowedPrice(item) ? (
-                          // Jonathan, Oct 27: it follows Black's price changes until a green price is entered.
-                          <span className="text-xs text-amber-800" data-follows-black={item.id}>Moves when that price changes. Type this part's own price here (or order it on a vendor document) to stop.</span>
-                        ) : canPrice && ageOf(item) !== 'fresh' && (
+                        {from ? (
+                          // Jonathan, Oct 27: it follows Black's price changes until a green price is entered. A short badge here;
+                          // the rest on the line under the row (review Oct 28 2026: the sentence wrapped 11 lines into On Hand).
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-semibold whitespace-nowrap"
+                            title={borrowedNote(from, canPrice)} data-from-black-badge={item.id}>{borrowedBadge(from)}</span>
+                        ) : <span className={`text-xs ${ageOf(item) === 'fresh' ? 'text-gray-600' : ageOf(item) === 'old' ? 'text-red-700 font-semibold' : 'text-amber-700'}`}>{priceAgeLabel(item)}</span>}
+                        {!from && canPrice && ageOf(item) !== 'fresh' && (
                           <button onClick={() => confirmPrices([item.id])} data-confirm-price
                             className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-200 whitespace-nowrap">Confirm price</button>
                         )}
@@ -475,6 +478,11 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                       {canPrice && <button onClick={() => deleteItem(item.id)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 text-lg leading-none">×</button>}
                     </td>
                   </tr>
+                  {from && (
+                    <tr key={`${item.id}-from`} data-follows-black={item.id} style={{ borderTopWidth: 0 }}>
+                      <td colSpan={8} className="px-4 pt-0 pb-2.5 text-xs text-amber-800">{borrowedNote(from, canPrice)}</td>
+                    </tr>
+                  )}
                   {isThresholdExpanded && (
                     <tr key={`${item.id}-thresholds`} className="bg-orange-50">
                       <td colSpan={8} className="px-6 py-3">

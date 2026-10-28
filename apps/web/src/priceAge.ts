@@ -43,6 +43,28 @@ export function borrowedPrice(item: PricedItem): PriceFrom | null {
   return f
 }
 
+/**
+ * Inventory's "Price last updated" column: a short badge for a borrowed price
+ * ("From Black"), the rest on its own line under the row (borrowedNote).
+ * Review Oct 28 2026: the whole sentence in that narrow column wrapped about
+ * 11 lines into On Hand.
+ */
+export function borrowedBadge(from: PriceFrom): string {
+  const head = String(from.words ?? '').split(/\s+until\s+/i)[0].trim()
+  return head && head.length <= 24 ? head : 'Borrowed price'
+}
+
+/**
+ * The line under a borrowed price's row. Only someone who can change prices
+ * (`canPrice`) is told to type one; the office and the Salesman read who does.
+ */
+export function borrowedNote(from: PriceFrom, canPrice: boolean): string {
+  const said = `${from.words}: follows ${from.part.trim()}, and moves when that price changes.`
+  return canPrice
+    ? `${said} Type this part's own price in Unit Cost (or order it on a vendor document) to stop.`
+    : `${said} Jonathan enters the green price.`
+}
+
 /** One borrowed price moved to follow its part ("Green, Bolt, ..." took Black's new price). */
 export interface FollowedPrice { id: string; part: string; from: string; wasCents: number; nowCents: number }
 
