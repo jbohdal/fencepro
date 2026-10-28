@@ -23,7 +23,9 @@
  *     scheduled): → Ready to Pull;
  *   - dragged back: saving the locate or permit again (already clear / issued)
  *     and the next sweep leave it where the office put it;
- *   - a job the office put further along stays (never backward).
+ *   - a job the office put further along stays (never backward);
+ *   - a move and a materials change by hand say who in the Job history; an
+ *     Installer cannot read it (audit #47).
  *
  * Removes what it made.
  */
@@ -113,9 +115,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
       'Moved to Permit Pending by itself: 811 locate is clear to dig.',
       'Moved to Need Drawing by itself: permit is Approved.',
     ])
-    // The job window's Job history shows it.
+    // The job window's Job history shows it: from → to, by itself, the reason, one line each (lib/jobMoveHistory.ts, audit #47).
     const tl = await call('GET', `/api/change-orders/timeline?jobId=${id}`)
-    expect((tl.json.data.items as any[]).map(i => i.title)).toContain('Moved to Need Drawing by itself: permit is Approved.')
+    const moves = (tl.json.data.items as any[]).filter(i => i.kind === 'stage')
+    expect(moves.map(i => i.title)).toEqual(['Moved from Permit Pending to Need Drawing automatically', 'Moved from Awaiting Locates to Permit Pending automatically'])
+    expect(moves[0].detail).toMatch(/^permit is Approved\. \(Permit saved, /)
+    expect(moves[1].detail).toMatch(/^811 locate is clear to dig\. \(811 locate saved, /)
     // A second browser, on its next read.
     const next = await call('GET', `/api/saved-jobs?since=${encodeURIComponent(since)}`)
     expect((next.json.data as any[]).find(j => j.id === id)?.opsStage).toBe('need_drawing')
@@ -237,5 +242,19 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
     expect((await locatesClearSweep(at(D1), acct)).map(m => m.jobId)).toEqual([y])
     expect([(await job(x)).opsStage, (await job(y)).opsStage]).toEqual(['awaiting_locates', 'permit_pending'])
     expect((await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId: acct, key: LOCATE_SWEEP_KEY } } }))?.value).toEqual({ day: D1 })
+  })
+  test('a move and a materials change by hand show who made them in the Job history; an Installer cannot read it (audit #47)', async () => {
+    const id = await mk('H', {})
+    const r = await call('PATCH', `/api/saved-jobs/${id}`, { opsStage: 'materials_ordered', materialsStatus: 'ordered' })
+    expect(r.status).toBe(200)
+    const items = (await call('GET', `/api/change-orders/timeline?jobId=${id}`)).json.data.items as any[]
+    const who = `${user.firstName} ${user.lastName}`.trim()
+    expect(items.filter(i => i.kind === 'stage' || i.kind === 'materials').map(i => [i.title, i.by])).toEqual([
+      ['Moved from Awaiting Locates to Materials Ordered', who],
+      ['Materials: Not ordered yet → Ordered', who],
+    ])
+    const installer = jwt.sign({ sub: user.id, email: user.email, role: 'installer', firstName: 'I', lastName: 'C', crmAccountId: accountId }, resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me'), { expiresIn: '5m' })
+    const crew = await fetch(`${base}/api/change-orders/timeline?jobId=${id}`, { headers: { Authorization: `Bearer ${installer}` } })
+    expect(crew.status).toBe(403)
   })
 })

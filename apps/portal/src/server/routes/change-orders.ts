@@ -251,7 +251,8 @@ router.get('/pick-price', requireCan('quotes.change'), async (req: any, res) => 
   } catch (e) { fail(res, e, 'price the item') }
 })
 
-router.get('/timeline', async (req: any, res) => {
+// The contract price is in it: the owner, admin, manager, office and Salesman only (an Installer's window has no Job history).
+router.get('/timeline', requireCan('prices.view'), async (req: any, res) => {
   try {
     const out = await jobTimeline(req.user.crmAccountId, String(req.query.jobId ?? ''))
     if (!out) { res.status(404).json({ success: false, error: 'Job not found' }); return }

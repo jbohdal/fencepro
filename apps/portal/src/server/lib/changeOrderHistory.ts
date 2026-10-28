@@ -5,7 +5,8 @@
  * the customer, approved ("Change order CO-1 approved: +$450 (added 12 ft and
  * a walk gate), by Jonathan, Oct 22"), voided; on the job also the contract
  * as signed (rev 1), the payment schedule lines that followed, the pull sheet
- * revisions and the schedule warning. Prices only, never a cost.
+ * revisions, the stage moves and materials changes (lib/jobMoveHistory.ts)
+ * and the schedule warning. Prices only, never a cost.
  */
 
 import prisma from './prisma.js'
@@ -14,6 +15,8 @@ import { approvedText, signedUsd, whatChanged, currentWorkRow } from './changeOr
 import { scheduleFit } from './changeOrderWork.js'
 import { moneyText } from './paymentMath.js'
 import { AUTO_MOVE_KIND } from './waitingStageMove.js'
+import { moveHistoryItems } from './jobMoveHistory.js'
+import { loadOpsStages } from './opsStages.js'
 
 export interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
 
@@ -47,7 +50,7 @@ export async function changeOrderItems(accountId: string, quoteIds: string[]): P
   return items
 }
 
-/** The job's timeline, newest first: contract signed, change orders, payment schedule lines, pull sheet revisions. */
+/** The job's timeline, newest first: contract signed, change orders, payment schedule lines, pull sheet revisions, stage moves, materials. */
 export async function jobTimeline(accountId: string, jobId: string): Promise<{ items: TimelineItem[]; scheduleWarning: string | null; contractRev: number } | null> {
   const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null }, select: { id: true, quoteId: true, quotePrice: true, createdAt: true } })
   if (!job) return null
@@ -66,8 +69,25 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
   }
   const logs = await prisma.billingLog.findMany({ where: { accountId, jobId, kind: { in: ['final_follows', 'change_order_invoice', 'change_order_invoice_void', 'made'] } }, orderBy: { at: 'desc' }, take: 50 })
   for (const l of logs) items.push({ at: l.at.toISOString(), kind: 'billing', title: l.text, detail: '', by: l.byName })
-  // Board moves the job made by itself ("Moved to Permit Pending by itself: 811 locate is clear to dig."; lib/waitingStageMove.ts).
-  const moves = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, metadata: { path: ['kind'], equals: AUTO_MOVE_KIND } }, orderBy: { createdAt: 'desc' }, take: 50 })
-  for (const m of moves) items.push({ at: m.createdAt.toISOString(), kind: 'stage', title: m.body, detail: '', by: '' })
+  // Board moves and materials changes, by whom or by itself with the reason (lib/jobMoveHistory.ts, audit #47). A move the
+  // job made by itself also left a note ("Moved to Permit Pending by itself: …"; lib/waitingStageMove.ts): one line, its reason.
+  const notes = (await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, metadata: { path: ['kind'], equals: AUTO_MOVE_KIND } }, orderBy: { createdAt: 'desc' }, take: 50 }))
+    .map(m => ({ createdAt: m.createdAt, body: m.body, to: typeof (m.metadata as any)?.to === 'string' ? (m.metadata as any).to : null }))
+  const audits = await prisma.crmAuditLog.findMany({ where: { entityType: 'SavedJob', entityId: jobId, action: { in: ['create', 'update'] } }, orderBy: { createdAt: 'desc' }, take: 300, select: { createdAt: true, userId: true, userEmail: true, action: true, oldValues: true, newValues: true } })
+  // Names for the people: who saved, and who a move by itself names ("Sales Order, jane@…").
+  const emails = new Set<string>()
+  for (const a of audits) {
+    if (a.userEmail && a.userEmail !== 'system') emails.add(a.userEmail)
+    const e = String((a.newValues as any)?.by ?? '').match(/[^\s,]+@[^\s,]+/)?.[0]
+    if (e) emails.add(e)
+  }
+  const ids = audits.map(a => a.userId).filter((x): x is string => !!x)
+  const users = await prisma.crmUser.findMany({ where: { OR: [{ id: { in: ids } }, { email: { in: [...emails] } }] }, select: { id: true, email: true, firstName: true, lastName: true } })
+  const fullName = (u: { firstName: string; lastName: string } | undefined) => (u ? `${u.firstName} ${u.lastName}`.trim() || null : null)
+  const byEmail = (e: string) => fullName(users.find(u => u.email.toLowerCase() === e.toLowerCase()))
+  const { stages } = await loadOpsStages(accountId)
+  const used = new Set<number>()
+  items.push(...moveHistoryItems(stages, audits.map(a => ({ ...a, userName: fullName(users.find(u => u.id === a.userId)) ?? (a.userEmail ? byEmail(a.userEmail) : null) })), notes, byEmail, used))
+  notes.forEach((m, i) => { if (!used.has(i)) items.push({ at: m.createdAt.toISOString(), kind: 'stage', title: m.body, detail: '', by: '' }) })
   return { items: items.sort((a, b) => b.at.localeCompare(a.at)), scheduleWarning: await scheduleFit(accountId, jobId), contractRev }
 }

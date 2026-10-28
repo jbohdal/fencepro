@@ -329,7 +329,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           </Section>
         )}
 
-        {/* The job's history: contract, change orders, payment schedule, pull sheet revisions; a schedule warning (ChangeOrders.tsx). */}
+        {/* The job's history: contract, change orders, payment schedule, pull sheet revisions, stage moves and materials changes (who, or by itself and why); a schedule warning (ChangeOrders.tsx). */}
         {isJobSource && seesPrices && <Section title="Job history"><JobTimeline jobId={job.id} refreshKey={`${job.opsStage}|${job.rawJob?.updatedAt ?? ''}`} /></Section>}
 
         {/* Notes */}
