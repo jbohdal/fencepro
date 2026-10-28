@@ -21,6 +21,7 @@ import { draftToReuse, withVisit } from './quoteReuse'
 import SalesPipelineBoard from './SalesPipelineBoard'
 import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, savedScroll, BackClose } from './nav'
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
+const JobPage = lazy(() => import('./JobPage'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
 const FeedbackPage = lazy(() => import('./FeedbackPage'))
 import FeedbackButton, { FeedbackOverWindow } from './FeedbackButton'
@@ -180,7 +181,8 @@ const NAV_GROUPS: NavGroup[] = [
 
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
 // Every page the app can show, for its address (/customers, /pipeline, ...).
-const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging'])]
+// Job: one job's page, read only, at /job?id= (the Salesman's; JobPage.tsx). Not a menu line.
+const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging', 'Job'])]
 const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Follow ups', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'My installs', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
 
 /** Where a login lands, and where a page its role cannot open sends it: the installer's own home, else Today. */
@@ -628,6 +630,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // Jobs and Staging are views of Operations without a menu line of their own: the office's, not the installer's.
   const pageItem: { roles: UserRole[] } | undefined = ALL_NAV_ITEMS.find(i => i.name === active)
     ?? (active === 'Jobs' || active === 'Staging' ? { roles: ['owner', 'admin', 'ops_manager'] } : undefined)
+    // One job's page: the Salesman reads the Salesman's own jobs there (the server sends no other); the rest go on to Operations.
+    ?? (active === 'Job' ? { roles: ['owner', 'admin', 'ops_manager', 'salesman', 'shop'] } : undefined)
   const pageBlocked = !isFullRole() && !!pageItem && !pageItem.roles.includes(role)
   const toldBlocked = useRef('')
   useEffect(() => {
@@ -1237,6 +1241,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Operations'     && <OperationsBoard />}
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
+          {active === 'Job'            && <JobPage />}
           {active === 'Schedule'  && <SchedulePage />}
           {active === 'Service'   && <ServicePage />}
           {active === 'Appointments' && <AppointmentsPage />}
