@@ -8,7 +8,8 @@ import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents, crewTime 
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
-import { stalePartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import { stalePartsOnQuote, borrowedPartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import FromBlackWarning from './FromBlackWarning'
 import StyleChoices from './StyleChoices'
 import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
@@ -867,10 +868,15 @@ export default function QuoteBuilder({
   const compareRows = internal ? compareRowsLocal : viewCompare(sv, FENCE_STYLES) as typeof compareRowsLocal
   // Parts whose Inventory price is old or was never confirmed: a warning, never a block.
   const staleMonths = cfg.pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS
+  // Parts still priced from another part (a green part at Black's price, Oct 27 2026): their own warning, so they leave this list.
+  const fromBlackParts = useMemo(() => (internal && style
+    ? borrowedPartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), normalizeItemName)
+    : []), [style, materialItems, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   const staleParts = useMemo(() => (internal && style
     // Parts a job lot piece price covers are not priced from Inventory, so their Inventory date does not matter.
     ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
-    : []), [style, materialItems, invTick, staleMonths])  // eslint-disable-line react-hooks/exhaustive-deps
+      .filter(p => !fromBlackParts.some(b => b.item.id === p.item.id))
+    : []), [style, materialItems, invTick, staleMonths, fromBlackParts])  // eslint-disable-line react-hooks/exhaustive-deps
   // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
   const jobLot = style?.jobLot
   const jobLotOld = !!jobLot && !jobLot.kit && !jobLot.tall && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
@@ -1482,6 +1488,7 @@ export default function QuoteBuilder({
                   {style.label || style.name} is not available for new quotes ({style.isActive === false ? 'turned off' : style.held ? style.held : 'pricing on hold'} in Settings → Fence Styles). This quote keeps it and still prices.
                 </p>
               )}
+              {sections > 0 && <div className="mt-3"><FromBlackWarning parts={fromBlackParts} where="style" /></div>}
             </div>
 
             {jobType === 'move' && (
@@ -1614,6 +1621,9 @@ export default function QuoteBuilder({
                 )}
               </div>
 
+              {/* Right under the price: a part priced from Black can make it low (Jonathan, Oct 27). */}
+              {sections > 0 && <FromBlackWarning parts={fromBlackParts} where="price" />}
+
               {jobType === 'move' && moveAsIs && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-move-options>
                   <p className="text-xs font-semibold text-gray-500">On the proposal</p>
@@ -1708,6 +1718,17 @@ export default function QuoteBuilder({
                         {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{!sent && t.widthFt && t.option ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
                         {!sent && !folded && t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
                         {!sent && t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
+                        {(() => {
+                          // An offered option with a green part still priced from Black: its price may be low too (the main one says so above).
+                          if (sent || main || t.off || !t.option || !internal) return null
+                          const pull = ((t.option.snapshot?.pullSheet ?? []) as Array<{ item: string; qty: number; costSource?: string }>)
+                          const fb = borrowedPartsOnQuote(pull.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), normalizeItemName)
+                          return fb.length ? (
+                            <p className="text-xs font-semibold text-red-800 mt-1" data-tier-from-black={t.spec.key}>
+                              Price may be low: {fb.map(x => x.item.name.replace(/^\*/, '').trim()).join('; ')} {fb.length === 1 ? 'is' : 'are'} priced from Black.
+                            </p>
+                          ) : null
+                        })()}
                         <div className="flex gap-2 mt-2">
                           <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main || !t.style}
                             onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style!.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>

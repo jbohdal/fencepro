@@ -11,7 +11,7 @@ import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { setMaterialPriceSource, inventoryPriceSource } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
-import { stampPriceChanges, confirmPrices as confirmPricesIn } from './priceAge'
+import { stampPriceChanges, confirmPrices as confirmPricesIn, followBorrowedPrices, borrowedPrice } from './priceAge'
 import { businessDate } from './businessDate'
 import { setSavedKitSets, type KitSet } from './materialKits'
 
@@ -427,16 +427,24 @@ function rememberCosts() { lastCosts = new Map(getInventory().map(i => [i.id, Nu
  * "imported, not yet confirmed" instead.
  */
 export function saveInventory(items: InventoryItem[], opts: { imported?: boolean } = {}): void {
-  invCache.items = stampPriceChanges(items, lastCosts, businessDate(new Date()), !!opts.imported)
+  const today = businessDate(new Date())
+  // A part priced from another (green at Black's price) moves with it on the same save; the server does the same.
+  invCache.items = followBorrowedPrices(stampPriceChanges(items, lastCosts, today, !!opts.imported), today).items
   rememberCosts()
   costIndexFor = null // costs may have changed, even if the array was edited in place
   invEmit()
   scheduleFlush()
 }
 
-/** Confirm these items' prices as they are: the date becomes today. */
+/**
+ * Confirm these items' prices as they are: the date becomes today. A price
+ * borrowed from another part (green at Black's) is not a price to confirm: it
+ * stays borrowed until its own price is entered.
+ */
 export function confirmItemPrices(ids: Iterable<string>): void {
-  invCache.items = confirmPricesIn(getInventory(), new Set(ids), businessDate(new Date()))
+  const items = getInventory()
+  const borrowed = new Set(items.filter(i => borrowedPrice(i)).map(i => i.id))
+  invCache.items = confirmPricesIn(items, new Set([...ids].filter(id => !borrowed.has(id))), businessDate(new Date()))
   costIndexFor = null
   invEmit()
   scheduleFlush()

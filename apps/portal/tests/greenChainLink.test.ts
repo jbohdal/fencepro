@@ -265,7 +265,7 @@ describe('green chain link from 06-251707', () => {
       // Marked, and unconfirmed: a vendor document or a typed price replaces it.
       expect(g.priceFrom).toEqual({ part: r.black, cents: r.cents, on: '2026-10-27', words: FROM_BLACK_WORDS })
       expect(g.priceImported).toBe(true)
-      expect(priceAgeLabel(g)).toBe(`From Black until a green price is entered (${r.black})`)
+      expect(priceAgeLabel(g)).toBe(`From Black until a green price is entered: follows ${r.black}`)
     }
     // Only the green items changed: every other item is exactly as it was (never a black price).
     const changed = out.state.items.filter((i: any) => JSON.stringify(i) !== JSON.stringify(item(before, i.name)))

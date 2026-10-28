@@ -6,8 +6,10 @@
  * that kit is now (lib/greenChainLink.ts planGreenFollowsBlack), so a chain
  * link rule change (a deploy) or a black kit edited in Material Kits (the next
  * start) reaches Green too. A Green kit Jonathan edited is left as he left it.
- * Nothing to do (no Green, or already in step) writes nothing. Saved quotes
- * are not touched.
+ * A green part still priced from Black (no green price entered yet) takes the
+ * black part's price as it is now (lib/followBorrowed.ts), so a black price
+ * changed by any path reaches it. Nothing to do (no Green, or already in
+ * step) writes nothing. Saved quotes are not touched.
  *
  * One transaction holding the company's Settings and Inventory rows
  * (lockAccountState); Inventory is saved with its version raised, so a
@@ -18,6 +20,7 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { lockAccountState } from './lockState.js'
 import { GREEN_KEY, planGreenFollowsBlack, type GreenFollow, type GreenModule } from './greenChainLink.js'
+import { followBorrowedReport } from './followBorrowed.js'
 
 export async function ensureGreenFollowsBlack(accountId: string): Promise<GreenFollow | null> {
   const m = await pricingModule() as unknown as GreenModule & { fenceCatalogOf(cfg: unknown): unknown }
@@ -32,7 +35,11 @@ export async function ensureGreenFollowsBlack(accountId: string): Promise<GreenF
     const cfg = (b.config && typeof b.config === 'object' && !Array.isArray(b.config) ? b.config : {}) as Record<string, unknown>
     const arr = (v: unknown): any[] => (Array.isArray(v) ? v : [])
     const plan = planGreenFollowsBlack(m, { fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items: arr(inv.items), kits: arr(inv.kits) }, { madeAt: (made.value as any)?.at ?? null })
-    if (plan.updated.length || plan.items.length || plan.marked.length || plan.tidied.length || plan.removed.length) {
+    // A green part still priced from Black takes Black's price now (Jonathan, Oct 27: it "follows Black's price changes until a green price is entered").
+    const prices = await followBorrowedReport(plan.state.items)
+    plan.state.items = prices.items
+    plan.pricesFollowed = prices.followed
+    if (plan.updated.length || plan.items.length || plan.marked.length || plan.tidied.length || plan.removed.length || prices.followed.length) {
       await tx.inventoryState.update({ where: { accountId }, data: { items: plan.state.items as any, kits: plan.state.kits as any, version: { increment: 1 } } })
     }
     return plan
@@ -47,6 +54,7 @@ export async function ensureGreenFollowsBlackAll(): Promise<void> {
       const out = await ensureGreenFollowsBlack(r.accountId)
       if (!out) continue
       for (const u of out.updated) console.log(`[green chain link] ${r.accountId}: ${u.kit} follows ${u.from} again: ${u.changes.join(' | ')}`)
+      for (const f of out.pricesFollowed ?? []) console.log(`[green chain link] ${r.accountId}: ${f.part} follows ${f.from}: $${(f.wasCents / 100).toFixed(2)} → $${(f.nowCents / 100).toFixed(2)}`)
       if (out.items.length) console.log(`[green chain link] ${r.accountId}: added with no price: ${out.items.join('; ')}`)
       if (out.tidied.length) console.log(`[green chain link] ${r.accountId}: names trimmed: ${out.tidied.join('; ')}`)
       if (out.removed.length) console.log(`[green chain link] ${r.accountId}: unused parts with no price taken out: ${out.removed.join('; ')}`)
