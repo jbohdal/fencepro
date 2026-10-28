@@ -4,6 +4,7 @@ import { dayWords } from './businessDate'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
 import { usePipelineStages, stageName as pipelineStageName, roleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
+import { soldStyleLabel, quoteStyleLabel } from './soldStyleLabel'
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, Fragment } from 'react'
 import { getConfig } from './configStore'
 import { sourcePicker, tagPicker, sourceLabel, tagLabel, getOptions, useOptions } from './optionListsStore'
@@ -111,6 +112,8 @@ interface Quote {
   id: string
   customerId: string
   type: string
+  /** The fence name shown: a sold best price quote names its panels (quoteStyleLabel). */
+  label?: string
   /** The count, or a repair's work (moveRepair.ts sectionsCell). */
   sections: number | string
   price: number
@@ -123,6 +126,8 @@ interface Job {
   id: string
   customerId: string
   type: string
+  /** The fence name shown: a sold best price job names its panels (soldStyleLabel). */
+  label?: string
   /** The count, or a repair's work (moveRepair.ts sectionsCell). */
   sections: number | string
   value: number
@@ -1520,7 +1525,7 @@ function CustomerDetail({
                       <tbody className="divide-y divide-gray-100">
                         {quotes.slice(0, quoteLimit).map(q => (
                           <tr key={q.id} className="hover:bg-orange-50 cursor-pointer transition-colors" onClick={() => onQuoteClick?.(q.id)} data-customer-quote={q.id}>
-                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{styleLabel(q.type) || q.type}</td>
+                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.label || styleLabel(q.type) || q.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                             <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
                             {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= lowTarget() ? 'text-green-600' : q.margin >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
@@ -1574,10 +1579,10 @@ function CustomerDetail({
                       <tbody className="divide-y divide-gray-100">
                         {jobs.slice(0, jobLimit).map(j => (
                           // The row opens the job (Operations, its job window), like a quote row opens the quote (round 3).
-                          <tr key={j.id} className="hover:bg-orange-50 cursor-pointer transition-colors" data-customer-job={j.id} tabIndex={0} role="link" aria-label={`Open the job: ${styleLabel(j.type) || 'job'}`}
+                          <tr key={j.id} className="hover:bg-orange-50 cursor-pointer transition-colors" data-customer-job={j.id} tabIndex={0} role="link" aria-label={`Open the job: ${j.label || styleLabel(j.type) || 'job'}`}
                             onClick={() => openJob(j)}
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(j) } }}>
-                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{styleLabel(j.type) || j.type}</td>
+                            <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{j.label || styleLabel(j.type) || j.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{j.sections}</td>
                             <td data-label="Value" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(j.value)}</td>
                             <td data-label="Scheduled" className="px-4 py-3 text-right text-gray-400 text-xs">{j.scheduledDate ? dayWords(j.scheduledDate) : 'Not yet'}</td>
@@ -1677,6 +1682,7 @@ export default function CustomersPage({ onNewQuote }: {
       id: q.id,
       customerId: q.customerId || '',
       type: q.fenceStyle || '',
+      label: quoteStyleLabel(q as any),
       // A repair: its work, never "0" (round 2 review, Oct 26 2026).
       sections: sectionsCell(q.sections, q.work),
       price: q.finalPrice || 0,
@@ -1690,6 +1696,7 @@ export default function CustomersPage({ onNewQuote }: {
       id: j.id,
       customerId: j.customerId || '',
       type: j.fenceStyle || '',
+      label: soldStyleLabel(j.fenceStyle, j.quoteId ? getQuoteById(j.quoteId) as any : null),
       // A repair job: its quote's work, never "0".
       sections: sectionsCell(j.sections, j.quoteId ? getQuoteById(j.quoteId)?.work : null),
       value: j.contractValue || j.quotePrice || 0,
