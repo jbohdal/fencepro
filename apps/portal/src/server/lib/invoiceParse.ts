@@ -21,6 +21,10 @@
  *   - layouts with Ordered / Shipped / BackOrder / Unit first, and a Packing
  *     column before the price (Stephens Pipe & Steel) are read too.
  *   - skipped: notes starting with "*" (*Fab:), separator rows, $0.00 lines.
+ *     A $0.00 line with a BackOrder quantity (Stephens: "2 0 2 ea BLK RES DD
+ *     GATE 14 431.27 0.00") is kept as backordered, with its description,
+ *     quantity and price, to show; it is not on this bill, so it is not a
+ *     line: not in the totals, the spread, or an Inventory price (audit #45).
  *   - QUOTATION or INVOICE, its number, date and vendor come from the header.
  *
  * Nothing is guessed silently: anything that does not fit is marked as a
@@ -50,11 +54,17 @@ export interface ParsedLine {
   raw: string
   /** The vendor's packing, when printed ("6 rll"). */
   packing?: string
+  /** Quantity on back order (Stephens' BackOrder column), when more than 0. */
+  backorder?: number
 }
 
 export interface ParsedFee { label: string; cents: number; page: number; row: number; box: Row['box'] | null }
 
-export interface SkippedRow { page: number; row: number; text: string; why: 'note' | 'separator' | 'zero' }
+export interface SkippedRow {
+  page: number; row: number; text: string; why: 'note' | 'separator' | 'zero' | 'backordered'
+  /** A backordered line: what, how many are backordered, and its price (not billed on this document). */
+  description?: string; qty?: number; unit?: string; unitPriceHc?: number
+}
 
 export interface ParsedInvoice {
   /** A quotation never changes prices until it is marked ordered. */
@@ -176,7 +186,7 @@ function osbLine(t: string[]): LineCore | null {
   const unitPriceHc = moneyToHc(price)
   if (totalCents == null || unitPriceHc == null) return null
   const unit = hasUnit ? t[3].toUpperCase() : 'EA'
-  const ordered = Number(t[0].replace(/,/g, '')), shipped = Number(t[1].replace(/,/g, ''))
+  const ordered = Number(t[0].replace(/,/g, '')), shipped = Number(t[1].replace(/,/g, '')), backorder = Number(t[2].replace(/,/g, ''))
   const qty = !lineAddsUp(ordered, unitPriceHc, totalCents, unit) && lineAddsUp(shipped, unitPriceHc, totalCents, unit) ? shipped : ordered
   let desc = t.slice(hasUnit ? 4 : 3, -2)
   let packing = ''
@@ -186,7 +196,7 @@ function osbLine(t: string[]): LineCore | null {
   const problems: LineProblem[] = []
   if (!lineAddsUp(qty, unitPriceHc, totalCents, unit)) problems.push('math')
   if (totalCents < 0) problems.push('credit')
-  return { itemNumber: '', description, qty, unit, unitPriceHc, totalCents, problems, ...(packing ? { packing } : {}) }
+  return { itemNumber: '', description, qty, unit, unitPriceHc, totalCents, problems, ...(packing ? { packing } : {}), ...(backorder > 0 ? { backorder } : {}) }
 }
 
 function lineFromTokens(tokens: string[]): LineCore | null {
@@ -328,6 +338,20 @@ export function splitByReadingOrder(r: Pick<Row, 'words'>): Array<{ kind: TotalK
   return label.length ? null : out
 }
 
+/**
+ * A $0.00 row left out that has a BackOrder quantity (Stephens: "2  0  2 ea
+ * BLK RES DD GATE 14Wx4 ...  431.27  0.00"): backordered, with what, how many
+ * and its price, to show as "Backordered, not on this bill" (audit #45). Not
+ * billed on this document, so never a line. Also used on documents read
+ * before, from the row's text. Any other row is returned as it is.
+ */
+export function withBackorder(row: SkippedRow): SkippedRow {
+  if (row.why !== 'zero') return row
+  const l = osbLine(row.text.split(/\s+/).filter(Boolean))
+  if (!l || l.totalCents !== 0 || !l.backorder || !l.unitPriceHc) return row
+  return { ...row, why: 'backordered', description: l.description, qty: l.backorder, unit: l.unit, unitPriceHc: l.unitPriceHc }
+}
+
 export function parseInvoice(pages: Array<{ page: number; rows: Row[] }>, vendors: KnownVendor[] = []): ParsedInvoice {
   const rows = pages.flatMap(p => p.rows)
   const out: ParsedInvoice = {
@@ -437,7 +461,7 @@ export function parseInvoice(pages: Array<{ page: number; rows: Row[] }>, vendor
     }
     if (HEADER_WORDS.test(r.text) && tokens.filter(isAmount).length === 0) { lastLine = null; inTotals = false; continue }
     const parsed = lineFromTokens(tokens)
-    if (parsed && parsed.totalCents === 0) { out.skipped.push({ page: r.page, row: r.i, text: r.cells.join('  '), why: 'zero' }); lastLine = null; continue }
+    if (parsed && parsed.totalCents === 0) { out.skipped.push(withBackorder({ page: r.page, row: r.i, text: r.cells.join('  '), why: 'zero' })); lastLine = null; continue }
     if (parsed) {
       const line: ParsedLine = { ...parsed, page: r.page, row: r.i, box: r.box, conf: r.conf, raw: r.cells.join('  ') }
       // Only the numbers matter for "unclear": a shaky word in a description is fine.

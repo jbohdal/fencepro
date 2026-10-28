@@ -47,7 +47,8 @@ export interface InvoiceSummary {
   /** No tax printed: the estimated tax rate it was priced with (basis points, 722 = 7.22%), and the amount added to landed costs. */
   estTaxBp: number | null
   estTaxCents: number
-  skipped: Array<{ page: number; row: number; text: string; why: string }>
+  /** Rows left out; why 'backordered' carries the line (not billed on this document; portal lib/invoiceParse). */
+  skipped: Array<{ page: number; row: number; text: string; why: string; description?: string; qty?: number; unit?: string; unitPriceHc?: number }>
 }
 
 export interface InvoiceLine {

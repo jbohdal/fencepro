@@ -20,6 +20,7 @@ import { requireUser, requireAccount } from './saved-quotes.js'
 import { can, requireCan, roleOf } from '../lib/permissions.js'
 import { audit } from '../lib/auditLog.js'
 import { plainZod } from '../lib/plainZod.js'
+import { withBackorder } from '../lib/invoiceParse.js'
 import {
   editHeader, editLine, matchLine, decideWaiting, markOrdered, undoInvoice, deleteInvoice, rereadInvoice, suggestItems, documentFinish,
   vendorTotalsByMonth, InvoiceError, NOT_INVENTORY, LIVE_STATUSES, type Actor,
@@ -54,7 +55,9 @@ function summary(i: any) {
     totalCents: i.totalCents, jobId: i.jobId, jobName: i.jobName, uploadedBy: i.uploadedBy, createdAt: i.createdAt, appliedAt: i.appliedAt,
     undoneAt: i.undoneAt, message: i.message, pageCount: i.pageCount, engine: i.engine,
     docType: i.docType, ordered: i.ordered, orderedAt: i.orderedAt, orderedBy: i.orderedBy, replacedById: i.replacedById, revision: i.revision,
-    taxFound: i.taxFound, taxOk: i.taxOk, taxRate: i.taxRate, estTaxBp: i.estTaxBp ?? null, estTaxCents: i.estTaxCents ?? 0, skipped: i.skipped,
+    taxFound: i.taxFound, taxOk: i.taxOk, taxRate: i.taxRate, estTaxBp: i.estTaxBp ?? null, estTaxCents: i.estTaxCents ?? 0,
+    // A backordered row on a document read before Oct 28 shows as backordered too (lib/invoiceParse withBackorder, audit #45).
+    skipped: Array.isArray(i.skipped) ? i.skipped.map(withBackorder) : i.skipped,
     counts: {
       lines: lines.filter((l: any) => !l.ignored).length,
       applied: lines.filter((l: any) => l.state === 'applied').length,

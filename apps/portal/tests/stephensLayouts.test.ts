@@ -24,7 +24,7 @@ import fs from 'fs'
 import path from 'path'
 import { describe, test, expect } from 'vitest'
 import { wordsToRows, type Word } from '../src/server/lib/invoiceReader'
-import { parseInvoice, splitByReadingOrder, type ParsedInvoice } from '../src/server/lib/invoiceParse'
+import { parseInvoice, splitByReadingOrder, withBackorder, type ParsedInvoice } from '../src/server/lib/invoiceParse'
 import { checkTotals, landedParts, isFuelFee, estimatedTaxCents } from '../src/server/lib/invoiceMath'
 
 function read(name: string): ParsedInvoice {
@@ -75,8 +75,17 @@ describe('Stephens 2023 layout: fuel and the next totals row in one block', () =
     const parts = landedParts({ linesCents: 223391, taxCents: 0, freightCents: 0, fees: p.fees, taxFound: false, taxOk: false, estTaxBp: 722 })
     expect(parts).toMatchObject({ fuelCents: 1500, spreadCents: 4590, estTaxCents: estimatedTaxCents(223391, 722) })
     expect(estimatedTaxCents(223391, 722)).toBe(16129)
-    // A back ordered line priced $0.00 is left out, not a line.
-    expect(p.skipped.some(s => s.why === 'zero')).toBe(true)
+    // A backordered line ($0.00, "2 0 2 ea BLK RES DD GATE 14 431.27"): kept as backordered with its price, not a line,
+    // so not in the totals above nor an Inventory price (audit #45).
+    expect(p.skipped.filter(s => s.why === 'backordered')).toEqual([
+      expect.objectContaining({ description: 'BLK RES DD GATE 14Wx4 SP055 9gaEXT NO SCR', qty: 2, unit: 'EA', unitPriceHc: 4312700 }),
+    ])
+    expect(p.lines.some(l => /DD GATE 14/.test(l.description))).toBe(false)
+    expect(p.skipped.some(s => s.why === 'zero')).toBe(false)
+    // A document read before shows it too, from the row as stored.
+    const old = { page: 1, row: 13, text: '2  0  2 ea  BLK RES DD GATE 14Wx4 SP055 9gaEXT NO SCR  431.27  0.00', why: 'zero' as const }
+    expect(withBackorder(old)).toMatchObject({ why: 'backordered', qty: 2, unitPriceHc: 4312700 })
+    expect(withBackorder({ page: 1, row: 1, text: '1  1  0 ea  FREE SAMPLE  0.00  0.00', why: 'zero' })).toMatchObject({ why: 'zero' })
   })
 
   test('the split takes each amount after its own label, in the order the PDF draws them', () => {

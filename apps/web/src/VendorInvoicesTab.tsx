@@ -697,6 +697,9 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
     ...inv.fees.filter(f => f.page === page && f.box).map((f, k) => ({ key: `fee-${k}`, box: f.box!, bad: false })),
   ]
   const totalBad = inv.problems.some(p => p.kind === 'total' || p.kind === 'subtotal' || p.kind === 'no_total')
+  // A backordered line (shipped 0, $0.00) is shown with its price; it is not billed here (portal lib/invoiceParse, audit #45).
+  const backordered = (inv.skipped ?? []).filter(x => x.why === 'backordered')
+  const leftOut = (inv.skipped ?? []).filter(x => x.why !== 'backordered')
 
   return (
     <div className="space-y-4 min-w-0" data-invoice-detail={inv.invoiceNumber || inv.id}>
@@ -708,7 +711,16 @@ function InvoiceView({ id, onBack, onChanged }: { id: string; onBack: () => void
         <h2 className="text-lg font-semibold text-gray-900 break-words">{inv.vendorName || 'Vendor not read'}</h2>
         <p className="text-sm text-gray-600 break-words">{inv.invoiceNumber ? `${inv.docType === 'quote' ? 'Quote' : 'Invoice'} #${inv.invoiceNumber}` : 'No number'} · {dayText(inv.invoiceDate)} · {inv.pageCount} page{inv.pageCount === 1 ? '' : 's'}{inv.engine ? ` · read from ${inv.engine === 'pdf-text' ? 'the PDF text' : 'the picture'}` : ''}</p>
         {inv.docType === 'quote' && <p className="text-sm text-purple-800 break-words">Quotation{inv.revision ? ` · revision ${inv.revision}` : ''}{inv.ordered ? ` · ordered${inv.orderedBy ? ` by ${inv.orderedBy}` : ''}: treated as the invoice` : ''}</p>}
-        {inv.skipped?.length > 0 && <p className="text-xs text-gray-500 break-words">Left out: {inv.skipped.map(x => x.text.slice(0, 30)).join(' · ')}</p>}
+        {backordered.length > 0 && (
+          <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-1" data-backordered>
+            <p className="text-sm font-semibold text-amber-900">Backordered, not on this bill</p>
+            <ul className="text-sm text-amber-900 space-y-1">
+              {backordered.map(x => <li key={`${x.page}-${x.row}`} className="break-words">{x.qty} {x.unit} {x.description} · {unitPrice(x.unitPriceHc ?? null)} each</li>)}
+            </ul>
+            <p className="text-xs text-amber-800">Not in this document's total, and its price is not put on Inventory from it.</p>
+          </div>
+        )}
+        {leftOut.length > 0 && <p className="text-xs text-gray-500 break-words">Left out: {leftOut.map(x => x.text.slice(0, 30)).join(' · ')}</p>}
         {inv.jobName && <p className="text-sm text-gray-600 break-words">For job: {inv.jobName}</p>}
         {inv.message && <p className="text-sm text-gray-800 bg-gray-50 rounded-lg p-2 mt-2 break-words" data-message>{inv.message}</p>}
         {inv.status === 'reading' && <p className="text-sm text-blue-700">Reading on the Mac…</p>}
