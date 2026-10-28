@@ -679,6 +679,10 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * No growing timers, window listeners or DOM were found: with the loop staying inside the app, window and document listeners stay at 54, timers at 10 and page elements at 475 every loop. The crash itself did not happen in Playwright on the Mac either before or after; it is Safari on the phone that closes a page that uses too much memory.
 * Tests: appImagesSmall.test.ts (every picture the app names is at most 512 x 512; the app never shows /logo.png; the full size logo is still there). **DEV**
 
+## 9au. Small broken items found by reviewers (Oct 28 2026)
+
+* **Main option in a uniform yard.** A best price quote whose runs all took the same panel width is the same fence at the same price as one tier, so the proposal shows that tier's card and opens with it selected; the Price step now marks that card "Main option" and highlights it (before: all three said "Make main", none highlighted; a mixed yard already showed it, 9ap). The same on a Salesman's phone (the server's quote view twinTierKey) and on a sent quote (sentTiers.ts twin). Prices unchanged. tiers.ts twinTierKey. Tests: builderOwnTier.test.ts. **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

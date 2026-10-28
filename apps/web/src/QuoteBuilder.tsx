@@ -34,7 +34,7 @@ import { getQuotes } from './quoteStore'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
-import { resolveTiers, tierOptions, tierSetFor, ownTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
+import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
 import { proposalSent, ownTierToStamp } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
@@ -857,6 +857,13 @@ export default function QuoteBuilder({
     if (!tiersLocal.length || !(adjPrice > 0)) return null
     return ownTierKey(tiersLocal, { ...priceOption(calcInput, style), finalPrice: adjPrice }, n => cfg.fenceStyles.find(s => s.name === n), tierSet?.tiers)
   }, [jobType, style, sections, internal, sv, tiersLocal, adjPrice, JSON.stringify(calcInput), tierSet, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  // A best price quote that came out all one width: the tier that is the same fence at the same price is the quote's card.
+  const twinTier = useMemo(() => {
+    if (jobType !== 'new' || !style || sections <= 0) return null
+    if (!internal) return sv?.twinTierKey ?? null
+    if (!tiersLocal.length || !(adjPrice > 0)) return null
+    return twinTierKey(tiersLocal, { ...priceOption(calcInput, style), finalPrice: adjPrice })
+  }, [jobType, style, sections, internal, sv, tiersLocal, adjPrice, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   const foldedTier: TierKey | null = ownTierNow && (!init?.id || !proposalSent(init as Parameters<typeof proposalSent>[0]) || frozenOwnTierKey(init.proposal as Parameters<typeof frozenOwnTierKey>[0]) === ownTierNow) ? ownTierNow : null
   // The panels the quote's runs took, as the customer reads them ("6 ft and 8 ft panels"; lib/customerFenceName.ts).
   const ownPanelsLabel = style ? customerFenceName(optionLabel(style.name), effRuns.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0).map(x => calc.perRunRail[x.i])) : ''
@@ -1693,7 +1700,8 @@ export default function QuoteBuilder({
                     )
                     // The tier whose card is the quote's own best price option on the proposal: its price, its panels.
                     const folded = sent ? sent.own : t.spec.key === foldedTier
-                    const main = folded || (!!t.style && t.style.name === style?.name)
+                    const twin = sent ? sent.twin : t.spec.key === twinTier
+                    const main = folded || twin || (!!t.style && t.style.name === style?.name)
                     const price = sent ? sent.price : main ? adjPrice : t.option!.finalPrice
                     const perFoot = sent ? sent.perFoot : folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option!.perFoot
                     return (

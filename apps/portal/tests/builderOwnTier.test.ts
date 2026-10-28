@@ -6,7 +6,8 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { ownTierKey, frozenOwnTierKey } from '../../web/src/tiers'
+import { ownTierKey, frozenOwnTierKey, twinTierKey } from '../../web/src/tiers'
+import { sentTierCards } from '../../web/src/sentTiers'
 
 describe('the quote builder shows the folded tier as the proposal does', () => {
   const t = (key: string, fenceStyle: string, finalPrice: number, width = 'cheapest') => ({
@@ -24,6 +25,20 @@ describe('the quote builder shows the folded tier as the proposal does', () => {
     // Better left off the proposal: Good is dig set and Best all 6 ft, so nothing is folded.
     expect(ownTierKey([tiers[0], { ...tiers[1], off: true }, tiers[2]], own, () => null, specs)).toBeNull()
     expect(ownTierKey(tiers, null, () => null, specs)).toBeNull()
+  })
+
+  test('a uniform yard (all one width): the tier that is the same fence is the Main option card (review Oct 28 2026)', () => {
+    const twin = { ...own, finalPrice: 8593, snapshot: tiers[1].option.snapshot }
+    expect(twinTierKey(tiers, twin)).toBe('better')
+    // A mixed yard folds instead; no twin.
+    expect(twinTierKey(tiers, own)).toBeNull()
+    // A style that is itself a tier's style is main by name.
+    expect(twinTierKey(tiers, { ...tiers[2].option })).toBeNull()
+    expect(twinTierKey(tiers, null)).toBeNull()
+    // A sent uniform proposal: Better's card is the quote's.
+    const options = [...tiers.map(x => ({ ...x.option, tier: { key: x.spec.key } })), twin]
+    const cards = sentTierCards({ options, ownTier: null }, { fenceStyle: own.fenceStyle, status: 'SENT' })
+    expect([cards.good.twin, cards.better.twin, cards.best.twin]).toEqual([false, true, false])
   })
 
   test('a sent proposal folds in the builder only as frozen on it when saved', () => {

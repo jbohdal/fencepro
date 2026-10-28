@@ -16,7 +16,7 @@ import { layoutPanelFt } from './gateSlide'
 import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
 import { styleLabel, colorNamesOf } from './fenceCatalog'
-import { styleParts, ownTierFold, type StyleParts, type StyleRecordOf } from './proposalOptions'
+import { styleParts, ownTierFold, sameFenceAs, type StyleParts, type StyleRecordOf } from './proposalOptions'
 
 export { styleParts, type StyleParts }
 
@@ -217,6 +217,21 @@ export function ownTierKey(tiers: ResolvedTier[], own: ProposalOption | null | u
   if (opts.some(o => o.fenceStyle === own.fenceStyle)) return null
   const fold = ownTierFold([...opts, own], { fenceStyle: own.fenceStyle }, styleOf, tierSpecs)
   return fold ? opts[fold.tier]?.tier?.key ?? null : null
+}
+
+/**
+ * The tier whose card is the quote's own fence when a best price quote came out all one width (a uniform yard):
+ * its own option is the same fence at the same price as that tier (proposalOptions.ts sameFenceAs), so the
+ * proposal shows the tier's own card and opens with it selected (startingOption). The Price step marks that card
+ * "Main option" (review Oct 28 2026: a uniform yard showed "Make main" on all three cards, none highlighted).
+ * null when the quote's style is itself a tier's style (that card is main by name) or no tier is its twin.
+ */
+export function twinTierKey(tiers: ResolvedTier[], own: ProposalOption | null | undefined): TierKey | null {
+  if (!own) return null
+  const opts = tierOptions(tiers)
+  if (opts.some(o => o.fenceStyle === own.fenceStyle)) return null
+  const at = sameFenceAs([...opts, own])[opts.length]
+  return at >= 0 ? opts[at]?.tier?.key ?? null : null
 }
 
 /**
