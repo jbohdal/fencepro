@@ -124,7 +124,7 @@ export function lastListServerTime(): string | null { return listedAt }
 
 export async function listSavedQuotes(): Promise<SavedQuoteRecord[] | null> {
   // As one table (listTable.ts): the same rows, without each row repeating the field names.
-  const r = await call<SavedQuoteRecord[]>('GET', asTable('/'))
+  const r = await call<SavedQuoteRecord[]>('GET', asTable(''))
   if (r.ok && r.serverTime) listedAt = r.serverTime
   if (!r.ok) {
     toast.error('Could not load quotes from cloud', r.error || plainError(0).message)

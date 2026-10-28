@@ -65,6 +65,28 @@ const SETTINGS_FIELDS = ['bundles', 'quoteOptions', 'contractSections', 'jobChec
 
 const patchSchema = z.object(Object.fromEntries(fields.map(f => [f, z.any().optional()])))
 
+/**
+ * Parts a browser may ask to be left out of the answer (`?omit=jobChecklists,pendingOrders`),
+ * for the phone (audit #17, Oct 27 2026: this answer was 3.9 MB on every page load, two
+ * thirds of it every job's milestone list). The job checklists are read with the job
+ * (/api/saved-jobs/:id/milestones, lib/jobTruth.ts), the Sales Orders when Inventory >
+ * Sales Orders opens (web businessStateStore.ts needBusinessFields). Saving is unchanged:
+ * a patch still sends only the parts it changes, and a part left out is never sent.
+ */
+export const OMITTABLE = new Set<string>(['jobChecklists', 'pendingOrders'])
+export function omittedParts(query: unknown): Set<string> {
+  const raw = (query as { omit?: unknown } | null | undefined)?.omit
+  const words = (Array.isArray(raw) ? raw : [raw]).filter((x): x is string => typeof x === 'string').flatMap(x => x.split(','))
+  return new Set(words.map(w => w.trim()).filter(w => OMITTABLE.has(w)))
+}
+/** The record without the parts asked to be left out (a copy; the record itself is untouched). */
+export function leanState<T>(s: T, omit: Set<string>): T {
+  if (!s || typeof s !== 'object' || omit.size === 0) return s
+  const out = { ...(s as Record<string, unknown>) }
+  for (const k of omit) delete out[k]
+  return out as T
+}
+
 router.get('/', async (req: any, res) => {
   try {
     const accountId = req.user.crmAccountId
@@ -72,7 +94,7 @@ router.get('/', async (req: any, res) => {
       () => prisma.businessState.findUnique({ where: { accountId } }),
       () => prisma.businessState.create({ data: { accountId } }),
     )
-    res.json({ success: true, data: s })
+    res.json({ success: true, data: leanState(s, omittedParts(req.query)) })
   } catch (err) {
     console.error('[business-state] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load business state' })
@@ -90,6 +112,7 @@ router.patch('/', async (req: any, res) => {
     const base = baseVersionOf(req.body)
     if (base === null) { refuseUnversioned(res); return }
     const accountId = req.user.crmAccountId
+    const omit = omittedParts(req.query)
     // Settings, prices and the books are for the owner, admin and manager; each key is checked on its own.
     const saved = await prisma.businessState.findUnique({ where: { accountId } })
     // A Salesman or Installer never had the costs (lib/costRedact.ts): the ones their
@@ -98,7 +121,7 @@ router.patch('/', async (req: any, res) => {
       for (const k of Object.keys(updateData)) updateData[k] = restoreCosts(updateData[k], (saved as any)?.[k], hideFor(roleOf(req)))
     }
     const refused = businessPatchRefusal(roleOf(req), req.user.id ?? null, saved as any, updateData)
-    if (refused) { refuse(res, refused, { data: saved, version: saved?.version ?? 0 }); return }
+    if (refused) { refuse(res, refused, { data: leanState(saved, omit), version: saved?.version ?? 0 }); return }
     // One version covers the whole record, so a patch built on an older copy
     // is refused even when it touches a different field; the browser merges.
     // Payments recorded in Billing become "payment received" automation events, saved in the same step.
@@ -110,11 +133,11 @@ router.patch('/', async (req: any, res) => {
     })
     if (done.count === 0) {
       const current = await prisma.businessState.findUnique({ where: { accountId } })
-      if (current || base !== 0) { refuseStale(res, current, current?.version ?? 0); return }
+      if (current || base !== 0) { refuseStale(res, leanState(current, omit), current?.version ?? 0); return }
       try { await prisma.businessState.create({ data: { accountId, ...updateData } }) } catch (e) {
         if (!isUniqueViolation(e)) throw e
         const now = await prisma.businessState.findUnique({ where: { accountId } })
-        refuseStale(res, now, now?.version ?? 0); return
+        refuseStale(res, leanState(now, omit), now?.version ?? 0); return
       }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
@@ -130,7 +153,7 @@ router.patch('/', async (req: any, res) => {
     for (const f of SETTINGS_FIELDS) {
       if (updateData[f] !== undefined) await auditSettingChange(req, `business-state/${f}`, (saved as any)?.[f] ?? null, (s as any)[f], { version: s.version })
     }
-    res.json({ success: true, data: s })
+    res.json({ success: true, data: leanState(s, omit) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[business-state] patch error:', err)

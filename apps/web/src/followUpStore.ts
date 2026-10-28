@@ -15,6 +15,7 @@
 import { isOpen as isOpenStage } from './pipelineStagesStore'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { sendJson } from './syncHttp'
+import { fromTable } from './listTable'
 import { currentUser } from './crmAuth'
 import { registerKind, enqueue, allOps, reapply, subscribe as onOutbox } from './outbox'
 import { newId } from './recordSync'
@@ -146,6 +147,15 @@ export function getConfigVersion(): number { return configVersion }
 
 // ── Reading ──────────────────────────────────────────────────────────────────
 
+/** The board's cards by card id, from the table the server sends (an older server: already by id). */
+function boardCards(x: unknown): Record<string, BoardCard> {
+  const rows = fromTable<{ id: string } & BoardCard>(x)
+  if (!Array.isArray(rows)) return (x && typeof x === 'object' ? x : {}) as Record<string, BoardCard>
+  const out: Record<string, BoardCard> = {}
+  for (const { id, ...card } of rows) out[id] = card as BoardCard
+  return out
+}
+
 let loadingBoard: Promise<void> | null = null
 /** When the board was last read (the whole board is large: every card). */
 let boardReadAt = 0
@@ -158,10 +168,11 @@ export function refreshBoardIfStale(maxAgeMs = 30_000): Promise<void> {
 export function refreshBoard(): Promise<void> {
   if (loadingBoard) return loadingBoard
   loadingBoard = (async () => {
-    const [b, c] = await Promise.all([sendJson('GET', '/api/follow-ups/board'), configLoaded ? null : sendJson('GET', '/api/follow-ups/settings')])
+    // As one table (the field names once): every card of the board is in it.
+    const [b, c] = await Promise.all([sendJson('GET', '/api/follow-ups/board?shape=table'), configLoaded ? null : sendJson('GET', '/api/follow-ups/settings')])
     if (c?.result.ok && c.json?.data) { config = c.json.data; configVersion = Number(c.json.version) || 0; configLoaded = true }
     if (b.result.ok && b.json?.data) {
-      board = b.json.data
+      board = { today: b.json.data.today, cards: boardCards(b.json.data.cards) }
       boardReadAt = Date.now()
       // What the server now shows replaces this phone's own copy, once nothing is still on its way.
       for (const id of [...overrides.keys()]) if (!pendingFor(id)) overrides.delete(id)

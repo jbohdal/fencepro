@@ -149,7 +149,7 @@ export function lastListServerTime(): string | null { return listedAt }
 
 export async function listSavedJobs(): Promise<SavedJobRecord[] | null> {
   // As one table (listTable.ts): the same rows, without each row repeating the field names.
-  const r = await call<SavedJobRecord[]>('GET', asTable('/'))
+  const r = await call<SavedJobRecord[]>('GET', asTable(''))
   if (r.ok && r.serverTime) listedAt = r.serverTime
   if (!r.ok) {
     toast.error('Could not load jobs from cloud', r.error || plainError(0).message)

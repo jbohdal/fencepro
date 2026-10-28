@@ -2,9 +2,9 @@
  * Pending Orders page — materials reserved from pull sheets on SOLD jobs.
  */
 
-import { useEffect, useMemo, useState } from 'react'
-import { refreshBusinessState } from './businessStateStore'
+import { useMemo, useState } from 'react'
 import {
+  usePendingOrders,
   getPendingOrders, updatePendingOrderStatus, deletePendingOrder,
   updatePendingOrderItem, checkStockForOrder,
   type PendingOrder, type PendingOrderStatus,
@@ -29,24 +29,18 @@ export default function PendingOrdersPage() {
   const [bump, setBump] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | PendingOrderStatus>('all')
+  // The orders are read when this opens, not on every page load (audit #17), and again on each save.
+  const { load, retry, tick } = usePendingOrders()
 
   const orders = useMemo(() => {
     const all = getPendingOrders()
     return filter === 'all' ? all : all.filter(o => o.status === filter)
-  }, [bump, filter])
+  }, [bump, filter, tick, load])
 
   const selected = selectedId ? orders.find(o => o.id === selectedId) || getPendingOrders().find(o => o.id === selectedId) || null : null
 
   function reload() { setBump(b => b + 1) }
 
-  // The server makes and updates the orders (a job signed on the customer's link, an approved change order):
-  // read them again when the page opens, and show each save as it lands.
-  useEffect(() => {
-    const on = () => reload()
-    window.addEventListener('fencepro:business-state:updated', on)
-    void refreshBusinessState()
-    return () => window.removeEventListener('fencepro:business-state:updated', on)
-  }, [])
 
   function advance(order: PendingOrder, to: PendingOrderStatus) {
     try {
@@ -60,7 +54,7 @@ export default function PendingOrdersPage() {
 
   function remove(order: PendingOrder) {
     if (!confirm(`Delete this pending order for ${order.customerName}?`)) return
-    deletePendingOrder(order.id)
+    try { deletePendingOrder(order.id) } catch (err: any) { toast.error('Could not delete the order', err?.message || 'Unknown error.'); return }
     setSelectedId(null)
     reload()
   }
@@ -88,7 +82,11 @@ export default function PendingOrdersPage() {
           <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500">
             Orders ({orders.length})
           </div>
-          {orders.length === 0 ? (
+          {load !== 'ready' ? (
+            <div className="text-center py-12 text-gray-500 text-sm" data-orders-load={load}>
+              {load === 'loading' ? 'Loading the Sales Orders…' : (<>Could not load the Sales Orders. Check the signal. <button type="button" onClick={retry} className="text-orange-700 font-semibold underline min-h-[44px] px-2">Try again</button></>)}
+            </div>
+          ) : orders.length === 0 ? (
             <div className="text-center py-12 text-gray-400 text-sm">No orders. Each sold job gets one by itself, from its pull sheet.</div>
           ) : (
             <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">

@@ -60,7 +60,7 @@ export function useQuotePhotos(quoteId: string, customerId: string | null | unde
       const [mine] = (await localMedia({})).filter(l => l.clientId === p.clientId)
       if (mine) await updateLocal(p.clientId, { meta: { ...mine.meta, visibility } })
       // It may have finished uploading meanwhile: the change goes there too.
-      const srv = (await listMedia({ quoteKey: quoteId, quoteCustomerId: customerId ?? null }).catch(() => [])).find(s => s.clientId === p.clientId)
+      const srv = (await listMedia({ quoteKey: quoteId, quoteCustomerId: customerId ?? null }, { fresh: true }).catch(() => [])).find(s => s.clientId === p.clientId)
       if (srv) ok = await patchMedia(srv.id, { visibility })
     }
     if (!ok) {

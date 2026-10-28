@@ -1,15 +1,12 @@
 /**
- * Job Checklist items: per-job milestone list saved in business state
- * (BusinessState.jobChecklists on the server).
- *
- * A job's list is made on the server when the job is made (lib/seeds.ts
- * ensureJobChecklist). This browser never makes one: a job with no saved list
- * shows the default milestones with the same fixed ids the server uses
- * (`m:<jobId>:<label>`), and the list is saved only when an item is ticked.
- * Two phones doing that at once save the same ids, so the lists merge into one.
+ * Job Checklist items. A job's list is kept on the server
+ * (BusinessState.jobChecklists, made when the job is made: lib/seeds.ts
+ * ensureJobChecklist) and read one job at a time (/api/saved-jobs/:id/milestones);
+ * the default milestone labels are a company setting (business state).
  */
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
+import { fetchMilestones, tickMilestone } from './jobTruthApi'
 
 const EVT = 'fencepro:checklist:updated'
 
@@ -46,74 +43,40 @@ export function setDefaultMilestones(labels: string[]): void {
   try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
 }
 
-function loadAll(): ChecklistItem[] {
-  // The cache stores checklists as a Record<jobId, ChecklistItem[]>; flatten
-  // to a single array to match the legacy on-the-wire shape used below.
-  const map = (getBusinessField('jobChecklists') as Record<string, ChecklistItem[]>) || {}
-  const items: ChecklistItem[] = []
-  for (const jobId of Object.keys(map)) {
-    if (Array.isArray(map[jobId])) items.push(...map[jobId])
-  }
-  return items
-}
-function saveAll(items: ChecklistItem[]) {
-  const grouped: Record<string, ChecklistItem[]> = {}
-  for (const it of items) {
-    if (!grouped[it.jobId]) grouped[it.jobId] = []
-    grouped[it.jobId].push(it)
-  }
-  setBusinessField('jobChecklists', grouped)
-  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
-}
-
 const labelKey = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 /** A milestone's fixed id on one job. Same formula as the server (portal lib/seeds.ts milestoneId). */
 export const milestoneId = (jobId: string, label: string) => `m:${jobId}:${labelKey(label)}`
 
-/** The default milestones for a job, with fixed ids. Not saved. */
-function defaultsFor(jobId: string): ChecklistItem[] {
-  const at = '1970-01-01T00:00:00.000Z'
-  const seen = new Set<string>()
-  const out: ChecklistItem[] = []
-  for (const label of getDefaultMilestones()) {
-    const id = milestoneId(jobId, label)
-    if (seen.has(id)) continue
-    seen.add(id)
-    out.push({ id, jobId, label, isComplete: false, sortOrder: out.length, createdAt: at, updatedAt: at })
-  }
-  return out
+/**
+ * A job's checklist as the server works it out (jobTruthApi.ts,
+ * /api/saved-jobs/:id/milestones). The phone no longer holds every job's
+ * list (BusinessState.jobChecklists, 2.7 MB on each page load: audit #17).
+ */
+export async function getChecklistForJob(jobId: string): Promise<ChecklistItem[]> {
+  const r = await fetchMilestones(jobId)
+  if (!r.ok) return []
+  return r.data.milestones.map((m, i) => ({
+    id: milestoneId(jobId, m.label), jobId, label: m.label, isComplete: m.done,
+    ...(m.tickedBy ? { completedBy: m.tickedBy } : {}), ...(m.tickedAt ? { completedAt: m.tickedAt } : {}),
+    sortOrder: i, createdAt: m.tickedAt ?? '', updatedAt: m.tickedAt ?? '',
+  }))
 }
 
-export function getChecklistForJob(jobId: string): ChecklistItem[] {
-  const all = loadAll().filter(i => i.jobId === jobId)
-  if (all.length === 0) return defaultsFor(jobId)
-  return all.sort((a, b) => a.sortOrder - b.sortOrder)
-}
-
-export function toggleChecklistItem(jobId: string, itemId: string, user?: string): ChecklistItem | null {
-  const saved = loadAll()
-  // A job whose list is not saved yet: its defaults (fixed ids) are saved with this tick.
-  const all = saved.some(i => i.jobId === jobId) ? saved : [...saved, ...defaultsFor(jobId)]
-  const idx = all.findIndex(i => i.id === itemId && i.jobId === jobId)
-  if (idx < 0) return null
-  const now = new Date().toISOString()
-  const flipped = !all[idx].isComplete
-  all[idx] = {
-    ...all[idx],
-    isComplete: flipped,
-    completedBy: flipped ? (user || 'user') : undefined,
-    completedAt: flipped ? now : undefined,
-    updatedAt: now,
-  }
-  saveAll(all)
-  return all[idx]
+/** Tick (or untick) one item by hand, saved on the server. Null when it is not on the job or could not be saved. */
+export async function toggleChecklistItem(jobId: string, itemId: string): Promise<ChecklistItem | null> {
+  const item = (await getChecklistForJob(jobId)).find(i => i.id === itemId)
+  if (!item) return null
+  const r = await tickMilestone(jobId, item.label, !item.isComplete)
+  if (!r.ok) return null
+  try { window.dispatchEvent(new CustomEvent(EVT)) } catch {}
+  return (await getChecklistForJob(jobId)).find(i => i.id === itemId) ?? null
 }
 
 export interface ChecklistProgress { total: number; complete: number }
 
-export function getChecklistProgress(jobId: string): ChecklistProgress {
-  const items = getChecklistForJob(jobId)
+export async function getChecklistProgress(jobId: string): Promise<ChecklistProgress> {
+  const items = await getChecklistForJob(jobId)
   return { total: items.length, complete: items.filter(i => i.isComplete).length }
 }
 

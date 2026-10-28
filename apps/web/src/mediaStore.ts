@@ -195,7 +195,9 @@ async function put(m: LocalMedia<AnyMeta>): Promise<void> {
 }
 // A capture sent straight up (addOrSend) was never kept, and a browser with no storage cannot delete: neither fails the upload.
 const remove = async (id: string) => { await store('readwrite', s => s.delete(id)).catch(() => {}); opened.delete(id) }
-const notify = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(MEDIA_EVENT)) }
+const notify = () => { recentLists.clear(); if (typeof window !== 'undefined') window.dispatchEvent(new Event(MEDIA_EVENT)) }
+/** Photo lists read in the last few seconds, by query (listMedia); any photo change here forgets them. */
+const recentLists = new Map<string, { at: number; list: Promise<ServerMedia[]> }>()
 
 function newClientId(): string {
   return (typeof crypto !== 'undefined' && 'randomUUID' in crypto) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
@@ -296,18 +298,21 @@ async function json<T>(r: Response | null): Promise<T | null> {
 export function uploadAll(): Promise<void> {
   if (current) { again = true; return current }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve()
+  let tried = false
   current = (async () => {
     // Only while someone is signed in, and only that person's captures (and older ones with no owner).
     const me = signedInUserId()
     if (!me) return
     for (const m of (await all()).filter(x => !x.serverId && (!x.owner || x.owner === me)).sort((a, b) => a.createdAt - b.createdAt)) {
       if (refused.has(m.clientId)) continue
+      tried = true
       const r = await uploadOne(m)
       if (r === 'retry') break
     }
   })().finally(() => {
     current = null
-    notify()
+    // Nothing was waiting: nothing changed, so the open photo lists are not read again (audit #17).
+    if (tried) notify()
     if (again) { again = false; uploadAll().catch(() => {}) }
   })
   return current
@@ -381,24 +386,39 @@ export async function storageWarning(): Promise<string | null> {
 // ── Server ────────────────────────────────────────────────────────────────────
 
 /** A quote's list includes its customer's visit photos; quoteCustomerId names the customer of a draft not saved yet. */
-export async function listMedia(where: { quoteKey?: string; jobId?: string; customerId?: string; quoteCustomerId?: string | null }): Promise<ServerMedia[]> {
-  const q = new URLSearchParams(Object.entries(where).filter(([, v]) => v) as Array<[string, string]>)
-  const items = await json<ServerMedia[]>(await fetchWithAuth(`${API}?${q}`).catch(() => null))
-  return (items ?? []).map(i => ({ ...i, url: ORIGIN + i.url, markupUrl: i.markupUrl && ORIGIN + i.markupUrl, previewUrl: i.previewUrl && ORIGIN + i.previewUrl, thumbUrl: i.thumbUrl && ORIGIN + i.thumbUrl }))
+export async function listMedia(where: { quoteKey?: string; jobId?: string; customerId?: string; quoteCustomerId?: string | null }, opts: { fresh?: boolean } = {}): Promise<ServerMedia[]> {
+  const q = String(new URLSearchParams(Object.entries(where).filter(([, v]) => v) as Array<[string, string]>))
+  // The same list asked for by two parts of one screen (a quote's photos and its photo ticks, the quote and then
+  // its change order builder) is one request, while it is going and for a few seconds after (audit #17).
+  // `fresh`: after an upload, a read that started before it is not good enough.
+  const going = opts.fresh ? undefined : (listing.get(q) ?? (Date.now() - (recentLists.get(q)?.at ?? 0) < 5_000 ? recentLists.get(q)!.list : undefined))
+  if (going) return going.then(list => list.map(i => ({ ...i })))
+  const p = (async () => {
+    const items = await json<ServerMedia[]>(await fetchWithAuth(`${API}?${q}`).catch(() => null))
+    return (items ?? []).map(i => ({ ...i, url: ORIGIN + i.url, markupUrl: i.markupUrl && ORIGIN + i.markupUrl, previewUrl: i.previewUrl && ORIGIN + i.previewUrl, thumbUrl: i.thumbUrl && ORIGIN + i.thumbUrl }))
+  })()
+  if (!opts.fresh) { listing.set(q, p); void p.finally(() => { if (listing.get(q) === p) listing.delete(q) }) }
+  void p.then(() => recentLists.set(q, { at: Date.now(), list: p }))
+  return p
 }
+/** Lists being read now, by query. */
+const listing = new Map<string, Promise<ServerMedia[]>>()
 
 export async function patchMedia(id: string, patch: Partial<Pick<MediaMeta, 'caption' | 'category' | 'visibility' | 'pin' | 'quoteKey' | 'jobId' | 'customerId'>>): Promise<boolean> {
   const body = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
+  recentLists.clear()
   return !!(await fetchWithAuth(`${API}/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null))?.ok
 }
 
 export async function uploadMarkup(id: string, blob: Blob): Promise<boolean> {
   const form = new FormData()
   form.append('image', blob, 'markup.jpg')
+  recentLists.clear()
   return !!(await fetchWithAuth(`${API}/${id}/markup`, { method: 'POST', body: form }).catch(() => null))?.ok
 }
 
 export async function deleteMedia(id: string): Promise<boolean> {
+  recentLists.clear()
   return !!(await fetchWithAuth(`${API}/${id}`, { method: 'DELETE' }).catch(() => null))?.ok
 }
 

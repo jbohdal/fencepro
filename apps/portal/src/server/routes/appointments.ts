@@ -167,6 +167,21 @@ router.get('/team', requireUser, async (req: any, res) => {
 })
 
 router.get('/', requireUser, async (req: any, res) => {
+  // ?since=<time>: only what changed after it (archived and deleted ones too, so the phone drops them),
+  // and those whose customer changed (the name, phone and notes come from the customer). A few seconds of
+  // overlap covers saves in flight. The phone's refresh, instead of every appointment again (0.8 MB; audit #17).
+  const sinceRaw = typeof req.query.since === 'string' ? Date.parse(req.query.since) : NaN
+  const serverTime = new Date(Date.now() - 5000).toISOString()
+  if (Number.isFinite(sinceRaw) && !req.query.contactId && !req.query.from && !req.query.to) {
+    const since = new Date(sinceRaw)
+    // all rows: deleted ones too (with deletedAt), so the phone drops them.
+    const rows = await prisma.appointment.findMany({
+      where: { accountId: req.user.crmAccountId, OR: [{ updatedAt: { gt: since } }, { contact: { updatedAt: { gt: since } } }] },
+      include: { contact: { select: contactSelect } }, orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }],
+    })
+    res.json({ success: true, data: await withReps(req.user.crmAccountId, rows.map(toClient)), serverTime, partial: true })
+    return
+  }
   // Deleted ones never (Settings > Deleted Records); ?all=1 also lists the archived (cancelled) ones.
   const where: any = { accountId: req.user.crmAccountId, deletedAt: null }
   if (!req.query.all) where.archivedAt = null
@@ -178,7 +193,7 @@ router.get('/', requireUser, async (req: any, res) => {
     ]
   }
   const rows = await prisma.appointment.findMany({ where: { ...where, deletedAt: null }, include: { contact: { select: contactSelect } }, orderBy: [{ startAt: 'asc' }, { createdAt: 'asc' }] })
-  res.json({ success: true, data: await withReps(req.user.crmAccountId, rows.map(toClient)) })
+  res.json({ success: true, data: await withReps(req.user.crmAccountId, rows.map(toClient)), serverTime })
 })
 
 router.get('/:id', requireUser, async (req: any, res) => {

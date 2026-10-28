@@ -167,18 +167,40 @@ function keep(rows: ChangeOrder[], quoteId?: string) {
 }
 function put(row: ChangeOrder) {
   cache = cache.some(c => c.id === row.id) ? cache.map(c => (c.id === row.id ? row : c)) : [...cache, row]
+  // A change made here: the next read goes to the server.
+  readAt.clear()
   emit()
 }
+
+/**
+ * One read per quote at a time, and none again within a few seconds of the
+ * last: opening a sold quote and its change order builder read the same
+ * quote's change orders 5 times (the drawer, its section, the builder, the
+ * start of a change; audit #17, Oct 27 2026). Live screens still read every
+ * 20 seconds and when the app comes back on screen.
+ */
+const inFlight = new Map<string, Promise<ChangeOrder[] | null>>()
+const readAt = new Map<string, number>()
+const FRESH_MS = 3_000
 
 /** Read a quote's (or every) change order from the server. */
 export async function refreshChangeOrders(quoteId?: string): Promise<ChangeOrder[] | null> {
   // The Installer sees no prices: change orders are not his to read (the server refuses with 403), so they are
   // not asked for; the crew packet takes the work now, price free, from /api/install-packets/work (round 2b).
   if (!can('prices.view')) return null
-  const r = await sendJson('GET', `/api/change-orders${quoteId ? `?quoteId=${encodeURIComponent(quoteId)}` : ''}`)
-  if (!r.result.ok || !Array.isArray(r.json?.data)) return null
-  keep(r.json.data as ChangeOrder[], quoteId)
-  return r.json.data as ChangeOrder[]
+  const key = quoteId ?? '*'
+  const going = inFlight.get(key)
+  if (going) return going
+  if (Date.now() - (readAt.get(key) ?? 0) < FRESH_MS) return quoteId ? cache.filter(c => c.quoteId === quoteId) : cache
+  const p = (async () => {
+    const r = await sendJson('GET', `/api/change-orders${quoteId ? `?quoteId=${encodeURIComponent(quoteId)}` : ''}`)
+    if (!r.result.ok || !Array.isArray(r.json?.data)) return null
+    keep(r.json.data as ChangeOrder[], quoteId)
+    readAt.set(key, Date.now())
+    return r.json.data as ChangeOrder[]
+  })().finally(() => inFlight.delete(key))
+  inFlight.set(key, p)
+  return p
 }
 
 export function loadChangeOrders(): ChangeOrder[] { return cache }

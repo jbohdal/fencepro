@@ -129,7 +129,14 @@ export async function saveMyPhone(phone: string): Promise<string | null> {
   return data.phone
 }
 
+/**
+ * Who is signed in: the person the app's start already asked the server for
+ * (checkSession, held in memory), else asked now. A screen opening no longer
+ * asks again each time (audit #17: 4 of them on one quote). A sign in that has
+ * ended is caught by the next request's 401 (setSessionExpiredHandler).
+ */
 export async function fetchCurrentUser(): Promise<CrmUser | null> {
+  if (signedInUser) return signedInUser
   const s = await checkSession()
   return s.kind === 'user' ? s.user : null
 }

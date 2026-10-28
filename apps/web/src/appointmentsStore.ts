@@ -2,8 +2,8 @@
  * Appointments: in memory copy of /api/appointments.
  *
  * Loaded once after sign in with every other module and read again by
- * liveRefresh.ts (back on screen at most every 5 minutes, and when signal
- * returns): the whole list is large, so not on every focus. Bookings and changes go through the outbox:
+ * liveRefresh.ts with the other lists: only what changed since the last read
+ * (?since=; the whole list is 0.8 MB). Bookings and changes go through the outbox:
  * shown at once, kept on the phone until the server confirms them, sent
  * again after no signal. A change the server refuses because the appointment
  * was changed on another device first is shown as "Couldn't save", and the
@@ -31,7 +31,7 @@ let initPromise: Promise<void> | null = null
 
 function emit() { try { window.dispatchEvent(new CustomEvent(APPOINTMENTS_UPDATED)) } catch { /* no window */ } }
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; data?: T; version?: number; error?: string }> {
+async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; data?: T; version?: number; error?: string; serverTime?: string; partial?: boolean }> {
   if (!isSignedIn()) return { ok: false, status: 401, error: 'Not signed in' }
   try {
     const res = await fetchWithAuth(`${URL_BASE}${path}`, {
@@ -40,7 +40,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<{ 
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     const json = untableBody(await res.json().catch(() => ({})))
-    return { ok: res.ok && json?.success !== false, status: res.status, data: json?.data, version: json?.version, error: res.ok ? undefined : plainError(res.status, json?.error).message }
+    return { ok: res.ok && json?.success !== false, status: res.status, data: json?.data, version: json?.version, error: res.ok ? undefined : plainError(res.status, json?.error).message, serverTime: typeof json?.serverTime === 'string' ? json.serverTime : undefined, partial: json?.partial === true }
   } catch (err) {
     return { ok: false, status: 0, error: plainThrown(err).message }
   }
@@ -59,6 +59,7 @@ export function initAppointments(): Promise<void> {
     const r = await call<Appointment[]>('GET', asTable(''))
     if (!r.ok || !Array.isArray(r.data)) return
     cache = r.data
+    lastSync = r.serverTime ?? null
     hydrated = true
     reapply('appointment.')
     emit()
@@ -68,10 +69,41 @@ export function initAppointments(): Promise<void> {
 
 export const isAppointmentsHydrated = () => hydrated
 
-/** Read every appointment again (another device may have changed them). */
+/** When the list was last read (the server's clock): the next read asks only for what changed since. */
+let lastSync: string | null = null
+
+/** The list's order (the server's): by start, no start last, then as booked. */
+const byStart = (a: Appointment, b: Appointment) => {
+  const x = a.startAt ? Date.parse(a.startAt) : Infinity, y = b.startAt ? Date.parse(b.startAt) : Infinity
+  return x !== y ? (x < y ? -1 : 1) : String((a as any).createdAt ?? '').localeCompare(String((b as any).createdAt ?? ''))
+}
+
+/**
+ * Read the appointments again (another device may have changed them). Only
+ * what changed since the last read comes back (a booking, a move, a cancel,
+ * the customer's name), so it is small on cell data; the whole list only the
+ * first time (audit #17: 0.8 MB each time before).
+ */
 export async function refreshAppointments(): Promise<void> {
-  const r = await call<Appointment[]>('GET', asTable(''))
-  if (r.ok && Array.isArray(r.data)) { cache = r.data; hydrated = true; reapply('appointment.'); emit() }
+  if (!hydrated || !lastSync) {
+    const r = await call<Appointment[]>('GET', asTable(''))
+    if (r.ok && Array.isArray(r.data)) { cache = r.data; hydrated = true; lastSync = r.serverTime ?? null; reapply('appointment.'); emit() }
+    return
+  }
+  const r = await call<Array<Appointment & { archivedAt?: string | null; deletedAt?: string | null }>>('GET', asTable(`?since=${encodeURIComponent(lastSync)}`))
+  if (!r.ok || !Array.isArray(r.data)) return
+  if (!r.partial) { cache = r.data; lastSync = r.serverTime ?? null; reapply('appointment.'); emit(); return }
+  if (r.serverTime) lastSync = r.serverTime
+  if (!r.data.length) return
+  const byId = new Map(cache.map(a => [a.id, a]))
+  for (const row of r.data) {
+    // Cancelled (archived) or deleted: off the list, as a whole read would leave them out.
+    if (row.deletedAt || row.archivedAt) byId.delete(row.id)
+    else byId.set(row.id, row)
+  }
+  cache = [...byId.values()].sort(byStart)
+  reapply('appointment.')
+  emit()
 }
 
 /**
