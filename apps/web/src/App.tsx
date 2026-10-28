@@ -649,9 +649,6 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   // The open quote was started from a site visit: once saved, its window opens to send it (handleSaveQuote).
   const sendAfterSave = useRef(false)
-  // The open quote was started or opened from the Quotes page: once saved, its window opens there too, as after a
-  // visit (review Oct 28 2026: the office had to find and click the row after saving).
-  const openAfterSave = useRef(false)
   function handleSaveQuote(q: SavedQuote) {
     try {
       const wasSold = quotes.find(x => x.id === q.id)?.status === 'SOLD'
@@ -717,8 +714,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       // The card moves on to the Ready to quote stage (Settings > Pipeline Stages; Estimating to start) when it is
       // still before it, as a visit closed "Ready to quote" does (audit Oct 26 2026: it stayed in Appointment).
       const movedTo = toSend && q.customerId ? applyQuoteSaved(q.customerId) : null
-      const toOpen = !toSend && openAfterSave.current && !!q.id
-      openAfterSave.current = false
+      // Saved over the Quotes page (its New quote buttons, a row's Edit, search): the quote's window opens there too, as
+      // after a visit (review Oct 28 2026: the office had to find and click the row after saving).
+      const toOpen = !toSend && active === 'Quotes' && !!q.id
       if (toSend || toOpen) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
       if (toOpen && q.status !== 'SOLD') toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
@@ -736,7 +734,6 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }
 
   function handleOpenQuote(q: SavedQuote, opts: { changeOrder?: boolean } = {}) {
-    openAfterSave.current = false
     setQuoteOnYard(!!opts.changeOrder)
     setQuoteForChange(!!opts.changeOrder)
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
@@ -754,7 +751,6 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   /** A new quote for a customer: from their page, or from an appointment closed out "Ready to quote" (with its property and measurements). */
   function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean } = {}) {
-    openAfterSave.current = false
     // Ready to quote and a pipeline card open the customer's draft (the website drawing, or one already started),
     // with the visit's notes added: never a blank quote and a second draft (quoteReuse.ts).
     if (extra.reuseDraft && !extra.repair) {
@@ -1236,7 +1232,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
             if (c) openQuoteFor(c)
             else { setEditingQuote(null); setShowQuote(true) }
           }} />}
-          {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={q => { handleOpenQuote(q); openAfterSave.current = true }} onNewQuote={() => { setEditingQuote(null); setShowQuote(true); openAfterSave.current = true }} />}
+          {active === 'Quotes'    && <QuotesPage quotes={quotes} onOpenQuote={handleOpenQuote} onNewQuote={() => { setEditingQuote(null); setShowQuote(true) }} />}
           {active === 'Sales Pipeline' && <SalesPipelineBoard onNewQuote={c => { openQuoteFor(c, { reuseDraft: true }); sendAfterSave.current = true }} onOpenQuote={q => handleOpenQuote(q)} />}
           {active === 'Operations'     && <OperationsBoard />}
           {active === 'Jobs'           && <OperationsBoard />}
@@ -1440,8 +1436,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}
       {showQuote && (
-        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); sendAfterSave.current = false; openAfterSave.current = false }}><QuoteBuilder
-          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); sendAfterSave.current = false; openAfterSave.current = false }}
+        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false) }}><QuoteBuilder
+          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); sendAfterSave.current = false }}
           onSave={handleSaveQuote}
           initialQuote={editingQuote}
           startOnYard={quoteOnYard}
