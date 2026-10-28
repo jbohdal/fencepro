@@ -12,7 +12,10 @@
  *     pages the last one wins.
  *     A row with two labels and two amounts (a PDF that prints "Fuel Charge"
  *     and "7.5% Tax" on top of each other) is split by the printed tax rate:
- *     the amount nearest rate x subtotal is the tax.
+ *     the amount nearest rate x subtotal is the tax. Two totals printed one
+ *     above the other are split by height, or, when the PDF gives both one
+ *     box (Stephens' 2023 layout: "Fuel Charge 15.00" over "Freight 100.00"),
+ *     by the order the PDF draws them: each amount after its own label.
  *   - a lone amount right after the lines that equals their sum is the
  *     subtotal, even without a label.
  *   - layouts with Ordered / Shipped / BackOrder / Unit first, and a Packing
@@ -80,7 +83,7 @@ export interface ParsedInvoice {
 /** Below this the reader was not sure enough of a number to trust it. */
 export const LOW_CONFIDENCE = 0.35
 
-const UNITS = new Set(['EA', 'EACH', 'BX', 'BOX', 'BDL', 'BUN', 'BNDL', 'BD', 'FT', 'LF', 'PC', 'PCS', 'RL', 'RLL', 'ROLL', 'LBS', 'BG', 'BAG', 'CS', 'CASE', 'PR', 'PK', 'PKG', 'SET', 'LB', 'GAL', 'SF', 'C', 'M', 'CT', 'SK', 'TN', 'TON', 'SHT', 'DZ', 'UN', 'PAL', 'PLT', 'CTN', 'KIT', 'SQ', 'LG', 'LEN', 'STK'])
+const UNITS = new Set(['EA', 'EACH', 'BX', 'BOX', 'BDL', 'BUN', 'BNDL', 'BD', 'FT', 'LF', 'PC', 'PCS', 'RL', 'RLL', 'ROLL', 'LBS', 'BG', 'BAG', 'CS', 'CASE', 'PR', 'PK', 'PKG', 'SET', 'LB', 'GAL', 'SF', 'C', 'M', 'CT', 'SK', 'TN', 'TON', 'SHT', 'DZ', 'UN', 'PAL', 'PLT', 'CTN', 'KIT', 'SQ', 'LG', 'LEN', 'STK', 'CAN'])
 
 // ── Numbers ───────────────────────────────────────────────────────────────────
 
@@ -298,6 +301,33 @@ export function splitStackedTotals(r: Pick<Row, 'words'>): Array<{ kind: TotalKi
   return out
 }
 
+/**
+ * Two (or more) totals rows the PDF draws as one block, so every word of it
+ * has the same place and height (Stephens 2023 layout, 06-120125: "Fuel
+ * Charge 15.00" over "Freight 100.00", read as "Fuel Freight Charge 100.00
+ * 15.00"; 06-132612: "Fuel Charge 15.00" over "Conven Fee: 45.90"). The PDF
+ * draws each label and then its amount, so in that order each amount takes
+ * the words just before it. Null unless every word has its place in that
+ * order, every label is only words (no numbers) and a known totals label.
+ */
+export function splitByReadingOrder(r: Pick<Row, 'words'>): Array<{ kind: TotalKind; label: string; cents: number }> | null {
+  const words = r.words ?? []
+  if (words.filter(w => isAmount(w.t)).length < 2 || words.some(w => w.n == null)) return null
+  const ordered = [...words].sort((a, b) => a.n! - b.n!)
+  const out: Array<{ kind: TotalKind; label: string; cents: number }> = []
+  let label: string[] = []
+  for (const w of ordered) {
+    if (!isAmount(w.t)) { label.push(w.t); continue }
+    const text = label.join(' ').replace(/[:\s]+$/, '').trim()
+    const kind = totalKind(text)
+    const cents = moneyToCents(w.t)
+    if (!kind || cents == null || /\d/.test(text)) return null
+    out.push({ kind, label: text, cents })
+    label = []
+  }
+  return label.length ? null : out
+}
+
 export function parseInvoice(pages: Array<{ page: number; rows: Row[] }>, vendors: KnownVendor[] = []): ParsedInvoice {
   const rows = pages.flatMap(p => p.rows)
   const out: ParsedInvoice = {
@@ -396,9 +426,10 @@ export function parseInvoice(pages: Array<{ page: number; rows: Row[] }>, vendor
       put(otherKind, /fuel/i.test(otherLabel) ? 'Fuel Charge' : otherLabel, cents[1 - taxAt], at)
       inTotals = true; lastLine = null; continue
     }
-    // Two totals rows read as one ("Fuel Charge 25.00" right above "Freight 125.00"): each amount takes the label at its own height.
+    // Two totals rows read as one ("Fuel Charge 25.00" right above "Freight 125.00"): each amount takes the label at its own height,
+    // or, when the PDF gave them one box, the label drawn just before it.
     if (amounts.length >= 2 && !rate) {
-      const stacked = splitStackedTotals(r)
+      const stacked = splitStackedTotals(r) ?? splitByReadingOrder(r)
       if (stacked) {
         for (const s of stacked) put(s.kind, s.label, s.cents, at)
         inTotals = true; lastLine = null; continue

@@ -115,32 +115,6 @@ export function greenRuleFor(doc: string, description: string, items: any[]): Li
   return { none: 'no Green chain link part is this (not in the Green kits)' }
 }
 
-/**
- * What the office would correct in Needs review for a document the reader
- * misreads, from its printed numbers (each one checked against the PDF).
- * 06-120125 (Jul 13 2023, Stephens' older layout) prints "Fuel Charge 15.00",
- * "Freight 100.00" and "7.0% Tax 102.05" under the items; the reader takes the
- * fuel charge as an item line ("Fuel Freight Charge" $15.00) and misses the
- * freight, so the document does not add up. Corrected: the fuel charge is a
- * fee (never in an item price), freight $100.00 is spread over the lines.
- * Only when the document reads exactly so; after it, the totals check passes.
- */
-export interface ReviewFix { number: string; subtotalCents: number; taxCents: number; totalCents: number; fuelLine: RegExp; fuelCents: number; freightCents: number; words: string }
-export const REVIEW_FIXES: ReviewFix[] = [
-  { number: '06-120125', subtotalCents: 134288, taxCents: 10205, totalCents: 155993, fuelLine: /^fuel\b.*charge$/i, fuelCents: 1500, freightCents: 10000, words: 'read as a line "Fuel Freight Charge" $15.00 and no freight; printed: Fuel Charge $15.00 (left out of prices), Freight $100.00 (spread over the lines)' },
-]
-
-export function withReviewFix(doc: Doc): { doc: Doc; fix: string | null } {
-  const f = REVIEW_FIXES.find(x => x.number === doc.number && doc.subtotalCents === x.subtotalCents && doc.taxCents === x.taxCents && doc.totalCents === x.totalCents)
-  if (!f || doc.freightCents) return { doc, fix: null }
-  const k = doc.lines.findIndex(l => f.fuelLine.test(l.description.trim()) && l.totalCents === f.fuelCents)
-  if (k < 0) return { doc, fix: null }
-  return {
-    doc: { ...doc, lines: doc.lines.filter((_, i) => i !== k), fees: [...doc.fees, { label: 'Fuel Charge', cents: f.fuelCents }], freightCents: f.freightCents },
-    fix: f.words,
-  }
-}
-
 export interface LandedLine { lineCents: number; extraCents: number; estTaxCents: number; landedCents: number }
 export interface DocLanded { ok: boolean; problems: string[]; lines: LandedLine[]; estBp: number | null; estTaxCents: number; fuelCents: number; spreadCents: number }
 

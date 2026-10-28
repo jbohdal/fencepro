@@ -5,13 +5,16 @@
  *
  * The documents here are the printed numbers of Stephens 06-251707 (Oct 26
  * 2026: no tax printed, $125 freight, $25 fuel) and 06-120125 (Jul 13 2023:
- * 7% tax $102.05 printed, $100 freight, $15 fuel; the reader takes the fuel as
- * a line and misses the freight), cut to the lines that matter plus one
- * line for the rest, so their totals are the printed ones.
+ * 7% tax $102.05 printed, $100 freight, $15 fuel, as the reader reads it since
+ * Oct 28: tests/stephensLayouts.test.ts), cut to the lines that matter plus one
+ * line for the rest, so their totals are the printed ones. The last test reads
+ * 06-120125 from its words (tests/fixtures/stephens) the whole way.
  */
 
 import { describe, test, expect } from 'vitest'
-import { greenRuleFor, withReviewFix, docLanded, greenLinesOf, planGreenRealPrices, type Doc } from '../src/server/lib/greenRealPrices'
+import fs from 'fs'
+import path from 'path'
+import { greenRuleFor, docLanded, greenLinesOf, planGreenRealPrices, type Doc } from '../src/server/lib/greenRealPrices'
 import { FROM_BLACK_WORDS } from '../src/server/lib/greenChainLink'
 import { followBorrowedPrices, borrowedPartsOnQuote, borrowedPrice, priceAgeLabel, stampPriceChanges } from '../../web/src/priceAge'
 
@@ -43,9 +46,9 @@ const D251707 = (): Doc => ({
     line('the other 18 lines', 1, 'EA', 14855400, 148554),
   ],
 })
-// 06-120125 as the reader reads it (Jul 13 2023): the fuel charge as a line, no freight.
+// 06-120125 as the reader reads it (Jul 13 2023): fuel $15 a fee, freight $100, 7.0% tax $102.05.
 const D120125 = (): Doc => ({
-  number: '06-120125', date: '2023-07-13', files: ['06-120125.pdf'], subtotalCents: 134288, taxCents: 10205, taxFound: true, freightCents: 0, fees: [], totalCents: 155993,
+  number: '06-120125', date: '2023-07-13', files: ['06-120125.pdf'], subtotalCents: 134288, taxCents: 10205, taxFound: true, freightCents: 10000, fees: [{ label: 'Fuel Charge', cents: 1500 }], totalCents: 155993,
   lines: [
     line('GRN RES SNG GATE 5Wx4 SP055 9gaEXT NO SCR', 1, 'EA', 1723000, 17230),
     line('GRN PLY DROP FORK 2-1/2in', 1, 'EA', 31958, 320),
@@ -53,7 +56,6 @@ const D120125 = (): Doc => ({
     line('BOLT/NUT 3/8x2in', 2, 'EA', 2850, 57),
     line(`GRN PLY 1-3/8" x 21' x PP055 SW x 8pc`, 168, 'FT', 15895, 26704),
     line('the other 16 lines', 1, 'EA', 690170, 69017),
-    { description: 'Fuel Freight Charge', qty: null, unit: 'EA', unitPriceHc: 1000000, totalCents: 1500, problems: [{ kind: 'no_qty' }] },
   ],
 })
 
@@ -105,29 +107,25 @@ describe('landed price each', () => {
     expect(each(`GRN RES SNG GATE 4'Wx4' 1-3/8"SP055 NO SCR`)).toBe(21363)
   })
 
-  test('06-120125 as read does not add up, so it is not used; corrected as in Needs review it does', () => {
-    expect(docLanded(D120125(), 722).ok).toBe(false)
-    expect(greenLinesOf([D120125()], ITEMS(), 722).every(p => p.landedEachCents == null)).toBe(true)
-    const { doc, fix } = withReviewFix(D120125())
-    expect(fix).toMatch(/Fuel Charge \$15\.00 \(left out of prices\), Freight \$100\.00/)
-    expect(doc.freightCents).toBe(10000)
-    expect(doc.fees).toEqual([{ label: 'Fuel Charge', cents: 1500 }])
-    expect(doc.lines.some(l => /fuel/i.test(l.description))).toBe(false)
-    const L = docLanded(doc, 722)
+  test('06-120125: printed tax and freight spread, fuel left out', () => {
+    const L = docLanded(D120125(), 722)
     expect(L.ok).toBe(true)
     expect([L.estBp, L.fuelCents, L.spreadCents]).toEqual([null, 1500, 10205 + 10000])
-    const p = greenLinesOf([doc], ITEMS(), 722)
+    const p = greenLinesOf([D120125()], ITEMS(), 722)
     // Printed tax and freight spread over $1,342.88 of items: × 1.15046.
     expect(p.find(x => /GATE 5Wx4/.test(x.description))!.landedEachCents).toBe(19822)
     expect(p.find(x => /FORK 2-1\/2/.test(x.description))!.landedEachCents).toBe(368)
-    // Only that document as read: another one is left as it is.
-    expect(withReviewFix({ ...D120125(), totalCents: 155994 }).fix).toBeNull()
-    expect(withReviewFix(D251707()).fix).toBeNull()
+  })
+
+  test('a document that does not add up as read is not used for a price', () => {
+    const bad = { ...D120125(), totalCents: 155994 }
+    expect(docLanded(bad, 722).ok).toBe(false)
+    expect(greenLinesOf([bad], ITEMS(), 722).every(p => p.landedEachCents == null)).toBe(true)
   })
 })
 
 describe('the plan', () => {
-  const plan = () => planGreenRealPrices([withReviewFix(D120125()).doc, D251707()], ITEMS(), 722, borrowedPrice)
+  const plan = () => planGreenRealPrices([D120125(), D251707()], ITEMS(), 722, borrowedPrice)
 
   test('each part from Black takes the newest printed price; parts with no green price stay from Black', () => {
     const p = plan()
@@ -150,7 +148,7 @@ describe('the plan', () => {
 
   test('the newest document wins; an older one is listed, not used', () => {
     const newer: Doc = { ...D251707(), number: '06-260001', date: '2026-11-02', lines: [line('GRN PLY DROP FORK 2-1/2in', 1, 'EA', 40000, 400), line('rest', 1, 'EA', 16849300, 168493)] }
-    const p = planGreenRealPrices([withReviewFix(D120125()).doc, D251707(), newer], ITEMS(), 722, borrowedPrice)
+    const p = planGreenRealPrices([D120125(), D251707(), newer], ITEMS(), 722, borrowedPrice)
     const fork = p.set.find(s => s.part === 'Green, Fork, PS, 2-1/2"')!
     expect(fork.source.doc).toBe('06-260001')
     expect(fork.older.map(o => o.doc)).toEqual(['06-120125'])
@@ -159,7 +157,7 @@ describe('the plan', () => {
   test('once priced, run again: nothing to set', () => {
     const p = plan()
     const items = ITEMS().map(i => { const s = p.set.find(x => x.itemId === i.id); return s ? { ...i, unitCost: s.afterCents / 100, priceUpdatedAt: s.source.date, priceImported: false } : i })
-    const again = planGreenRealPrices([withReviewFix(D120125()).doc, D251707()], items, 722, borrowedPrice)
+    const again = planGreenRealPrices([D120125(), D251707()], items, 722, borrowedPrice)
     expect(again.set).toEqual([])
     expect(again.stillFromBlack).toHaveLength(3)
   })
@@ -205,5 +203,24 @@ describe('a part priced from Black follows Black until its own price is entered'
     // A No dig green yard after the apply (no dig set posts, its bolts priced): no warning.
     const priced = ITEMS().map(i => (i.id === 'gb2' ? { ...i, unitCost: 0.4, priceUpdatedAt: '2026-10-26', priceImported: false } : i))
     expect(borrowedPartsOnQuote(['Green, Bolt, 3/8" x 2" w/ Nut', `Chainlink, Green, Gate, 1-3/8", 4' x 4' (.055)`], priced, norm)).toEqual([])
+  })
+})
+
+describe('06-120125 read from its words by the reader, start to finish', () => {
+  test('the gate $198.22 and the fork $3.68, with no correction', async () => {
+    const { wordsToRows } = await import('../src/server/lib/invoiceReader')
+    const { parseInvoice } = await import('../src/server/lib/invoiceParse')
+    const text = fs.readFileSync(path.join(__dirname, 'fixtures/stephens/06-120125.words.txt'), 'utf8').split('\n')
+    const size = text.find(l => l.startsWith('# page '))!.split(' ')
+    const words = text.filter(l => l && !l.startsWith('# ')).map(l => { const [t, x, y, w, h] = l.split('\t'); return { t, x: +x, y: +y, w: +w, h: +h, c: 1 } })
+    const p = parseInvoice([{ page: 1, rows: wordsToRows(words, 1, Number(size[2]) / Number(size[3])) }])
+    const doc: Doc = {
+      number: p.invoiceNumber, date: p.invoiceDate, files: ['06-120125.pdf'], subtotalCents: p.subtotalCents, taxCents: p.taxCents, taxFound: p.taxFound,
+      freightCents: p.freightCents, fees: p.fees.map(f => ({ label: f.label, cents: f.cents })), totalCents: p.totalCents, lines: p.lines,
+    }
+    const plan = planGreenRealPrices([doc], ITEMS(), 722, borrowedPrice)
+    const after = (part: string) => plan.set.find(s => s.part === part)?.afterCents
+    expect(after(`Chainlink, Green, Gate, 1-3/8", 4' x 5' (.065)`)).toBe(19822)
+    expect(after('Green, Fork, PS, 2-1/2"')).toBe(368)
   })
 })
