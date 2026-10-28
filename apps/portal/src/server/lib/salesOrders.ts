@@ -34,6 +34,7 @@ import { quotedCostFor } from './jobCosting.js'
 import { currentWorkRow, type StoredWork } from './changeOrderWork.js'
 import { isWorkLine } from './workWords.js'
 import { plainStyleName } from './estimates.js'
+import { customerFenceName, soldRailsOf } from './customerFenceName.js'
 import { findItemId } from './jobCostingMath.js'
 
 export type OrderStatus = 'pending' | 'ordered' | 'received' | 'cancelled'
@@ -207,7 +208,8 @@ export async function orderBasisFor(accountId: string, quoteId: string, db: any 
   }
   return {
     quoteId, jobId: job.id, customerId: job.crmContactId ?? q.crmContactId ?? null, customerName: job.customerName || q.customerName || '',
-    styleName: await plainStyleName(style), source, need: partsToOrder(lines),
+    // A sold best price fence names the panels its runs used, never "(best price)".
+    styleName: customerFenceName(await plainStyleName(style), soldRailsOf(q as any, style)), source, need: partsToOrder(lines),
   }
 }
 

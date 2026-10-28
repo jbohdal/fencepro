@@ -17,6 +17,7 @@ import { firstStage } from './opsStageModel.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId, stageNameOf, isFinishedStage } from './pipelineStageModel.js'
 import { nyDay } from './warranties.js'
+import { customerFenceName, railsOf } from './customerFenceName.js'
 
 export async function onProposalAccepted(q: { id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string; leadSource: string; salesRep: string }, chosen: { label: string; fenceStyle: string; finalPrice: number; sections: number }, acceptedBy: string): Promise<void> {
   const price = '$' + Math.round(chosen.finalPrice).toLocaleString('en-US')
@@ -25,7 +26,8 @@ export async function onProposalAccepted(q: { id: string; accountId: string; crm
   await prisma.notification.create({
     data: {
       title: `Proposal accepted: ${q.customerName || acceptedBy}`,
-      body: `${acceptedBy} accepted ${chosen.label} at ${price}. The pipeline card is in ${stageNameOf(stages, STAGE)}.`,
+      // The fence as the customer accepted it: a best price option names its panels, never "(best price)".
+      body: `${acceptedBy} accepted ${customerFenceName(chosen.label, railsOf(chosen as any, (q as any).runRails))} at ${price}. The pipeline card is in ${stageNameOf(stages, STAGE)}.`,
       type: 'success',
       link: q.crmContactId ? `/?customer=${q.crmContactId}` : null,
     },

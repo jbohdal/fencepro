@@ -19,6 +19,7 @@
  *     sent once however often it is asked for.
  */
 
+import { customerFenceName, railsOf } from './customerFenceName.js'
 export const MAX_VIEW_MS = 2 * 3600_000        // one open counts at most two hours
 export const BEAT_WINDOW_MS = 6 * 3600_000     // heartbeats after this are ignored (a tab left open)
 export const REUSE_MS = 10 * 60_000            // a reload on the same device within this is the same open
@@ -124,7 +125,7 @@ export interface ProposalOptionLike { label?: string; fenceStyle?: string; final
 /** "Better ($8,200)": the tier name when it has one, else the option's own words. */
 export function optionWords(o: ProposalOptionLike | null | undefined): string {
   if (!o) return ''
-  const name = String(o.tier?.label || o.label || o.fenceStyle || 'an option')
+  const name = customerFenceName(String(o.tier?.label || o.label || o.fenceStyle || 'an option'), railsOf(o as any))
   return `${name} (${money(o.finalPrice ?? 0)})`
 }
 
