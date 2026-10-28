@@ -27,6 +27,9 @@
  * stage that stands for ready to schedule (readyStageOf).
  * A job still to be drawn goes no further than Need Drawing until the office
  * moves it past it, its materials received or not (heldForDrawing, audit #50).
+ * Held there with its materials in, its card and job panel say "Materials in;
+ * waits for its drawing" and its history says so once, when the hold starts
+ * (audit #55: noteHeldForDrawing, moveMoreWords).
  *
  * Only forward, only from the job's own staging stage on the board, never when
  * a stage rule refuses. Only when the thing that moves it changes (the
@@ -46,7 +49,7 @@ import { loadOpsStages } from './opsStages.js'
 import { permitStatusOf } from './permitStatus.js'
 import { installWord } from './workWords.js'
 import { locateOf, locateStatus } from './locates.js'
-import { boardStages, permitIsOk, phaseOf, readyStageOf, sortedStages, stageById, stageOfJob, waitingStageOf, type OpsStageDef } from './opsStageModel.js'
+import { boardStages, permitIsOk, phaseOf, readyStageOf, sortedStages, stageById, stageOfJob, waitingStageOf, waitsOnlyForDrawing, HELD_FOR_DRAWING_WORDS, type OpsStageDef } from './opsStageModel.js'
 
 type Json = any
 
@@ -102,8 +105,28 @@ export function heldForDrawing(stages: OpsStageDef[], was: string, to: string, f
 /** Said in the history line of a drawn job that waits in Need Drawing for its materials order. */
 export const DRAWN_WAITS_WORDS = 'Already drawn: it moves to Materials Ordered when its Sales Order is marked Ordered.'
 
-/** The words after "Moved to … by itself: <reason>." for a move to `to`. */
-export const moveMoreWords = (to: string, f: MoveFacts) => (to === 'need_drawing' && f.drawing ? DRAWN_WAITS_WORDS : '')
+/**
+ * The words after "Moved to … by itself: <reason>." for a move to `to` of a
+ * job whose materials are `materials`: drawn, it waits for its order; still to
+ * be drawn with its materials in, it waits for its drawing (audit #55).
+ */
+export const moveMoreWords = (to: string, f: MoveFacts, materials?: string | null) =>
+  (to === 'need_drawing' && f.drawing ? DRAWN_WAITS_WORDS : waitsOnlyForDrawing(to, materials, f) ? `${HELD_FOR_DRAWING_WORDS}.` : '')
+
+/** Kept in ActivityLog metadata.kind for the line said when a job starts waiting in Need Drawing for its drawing only. */
+export const HELD_FOR_DRAWING_KIND = 'ops.held_for_drawing'
+
+/**
+ * "Materials in; waits for its drawing (Sales Order marked Received)." in the
+ * job's history, when a job still to be drawn is held in Need Drawing as its
+ * materials come in (audit #55, Oct 28 2026: it said nothing). Once per hold:
+ * the callers write it only when the materials are raised to Received, which
+ * happens once; a move into Need Drawing by itself says it in its own line
+ * (moveMoreWords) instead.
+ */
+export async function noteHeldForDrawing(jobId: string, why: string, db: Json = prisma): Promise<void> {
+  await db.activityLog.create({ data: { entityType: 'job', entityId: jobId, actor: 'system', body: `${HELD_FOR_DRAWING_WORDS} (${why}).`, metadata: { kind: HELD_FOR_DRAWING_KIND, stage: 'need_drawing' } } })
+}
 
 /** The facts for a job: its permit, whether it is a repair, whether it has its drawing, today. */
 export async function moveFactsOf(accountId: string, job: Json, now = new Date()): Promise<MoveFacts> {
@@ -169,7 +192,7 @@ export async function stageFollowsLocateAndPermit(accountId: string, jobId: stri
       if (!d.count) return null
       const r = await tx.savedJob.findUniqueOrThrow({ where: { id: jobId } })
       await recordJobChanges(accountId, job, r, tx)
-      await noteAutoMove(jobId, stages, w, reason, tx, moveMoreWords(w, facts))
+      await noteAutoMove(jobId, stages, w, reason, tx, moveMoreWords(w, facts, r.materialsStatus))
       return r
     })
     if (!row) return null

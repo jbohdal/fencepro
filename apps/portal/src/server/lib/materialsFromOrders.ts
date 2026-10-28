@@ -36,8 +36,8 @@ import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
-import { stageOfJob } from './opsStageModel.js'
-import { moveFactsOf, noteAutoMove, waitingStageMove } from './waitingStageMove.js'
+import { stageOfJob, waitsOnlyForDrawing } from './opsStageModel.js'
+import { moveFactsOf, moveMoreWords, noteAutoMove, noteHeldForDrawing, waitingStageMove } from './waitingStageMove.js'
 
 export type MaterialsStatus = 'not_ordered' | 'ordered' | 'received' | 'loaded'
 
@@ -119,7 +119,9 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
       if (!d.count) return null
       const r = await tx.savedJob.findUniqueOrThrow({ where: { id: jobId } })
       await recordJobChanges(accountId, job, r, tx)
-      if (w) await noteAutoMove(jobId, stages, w, why, tx)
+      if (w) await noteAutoMove(jobId, stages, w, why, tx, moveMoreWords(w, facts, next))
+      // Still to be drawn, its materials now in, it stays in Need Drawing: said once, here (audit #55).
+      else if (next === 'received' && waitsOnlyForDrawing(was, next, facts)) await noteHeldForDrawing(jobId, 'Sales Order marked Received', tx)
       return r
     })
     if (!row) { out.pop(); continue }

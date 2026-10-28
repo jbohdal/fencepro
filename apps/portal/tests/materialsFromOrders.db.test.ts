@@ -33,6 +33,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   const { default: prisma } = await import('../src/server/lib/prisma.js')
   const { default: jobs } = await import('../src/server/routes/saved-jobs.js')
   const { default: business } = await import('../src/server/routes/business-state.js')
+  const { default: changeOrders } = await import('../src/server/routes/change-orders.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const { jobMilestones } = await import('../src/server/lib/jobTruth.js')
 
@@ -43,6 +44,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   app.use(express.json({ limit: '10mb' }))
   app.use('/api/saved-jobs', jobs)
   app.use('/api/business-state', business)
+  app.use('/api/change-orders', changeOrders)
   const server = app.listen(0)
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
@@ -56,11 +58,19 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   const mk = (name: string, extra: Record<string, unknown>) => prisma.savedJob.create({ data: { accountId, customerName: `Testy ${tag} ${name}`, status: 'staging', ...extra } as any })
   const order = (id: string, extra: Record<string, unknown>) => ({ id, quoteName: `Test ${tag}`, customerName: `Testy ${tag}`, status: 'pending', totalCostCents: 1000, items: [], notes: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra })
 
-  /** The order list saved as the Sales Orders page saves it: the whole list, on the version it read. */
+  /**
+   * The order list saved as the Sales Orders page saves it: the whole list, on the version it read. Refused
+   * because another save landed in between (other test files save jobs, whose Sales Orders follow), it reads
+   * again and saves again, as the page does.
+   */
   async function mark(status: Record<string, string>) {
-    const read = await call('GET', '/api/business-state')
-    const list = (read.json.data.pendingOrders as any[]).map(o => (status[o?.id] ? { ...o, status: status[o.id] } : o))
-    const r = await call('PATCH', '/api/business-state', { pendingOrders: list, baseVersion: read.json.data.version })
+    let r = { status: 0, json: {} as any }
+    for (let attempt = 0; attempt < 5 && r.status !== 200; attempt++) {
+      const read = await call('GET', '/api/business-state')
+      const list = (read.json.data.pendingOrders as any[]).map(o => (status[o?.id] ? { ...o, status: status[o.id] } : o))
+      r = await call('PATCH', '/api/business-state', { pendingOrders: list, baseVersion: read.json.data.version })
+      if (r.status !== 409) break
+    }
     expect(r.status).toBe(200)
   }
   const job = (id: string) => prisma.savedJob.findUniqueOrThrow({ where: { id } })
@@ -137,6 +147,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     expect([ar.opsStage, ar.materialsStatus, ar.status]).toEqual(['need_drawing', 'received', 'staging'])
     const lines = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.a, metadata: { path: ['kind'], equals: 'ops.auto_move' } } })
     expect(lines).toEqual([])
+    // Held there, its history says why, once (audit #55).
+    const held = async () => (await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.a, metadata: { path: ['kind'], equals: 'ops.held_for_drawing' } } })).map(l => l.body)
+    expect(await held()).toEqual(['Materials in; waits for its drawing (Sales Order marked Received).'])
+    const tl = await call('GET', `/api/change-orders/timeline?jobId=${ids.a}`)
+    expect((tl.json.data.items as any[]).map(i => i.title)).toContain('Materials in; waits for its drawing (Sales Order marked Received).')
 
     // Put back to pending: the job keeps what it has (D is looked at in its own test below).
     await mark({ [orderIds[0]]: 'pending', [orderIds[2]]: 'pending' })
@@ -146,6 +161,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     // An order Ordered again on a job already received: not backward.
     await mark({ [orderIds[0]]: 'ordered' })
     expect((await job(ids.a)).materialsStatus).toBe('received')
+    // Received again: the job already is, so no second line.
+    await mark({ [orderIds[0]]: 'received' })
+    expect((await held()).length).toBe(1)
   }, 30_000)
 
   test('a drawn job waits in Need Drawing for its order: Ordered → Materials Ordered, Received → Ready to Pull', async () => {
