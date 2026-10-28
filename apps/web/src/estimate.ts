@@ -40,6 +40,8 @@ export { kitSetFor } from './materialKits'
 export { stampTerms, proposalTerms, frozenTerms, companyAddressOf } from './contractTerms'
 // Which proposal options are shown and which starts selected (server routes/proposal.ts).
 export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp } from './proposalOptions'
+// What a save would change on a sent proposal's cards (server routes/saved-quotes.ts refuses it unless chosen).
+export { proposalPriceChanges } from './sentReprice'
 // Warranties per option (server lib/warranties.ts).
 export {
   defaultWarrantySettings, warrantySettingsOf, warrantyForStyle, installKeyOf, signedOptionWarranty, warrantyFromText,

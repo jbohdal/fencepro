@@ -90,6 +90,8 @@ interface EstimateModule {
   proposalFold(p: unknown, quote: { fenceStyle?: string | null; status?: string | null; acceptedAt?: unknown; soldAt?: unknown; firstViewedAt?: unknown; viewCount?: number | null }, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined): { own: number; tier: number } | null
   /** The fold a save freezes on the proposal (lib/ownTier.ts). */
   ownTierToStamp(p: unknown, quote: { fenceStyle?: string | null }, before: unknown, sent: boolean, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined): { own: number; tier: number } | null
+  /** web/src/sentTiers.ts: the customer's cards a save would change (price or fence), empty when none. */
+  proposalPriceChanges(before: unknown, beforeQuote: unknown, after: unknown, afterQuote: unknown, styleOf?: (name: string) => { material?: string; choices?: Record<string, string>; madeFrom?: string } | null | undefined): Array<{ name: string; wasCents: number | null; nowCents: number | null }>
 }
 
 /**
