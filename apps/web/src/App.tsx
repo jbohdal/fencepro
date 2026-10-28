@@ -56,7 +56,7 @@ import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
 import { clearOldBrowserData } from './browserStorage'
 import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
-import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes } from './quoteStore'
+import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes, isSlimQuote, loadFullQuote } from './quoteStore'
 import { sizeText } from './moveRepair'
 import { sendJson } from './syncHttp'
 import { initJobs, isJobsHydrated, getJobs, getArchivedJobs } from './jobStore'
@@ -344,7 +344,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     // Payments waiting on this phone back on screen; receipt numbers set aside for no signal (paymentsStore.ts).
     startPayments(`${user.firstName} ${user.lastName}`.trim())
     // Website quotes and phone calls that came in while nobody was looking.
-    if (!isCrewLogin(user.role)) startIntakeSync()
+    // Not the Salesman's either: a website or phone lead is the office's until it is assigned (portal lib/salesScope.ts).
+    if (!isCrewLogin(user.role) && user.role !== 'sales_rep') startIntakeSync()
     startLiveRefresh()
     // A color added in Settings says so when it becomes fully priced.
     startColorReadyWatch()
@@ -733,16 +734,34 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
   }
 
-  function handleOpenQuote(q: SavedQuote, opts: { changeOrder?: boolean } = {}) {
-    setQuoteOnYard(!!opts.changeOrder)
-    setQuoteForChange(!!opts.changeOrder)
+  function handleOpenQuote(q: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     // "Change order" sends the work with the approved ones (openChangeFromDrawing): it opens on the latest drawing too,
     // else a change order still open was left out of it once one had been approved (round 4 re-check).
-    if (isSignedForChange(q) && (signedQuoteOf(q) === q || opts.changeOrder)) {
+    const signed = isSignedForChange(q) && (signedQuoteOf(q) === q || !!opts.changeOrder)
+    const base = signed ? signedQuoteOf(q) : q
+    // The list's copy has no drawing and no option copies (quoteStore.ts): the builder opens on the whole quote,
+    // so a sent quote's prices and cards are read from what was sent. Only the proposal is taken from the server
+    // (this copy may carry a visit's notes).
+    if (base.id && isSlimQuote(base)) {
+      void loadFullQuote(base.id).then(full => {
+        if (full && !isSlimQuote(full)) { openInBuilder({ ...base, proposal: full.proposal }, signed, opts); return }
+        // No signal: a draft never sent opens from the list's copy (its proposal is made again when it is saved).
+        if (base.status === 'DRAFT' && !base.shareToken) { openInBuilder(base, signed, opts); return }
+        toast.error('The quote did not load', 'Its proposal as sent has to come from the server. Usually that is weak signal; open it again when you have signal.')
+      })
+      return
+    }
+    openInBuilder(base, signed, opts)
+  }
+
+  function openInBuilder(q: SavedQuote, signed: boolean, opts: { changeOrder?: boolean; onYard?: boolean }) {
+    setQuoteOnYard(!!opts.changeOrder || !!opts.onYard)
+    setQuoteForChange(!!opts.changeOrder)
+    if (signed) {
       // The latest drawing: with every approved and every still open change order's change in it (quoteForChange).
-      void latestDrawingQuote(signedQuoteOf(q)).then(open => { setEditingQuote(open); setShowQuote(true) })
+      void latestDrawingQuote(q).then(open => { setEditingQuote(open); setShowQuote(true) })
       return
     }
     setEditingQuote(q)
@@ -758,8 +777,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       if (draft) {
         const fromWebsite = !!(draft.layout as { widgetDrawing?: unknown } | undefined)?.widgetDrawing
         toast.info(fromWebsite ? 'Opened the website quote' : 'Opened the draft quote', fromWebsite ? 'The customer\'s drawing, sides and gates are in it. Check each measurement and save.' : 'This customer already has a draft. Keep working on it.')
-        handleOpenQuote(withVisit(draft, { notes: extra.notes, address: extra.address }))
-        setQuoteOnYard(true)
+        handleOpenQuote(withVisit(draft, { notes: extra.notes, address: extra.address }), { onYard: true })
         return
       }
     }
@@ -882,7 +900,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
     const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(id)}`)
     if (r.status === 404 || r.status === 403) {
-      toast.error('That quote cannot be opened', isCrewLogin(crmUser.role) ? 'Only the quotes for your installs open on your login. Ask the office if you need this one.' : 'It was deleted, or the link is from another company.')
+      toast.error('That quote cannot be opened', isCrewLogin(crmUser.role) ? 'Only the quotes for your installs open on your login. Ask the office if you need this one.'
+        : crmUser.role === 'sales_rep' ? 'Only your own quotes and the ones assigned to you open on your login. Ask the office if you need this one.'
+        : 'It was deleted, or the link is from another company.')
     } else if (r.status === 0 || r.status >= 500) {
       toast.error('The quote did not load', 'Usually that is weak signal. Open it again when you have signal.')
     } else {

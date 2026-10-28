@@ -48,6 +48,7 @@ import { stampOwnTier, proposalSent, styleRecords } from '../lib/ownTier.js'
 import { pricingModule } from '../lib/estimates.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
+import { slimQuote, withHeavyParts } from '../lib/quoteSlim.js'
 
 const router = Router()
 
@@ -201,7 +202,10 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
     })
     // ?archived=1 above: the archived ones (search, reports, Unarchive). A small refresh marks a deleted
     // one with archivedAt too, so an older screen drops it (a new screen checks deletedAt first).
-    const data = Number.isFinite(sinceRaw) ? quotes.map(x => (x.deletedAt && !x.archivedAt ? { ...x, archivedAt: x.deletedAt } : x)) : quotes
+    const marked = Number.isFinite(sinceRaw) ? quotes.map(x => (x.deletedAt && !x.archivedAt ? { ...x, archivedAt: x.deletedAt } : x)) : quotes
+    // Each proposal without its drawing and option copies (lib/quoteSlim.ts): they come with the one quote
+    // when it is opened (GET /:id). ?full=1: the whole proposals.
+    const data = req.query.full === '1' ? marked : marked.map(slimQuote)
     res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[saved-quotes] list error:', err)
@@ -238,6 +242,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
   try {
     const sameId = typeof req.body?.id === 'string' ? await prisma.savedQuote.findFirst({ where: { id: req.body.id, accountId: req.user.crmAccountId } }) : null
     const data = quoteSchema.parse(await costsForLimited(req, sameId))
+    // A proposal sent back slim (the list's copy): its saved drawing and option copies go back on (lib/quoteSlim.ts).
+    if (data.proposal) data.proposal = withHeavyParts(data.proposal, sameId?.proposal ?? null)
     // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
     if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // Each proposal option's warranty, from Settings → Warranties now (lib/warranties.ts).
@@ -323,6 +329,9 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       return
     }
     const data = quoteUpdateSchema.parse(await costsForLimited(req, existing))
+    // A proposal sent back slim (the list's copy): its saved drawing and option copies go back on before
+    // anything compares or saves it, so a sent quote never reprices or loses its plan (lib/quoteSlim.ts).
+    if (data.proposal) data.proposal = withHeavyParts(data.proposal, existing.proposal)
     // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
     if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A signed quote keeps its price: a change to it goes on a change order (lib/quoteLock.ts).

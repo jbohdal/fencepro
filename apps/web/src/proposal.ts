@@ -88,6 +88,11 @@ export interface QuoteProposal {
   wholeDollar?: boolean
   /** Show a reduction as the list price, a Discount line and the final price (the quote's "Show as discount on the proposal"). Otherwise the final price only. */
   showDiscount?: boolean
+  /**
+   * The quote list's copy (portal lib/quoteSlim.ts): no drawing (planSvg) and no option snapshots. The whole
+   * proposal comes with the one quote when it is opened (quoteStore.ts loadFullQuote); a save never sends it.
+   */
+  slim?: true
 }
 
 // ── Which options make sense for a style ──────────────────────────────────────
