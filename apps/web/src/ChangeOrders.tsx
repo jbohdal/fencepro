@@ -1067,9 +1067,11 @@ function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }:
 
 interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
 
-/** Stage moves and materials changes say the time too, Florida time ("Oct 28, 9:14 AM"; portal lib/jobMoveHistory.ts, audit #47). */
-const TIMED = new Set(['stage', 'materials'])
-const floridaWhen = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+/**
+ * Every line in one style, Florida time ("Oct 28, 2026, 9:14 AM"), so lines of the same day read in the order
+ * they are listed (audit #51: stage lines had a time, contract lines only a date).
+ */
+const floridaWhen = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 
 /**
  * The job's timeline: the contract as signed, change orders, the payment schedule following, pull sheet revisions, who moved it between
@@ -1101,7 +1103,7 @@ export function JobTimeline({ jobId, refreshKey = '' }: { jobId: string; refresh
         <ul className="space-y-1.5">
           {items.map((it, i) => (
             <li key={i} className="text-xs" data-job-timeline-item={it.kind}>
-              <span className="text-gray-500">{TIMED.has(it.kind) ? floridaWhen(it.at) : shortDay(it.at)}</span> <span className="text-gray-900 font-medium">{it.title}</span>
+              <span className="text-gray-500">{floridaWhen(it.at)}</span> <span className="text-gray-900 font-medium">{it.title}</span>
               {it.detail && <span className="text-gray-600"> {it.detail}</span>}{it.by && !it.title.includes(it.by) && <span className="text-gray-400"> · {it.by}</span>}
             </li>
           ))}
