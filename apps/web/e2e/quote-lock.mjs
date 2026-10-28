@@ -12,7 +12,7 @@
 //      saved as a draft, then on the job page), the job page's contract value includes it. The
 //      quote's own price never moved.
 //   2. Sent: with one Inventory cost raised on dev (put back after), opening a
-//      Sent quote and saving asks "Prices changed since this was sent (was $X,
+//      Sent quote and saving asks "The price changed since this was sent (sent at $X,
 //      now $Y) ..."; "Keep the sent prices" keeps the price and saves the note.
 // Removes everything it made (hard deletes on ezbiz_dev only).
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
@@ -71,7 +71,8 @@ async function openQuote(page, id) {
   await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 })
   await sleep(1500)
 }
-const barPrice = async page => cents(await page.locator('[data-bar-price]').first().innerText())
+// The builder's own price (the bar shows the customer's price on a sent or signed quote, Oct 27 2026).
+const barPrice = async page => Number(await page.locator('[data-bar-price]').first().getAttribute('data-builder-cents'))
 /** A price in cents rounded down to the whole dollar (the change order prices each side that way). */
 const whole = c => Math.floor(c / 100) * 100
 
@@ -209,7 +210,7 @@ try {
       await saveFromBuilder(page, `E2E kept sent prices (${label})`)
       await page.locator('[data-quote-lock-dialog="sent"]').waitFor({ timeout: 10000 })
       const msg = await page.locator('[data-quote-sent-message]').innerText()
-      check(`${label}: "Prices changed since this was sent (was $X, now $Y)"`, msg.startsWith('Prices changed since this was sent (was ') && cents(msg.match(/\(was (\$[\d,.]+)/)?.[1]) === signedCents && cents(msg.match(/now (\$[\d,.]+)\)/)?.[1]) === now, msg)
+      check(`${label}: "The price changed since this was sent (sent at $X, saving now would make it $Y)"`, msg.startsWith('The price changed since this was sent (sent at ') && cents(msg.match(/sent at (\$[\d,.]+)/)?.[1]) === signedCents && cents(msg.match(/make it (\$[\d,.]+)\)/)?.[1]) === now, msg)
       if (!phone) await shot(page, 'dev-quote-sent-prices-changed.png')
       await page.locator('[data-quote-sent-keep]').click()
       await sleep(2500)

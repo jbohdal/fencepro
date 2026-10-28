@@ -711,6 +711,9 @@ export default function QuoteBuilder({
     ? sentTierCards(init.proposal as Parameters<typeof sentTierCards>[0], init as Parameters<typeof sentTierCards>[1], n => cfg.fenceStyles.find(s => s.name === n))
     : null), [usingSentTiers, init, cfg.fenceStyles])
   const showSentCards = !!sentCards && Object.keys(sentCards).length > 0 && !fenceChanged
+  // The big price and the bottom bar show the customer's price on a signed quote, and on a sent one until its fence
+  // changes (review Oct 27 2026: today's price under "Signed: the price is locked" read as the customer's).
+  const customerPrice: number | null = signedQuote ? signedQuoteOf(init!).finalPrice : sentQuote && !fenceChanged ? init!.finalPrice : null
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
@@ -796,6 +799,9 @@ export default function QuoteBuilder({
   const tearOutCost = work ? work.disposalCents / 100 : priced.tearOutCost
   const totalCOGS   = work ? work.costCents / 100 : priced.totalCOGS
   const adjPrice    = work ? work.priceCents / 100 : newMin ? minimum.price : priced.price
+  // The customer's price (above) when there is one, else the builder's.
+  const shownPrice = customerPrice ?? adjPrice
+  const todayDiffers = customerPrice != null && Math.round(customerPrice * 100) !== Math.round(adjPrice * 100)
   // Cents the price was rounded down by to the whole dollar: its own line, out of profit (commission and overhead stay on the price before it).
   const roundingCents = !internal ? 0 : work ? work.roundingCents : newMin ? minimum.roundingCents : priced.roundingCents
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
@@ -1580,8 +1586,9 @@ export default function QuoteBuilder({
 
           <div className={step === 'price' ? 'space-y-3' : 'hidden'} data-step-panel="price">
               <div className="bg-gray-900 rounded-xl p-4">
-                <p className="text-gray-400 text-xs mb-1">{priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
-                <p className="text-white text-3xl font-bold" data-quote-price>{fmt(adjPrice)}</p>
+                <p className="text-gray-400 text-xs mb-1">{customerPrice != null ? (signedQuote ? "The customer's price (as signed)" : "The customer's price (as sent)") : priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
+                <p className="text-white text-3xl font-bold" data-quote-price>{fmt(shownPrice)}</p>
+                {todayDiffers && <p className="text-gray-300 text-xs mt-1" data-price-today>At today's costs it would be {fmt(adjPrice)}.</p>}
                 {!internal && svPricing && <p className="text-gray-300 text-xs mt-1" data-price-pending>Pricing…</p>}
                 {!internal && svError && !svPricing && <p className="text-amber-300 text-xs mt-1" data-price-error>{svError}</p>}
                 {priced.priceMethod === 'manual' && (
@@ -2040,7 +2047,7 @@ export default function QuoteBuilder({
                 : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
             <div className={`flex items-center gap-2 mt-1 ${signedQuote ? 'flex-wrap md:flex-nowrap' : ''}`}>
-              <p className="text-xl font-bold tabular-nums text-gray-900 shrink-0 whitespace-nowrap mr-auto" data-bar-price>{fmt(adjPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
+              <p className="text-xl font-bold tabular-nums text-gray-900 shrink-0 whitespace-nowrap mr-auto" data-bar-price data-builder-cents={Math.round(adjPrice * 100)}>{fmt(shownPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
               <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
                 <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
               </button>
@@ -2119,7 +2126,7 @@ export default function QuoteBuilder({
               </>
             ) : (
               <>
-                <p className="text-base font-bold text-gray-900" data-quote-sent-message>{sentPricesChanged ? <>Prices changed since this was sent (was {fmt(init!.finalPrice)}, now {fmt(openPriceRef.current ?? adjPrice)}). </> : null}
+                <p className="text-base font-bold text-gray-900" data-quote-sent-message>{(() => { const now = Number((pending.quote as any)?.finalPrice ?? adjPrice); return Math.round(now * 100) !== Math.round((init?.finalPrice ?? 0) * 100) ? <>The price changed since this was sent (sent at {fmt(init!.finalPrice)}, saving now would make it {fmt(now)}). </> : null })()}
                   {pending.changes?.length
                     ? <>Prices on the customer's proposal would change ({pending.changes.slice(0, 3).map(c => `${c.name}: ${c.wasCents == null ? 'not on it' : fmt(c.wasCents / 100)} then, ${c.nowCents == null ? 'gone' : fmt(c.nowCents / 100)} now`).join('; ')}{pending.changes.length > 3 ? `; ${pending.changes.length - 3} more` : ''}). </>
                     : null}
