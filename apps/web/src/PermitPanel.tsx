@@ -9,6 +9,7 @@ import { api, openPdf, type Permit } from './automationsApi'
 import { toast } from './toast'
 import { milestonesChanged } from './jobTruthApi'
 import { can } from './permissions'
+import { refreshJobs } from './jobStore'
 
 const STATUSES: Array<[string, string]> = [['not_needed', 'Not needed'], ['needed', 'Needed'], ['applied', 'Applied'], ['approved', 'Approved'], ['inspection_scheduled', 'Inspection scheduled'], ['passed', 'Passed']]
 type Portal = { name: string; url: string; info: string; note: string } | null
@@ -53,6 +54,8 @@ export default function PermitPanel({ jobId }: { jobId: string }) {
       setSaved(d.permit); setPortal(d.portal); toast.success('Permit saved')
       // The Permit Approved milestone follows the permit (portal lib/jobReadiness.ts).
       milestonesChanged()
+      // A job waiting on its permit moves on by itself once it is issued (portal lib/waitingStageMove.ts): read the stage.
+      void refreshJobs()
     } catch (err) { setError((err as Error).message) } finally { setBusy('') }
   }
   async function lookUp() {

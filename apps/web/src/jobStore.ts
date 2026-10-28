@@ -509,7 +509,7 @@ export async function saveJobLocate(id: string, input: { ticket: string; calledD
   const job = fromApi(r.json.data as SavedJobRecord)
   cache = cache.map(j => j.id === id ? { ...j, locatesDate: job.locatesDate, locatesExpDate: job.locatesExpDate, locateTicket: job.locateTicket, locateCalledDate: job.locateCalledDate, locateUpdatedBy: job.locateUpdatedBy, locateUpdatedAt: job.locateUpdatedAt, updatedAt: job.updatedAt } : j)
   emit()
-  // A job waiting on its locate moves on by itself once it is in (portal lib/jobTruth.ts prepStageFollows): read the stage.
+  // A job waiting on its locate moves on by itself once it is in (portal lib/waitingStageMove.ts stageFollowsLocateAndPermit): read the stage.
   void refreshJobs()
   return { ok: true, job: cache.find(j => j.id === id) ?? job }
 }

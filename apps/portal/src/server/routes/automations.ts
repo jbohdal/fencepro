@@ -26,6 +26,7 @@ import { crewScope } from '../lib/crewScope.js'
 import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../lib/notificationService.js'
 import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
+import { stageFollowsLocateAndPermit } from '../lib/waitingStageMove.js'
 import { z } from 'zod'
 import fs from 'fs'
 import jwt from 'jsonwebtoken'
@@ -477,6 +478,8 @@ router.put('/permits/:jobId', requireCan('permits.change'), async (req: any, res
     const permit = await save().catch(e => { if (isUniqueViolation(e)) return save(); throw e })
     // "File the fence permit for …" closes by itself once it is Approved or Not needed (lib/taskAutoClose.ts).
     if (before?.status !== permit.status) closeTasksSoon(job.id)
+    // Waiting on the permit (or the locate): the job moves on to the stage its records put it in (lib/waitingStageMove.ts).
+    if (before?.status !== permit.status) await stageFollowsLocateAndPermit(accountId, job.id, `Permit saved, ${req.user.email ?? 'staff'}`)
     res.json({ success: true, data: { permit, portal: portalFor(permit.county) } })
   } catch (err) { fail(res, err, 'save the permit') }
 })

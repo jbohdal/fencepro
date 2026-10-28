@@ -26,6 +26,7 @@ import { floridaDay } from './automations/context.js'
 import { permitStatusesOf } from './permitStatus.js'
 import { installWord, repairWording } from './workWords.js'
 import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates.js'
+import { stageFollowsLocateAndPermit } from './waitingStageMove.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
 export { billingStatusOf } from './jobReadiness.js'
 import { applyPayments } from './paymentMath.js'
@@ -58,7 +59,8 @@ export async function saveLocate(accountId: string, jobId: string, input: Locate
     oldValues: { locateTicket: existing.locateTicket, locateCalledDate: existing.locateCalledDate, locatesDate: existing.locatesDate, locatesExpDate: existing.locatesExpDate },
     newValues: { ...fields, by },
   })
-  return updated
+  // Waiting on the locate: the job moves on to the stage its records put it in (lib/waitingStageMove.ts).
+  return (await stageFollowsLocateAndPermit(accountId, jobId, `811 locate saved, ${by}`)) ?? updated
 }
 
 // ── Payment status ──────────────────────────────────────────────────────────
