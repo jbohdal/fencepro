@@ -34,7 +34,7 @@ import { roleOf, requireCan, can } from '../lib/permissions.js'
 import { repForJob } from '../lib/salesRep.js'
 import { hidesCosts, hidesPrices, isPriceKey, crewTextBack } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
-import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, phaseOf, sortedStages, type OpsStageDef } from '../lib/opsStageModel.js'
+import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, phaseOf, sortedStages, MATERIALS_RANK, type OpsStageDef } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
@@ -341,7 +341,11 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       res.status(409).json({ success: false, code: 'REOPEN_NEEDED', error: `${existing.customerName || 'This job'} is ${stageById(stages, wasStage)?.name ?? existing.status}, a closed job. Moving it back to ${to} reopens it: only the owner or the office can, with Reopen.`, data: existing })
       return
     }
-    if (nextStage !== wasStage && data.opsStage === nextStage) Object.assign(data, fieldsForStage(stages, nextStage, existing as any, floridaDay(new Date())) ?? {})
+    if (nextStage !== wasStage && data.opsStage === nextStage) {
+      Object.assign(data, fieldsForStage(stages, nextStage, existing as any, floridaDay(new Date())) ?? {})
+      // A stage move never lowers the materials, whatever an older screen sent (audit #43: a Received job dragged back was marked Ordered).
+      if (data.materialsStatus !== undefined && (MATERIALS_RANK[data.materialsStatus as string] ?? 0) < (MATERIALS_RANK[existing.materialsStatus as string] ?? 0)) delete (data as any).materialsStatus
+    }
     // Reopened (Reopen said, and allowed above): no longer done, so no completed date.
     if (nextStage !== wasStage && isDonePhase(existing.status) && !isDonePhase(phaseOf(stages, nextStage))) { (data as any).completedDate = null; (data as any).completedBy = null }
     ;(data as any).opsStage = nextStage

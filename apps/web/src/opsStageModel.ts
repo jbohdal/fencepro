@@ -257,15 +257,21 @@ export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk
  * step, a move the server makes by itself (review Oct 28 2026: deleting a
  * stage and moving its jobs to Ready to Pull marked their materials
  * Received). Only a hand move, which asks first (web materialsMoveQuestion),
- * records materials.
+ * records materials, and only forward: a move back never lowers them (audit
+ * #43, Oct 28 2026: a Received job dragged back to Materials Ordered was
+ * marked Ordered again). The Sales Order is the record of what came in.
  */
+/** How far along materials are; a stage move only raises them. */
+export const MATERIALS_RANK: Record<string, number> = { not_ordered: 0, ordered: 1, received: 2, loaded: 3 }
+
 export function fieldsForStage(list: OpsStageDef[], id: string, job: OpsJobLike, today: string, opts: { stageOnly?: boolean } = {}): Record<string, unknown> | null {
   const phase = phaseOf(list, id)
   if (!phase) return null
   const out: Record<string, unknown> = { opsStage: id, status: phase }
   if (!opts.stageOnly) {
-    if (id === 'materials_ordered') out.materialsStatus = 'ordered'
-    if (id === 'ready_to_pull') out.materialsStatus = 'received'
+    const had = MATERIALS_RANK[job.materialsStatus || 'not_ordered'] ?? 0
+    if (id === 'materials_ordered' && had < MATERIALS_RANK.ordered) out.materialsStatus = 'ordered'
+    if (id === 'ready_to_pull' && had < MATERIALS_RANK.received) out.materialsStatus = 'received'
     if (id === 'need_drawing') out.drawingComplete = false
   }
   if (phase === 'completed' && (!job.completedDate || !isDonePhase(job.status))) out.completedDate = today
