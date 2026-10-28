@@ -278,6 +278,10 @@ export function fieldsForStage(list: OpsStageDef[], id: string, job: OpsJobLike,
     if (id === 'materials_ordered' && had < MATERIALS_RANK.ordered) out.materialsStatus = 'ordered'
     if (id === 'ready_to_pull' && had < MATERIALS_RANK.received) out.materialsStatus = 'received'
     if (id === 'need_drawing') out.drawingComplete = false
+    // Moved on past Need Drawing by hand: the office says it is drawn, and it stays drawn if it is dragged back
+    // before Need Drawing (review of audit #50, Oct 28 2026). Side lanes (on hold) say nothing about the drawing.
+    const nd = list.findIndex(s => s.id === 'need_drawing'), at = list.findIndex(s => s.id === id)
+    if (nd >= 0 && at > nd && phase !== 'on_hold' && job.drawingComplete !== true) out.drawingComplete = true
   }
   if (phase === 'completed' && (!job.completedDate || !isDonePhase(job.status))) out.completedDate = today
   if (phase === 'on_hold' && job.status !== 'on_hold') out.previousStatus = isPhase(job.status) ? job.status : 'staging'

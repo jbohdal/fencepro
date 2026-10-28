@@ -80,18 +80,24 @@ describe('renaming never moves a job', () => {
 
 describe('moving jobs', () => {
   const today = '2026-10-20'
+  test('a hand move past Need Drawing records the drawing done, so a drag back does not hold it again (review of audit #50)', () => {
+    expect(fieldsForStage(list(), 'materials_ordered', job(), today)).toMatchObject({ drawingComplete: true })
+    expect(fieldsForStage(list(), 'need_drawing', job({ drawingComplete: true }), today)).toMatchObject({ drawingComplete: false })
+    expect(fieldsForStage(list(), 'awaiting_locates', job(), today)).not.toHaveProperty('drawingComplete')
+    expect(fieldsForStage(list(), 'ready_to_pull', job(), today, { stageOnly: true })).not.toHaveProperty('drawingComplete')
+  })
   test('a move on purpose sets the status the stage stands for', () => {
-    expect(fieldsForStage(list(), 'scheduled', job(), today)).toEqual({ opsStage: 'scheduled', status: 'scheduled' })
+    expect(fieldsForStage(list(), 'scheduled', job({ drawingComplete: true }), today)).toEqual({ opsStage: 'scheduled', status: 'scheduled' })
     expect(fieldsForStage(list(), 'materials_ordered', job(), today)).toMatchObject({ status: 'staging', materialsStatus: 'ordered' })
     expect(fieldsForStage(list(), 'completed', job({ status: 'in_progress' }), today)).toMatchObject({ status: 'completed', completedDate: today })
-    expect(fieldsForStage(list(), 'invoiced', job({ status: 'completed', completedDate: '2026-10-01' }), today)).toEqual({ opsStage: 'invoiced', status: 'invoiced' })
+    expect(fieldsForStage(list(), 'invoiced', job({ status: 'completed', completedDate: '2026-10-01', drawingComplete: true }), today)).toEqual({ opsStage: 'invoiced', status: 'invoiced' })
     expect(fieldsForStage(list(), 'backorder', job({ status: 'scheduled' }), today)).toMatchObject({ status: 'on_hold', previousStatus: 'scheduled' })
     expect(fieldsForStage(list(), 'nope', job(), today)).toBeNull()
   })
   test('a hand move back never lowers the materials (audit #43)', () => {
-    expect(fieldsForStage(list(), 'materials_ordered', job({ materialsStatus: 'received' }), today)).toEqual({ opsStage: 'materials_ordered', status: 'staging' })
-    expect(fieldsForStage(list(), 'materials_ordered', job({ materialsStatus: 'loaded' }), today)).toEqual({ opsStage: 'materials_ordered', status: 'staging' })
-    expect(fieldsForStage(list(), 'ready_to_pull', job({ materialsStatus: 'loaded' }), today)).toEqual({ opsStage: 'ready_to_pull', status: 'staging' })
+    expect(fieldsForStage(list(), 'materials_ordered', job({ materialsStatus: 'received', drawingComplete: true }), today)).toEqual({ opsStage: 'materials_ordered', status: 'staging' })
+    expect(fieldsForStage(list(), 'materials_ordered', job({ materialsStatus: 'loaded', drawingComplete: true }), today)).toEqual({ opsStage: 'materials_ordered', status: 'staging' })
+    expect(fieldsForStage(list(), 'ready_to_pull', job({ materialsStatus: 'loaded', drawingComplete: true }), today)).toEqual({ opsStage: 'ready_to_pull', status: 'staging' })
     expect(fieldsForStage(list(), 'ready_to_pull', job({ materialsStatus: 'ordered' }), today)).toMatchObject({ materialsStatus: 'received' })
   })
   test('a move nobody was asked about (stageOnly) changes the stage and status, never materials or drawing', () => {
