@@ -21,7 +21,8 @@ import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
 import type { Server } from 'http'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
-import { withoutCostFigures, namesSalesman } from '../src/server/lib/salesmanJobs'
+import { withoutCostFigures } from '../src/server/lib/salesmanJobs'
+import { isMine } from '../src/server/lib/salesScope'
 import { isCostKey } from '../src/server/lib/costRedact'
 
 describe('the Salesman job page helpers', () => {
@@ -33,11 +34,12 @@ describe('the Salesman job page helpers', () => {
     expect(withoutCostFigures('Contract rev 1 signed: $5,000.00')).toBe('Contract rev 1 signed: $5,000.00')
   })
   test('the rep names the Salesman by full name, or by first name alone', () => {
-    const me = { name: 'Sally Seller', firstName: 'Sally' }
-    expect(namesSalesman(me, ' sally  seller ')).toBe(true)
-    expect(namesSalesman(me, 'Sally')).toBe(true)
-    expect(namesSalesman(me, 'Sally Other')).toBe(false)
-    expect(namesSalesman(me, '')).toBe(false)
+    // The job page uses the same rule as every list (lib/salesScope.ts).
+    const me = { names: ['Sally Seller', 'Sally'] }
+    expect(isMine(me, ' sally  seller ')).toBe(true)
+    expect(isMine(me, 'Sally')).toBe(true)
+    expect(isMine(me, 'Sally Other')).toBe(false)
+    expect(isMine(me, '')).toBe(false)
   })
 })
 

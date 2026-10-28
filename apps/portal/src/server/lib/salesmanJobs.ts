@@ -27,7 +27,8 @@
 import prisma from './prisma.js'
 import { redactCosts, MONEY_MARK } from './costRedact.js'
 import { verifyStaffBearer } from './secrets.js'
-import { sameName, repName, SALESMAN_ROLE } from './salesRep.js'
+import { repName, SALESMAN_ROLE } from './salesRep.js'
+import { scopeFor, inSalesScope } from './salesScope.js'
 import { floridaDay } from './automations/context.js'
 
 export const isSalesman = (role: string | null | undefined): boolean => role === SALESMAN_ROLE
@@ -44,44 +45,20 @@ export async function salesmanLogin(userId: string): Promise<SalesmanLogin | nul
   return { id: u.id, accountId: u.crmAccountId, name: repName(u), firstName: (u.firstName ?? '').trim() }
 }
 
-/** Does this rep name the Salesman? The full name, or the first name alone when that is all the record has ("Christa"). */
-export function namesSalesman(me: Pick<SalesmanLogin, 'name' | 'firstName'>, rep: string | null | undefined): boolean {
-  if (!rep || !rep.trim()) return false
-  if (sameName(rep, me.name)) return true
-  return !/\s/.test(rep.trim()) && sameName(rep, me.firstName)
-}
-
-/** A quote or customer made by the Salesman, or with the Salesman as its rep. */
-const ownsRecord = (me: SalesmanLogin, r: { ownerId?: string | null; salesRep?: string | null }) => r.ownerId === me.id || namesSalesman(me, r.salesRep)
+// Which jobs are the Salesman's is lib/salesScope.ts's rule, the same one the job list, quotes and customers use
+// (Jonathan, Oct 28 2026: "Make the job page and job list use the same rule for which jobs are the Salesman's").
 
 /** Every job of the account that is the Salesman's. */
 export async function salesmanJobIds(me: SalesmanLogin): Promise<Set<string>> {
-  const accountId = me.accountId
-  const [quotes, contacts] = await Promise.all([
-    prisma.savedQuote.findMany({ where: { accountId, OR: [{ ownerId: me.id }, { salesRep: { not: '' } }] }, select: { id: true, ownerId: true, salesRep: true } }),
-    prisma.crmContact.findMany({ where: { accountId, OR: [{ ownerId: me.id }, { salesRep: { not: null } }] }, select: { id: true, ownerId: true, salesRep: true } }),
-  ])
-  const quoteIds = quotes.filter(q => ownsRecord(me, q)).map(q => q.id)
-  const contactIds = contacts.filter(c => ownsRecord(me, c)).map(c => c.id)
-  const jobs = await prisma.savedJob.findMany({
-    where: { accountId, OR: [{ quoteId: { in: quoteIds } }, { crmContactId: { in: contactIds } }, { salesRep: { not: '' } }] },
-    select: { id: true, quoteId: true, crmContactId: true, salesRep: true },
-  })
-  const q = new Set(quoteIds)
-  const c = new Set(contactIds)
-  return new Set(jobs.filter(j => (j.quoteId && q.has(j.quoteId)) || (j.crmContactId && c.has(j.crmContactId)) || namesSalesman(me, j.salesRep)).map(j => j.id))
+  return (await scopeFor(me.id))?.jobIds ?? new Set()
 }
 
-/** Is this one job the Salesman's? (Its quote, its customer, or its own rep.) */
+/** Is this one job the Salesman's? */
 export async function salesmanOwnsJob(me: SalesmanLogin, jobId: string): Promise<boolean> {
-  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId: me.accountId }, select: { quoteId: true, crmContactId: true, salesRep: true } })
+  const job = await prisma.savedJob.findFirst({ where: { id: jobId, accountId: me.accountId }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } })
   if (!job) return false
-  if (namesSalesman(me, job.salesRep)) return true
-  const [quote, contact] = await Promise.all([
-    job.quoteId ? prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId: me.accountId }, select: { ownerId: true, salesRep: true } }) : null,
-    job.crmContactId ? prisma.crmContact.findFirst({ where: { id: job.crmContactId, accountId: me.accountId }, select: { ownerId: true, salesRep: true } }) : null,
-  ])
-  return (!!quote && ownsRecord(me, quote)) || (!!contact && ownsRecord(me, contact))
+  const scope = await scopeFor(me.id)
+  return !!scope && inSalesScope('jobs', scope, job)
 }
 
 /** A sentence about what something costs us (not what the customer pays). */
