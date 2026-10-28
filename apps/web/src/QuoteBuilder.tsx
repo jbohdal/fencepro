@@ -1643,7 +1643,7 @@ export default function QuoteBuilder({
               {jobType === 'new' && style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-tiers>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-gray-500" data-tiers-title>{tierSet?.tiers.length === 2 ? 'Two options' : 'Good, Better, Best'} <span className="font-normal">· on the proposal</span></p>
+                    <p className="text-xs font-semibold text-gray-500" data-tiers-title>{tierSet?.tiers.length === 2 ? 'Two options' : 'Good, Better, Best'} <span className="font-normal" data-tiers-where={sentTierSet && !usingSentTiers ? 'today' : 'proposal'}>{sentTierSet && !usingSentTiers ? "· at today's prices, not on the customer's proposal" : '· on the proposal'}</span></p>
                     {can('settings.change') && <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
                       onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>}
                   </div>
@@ -1657,6 +1657,13 @@ export default function QuoteBuilder({
                       </p>
                     )
                   })()}
+                  {sentTierSet && !keepSentTiers && (
+                    // After "Use the current tiers" (review Oct 27 2026: the heading still said "on the proposal" over today's prices).
+                    <p className="text-xs rounded-lg px-2 py-1.5 border text-amber-900 bg-amber-50 border-amber-300" data-tiers-current-note>
+                      These are today's tiers. The customer's proposal still shows the sent prices; saving asks whether to keep them.{' '}
+                      <button type="button" className="underline font-semibold min-h-[44px]" onClick={() => setKeepSentTiers(true)} data-tiers-use-sent>Show the sent prices</button>
+                    </p>
+                  )}
                   {!tierSet && tierSets === null && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-tiers-not-loaded>Good, Better, Best have not loaded yet (weak signal). They are tried again every few seconds; a proposal saved now would not show them.</p>}
                   {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. {can('settings.change') ? 'Tap Edit tiers to add one.' : 'Ask Jonathan to add one.'}</p>}
                   {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. {can('settings.change') ? 'Tap Edit tiers to add them.' : 'Ask Jonathan to add them.'}</p>}
