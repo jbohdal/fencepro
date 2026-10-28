@@ -146,7 +146,7 @@ export default function LoginPage({ onLogin }: { onLogin: (user: CrmUser) => voi
       <div className="w-full max-w-sm">
         {/* Logo / Brand */}
         <div className="text-center mb-8">
-          <img src="/logo.png" alt="" className="w-14 h-14 rounded-2xl bg-white object-contain mx-auto mb-4 p-1" data-login-logo />
+          <img src="/logo-240.png" alt="" className="w-14 h-14 rounded-2xl bg-white object-contain mx-auto mb-4 p-1" data-login-logo />
           <h1 className="text-2xl font-bold text-white" data-login-company>{companyName}</h1>
           <p className="text-gray-400 text-sm mt-1">EZ Biz</p>
         </div>
