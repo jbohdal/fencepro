@@ -36,8 +36,8 @@ import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
-import { stageOfJob } from './opsStageModel.js'
-import { moveFactsOf, noteAutoMove, waitingStageMove } from './waitingStageMove.js'
+import { stageOfJob, waitsOnlyForDrawing } from './opsStageModel.js'
+import { moveFactsOf, moveMoreWords, noteAutoMove, noteHeldForDrawing, waitingStageMove } from './waitingStageMove.js'
 
 export type MaterialsStatus = 'not_ordered' | 'ordered' | 'received' | 'loaded'
 
@@ -119,7 +119,9 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
       if (!d.count) return null
       const r = await tx.savedJob.findUniqueOrThrow({ where: { id: jobId } })
       await recordJobChanges(accountId, job, r, tx)
-      if (w) await noteAutoMove(jobId, stages, w, why, tx)
+      if (w) await noteAutoMove(jobId, stages, w, why, tx, moveMoreWords(w, facts, next))
+      // Still to be drawn, its materials now in, it stays in Need Drawing: said once, here (audit #55).
+      else if (next === 'received' && waitsOnlyForDrawing(was, next, facts)) await noteHeldForDrawing(jobId, 'Sales Order marked Received', tx)
       return r
     })
     if (!row) { out.pop(); continue }
@@ -129,4 +131,62 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
     })
   }
   return out
+}
+
+/**
+ * The other way round (audit #54, Oct 28 2026): a hand move (Materials
+ * Ordered, Ready to Pull: opsStageModel fieldsForStage) records the job's
+ * materials Ordered or Received, after the office said yes to the move
+ * question. Its Sales Order stayed Pending, so Inventory > Sales Orders
+ * offered only Mark Ordered and the job and its order disagreed. Now a hand
+ * move that raises the job's materials (to Ordered, Received or further) marks
+ * the job's pending orders Ordered (orderedAt), as Mark Ordered does (web
+ * pendingOrderStore updatePendingOrderStatus). Never Received: Mark Received
+ * in Inventory also changes the stock counts, which a status change here
+ * would skip, and Mark Received would then never be offered again. So the
+ * order waits at Ordered and the office marks it Received in Inventory when it
+ * comes in (that does not move a job already Received: materialsFollowOrders
+ * only raises). An ordered, received or cancelled order stays as it is. The
+ * job's orders: those with its jobId, and those of its quote that name no job
+ * (the same link materialsFollowOrders reads).
+ */
+export function ordersAfterJobMaterials(orders: unknown, job: { id: string; quoteId?: string | null }, now: string): { orders: unknown[]; changed: string[] } {
+  const all = Array.isArray(orders) ? (orders as any[]) : []
+  const changed: string[] = []
+  const out = all.map(o => {
+    if (!o || typeof o !== 'object') return o
+    const mine = o.jobId ? o.jobId === job.id : !!job.quoteId && o.quoteId === job.quoteId
+    if (!mine || o.status !== 'pending') return o
+    changed.push(String(o.id))
+    return { ...o, status: 'ordered', updatedAt: now, orderedAt: o.orderedAt || now }
+  })
+  return { orders: out, changed }
+}
+
+/**
+ * Mark the job's pending Sales Orders Ordered after a save that raised its
+ * materials by hand (routes/saved-jobs.ts PATCH). Saved version checked, like
+ * every write to the business record; it does not run materialsFollowOrders
+ * (the job already says so). The ids of the orders changed. Never throws.
+ */
+export async function ordersFollowJobMaterials(accountId: string, job: { id: string; quoteId?: string | null; customerName?: string | null }, to: string | null | undefined, by: string): Promise<string[]> {
+  if ((RANK[to || 'not_ordered'] ?? 0) < RANK.ordered) return []
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const s = await prisma.businessState.findUnique({ where: { accountId }, select: { pendingOrders: true, version: true } })
+      if (!s) return []
+      const plan = ordersAfterJobMaterials(s.pendingOrders, job, new Date().toISOString())
+      if (!plan.changed.length) return []
+      const done = await prisma.businessState.updateMany({ where: { accountId, version: s.version }, data: { pendingOrders: plan.orders as any, version: { increment: 1 } } })
+      if (done.count === 1) {
+        await auditSystem('update', 'BusinessState', accountId, { newValues: { salesOrders: plan.changed, status: 'ordered', why: `${job.customerName || 'job'}'s materials marked ${to} by a stage move`, by } })
+        return plan.changed
+      }
+    }
+    console.error(`[orders follow job] ${job.id}: the business record kept changing; its Sales Order was not marked Ordered`)
+    return []
+  } catch (e) {
+    console.error('[orders follow job]:', e)
+    return []
+  }
 }

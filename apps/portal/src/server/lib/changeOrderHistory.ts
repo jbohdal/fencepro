@@ -14,7 +14,7 @@ import { pricingModule } from './estimates.js'
 import { approvedText, signedUsd, whatChanged, currentWorkRow } from './changeOrderWork.js'
 import { scheduleFit } from './changeOrderWork.js'
 import { moneyText } from './paymentMath.js'
-import { AUTO_MOVE_KIND } from './waitingStageMove.js'
+import { AUTO_MOVE_KIND, HELD_FOR_DRAWING_KIND } from './waitingStageMove.js'
 import { moveHistoryItems } from './jobMoveHistory.js'
 import { loadOpsStages } from './opsStages.js'
 
@@ -71,7 +71,8 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
   for (const l of logs) items.push({ at: l.at.toISOString(), kind: 'billing', title: l.text, detail: '', by: l.byName })
   // Board moves and materials changes, by whom or by itself with the reason (lib/jobMoveHistory.ts, audit #47). A move the
   // job made by itself also left a note ("Moved to Permit Pending by itself: …"; lib/waitingStageMove.ts): one line, its reason.
-  const notes = (await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, metadata: { path: ['kind'], equals: AUTO_MOVE_KIND } }, orderBy: { createdAt: 'desc' }, take: 50 }))
+  // A job held in Need Drawing with its materials in has its own line ("Materials in; waits for its drawing (…)."; audit #55).
+  const notes = (await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, OR: [AUTO_MOVE_KIND, HELD_FOR_DRAWING_KIND].map(k => ({ metadata: { path: ['kind'], equals: k } })) }, orderBy: { createdAt: 'desc' }, take: 50 }))
     .map(m => ({ createdAt: m.createdAt, body: m.body, to: typeof (m.metadata as any)?.to === 'string' ? (m.metadata as any).to : null }))
   const audits = await prisma.crmAuditLog.findMany({ where: { entityType: 'SavedJob', entityId: jobId, action: { in: ['create', 'update'] } }, orderBy: { createdAt: 'desc' }, take: 300, select: { createdAt: true, userId: true, userEmail: true, action: true, oldValues: true, newValues: true } })
   // Names for the people: who saved, and who a move by itself names ("Sales Order, jane@…").

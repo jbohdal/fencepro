@@ -42,6 +42,7 @@ import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
 import { syncSalesOrderSafe } from '../lib/salesOrders.js'
+import { ordersFollowJobMaterials } from '../lib/materialsFromOrders.js'
 import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
 import { salesmanJobScope } from '../lib/salesmanJobs.js'
 
@@ -377,6 +378,10 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       return row
     })
     await audit(req, 'update', 'SavedJob', updated.id, { oldValues: existing, newValues: updated })
+    // Materials raised by hand (a move into Materials Ordered or Ready to Pull): its pending Sales Order is marked Ordered, never Received (audit #54, lib/materialsFromOrders.ts).
+    if ((MATERIALS_RANK[updated.materialsStatus as string] ?? 0) > (MATERIALS_RANK[existing.materialsStatus as string] ?? 0)) {
+      await ordersFollowJobMaterials(req.user.crmAccountId, updated, updated.materialsStatus, req.user.email ?? 'staff')
+    }
     // Its install day changed here (an older screen): kept on the job's activity (lib/jobActivity.ts).
     if ((existing.scheduledDate || '') !== (updated.scheduledDate || '')) {
       const ymd = (x: string) => /^\d{4}-\d{2}-\d{2}$/.test(x)

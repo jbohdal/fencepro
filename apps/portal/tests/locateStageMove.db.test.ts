@@ -46,7 +46,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const { locatesClearSweep, stageFollowsLocateAndPermit, readyStageOf, LOCATE_SWEEP_KEY, LOCATE_REASON, AUTO_MOVE_KIND, DRAWN_WAITS_WORDS } = await import('../src/server/lib/waitingStageMove.js')
   const { OPS_STAGES_KEY, loadOpsStages } = await import('../src/server/lib/opsStages.js')
-  const { START_OPS_STAGES, advanceStageOf, phaseOf } = await import('../src/server/lib/opsStageModel.js')
+  const { START_OPS_STAGES, advanceStageOf, phaseOf, HELD_FOR_DRAWING_WORDS } = await import('../src/server/lib/opsStageModel.js')
 
   const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: { in: ['super_admin', 'admin'] as any } }, orderBy: { createdAt: 'asc' } }))!
   const accountId = user.crmAccountId!
@@ -160,6 +160,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
     await call('PUT', `/api/saved-jobs/${o}/locate`, clear)
     expect((await job(o)).opsStage).toBe('materials_ordered')
     expect(await notes(o)).toEqual(['Moved to Materials Ordered by itself: 811 locate is clear to dig.'])
+  })
+
+  test('still to be drawn with its materials in: held in Need Drawing, and its history says it waits for its drawing (audit #55)', async () => {
+    const id = await mk('H', { materialsStatus: 'received' })
+    await prisma.permit.create({ data: { accountId, jobId: id, status: 'not_needed' } })
+    await call('PUT', `/api/saved-jobs/${id}/locate`, clear)
+    expect((await job(id)).opsStage).toBe('need_drawing')
+    expect(await notes(id)).toEqual([`Moved to Need Drawing by itself: 811 locate is clear to dig. ${HELD_FOR_DRAWING_WORDS}.`])
+    const tl = await call('GET', `/api/change-orders/timeline?jobId=${id}`)
+    const line = (tl.json.data.items as any[]).find(i => i.title === 'Moved from Awaiting Locates to Need Drawing automatically:')
+    expect(line?.detail).toMatch(/^811 locate is clear to dig\. Materials in; waits for its drawing\. \(811 locate saved, /)
   })
 
   test('a repair (permit Not needed): → Ready to Pull, the stage for ready to schedule', async () => {

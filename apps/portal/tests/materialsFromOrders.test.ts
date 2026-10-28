@@ -1,8 +1,8 @@
 /** The job's materials follow its Sales Order, never backward (lib/materialsFromOrders.ts; review Oct 27 2026). */
 import { describe, test, expect } from 'vitest'
-import { materialsOfOrder, raisedMaterials, ordersNowBought } from '../src/server/lib/materialsFromOrders.js'
-import { heldForDrawing } from '../src/server/lib/waitingStageMove.js'
-import { START_OPS_STAGES } from '../src/server/lib/opsStageModel.js'
+import { materialsOfOrder, raisedMaterials, ordersNowBought, ordersAfterJobMaterials } from '../src/server/lib/materialsFromOrders.js'
+import { heldForDrawing, moveMoreWords, DRAWN_WAITS_WORDS } from '../src/server/lib/waitingStageMove.js'
+import { START_OPS_STAGES, waitsOnlyForDrawing, HELD_FOR_DRAWING_WORDS } from '../src/server/lib/opsStageModel.js'
 
 describe('materials follow the Sales Order', () => {
   test('what an order says', () => {
@@ -49,5 +49,47 @@ describe('materials follow the Sales Order', () => {
     expect(heldForDrawing(l, 'materials_ordered', 'ready_to_pull', undrawn)).toBe('ready_to_pull')
     // Need Drawing hidden in Settings: nothing to hold it in.
     expect(heldForDrawing(l.map(x => (x.id === 'need_drawing' ? { ...x, hidden: true } : x)), 'permit_pending', 'ready_to_pull', undrawn)).toBe('ready_to_pull')
+  })
+
+  test('held in Need Drawing with its materials in: what the card and history say (audit #55)', () => {
+    const undrawn = { drawing: false, repair: false }
+    expect(waitsOnlyForDrawing('need_drawing', 'received', undrawn)).toBe(true)
+    expect(waitsOnlyForDrawing('need_drawing', 'loaded', undrawn)).toBe(true)
+    expect(waitsOnlyForDrawing('need_drawing', 'ordered', undrawn)).toBe(false)
+    expect(waitsOnlyForDrawing('need_drawing', null, undrawn)).toBe(false)
+    expect(waitsOnlyForDrawing('need_drawing', 'received', { drawing: true, repair: false })).toBe(false)
+    expect(waitsOnlyForDrawing('need_drawing', 'received', { drawing: false, repair: true })).toBe(false)
+    expect(waitsOnlyForDrawing('ready_to_pull', 'received', undrawn)).toBe(false)
+    const f = { permit: 'approved', today: '2026-10-28', ...undrawn }
+    expect(moveMoreWords('need_drawing', f, 'received')).toBe(`${HELD_FOR_DRAWING_WORDS}.`)
+    expect(moveMoreWords('need_drawing', f, 'not_ordered')).toBe('')
+    expect(moveMoreWords('need_drawing', { ...f, drawing: true }, 'received')).toBe(DRAWN_WAITS_WORDS)
+    expect(HELD_FOR_DRAWING_WORDS).toBe('Materials in; waits for its drawing')
+  })
+
+  test('a hand move that records materials marks the job\'s pending Sales Order Ordered, never Received (audit #54)', () => {
+    const now = '2026-10-28T16:00:00.000Z'
+    const orders = [
+      { id: 'mine', jobId: 'j1', quoteId: 'q1', status: 'pending' },
+      { id: 'byQuote', quoteId: 'q1', status: 'pending' },
+      { id: 'other', jobId: 'j2', quoteId: 'q1', status: 'pending' },
+      { id: 'gone', jobId: 'j1', status: 'cancelled' },
+      { id: 'in', jobId: 'j1', status: 'received', receivedAt: '2026-10-01T00:00:00.000Z' },
+    ]
+    const o = ordersAfterJobMaterials(orders, { id: 'j1', quoteId: 'q1' }, now)
+    expect(o.changed).toEqual(['mine', 'byQuote'])
+    const by = (id: string) => (o.orders as any[]).find(x => x.id === id)
+    expect([by('mine').status, by('mine').orderedAt, by('mine').updatedAt, by('mine').receivedAt]).toEqual(['ordered', now, now, undefined])
+    expect(by('other').status).toBe('pending')
+    expect(by('gone').status).toBe('cancelled')
+    expect(by('in')).toEqual(orders[4])
+
+    // An order already Ordered stays Ordered, with the day it was ordered: Mark Received in Inventory does the rest (stock counts).
+    const ordered = { ...by('mine'), orderedAt: '2026-10-20T00:00:00.000Z' }
+    const r = ordersAfterJobMaterials([ordered], { id: 'j1', quoteId: 'q1' }, now)
+    expect(r).toEqual({ orders: [ordered], changed: [] })
+    // Nothing of the job's to change, or no list: nothing changes.
+    expect(ordersAfterJobMaterials(orders, { id: 'j9', quoteId: null }, now).changed).toEqual([])
+    expect(ordersAfterJobMaterials('junk', { id: 'j1' }, now)).toEqual({ orders: [], changed: [] })
   })
 })

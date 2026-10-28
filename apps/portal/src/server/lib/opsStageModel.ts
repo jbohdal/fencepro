@@ -264,10 +264,29 @@ export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk
  * Received). Only a hand move, which asks first (web materialsMoveQuestion),
  * records materials, and only forward: a move back never lowers them (audit
  * #43, Oct 28 2026: a Received job dragged back to Materials Ordered was
- * marked Ordered again). The Sales Order is the record of what came in.
+ * marked Ordered again). The Sales Order is the record of what came in; a
+ * hand move that records materials marks the job's pending Sales Order
+ * Ordered, never Received (Mark Received in Inventory does the stock)
+ * (routes/saved-jobs.ts, lib/materialsFromOrders.ts ordersFollowJobMaterials,
+ * audit #54).
  */
 /** How far along materials are; a stage move only raises them. */
 export const MATERIALS_RANK: Record<string, number> = { not_ordered: 0, ordered: 1, received: 2, loaded: 3 }
+
+/**
+ * A job in Need Drawing that is still to be drawn (not drawn, not a repair)
+ * while its materials are in (Received or Loaded): it waits there only for its
+ * drawing (audit #50 holds it; waitingStageMove heldForDrawing). Audit #55,
+ * Oct 28 2026: nothing said so, on the card or in its history. The board
+ * card and the job panel say HELD_FOR_DRAWING_WORDS; the history has one line
+ * when the hold starts (lib/waitingStageMove.ts).
+ */
+export function waitsOnlyForDrawing(stageId: string | null | undefined, materials: string | null | undefined, f: { drawing: boolean; repair: boolean }): boolean {
+  return stageId === 'need_drawing' && !f.drawing && !f.repair && (MATERIALS_RANK[materials || 'not_ordered'] ?? 0) >= MATERIALS_RANK.received
+}
+
+/** What the card, the job panel and the history line say of such a job. */
+export const HELD_FOR_DRAWING_WORDS = 'Materials in; waits for its drawing'
 
 export function fieldsForStage(list: OpsStageDef[], id: string, job: OpsJobLike, today: string, opts: { stageOnly?: boolean } = {}): Record<string, unknown> | null {
   const phase = phaseOf(list, id)

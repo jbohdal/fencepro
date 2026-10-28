@@ -30,7 +30,7 @@ import { getJobs, refreshJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, advanceStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
 import { useMilestoneSummary, permitOkOf } from './jobTruthApi'
-import { isDonePhase } from './opsStageModel'
+import { isDonePhase, waitsOnlyForDrawing, HELD_FOR_DRAWING_WORDS } from './opsStageModel'
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline, useChangeOrdersLive } from './ChangeOrders'
 import { can, isCrewLogin } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
@@ -115,6 +115,20 @@ export function jobIsDrawn(j: { drawingComplete?: boolean; rawJob?: { drawingCom
   return hasDrawing({ drawingComplete: j.rawJob?.drawingComplete ?? j.drawingComplete }, quote)
 }
 
+/**
+ * What a job waiting in Need Drawing waits for, for its board card and job
+ * panel: drawn, its materials order (round 2, Oct 28 2026); still to be drawn
+ * with its materials in, its drawing (audit #55, opsStageModel
+ * waitsOnlyForDrawing: it said nothing). Null otherwise.
+ */
+export function needDrawingNote(j: UnifiedJob): { kind: 'drawn' | 'held'; text: string } | null {
+  if (j.source !== 'job' || j.opsStage !== 'need_drawing') return null
+  const drawn = jobIsDrawn(j)
+  if (drawn) return { kind: 'drawn', text: 'Drawn: order materials' }
+  if (waitsOnlyForDrawing(j.opsStage, j.rawJob?.materialsStatus ?? j.materialsStatus, { drawing: drawn, repair: isRepairJob(j.rawJob) })) return { kind: 'held', text: HELD_FOR_DRAWING_WORDS }
+  return null
+}
+
 /** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move; a sold best price job names its panels (soldStyleLabel). */
 export function fenceText(j: { fenceType: string; jobKind?: 'repair' | 'move' | null; rawJob?: { quoteId?: string | null } }): string {
   const quoteId = j.rawJob?.quoteId
@@ -181,6 +195,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
     return () => window.removeEventListener(CREW_INSTALL_EVENT, on)
   }, [crew, job.id, job.source])
   const finishedNote = crew ? finishedStageWords(crewInfo, dayText) : ''
+  const waitNote = needDrawingNote(job)
   // A repair or move job: its items from the quote (moveRepair.ts workScope).
   const scope = workScope(job.rawJob?.quoteId ? (getQuotes().find(q => q.id === job.rawJob!.quoteId) as { work?: SavedWork | null } | undefined)?.work : null)
 
@@ -254,6 +269,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
 
         {/* Operations Status */}
         <Section title="Operations Stage">
+          {/* What it waits for in Need Drawing, as its card says (audit #55). */}
+          {waitNote && <p className={`text-sm font-semibold mb-2 ${waitNote.kind === 'held' ? 'text-amber-700' : 'text-emerald-700'}`} data-ops-stage-wait={waitNote.kind}>{waitNote.kind === 'drawn' ? '✓ ' : ''}{waitNote.text}</p>}
           {/* The Installer sees the stage; moving it is the office's. */}
           {crew ? <>
             <p className="text-sm text-gray-800" data-ops-stage-readonly>{stage?.name ?? job.opsStageLabel}</p>

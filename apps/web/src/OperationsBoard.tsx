@@ -24,7 +24,7 @@ import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
-  buildUnifiedList, DetailPanel, fenceText, jobIsDrawn,
+  buildUnifiedList, DetailPanel, fenceText, needDrawingNote,
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob, getJob } from './jobStore'
 import { whenSaved, statusOf } from './outbox'
@@ -658,6 +658,7 @@ function OpsCard({
   const city = (job.address || '').split(',').slice(-2)[0]?.trim() || job.address || ''
   const isRain = (job.rawJob as Job & { isRainDay?: boolean })?.isRainDay
   const weatherAlert = withinNDays(job.scheduledDate, 7) && isRain
+  const waitNote = needDrawingNote(job)
 
   return (
     <div
@@ -683,10 +684,10 @@ function OpsCard({
           <span className="px-2 py-0.5 rounded-full text-white font-semibold" style={{ backgroundColor: hex }} data-ops-stage-pill={stage.id}>{stage.name}</span>
         )}
       </div>
-      {/* A drawn job waits in Need Drawing for its materials order, never in Materials Ordered before it (round 2, Oct 28 2026). */}
-      {job.opsStage === 'need_drawing' && job.source === 'job' && jobIsDrawn(job) && (
-        <p className="mt-1.5 text-[11px] font-semibold text-emerald-700" data-ops-card-drawn>✓ Drawn: order materials</p>
-      )}
+      {/* A drawn job waits in Need Drawing for its materials order, never in Materials Ordered before it (round 2, Oct 28 2026);
+          one still to be drawn with its materials in waits for its drawing (audit #55). */}
+      {waitNote?.kind === 'drawn' && <p className="mt-1.5 text-[11px] font-semibold text-emerald-700" data-ops-card-drawn>✓ {waitNote.text}</p>}
+      {waitNote?.kind === 'held' && <p className="mt-1.5 text-[11px] font-semibold text-amber-700" data-ops-card-held>{waitNote.text}</p>}
 
       <div className="flex items-center justify-between mt-2 text-[11px]">
         {/* A finished job says when it was installed, never its old (or still ahead) install dates. */}

@@ -6,6 +6,7 @@ import { asTable } from './listTable'
 import { notifyStageBlocked } from './stageBlocked'
 import { fireOpsStageChange, fireJobCreated, fireJobAssigned, fireJobScheduled, firePaymentReceived } from './automationTrigger'
 import { createDraftPO, getPOsForJob } from './purchaseOrderStore'
+import { poLinesFromSheet } from './poLines'
 import { getQuoteById } from './quoteStore'
 import {
   listSavedJobs,
@@ -488,17 +489,10 @@ export function updateJob(id: string, updates: Partial<Job>, opts: { reopen?: bo
     const existingPOs = getPOsForJob(job.id)
     if (existingPOs.length === 0) {
       try {
-        // Pull the quote's pull sheet for line items
-        const quote = getQuoteById(job.quoteId)
-        if (quote?.pullSheet?.length && quote.pullSheet.length > 0) {
-          createDraftPO(
-            job.id,
-            job.customerName,
-            job.customerAddress,
-            quote.pullSheet.map((li: any) => ({
-              itemName: li.item, quantity: li.qty, unitCost: li.unitCost,
-            })),
-          )
+        // The parts on the quote's pull sheet, money in cents (poLines.ts; audit #53)
+        const lines = poLinesFromSheet(getQuoteById(job.quoteId)?.pullSheet)
+        if (lines.length > 0) {
+          createDraftPO(job.id, job.customerName, job.customerAddress, lines)
           console.log(`[AutoPO] Draft PO created for job ${job.customerName}`)
         }
       } catch (err) { console.warn('[AutoPO] Failed:', err) }

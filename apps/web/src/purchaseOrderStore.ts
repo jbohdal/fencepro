@@ -1,8 +1,12 @@
 /**
  * Purchase Order Store
  *
- * Persistent PO records linked to jobs. Supports draft/review/confirm workflow.
- * Auto-created when jobs reach a configurable trigger stage.
+ * Draft PO records linked to jobs, kept in the business record
+ * (BusinessState.purchaseOrders). A draft is made when a job's materials are
+ * first marked Ordered from this app (jobStore updateJob). Money is integer
+ * cents (unitCostCents, totalCents, subtotalCents; audit #53, Oct 28 2026);
+ * drafts saved before then in dollars were changed by
+ * portal scripts/po-cents-2026-10-28.ts.
  */
 
 export type POStatus = 'draft' | 'confirmed' | 'ordered' | 'received' | 'cancelled'
@@ -12,8 +16,8 @@ export interface POLineItem {
   itemName: string
   sku?: string
   quantity: number
-  unitCost: number
-  total: number
+  unitCostCents: number
+  totalCents: number
   supplier?: string
   inventoryItemId?: string
 }
@@ -27,7 +31,7 @@ export interface PurchaseOrder {
   supplier: string
   status: POStatus
   lineItems: POLineItem[]
-  subtotal: number
+  subtotalCents: number
   notes: string
   createdAt: string
   confirmedAt?: string
@@ -37,6 +41,7 @@ export interface PurchaseOrder {
 }
 
 import { getBusinessField, setBusinessField } from './businessStateStore'
+import { lineTotalCents, type PoLineInput } from './poLines'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
 
@@ -68,7 +73,7 @@ export function createDraftPO(
   jobId: string,
   jobName: string,
   jobAddress: string,
-  lineItems: { itemName: string; sku?: string; quantity: number; unitCost: number; supplier?: string; inventoryItemId?: string }[],
+  lineItems: PoLineInput[],
   createdBy = 'auto',
 ): PurchaseOrder {
   // Group by supplier
@@ -88,13 +93,11 @@ export function createDraftPO(
     itemName: li.itemName,
     sku: li.sku,
     quantity: li.quantity,
-    unitCost: li.unitCost,
-    total: Math.round(li.quantity * li.unitCost * 100) / 100,
+    unitCostCents: li.unitCostCents,
+    totalCents: lineTotalCents(li.quantity, li.unitCostCents),
     supplier: li.supplier,
     inventoryItemId: li.inventoryItemId,
   }))
-
-  const subtotal = items.reduce((s, i) => s + i.total, 0)
 
   const po: PurchaseOrder = {
     id: uid(),
@@ -105,7 +108,7 @@ export function createDraftPO(
     supplier: primarySupplier,
     status: 'draft',
     lineItems: items,
-    subtotal: Math.round(subtotal * 100) / 100,
+    subtotalCents: items.reduce((s, i) => s + i.totalCents, 0),
     notes: '',
     createdAt: new Date().toISOString(),
     createdBy,
@@ -155,7 +158,7 @@ export function consolidatePOs(poIds: string[]): PurchaseOrder | null {
     supplier,
     status: 'draft',
     lineItems: allItems,
-    subtotal: Math.round(allItems.reduce((s, i) => s + i.total, 0) * 100) / 100,
+    subtotalCents: allItems.reduce((s, i) => s + i.totalCents, 0),
     notes: `Consolidated from ${toConsolidate.length} POs`,
     createdAt: new Date().toISOString(),
     createdBy: 'auto',
