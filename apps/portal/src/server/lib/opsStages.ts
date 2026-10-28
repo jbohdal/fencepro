@@ -129,11 +129,12 @@ export async function deleteOpsStage(accountId: string, id: string, moveTo: stri
     if (inUse(u)) {
       if (!moveTo) return { ok: false, status: 409, code: 'STAGE_IN_USE', error: `"${stage.name}" is in use. Pick the stage its jobs and automations move to.`, list: cur, inUse: u }
       if (!stageById(rest, moveTo)) return { ok: false, status: 400, code: 'INVALID', error: 'Pick a stage that stays in the list.', list: cur }
-      // Jobs: into the stage picked, with the status it stands for (the same as moving each one on the board).
+      // Jobs: into the stage picked, with the status it stands for. Nothing else changes, as the delete box says: the
+      // materials and drawing stay as recorded (review Oct 28 2026: "Move them to: Ready to Pull" marked materials Received).
       const ids = u.jobs.map(j => j.id)
       const jobs = await tx.savedJob.findMany({ where: { accountId, id: { in: ids }, deletedAt: null }, select: JOB_FIELDS })
       for (const j of jobs) {
-        const fields = fieldsForStage(rest, moveTo, j as any, today) ?? { opsStage: moveTo }
+        const fields = fieldsForStage(rest, moveTo, j as any, today, { stageOnly: true }) ?? { opsStage: moveTo }
         await tx.savedJob.update({ where: { id: j.id }, data: fields as any })
         moved.jobs++
       }

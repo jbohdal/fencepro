@@ -6,7 +6,7 @@
  * "off". The plain name of the fence picked shows underneath.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FenceStyle } from './configStore'
 import { pickerState, styleChoicesOf, styleForChoices, type FenceCatalog, type OptionState } from './fenceCatalog'
 
@@ -31,6 +31,14 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
   // then 5 ft, went to Galvanized without a word; green is made only at 4 ft). Said under the choice that changed, close to
   // the tap that changed it (on a phone the bottom of the picker is off screen), until the next tap.
   const [changedNote, setChangedNote] = useState<{ dim: string; text: string } | null>(null)
+  // On a phone the quote builder's bar is fixed over the bottom of the screen and can cover the note (review Oct 28
+  // 2026, C7: Green then 5 ft at 390 x 844). Once it shows, it is scrolled up to sit just above the bar.
+  const noteRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (!changedNote) return
+    const id = requestAnimationFrame(() => { if (noteRef.current) showAboveFixedBar(noteRef.current) })
+    return () => cancelAnimationFrame(id)
+  }, [changedNote])
   // Picked another way (the list, voice): show its choices.
   useEffect(() => {
     const f = fromStyle()
@@ -107,7 +115,7 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
             })}
           </div>
           {changedNote?.dim === dim.key && (
-            <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changedNote.text}</p>
+            <p ref={noteRef} className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changedNote.text}</p>
           )}
         </div>
       ))}
@@ -116,4 +124,22 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
       )}
     </div>
   )
+}
+
+/**
+ * Scroll `el` into sight above the quote builder's fixed bottom bar (the
+ * phone's; on a computer the bar is not fixed and the screen's bottom is the
+ * limit). Left alone when it is already in sight.
+ */
+function showAboveFixedBar(el: HTMLElement) {
+  const bar = [...document.querySelectorAll<HTMLElement>('[data-quote-bar]')].find(b => getComputedStyle(b).position === 'fixed' && b.getBoundingClientRect().height > 0)
+  const r = el.getBoundingClientRect()
+  const gap = 12
+  const limit = (bar ? bar.getBoundingClientRect().top : window.innerHeight) - gap
+  const by = r.bottom > limit ? Math.min(r.bottom - limit, r.top - gap) : r.top < gap ? r.top - gap : 0
+  if (!by) return
+  let box: HTMLElement | null = el.parentElement
+  while (box && !(/(auto|scroll)/.test(getComputedStyle(box).overflowY) && box.scrollHeight > box.clientHeight)) box = box.parentElement
+  if (box) box.scrollBy({ top: by, behavior: 'smooth' })
+  else window.scrollBy({ top: by, behavior: 'smooth' })
 }

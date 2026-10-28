@@ -88,6 +88,13 @@ describe('moving jobs', () => {
     expect(fieldsForStage(list(), 'backorder', job({ status: 'scheduled' }), today)).toMatchObject({ status: 'on_hold', previousStatus: 'scheduled' })
     expect(fieldsForStage(list(), 'nope', job(), today)).toBeNull()
   })
+  test('a move nobody was asked about (stageOnly) changes the stage and status, never materials or drawing', () => {
+    expect(fieldsForStage(list(), 'ready_to_pull', job(), today, { stageOnly: true })).toEqual({ opsStage: 'ready_to_pull', status: 'staging' })
+    expect(fieldsForStage(list(), 'materials_ordered', job(), today, { stageOnly: true })).toEqual({ opsStage: 'materials_ordered', status: 'staging' })
+    expect(fieldsForStage(list(), 'need_drawing', job(), today, { stageOnly: true })).toEqual({ opsStage: 'need_drawing', status: 'staging' })
+    expect(fieldsForStage(list(), 'completed', job({ status: 'in_progress' }), today, { stageOnly: true })).toMatchObject({ status: 'completed', completedDate: today })
+    expect(fieldsForStage(list(), 'backorder', job({ status: 'scheduled' }), today, { stageOnly: true })).toMatchObject({ status: 'on_hold', previousStatus: 'scheduled' })
+  })
   test('an added stage stands for the status of the board stage before it', () => {
     const l = list()
     l.splice(7, 0, { id: 'stage_abcd1234', name: 'Inspection', color: '#000000', order: 0, hidden: false, isFirst: false, isComplete: false, lane: 'main' })

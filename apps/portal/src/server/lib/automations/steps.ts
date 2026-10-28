@@ -303,7 +303,8 @@ async function moveCard(r: StepRun, stage: string): Promise<StepOutcome> {
   if (!job) throw new PermanentStepError('The job is not there any more.')
   // By stage id, in the company's list (Settings > Operations Stages).
   const { stages } = await loadOpsStages(r.accountId)
-  const fields = fieldsForStage(stages, stage, job, floridaDay(r.now))
+  // An automatic move: only the stage (and its status); never records materials or a drawing nobody was asked about.
+  const fields = fieldsForStage(stages, stage, job, floridaDay(r.now), { stageOnly: true })
   if (!fields) throw new PermanentStepError(`"${stage}" is not one of the Operations stages (Settings > Operations Stages).`)
   if (stageOfJob(stages, job) === stage) return { detail: `the job is in ${opsStageName(stages, stage)}` }
   const blocked = await checkJobMove(r.accountId, job, { ...job, ...fields })
@@ -436,7 +437,7 @@ export async function describeSteps(accountId: string, steps: Step[], e: EntityC
         } else if (e.job) {
           const { stages } = await loadOpsStages(accountId)
           toName = opsStageName(stages, s.stage)
-          const fields = fieldsForStage(stages, s.stage, e.job, floridaDay(now))
+          const fields = fieldsForStage(stages, s.stage, e.job, floridaDay(now), { stageOnly: true })
           const blocked = fields ? await checkJobMove(accountId, e.job, { ...e.job, ...fields }) : null
           if (!fields) warning = `"${s.stage}" is not one of the Operations stages; the step would fail.`
           if (blocked) warning = `A stage rule would block it: ${blocked.missing.map(m => m.label).join(', ')}`

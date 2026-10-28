@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { staleCutoff, priceAge, stampPriceChanges, confirmPrices, stalePartsOnQuote, compareByPriceAge, priceAgeLabel, stalePricesHeading, DEFAULT_PRICE_STALE_MONTHS } from '../../web/src/priceAge'
+import { staleCutoff, priceAge, stampPriceChanges, confirmPrices, stalePartsOnQuote, compareByPriceAge, priceAgeLabel, stalePricesHeading, DEFAULT_PRICE_STALE_MONTHS, borrowedBadge, borrowedNote } from '../../web/src/priceAge'
 
 const item = (id: string, unitCost: number, extra: Record<string, unknown> = {}) => ({ id, name: `*Vinyl, ${id}`, unitCost, ...extra })
 const norm = (s: string) => s.replace(/^\*/, '').toLowerCase()
@@ -56,5 +56,19 @@ describe('price age', () => {
     expect(stalePricesHeading(3, 6)).toBe('3 parts on this quote have prices not confirmed in the last 6 months')
     expect(stalePricesHeading(1, 3)).toBe('1 part on this quote has a price not confirmed in the last 3 months')
     expect(stalePricesHeading(2, 1)).toBe('2 parts on this quote have prices not confirmed in the last 1 month')
+  })
+})
+
+describe('a borrowed price in Inventory (review Oct 28 2026)', () => {
+  const from = { part: 'Chainlink, Black, Gate, 1-3/8", 4\' x 6\' (.065) ', cents: 14342, on: '2026-10-27', words: 'From Black until a green price is entered' }
+  test('a short badge for the narrow column', () => {
+    expect(borrowedBadge(from)).toBe('From Black')
+    expect(borrowedBadge({ ...from, words: 'Priced from another part for the time being, whatever it is' })).toBe('Borrowed price')
+  })
+  test('only someone who can change prices is told to type one', () => {
+    const said = 'From Black until a green price is entered: follows Chainlink, Black, Gate, 1-3/8", 4\' x 6\' (.065), and moves when that price changes.'
+    expect(borrowedNote(from, true)).toBe(`${said} Type this part's own price in Unit Cost (or order it on a vendor document) to stop.`)
+    expect(borrowedNote(from, false)).toBe(`${said} Jonathan enters the green price.`)
+    expect(borrowedNote(from, false)).not.toMatch(/Type/)
   })
 })
