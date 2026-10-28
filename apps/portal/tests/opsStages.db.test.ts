@@ -224,6 +224,42 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Operations stages (dev database)
     expect((await call('POST', '/api/ops-stages/customer_delay/delete', { moveTo: null, baseVersion: cur.version })).status).toBe(200)
   })
 
+  test('delete: the jobs moved out change only their stage; materials and drawing stay as recorded (review Oct 28 2026)', async () => {
+    // Moving them to Ready to Pull, Materials Ordered or Need Drawing records nothing: the box says "Nothing else about the jobs changes".
+    for (const [to, jobs] of [
+      ['ready_to_pull', [{ materialsStatus: 'not_ordered', drawingComplete: true }, { materialsStatus: 'ordered', drawingComplete: false }]],
+      ['materials_ordered', [{ materialsStatus: 'not_ordered', drawingComplete: true }]],
+      ['need_drawing', [{ materialsStatus: 'not_ordered', drawingComplete: true }]],
+    ] as Array<[string, Array<{ materialsStatus: string; drawingComplete: boolean }>]>) {
+      const cur = (await call('GET', '/api/ops-stages')).json.data
+      const temp = { id: `stage_${crypto.randomUUID().slice(0, 8)}`, name: `Temp ${to} ${tag}`, color: '#000000', order: 0, hidden: false, isFirst: false, isComplete: false, lane: 'main' }
+      const list = [...cur.stages]
+      list.splice(list.findIndex((s: any) => s.id === 'scheduled'), 0, temp)
+      expect((await call('PUT', '/api/ops-stages', { stages: list.map((s: any, i: number) => ({ ...s, order: i })), baseVersion: cur.version })).status).toBe(200)
+      const made = []
+      for (const [i, f] of jobs.entries()) made.push(await prisma.savedJob.create({ data: { accountId, customerName: `${tag} temp ${to} ${i}`, status: 'staging', opsStage: temp.id, locatesDate: '2026-10-01', ...f } as any }))
+      const now = (await call('GET', '/api/ops-stages')).json.data
+      const done = await call('POST', `/api/ops-stages/${temp.id}/delete`, { moveTo: to, baseVersion: now.version })
+      expect(done.status).toBe(200)
+      expect(done.json.moved.jobs).toBe(jobs.length)
+      for (const [i, j] of made.entries()) {
+        const after = (await prisma.savedJob.findUnique({ where: { id: j.id } }))!
+        expect(after).toMatchObject({ opsStage: to, status: 'staging', materialsStatus: jobs[i].materialsStatus, drawingComplete: jobs[i].drawingComplete })
+      }
+    }
+  })
+
+  test('an automation\'s Move step changes only the stage, never the materials or drawing', async () => {
+    const { runStep } = await import('../src/server/lib/automations/steps.js')
+    const j = await prisma.savedJob.create({ data: { accountId, customerName: `${tag} auto move`, status: 'staging', opsStage: 'need_drawing', locatesDate: '2026-10-01', materialsStatus: 'not_ordered', drawingComplete: true } as any })
+    for (const to of ['materials_ordered', 'ready_to_pull']) {
+      const ctx = (await buildContext(accountId, 'ops', j.id))!
+      const out = await runStep({ accountId, runId: `${tag}-run`, ruleId: `${tag}-rule`, ruleName: tag, stepIndex: 0, step: { type: 'move_card', stage: to } as any, entity: ctx, now: new Date() })
+      expect(out.detail).toMatch(/moved the job/)
+      expect(await prisma.savedJob.findUnique({ where: { id: j.id } })).toMatchObject({ opsStage: to, status: 'staging', materialsStatus: 'not_ordered', drawingComplete: true })
+    }
+  })
+
   test('/api/kv cannot write the list', async () => {
     const kv = await call('PUT', `/api/kv/${L.OPS_STAGES_KEY}`, { value: [{ id: 'x', name: 'X' }], baseVersion: 0 })
     expect(kv.status).toBe(403)

@@ -250,14 +250,24 @@ export function advanceStageOf(list: OpsStageDef[], id: string, opts: { permitOk
  * What moving a job into a stage changes on the job: the stage, the status it
  * stands for, and what the old board also set (materials ordered, received,
  * drawing not done, the completed date, the status to go back to after a hold).
+ *
+ * `stageOnly`: the materials and drawing stay as recorded; only the stage and
+ * the status (with its dates) change. Every move nobody is asked about uses
+ * it: jobs moved out of a stage deleted in Settings, an automation's Move
+ * step, a move the server makes by itself (review Oct 28 2026: deleting a
+ * stage and moving its jobs to Ready to Pull marked their materials
+ * Received). Only a hand move, which asks first (web materialsMoveQuestion),
+ * records materials.
  */
-export function fieldsForStage(list: OpsStageDef[], id: string, job: OpsJobLike, today: string): Record<string, unknown> | null {
+export function fieldsForStage(list: OpsStageDef[], id: string, job: OpsJobLike, today: string, opts: { stageOnly?: boolean } = {}): Record<string, unknown> | null {
   const phase = phaseOf(list, id)
   if (!phase) return null
   const out: Record<string, unknown> = { opsStage: id, status: phase }
-  if (id === 'materials_ordered') out.materialsStatus = 'ordered'
-  if (id === 'ready_to_pull') out.materialsStatus = 'received'
-  if (id === 'need_drawing') out.drawingComplete = false
+  if (!opts.stageOnly) {
+    if (id === 'materials_ordered') out.materialsStatus = 'ordered'
+    if (id === 'ready_to_pull') out.materialsStatus = 'received'
+    if (id === 'need_drawing') out.drawingComplete = false
+  }
   if (phase === 'completed' && (!job.completedDate || !isDonePhase(job.status))) out.completedDate = today
   if (phase === 'on_hold' && job.status !== 'on_hold') out.previousStatus = isPhase(job.status) ? job.status : 'staging'
   if (phase !== 'on_hold' && job.status === 'on_hold') out.previousStatus = null

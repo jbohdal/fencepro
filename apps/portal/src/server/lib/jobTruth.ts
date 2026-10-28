@@ -542,7 +542,7 @@ export type CloseOut = { moved: true; stage: string } | { moved: false; why: str
  * The row after, or null when it was not in one of `from` any more.
  */
 async function moveJobToStage(accountId: string, job: Json, stages: Parameters<typeof fieldsForStage>[0], stageId: string, from: string[], extra: Record<string, unknown>, why: string): Promise<Json | null> {
-  const fields = fieldsForStage(stages, stageId, job as Json, floridaDay(new Date()))
+  const fields = fieldsForStage(stages, stageId, job as Json, floridaDay(new Date()), { stageOnly: true })
   if (!fields) return null
   const updated = await prisma.$transaction(async tx => {
     // Only while it is still where it was: two of these at once move it once.

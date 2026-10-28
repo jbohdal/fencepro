@@ -261,7 +261,7 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
   const was = stageOfJob(stages, existing as Json)
   const phase = phaseOf(stages, was)
   const target = phase === 'staging' || phase === 'on_hold' ? (stageById(stages, 'scheduled') && phaseOf(stages, 'scheduled') === 'scheduled' ? 'scheduled' : firstStageFor(stages, 'scheduled')) : was
-  const stageFields = target && target !== was ? fieldsForStage(stages, target, existing as Json, floridaDay(new Date())) ?? {} : {}
+  const stageFields = target && target !== was ? fieldsForStage(stages, target, existing as Json, floridaDay(new Date()), { stageOnly: true }) ?? {} : {}
   const update: Json = { ...stageFields, opsStage: target || was, scheduledDate: start, scheduledEndDate: end, crewAssigned: crew.name, estimatedDays: days.length }
   const blocked = await checkJobMove(accountId, existing, { ...existing, ...update })
   if (blocked) {
@@ -366,9 +366,9 @@ export async function unscheduleInstall(accountId: string, actor: Actor, jobId: 
   const was = stageOfJob(stages, existing as Json)
   const kept = meta?.prevStage && stageById(stages, meta.prevStage) && phaseOf(stages, meta.prevStage) !== 'scheduled' ? meta.prevStage : null
   const back = phaseOf(stages, was) === 'scheduled' ? (kept ?? waitingStageFor(stages, existing, permit)) : null
-  const update: Json = { ...(back ? fieldsForStage(stages, back, existing as Json, floridaDay(new Date())) ?? {} : {}), scheduledDate: '', scheduledEndDate: null, crewAssigned: '' }
   // Going back to a stage changes nothing else on the job: the materials and drawing stay as recorded.
-  if (back) { update.opsStage = back; delete update.materialsStatus; delete update.drawingComplete }
+  const update: Json = { ...(back ? fieldsForStage(stages, back, existing as Json, floridaDay(new Date()), { stageOnly: true }) ?? {} : {}), scheduledDate: '', scheduledEndDate: null, crewAssigned: '' }
+  if (back) update.opsStage = back
   if (meta && meta.prevEstimatedDays > 0) update.estimatedDays = meta.prevEstimatedDays
   const job = await prisma.$transaction(async tx => {
     const row = await tx.savedJob.update({ where: { id: existing.id }, data: update })
