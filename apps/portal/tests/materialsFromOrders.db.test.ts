@@ -6,7 +6,7 @@
  *   - an order marked Ordered: its job says ordered (job row, the list a
  *     second browser reads with ?since=, the Materials Confirmed milestone);
  *     a job in its own Need Drawing stage, locates in and permit not needed,
- *     moves on to Materials Ordered;
+ *     keeps its board stage (moving it waits for Jonathan, FEATURES 9ah);
  *   - marked Received: the job says received;
  *   - a job already Loaded stays Loaded when its order says Ordered (never backward);
  *   - an order found by its quote when it has no jobId;
@@ -99,7 +99,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     await mark({ [orderIds[0]]: 'ordered', [orderIds[1]]: 'ordered', [orderIds[2]]: 'ordered' })
     const a = await job(ids.a)
     expect(a.materialsStatus).toBe('ordered')
-    expect(a.opsStage).toBe('materials_ordered')
+    expect(a.opsStage).toBe('need_drawing') // the board stage is left alone (FEATURES 9ah)
     expect((await job(ids.b)).materialsStatus).toBe('loaded')
     expect((await job(ids.c)).materialsStatus).toBe('ordered')
 
@@ -117,7 +117,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     // Received.
     await mark({ [orderIds[0]]: 'received' })
     expect((await job(ids.a)).materialsStatus).toBe('received')
-    expect((await job(ids.a)).opsStage).toBe('ready_to_pull')
+    expect((await job(ids.a)).opsStage).toBe('need_drawing')
 
     // Put back to pending: the job keeps what it has.
     await mark({ [orderIds[0]]: 'pending', [orderIds[2]]: 'pending' })

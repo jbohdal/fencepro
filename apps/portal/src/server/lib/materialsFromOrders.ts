@@ -19,11 +19,8 @@
  *
  * The job is saved like any other job save (updatedAt moves, so every open
  * browser picks it up on its next read; stage moves and automation events
- * recorded; audit log). A job with its own Operations stage in the waiting
- * stages moves on to Materials Ordered or Ready to Pull only when that is
- * the waiting stage it really is in (opsStageModel.waitingStageOf: locates in,
- * permit issued or not needed) and it is further along the board; a stage rule
- * that refuses the move keeps the stage, the materials are still recorded.
+ * recorded; audit log). Only the materials change: a job's own Operations
+ * stage is never moved by this (that waits for Jonathan, FEATURES 9ah).
  *
  * The job of an order: its jobId, else the live job of its quote.
  */
@@ -31,10 +28,8 @@
 import prisma from './prisma.js'
 import { auditSystem } from './auditLog.js'
 import { recordJobChanges } from './automations/hooks.js'
-import { checkJobMove } from './automations/stageRules.js'
 import { loadOpsStages } from './opsStages.js'
-import { permitStatusesOf } from './permitStatus.js'
-import { phaseOf, sortedStages, stageById, stageOfJob, waitingStageOf } from './opsStageModel.js'
+import { stageOfJob } from './opsStageModel.js'
 
 export type MaterialsStatus = 'not_ordered' | 'ordered' | 'received' | 'loaded'
 
@@ -91,8 +86,6 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
   }
   if (!want.size) return []
   const { stages } = await loadOpsStages(accountId)
-  const permits = await permitStatusesOf(accountId, [...jobs.values()])
-  const order = sortedStages(stages).map(s => s.id)
   const out: MaterialsChange[] = []
   for (const [jobId, to] of want) {
     const job = jobs.get(jobId)
@@ -100,15 +93,8 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
     if (!next) continue
     const data: Record<string, unknown> = { materialsStatus: next }
     const was = stageOfJob(stages, job)
-    let stageTo = stageOfJob(stages, { ...job, ...data })
-    // Its own stage (set on the board): moved on only to the waiting stage it really is in, further along.
-    if (job.opsStage && stageById(stages, job.opsStage) && job.status === 'staging' && phaseOf(stages, was) === 'staging' && stageById(stages, was)?.lane === 'main') {
-      const w = waitingStageOf(stages, { ...job, ...data }, permits.get(jobId) ?? null)
-      if (w && (w === 'materials_ordered' || w === 'ready_to_pull') && order.indexOf(w) > order.indexOf(was)) {
-        const blocked = await checkJobMove(accountId, job, { ...job, ...data, opsStage: w })
-        if (!blocked) { data.opsStage = w; stageTo = w }
-      }
-    }
+    // The job's own board stage is left alone: moving it on by itself waits for Jonathan (FEATURES 9ah, NEEDS JONATHAN).
+    const stageTo = stageOfJob(stages, { ...job, ...data })
     out.push({ jobId, customer: job.customerName || '', from: job.materialsStatus, to: next, stageFrom: was, stageTo })
     if (opts.dryRun) continue
     // Only while it is still behind: a save a moment ago that already moved it on keeps it.
