@@ -11,7 +11,8 @@ import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
-if (!/^http:\/\/(localhost|127\.0\.0\.1):4001/.test(API)) { console.error('Dev only (4001).'); process.exit(2) }
+// The dev copy (4001) or a worktree's own dev server on another port; never 4000 (live).
+if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+/.test(API) || !/^http:\/\/(localhost|127\.0\.0\.1):\d+/.test(APP) ||/:4000(\/|$)/.test(API) || /:4000(\/|$)/.test(APP)) { console.error('Dev only (localhost, not 4000).'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }
