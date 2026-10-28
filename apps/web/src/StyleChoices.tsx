@@ -28,15 +28,16 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
   const [material, setMaterial] = useState<string>(() => fromStyle()?.material ?? '')
   const [sel, setSel] = useState<Record<string, string>>(() => fromStyle()?.sel ?? {})
   // A choice changed by itself because the one just tapped is not made with it (review Oct 28 2026: Green chain link,
-  // then 5 ft, went to Galvanized without a word; green is made only at 4 ft). Said under the picker until the next tap.
-  const [changedNote, setChangedNote] = useState('')
+  // then 5 ft, went to Galvanized without a word; green is made only at 4 ft). Said under the choice that changed, close to
+  // the tap that changed it (on a phone the bottom of the picker is off screen), until the next tap.
+  const [changedNote, setChangedNote] = useState<{ dim: string; text: string } | null>(null)
   // Picked another way (the list, voice): show its choices.
   useEffect(() => {
     const f = fromStyle()
     if (f) {
       // Picked another way (not the tap that wrote the note): the note no longer applies.
       const same = (a: Record<string, string>, b: Record<string, string>) => Object.keys({ ...a, ...b }).every(k => a[k] === b[k])
-      if (f.material !== material || !same(f.sel, sel)) setChangedNote('')
+      if (f.material !== material || !same(f.sel, sel)) setChangedNote(null)
       setMaterial(f.material); setSel(f.sel)
     }
   }, [value])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -49,7 +50,7 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
     const m = catalog.materials.find(x => x.key === mat)
     if (!m) return
     const out = { ...next }
-    const notes: string[] = []
+    const notes: Array<{ dim: string; text: string }> = []
     for (let i = 0; i < m.dims.length; i++) {
       const st = pickerState(styles, catalog, mat, out, isOk)[i]
       const have = st.options.find(x => x.opt.key === out[m.dims[i].key])
@@ -59,11 +60,11 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
         else delete out[m.dims[i].key]
         // A choice made before (not the one just tapped) that changed: say so.
         if (tapped && have && m.dims[i].key !== tapped.dim && first && first.opt.key !== have.opt.key) {
-          notes.push(`${have.opt.label} is not offered ${tapped.dim === 'height' ? 'at' : 'with'} ${tapped.label}, so the ${m.dims[i].label.toLowerCase()} changed to ${first.opt.label}.`)
+          notes.push({ dim: m.dims[i].key, text: `${have.opt.label} is not offered ${tapped.dim === 'height' ? 'at' : 'with'} ${tapped.label}, so the ${m.dims[i].label.toLowerCase()} changed to ${first.opt.label}.` })
         }
       }
     }
-    setChangedNote(notes.join(' '))
+    setChangedNote(notes.length ? { dim: notes[0].dim, text: notes.map(n => n.text).join(' ') } : null)
     setSel(out)
     const s = styleForChoices(styles, catalog, mat, out)
     if (s && isOk(s)) onChange(s.id)
@@ -105,11 +106,11 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
               )
             })}
           </div>
+          {changedNote?.dim === dim.key && (
+            <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changedNote.text}</p>
+          )}
         </div>
       ))}
-      {changedNote && (
-        <p className="text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changedNote}</p>
-      )}
       {current && (
         <p className="text-sm font-semibold text-gray-900" data-style-plain-name>{current.label || current.name}</p>
       )}
