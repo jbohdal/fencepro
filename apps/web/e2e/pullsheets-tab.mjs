@@ -124,10 +124,10 @@ try {
     `${s.status} ${s.text.match(costField)?.[1] ?? ''} ${COSTS.filter(v => s.text.includes(v))}`)
   const sp = await call(SALES, 'GET', `/api/pull-sheets/customer/${W.contactId}/j_${W.jobId}.pdf`)
   const spText = pdfText(sp.buf)
-  check('Salesman (API): his PDF has the parts (with costs, like the owner)', sp.status === 200 && sp.type.includes('application/pdf') && /Pull Sheet/.test(spText) && spText.includes(PART), spText.slice(0, 160))
+  check('Salesman (API): his PDF has the parts (with costs, like the owner)', sp.status === 200 && sp.type.includes('application/pdf') && /Pull Sheet/.test(spText) && spText.includes(PART), `${sp.status} ${sp.type} ${sp.buf.length} bytes: ${(spText || sp.buf.subarray(0, 120).toString("latin1")).slice(0, 160)}`)
   const op = await owner('GET', `/api/pull-sheets/customer/${W.contactId}/j_${W.jobId}.pdf`)
   const opText = pdfText(op.buf)
-  check('owner (API): the PDF has the unit costs and the total', op.status === 200 && /Unit cost/.test(opText) && opText.includes('$13.57') && opText.includes('$472.57') && /Final takeoff/.test(opText), opText.slice(0, 160))
+  check('owner (API): the PDF has the unit costs and the total', op.status === 200 && /Unit cost/.test(opText) && opText.includes('$13.57') && opText.includes('$472.57') && /Final takeoff/.test(opText), `${op.status} ${op.type} ${op.buf.length} bytes: ${(opText || op.buf.subarray(0, 120).toString("latin1")).slice(0, 160)}`)
   check('another company\'s or a made up customer: not found', (await owner('GET', `/api/pull-sheets/customer/${crypto.randomUUID()}`)).status === 404)
 
   // ── The screen ──
@@ -183,7 +183,7 @@ try {
     await dl.saveAs(file)
     const pdf = fs.readFileSync(file)
     fs.rmSync(file, { force: true })
-    check(`${size} owner: Print / PDF downloads the PDF`, pdf.subarray(0, 5).toString() === '%PDF-' && /Pull Sheet/.test(pdfText(pdf)) && /\.pdf$/.test(dl.suggestedFilename()), dl.suggestedFilename())
+    check(`${size} owner: Print / PDF downloads the PDF`, pdf.subarray(0, 5).toString() === '%PDF-' && /Pull Sheet/.test(pdfText(pdf)) && /\.pdf$/.test(dl.suggestedFilename()), `${dl.suggestedFilename()} (${pdf.length} bytes: ${(pdfText(pdf) || pdf.subarray(0, 80).toString("latin1")).slice(0, 120)})`)
     // Share to crew: the install packet link.
     await tap(x, view.locator('[data-pull-sheet-crew]'))
     const url = await until(async () => { const t = await view.locator('[data-pull-sheet-crew-url]').innerText().catch(() => ''); return /\/p\/i\/[A-Za-z0-9_-]{20,}$/.test(t) ? t : null }, 30000)
