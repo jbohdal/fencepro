@@ -44,8 +44,8 @@ const made = await a.page.evaluate(async () => {
   const q = quotes.upsertQuote({ customerId: customer.id, customerName: 'Sync Tester', fenceStyle: "WV-ND 6'x6' Privacy", runs: [60], sections: 10, materialCost: 900, laborCost: 435, totalCOGS: 1335, finalPrice: 2085.94, gmPct: 0.36, pullSheet: pull, status: 'SOLD', pricing: { laborMode: 'subcontractor', subRate: 7.25, subUnit: 'foot', priceMethod: 'cost_factor' } })
   const job = jobs.createJobFromQuote(q)
   jobs.updateJob(job.id, { crewAssigned: 'Crew 1', notes: 'gate code 1234' })
-  const items2 = checklist.getChecklistForJob(job.id)
-  if (items2[0]) checklist.toggleChecklistItem(job.id, items2[0].id, 'tester')
+  const items2 = await checklist.getChecklistForJob(job.id)
+  if (items2[0]) await checklist.toggleChecklistItem(job.id, items2[0].id)
   // rapid edits on the quote: the last one must win
   quotes.updateQuote(q.id, { notes: 'first' }); quotes.updateQuote(q.id, { notes: 'second' }); quotes.updateQuote(q.id, { notes: 'final note' })
   // pipeline
@@ -104,7 +104,7 @@ const seen = await b.page.evaluate(async (made) => {
     customer: cust.getCustomerById(made.customerId)?.lastName,
     quote: q ? { status: q.status, notes: q.notes, customerId: q.customerId, pricing: q.pricing, price: q.finalPrice } : null,
     job: job ? { quoteId: job.quoteId, customerId: job.customerId, crew: job.crewAssigned, notes: job.notes } : null,
-    checklist: checklist.getChecklistForJob(made.jobId).map(i => ({ id: i.id, done: i.completed ?? i.done ?? i.isComplete })),
+    checklist: (await checklist.getChecklistForJob(made.jobId)).map(i => ({ id: i.id, done: i.completed ?? i.done ?? i.isComplete })),
     lead: pipe.getPipeline().leads.find(l => l.id === 'lead-sync-1'),
     scheduleJobs: sched.loadSchedule().jobs.map(j => `${j.id}:${j.clientName}:${j.notes}`),
     jobCosting: JSON.parse(cloud.cloudStorage.getItem('fencepro_jobcosting') || '[]'),

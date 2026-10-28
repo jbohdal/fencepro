@@ -4,13 +4,13 @@
  * Operations sub-tab showing pending/in-progress/ordered jobs.
  */
 
-import { useEffect, useMemo, useState } from 'react'
-import { refreshBusinessState } from './businessStateStore'
+import { useMemo, useState } from 'react'
 import AdminPage from './AdminPage'
 import VendorInvoicesTab from './VendorInvoicesTab'
 import PendingOrdersPage from './PendingOrdersPage'
-import { getPendingOrders, updatePendingOrderStatus, type PendingOrderStatus } from './pendingOrderStore'
+import { getPendingOrders, updatePendingOrderStatus, usePendingOrders, type PendingOrderStatus } from './pendingOrderStore'
 import { replaceUrl } from './nav'
+import { toast } from './toast'
 import { can, useCan } from './permissions'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 
@@ -65,18 +65,13 @@ export default function InventoryPage() {
 
 function OperationsView() {
   const [tick, setTick] = useState(0)
+  // The server makes and updates the orders: read when this opens (not on every page load, audit #17), and each save as it lands.
+  const { load, retry, tick: loadTick } = usePendingOrders()
   const orders = useMemo(() => {
     const all = getPendingOrders()
     return all.filter(o => o.status === 'pending' || o.status === 'ordered' || o.status === 'in_progress' as any)
-  }, [tick])
+  }, [tick, loadTick, load])
   const [expanded, setExpanded] = useState<string | null>(null)
-  // The server makes and updates the orders: read them again on open, and show each save as it lands.
-  useEffect(() => {
-    const on = () => setTick(x => x + 1)
-    window.addEventListener('fencepro:business-state:updated', on)
-    void refreshBusinessState()
-    return () => window.removeEventListener('fencepro:business-state:updated', on)
-  }, [])
 
   const grouped: Record<string, typeof orders> = { pending: [], ordered: [] }
   for (const o of orders) {
@@ -85,7 +80,7 @@ function OperationsView() {
   }
 
   function advance(orderId: string, to: PendingOrderStatus) {
-    updatePendingOrderStatus(orderId, to)
+    try { updatePendingOrderStatus(orderId, to) } catch (err: any) { toast.error('Could not update the order', err?.message || 'Unknown error.'); return }
     setTick(x => x + 1)
   }
 
@@ -95,6 +90,14 @@ function OperationsView() {
     if (items.length === 0) return <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">No items</span>
     if (shortItems.length === 0) return <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">All in stock</span>
     return <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{shortItems.length} short</span>
+  }
+
+  if (load !== 'ready') {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-sm text-gray-500" data-orders-load={load}>
+        {load === 'loading' ? 'Loading the Sales Orders…' : (<>Could not load the Sales Orders. Check the signal. <button type="button" onClick={retry} className="text-orange-700 font-semibold underline min-h-[44px] px-2">Try again</button></>)}
+      </div>
+    )
   }
 
   if (orders.length === 0) {

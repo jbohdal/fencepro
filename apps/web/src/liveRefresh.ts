@@ -20,15 +20,14 @@ import { refreshSchedule } from './scheduleStore'
 
 let started = false
 let last = 0
-let lastAppointments = 0
-const appointmentsDue = () => { const due = Date.now() - lastAppointments > 5 * 60_000; if (due) lastAppointments = Date.now(); return due }
 
-async function readAgain(force = false, allAppointments = force) {
+async function readAgain(force = false) {
   if (!force && typeof document !== 'undefined' && document.visibilityState !== 'visible') return
   if (!force && Date.now() - last < 15_000) return
   last = Date.now()
-  // Small checks every time; appointments (a bigger list) when the app comes back on screen or is asked.
-  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), ...(allAppointments || appointmentsDue() ? [refreshAppointments()] : [])])
+  // Small checks: quotes, jobs, customers and appointments ask only for what changed since the last read
+  // (?since=), the pipeline only whether its version moved (audit #17).
+  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), refreshAppointments()])
   // What an open screen reads for itself (a job's change orders: ChangeOrders.tsx useChangeOrdersLive) reads again too.
   try { window.dispatchEvent(new CustomEvent(LIVE_REFRESH_EVENT)) } catch { /* no window */ }
 }
@@ -39,13 +38,11 @@ export const LIVE_REFRESH_EVENT = 'ezbiz:live-refresh'
 export function startLiveRefresh() {
   if (started) return
   started = true
-  // Appointments were just read with everything else: not again on the first focus (1 MB on a phone).
-  lastAppointments = Date.now()
   document.addEventListener('visibilitychange', () => { void readAgain() })
   window.addEventListener('focus', () => { void readAgain() })
   window.addEventListener('online', () => { void readAgain(true) })
   setInterval(() => { void readAgain() }, 60_000)
 }
 
-/** A screen that needs the newest copy now (Operations, the Sales Pipeline when opened). Appointments (1 MB) only when due. */
-export const refreshNow = () => readAgain(true, false)
+/** A screen that needs the newest copy now (Operations, the Sales Pipeline when opened). */
+export const refreshNow = () => readAgain(true)

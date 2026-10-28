@@ -31,6 +31,7 @@ import {
   firstFollowUpPreview, runFirstFollowUp, floridaDay,
 } from '../lib/followUps.js'
 import { addDays, isDay } from '../lib/followUpRules.js'
+import { toTable } from '../lib/listTable.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -95,10 +96,15 @@ router.put('/settings', requireCan('settings.change'), async (req: any, res) => 
 router.get('/board', async (req: any, res) => {
   try {
     const { rows, today } = await cardRows(req.user.crmAccountId)
-    const cards: Record<string, unknown> = {}
-    for (const r of rows) {
-      cards[r.cardId] = { dueOn: r.dueOn, dueKind: r.dueKind, status: r.status, days: r.days, badge: r.badge, stepIndex: r.stepIndex, stepCount: r.stepCount, lastOutcome: r.lastOutcome, lastContactAt: r.lastContactAt, ownerName: r.ownerName, state: r.state, opened: r.opened }
+    const card = (r: (typeof rows)[number]) => ({ dueOn: r.dueOn, dueKind: r.dueKind, status: r.status, days: r.days, badge: r.badge, stepIndex: r.stepIndex, stepCount: r.stepCount, lastOutcome: r.lastOutcome, lastContactAt: r.lastContactAt, ownerName: r.ownerName, state: r.state, opened: r.opened })
+    // ?shape=table: the cards as one table, the field names once (lib/listTable.ts; web followUpStore.ts turns it
+    // back into the same cards). Every card of the board is here, so the names were most of the 0.7 MB (audit #17).
+    if (req.query.shape === 'table') {
+      const table = toTable(rows.map(r => ({ id: r.cardId, ...card(r) })))
+      if (table) { res.json({ success: true, data: { today, cards: table } }); return }
     }
+    const cards: Record<string, unknown> = {}
+    for (const r of rows) cards[r.cardId] = card(r)
     res.json({ success: true, data: { today, cards } })
   } catch (err) { fail(res, err, 'load the follow ups') }
 })

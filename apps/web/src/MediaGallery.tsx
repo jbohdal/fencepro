@@ -134,7 +134,7 @@ export default function MediaGallery({ where, quoteCustomerId, layout, onLayout,
     if (item.local) {
       await updateLocal(item.local.clientId, { meta: { ...item.local.meta, ...patch } })
       // It may have finished uploading meanwhile: send the change there too.
-      const srv = (await listMedia(lookup)).find(s => s.clientId === item.local!.clientId)
+      const srv = (await listMedia(lookup, { fresh: true })).find(s => s.clientId === item.local!.clientId)
       if (srv) await patchMedia(srv.id, patch)
     } else if (item.server) await patchMedia(item.server.id, patch)
     await refresh()

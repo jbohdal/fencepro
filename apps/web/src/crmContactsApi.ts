@@ -83,7 +83,7 @@ export function lastListServerTime(): string | null { return listedAt }
 
 export async function listContacts(): Promise<CrmContactRecord[] | null> {
   // As one table (listTable.ts): the same rows, without each row repeating the field names.
-  const r = await call<CrmContactRecord[]>('GET', asTable('/'))
+  const r = await call<CrmContactRecord[]>('GET', asTable(''))
   if (r.ok && r.serverTime) listedAt = r.serverTime
   if (!r.ok) {
     toast.error('Could not load customers from cloud', r.error || plainError(0).message)

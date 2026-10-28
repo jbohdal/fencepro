@@ -12,7 +12,8 @@
  */
 
 import type { LineItem } from './materialCalculator'
-import { getBusinessField, setBusinessField, whenBusinessStateSaved } from './businessStateStore'
+import { useEffect, useState } from 'react'
+import { getBusinessField, setBusinessField, whenBusinessStateSaved, needBusinessFields, isBusinessFieldLoaded, BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
 
 export type PendingOrderStatus = 'pending' | 'ordered' | 'received' | 'cancelled'
 
@@ -53,7 +54,38 @@ export interface PendingOrder {
 export function getPendingOrders(): PendingOrder[] {
   return getBusinessField('pendingOrders') as PendingOrder[]
 }
-function save(orders: PendingOrder[]) { setBusinessField('pendingOrders', orders) }
+function save(orders: PendingOrder[]) {
+  // The orders are read when a screen that shows them opens (not on a page load): never saved before that.
+  if (!isBusinessFieldLoaded('pendingOrders')) throw new Error('The Sales Orders have not loaded yet. Check the signal, then try again.')
+  setBusinessField('pendingOrders', orders)
+}
+
+export type OrdersLoad = 'loading' | 'ready' | 'failed'
+/**
+ * A screen that shows the Sales Orders: reads them from the server when it
+ * opens (and again each time it opens, the server makes and changes them),
+ * and re-renders as each read or save lands. 'failed': no signal; `retry` asks again.
+ */
+export function usePendingOrders(): { load: OrdersLoad; retry: () => void; tick: number } {
+  const [load, setLoad] = useState<OrdersLoad>(isBusinessFieldLoaded('pendingOrders') ? 'ready' : 'loading')
+  const [tick, setTick] = useState(0)
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    const on = () => setTick(x => x + 1)
+    window.addEventListener(BUSINESS_STATE_UPDATED_EVENT, on)
+    return () => window.removeEventListener(BUSINESS_STATE_UPDATED_EVENT, on)
+  }, [])
+  useEffect(() => {
+    let live = true
+    const first = !isBusinessFieldLoaded('pendingOrders')
+    if (first) setLoad('loading')
+    // Already here: read again for the newest (the screen shows the copy held until then).
+    void (first ? needBusinessFields(['pendingOrders']) : import('./businessStateStore').then(m => m.refreshBusinessState()).then(() => true))
+      .then(ok => { if (live) { setLoad(ok || isBusinessFieldLoaded('pendingOrders') ? 'ready' : 'failed'); setTick(x => x + 1) } })
+    return () => { live = false }
+  }, [n])
+  return { load, retry: () => setN(x => x + 1), tick }
+}
 
 export function getPendingOrdersForQuote(quoteId: string): PendingOrder[] {
   return getPendingOrders().filter(o => o.quoteId === quoteId)
