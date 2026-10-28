@@ -7,6 +7,18 @@
 
 export const DEFAULT_PRICE_STALE_MONTHS = 6
 
+/**
+ * The heading over a quote's old prices, from the Settings value (priceStaleMonths): "2 parts on this quote have
+ * prices not confirmed in the last 6 months" (review Oct 28 2026: "older than 3 months or never confirmed" read
+ * as two rules; a never confirmed price is simply one not confirmed lately). "1 month", never "1 months".
+ */
+export function stalePricesHeading(parts: number, months: number): string {
+  return `${parts} part${parts === 1 ? ' on this quote has a price' : 's on this quote have prices'} not confirmed in the last ${monthsText(months)}`
+}
+
+/** "1 month", "6 months". */
+export const monthsText = (n: number): string => `${n} month${n === 1 ? '' : 's'}`
+
 export interface PricedItem {
   id: string
   name: string

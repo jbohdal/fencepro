@@ -50,7 +50,7 @@ try {
   const warn = page.locator('[data-stale-prices]')
   const parts = await warn.locator('[data-stale-part]').count()
   const head = (await warn.locator('p').first().textContent()) || ''
-  check('Quote: soft warning lists parts never confirmed', (await warn.count()) === 1 && parts > 0 && /never confirmed/.test(head), head)
+  check('Quote: soft warning lists parts never confirmed', (await warn.count()) === 1 && parts > 0 && /not confirmed in the last \d+ months?/.test(head), head)
   check('Quote: Save is still there (a warning, not a block)', await page.locator('button:has-text("Save quote"), button:has-text("Update quote")').first().isEnabled())
   if (SHOTS) await warn.screenshot({ path: `${SHOTS}/1-quote-price-warning.png` })
   const partCount = Number(head.match(/^(\d+)/)?.[1] || 0)

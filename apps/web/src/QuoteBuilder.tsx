@@ -8,7 +8,7 @@ import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents, crewTime 
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
-import { stalePartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import { stalePartsOnQuote, priceAgeLabel, staleCutoff, DEFAULT_PRICE_STALE_MONTHS, stalePricesHeading, monthsText } from './priceAge'
 import StyleChoices from './StyleChoices'
 import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
@@ -1762,14 +1762,14 @@ export default function QuoteBuilder({
                     <p className="text-xs font-semibold text-gray-800">Job lot pricing from {jobLot.supplier}, quoted {fmtYmd(jobLot.quotedOn)}</p>
                     <p className="text-xs text-gray-600 leading-snug">{jobLot.color} sections, posts and gates are priced from that quote; the parts they include show at $0 on the pull sheet. Internal only.</p>
                   </>)}
-                  {jobLotOld && <p className="text-xs text-amber-800 leading-snug" data-job-lot-old>That job lot quote is older than {staleMonths} months. Ask {jobLot.supplier} for a new one and update it in Settings → Fence styles.</p>}
+                  {jobLotOld && <p className="text-xs text-amber-800 leading-snug" data-job-lot-old>That job lot quote is older than {monthsText(staleMonths)}. Ask {jobLot.supplier} for a new one and update it in Settings → Fence styles.</p>}
                 </div>
               )}
 
               {staleParts.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5" data-stale-prices>
                   <p className="text-xs font-semibold text-amber-800">
-                    {staleParts.length} part{staleParts.length === 1 ? '' : 's'} on this quote {staleParts.length === 1 ? 'has a price' : 'have prices'} older than {staleMonths} months or never confirmed
+                    {stalePricesHeading(staleParts.length, staleMonths)}
                   </p>
                   {staleParts.slice(0, 6).map(({ item }) => (
                     <p key={item.id} className="text-xs text-amber-800 leading-snug" data-stale-part={item.name}>{item.name.replace(/^\*/, '')} · {priceAgeLabel(item)}</p>

@@ -13,7 +13,7 @@ import {
 } from './inventoryStore'
 import { getConfig } from './configStore'
 import { businessDate } from './businessDate'
-import { priceAge, priceAgeLabel, compareByPriceAge, DEFAULT_PRICE_STALE_MONTHS } from './priceAge'
+import { priceAge, priceAgeLabel, compareByPriceAge, DEFAULT_PRICE_STALE_MONTHS, monthsText } from './priceAge'
 import BulkImportModal from './BulkImportModal'
 import MaterialKitsTab from './MaterialKitsTab'
 import FillInTab from './FillInTab'
@@ -364,7 +364,7 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
       )}
       {canPrice && toConfirm.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <p className="text-xs text-gray-500">{toConfirm.length} shown item{toConfirm.length === 1 ? '' : 's'} with a price older than {staleMonths} months or never confirmed.</p>
+          <p className="text-xs text-gray-500">{toConfirm.length} shown item{toConfirm.length === 1 ? '' : 's'} with a price not confirmed in the last {monthsText(staleMonths)}.</p>
           <button onClick={confirmShown} className="btn btn-quiet btn-sm" data-confirm-shown>Confirm these prices ({toConfirm.length})</button>
         </div>
       )}
