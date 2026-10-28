@@ -12,6 +12,7 @@ import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { deepEqual } from './merge3'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
+import { serverVersionOf } from './docVersions'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'fencepro:business-state:updated'
@@ -99,7 +100,17 @@ const flusher = createVersionedFlusher<BusinessFields>({
   isHydrated: () => hydrated,
   get: () => cache,
   apply: next => { cache = pickBusiness(next); emit() },
-  save: (state, version, base) => {
+  save: async (state, version, base) => {
+    // An answer to an earlier save said the server's record is newer than this tab's copy (the server writes
+    // it itself as part of other saves: a signed proposal or a new job adds the job's checklist and Sales Order;
+    // docVersions.ts). Take the newest copy first and put this change on top of it, the same merge as after a
+    // 409, without sending a save the server would refuse. Read only now, when there is something to save:
+    // the record is large, and a phone that saves nothing to it does not download it again.
+    if (serverVersionOf('business') > version) {
+      const r = await call<BusinessFields>('GET')
+      const v = typeof (r.data as any)?.version === 'number' ? (r.data as any).version : -1
+      if (r.ok && r.data && v > version) return { status: 'stale', server: pickBusiness(r.data), version: v }
+    }
     const patch: Record<string, unknown> = {}
     for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
       if (!deepEqual(state[k], base[k])) patch[k] = state[k]
