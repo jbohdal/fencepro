@@ -3,6 +3,18 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-28 (morning): Jonathan's answers to the night's list
+
+- **Green prices:** applied on live (06:56, Oct 28). The 2023 green prices stay for now; he will ask Stephens for current green 4' x 5' and 4' x 6' leaves and 6 ft green .055 dig set posts.
+- **Green gate leaves named .055:** "Yes, rename the green gate leaves to .055." The 4' x 5' and 4' x 6' leaves are named "(.055)" at every server start (lib/greenChainLink.ts GREEN_NAME_FIXES, renameGreenParts): same part, id, price and history; every kit using the old name uses the new one, and a kit still following Black keeps following.
+- **Green bolts:** "set the three Green bolts to the 06-251707 landed prices ($0.40, $0.33, $0.18)". Live had $0.38, $0.53 and $0.19, saved in Inventory under his login from a Mac browser, Oct 27 11:17 to 11:19 pm, six saves (the audit log names the login, not the fields). Being dated after 06-251707, the green prices run kept them. scripts/green-bolts-2026-10-28.ts prices each bolt from its 06-251707 line over that (applyLineOnce `overNewer`).
+- **New fence permits:** keep Needed by default; the office can change it.
+- **SE Fort King St** placed on the county's "E Fort King St", keeping "SE": fine.
+- **Old price warning:** 3 months on live (live's Settings already say 3).
+- **Card convenience fee:** spread like freight, "a real cost of buying. Only fuel stays out." The vendor document's fee row says "(spread into item prices)".
+- **The Salesman** sees only the quotes and customers the Salesman made or is assigned, and can open a job's page read only, without costs.
+- **Ready to Schedule:** he adds the stage himself with "Put it before Scheduled".
+
 ## 2026-10-28: real green prices from every Stephens document; parts still from Black warn and follow Black
 
 - **Jonathan** (Oct 27, night): 1. "Green parts: check all 17 Stephens quotes in Downloads (including 06-251608) for real green prices on every part now marked 'From Black' (gates any size, dig set posts, fittings). The 3 plain bolts on 06-251707 came on my green job, so use them as the Green bolt prices. Same rules: no fuel, 7.22% tax if no tax line." 2. "Any part still priced from Black shows a warning on the quote so the salesman knows it's low, and follows Black's price changes until a green price is entered."
