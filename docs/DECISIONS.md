@@ -3,6 +3,20 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-27: Operations jobs move on by themselves once the 811 locate is clear and the permit is in
+
+- **Jonathan** (answers to the rule questions, Oct 27):
+  1. "Yes, move on by itself once the locate is Clear to dig and the permit is in (Issued/Approved) or Not needed."
+  2. "If the quote already has a drawing, skip Need Drawing and go to the next stage the board's order gives."
+  3. "A repair goes to Ready to Schedule once its locate is clear."
+  4. "'Locate in' means Clear to dig, not just a date entered." A future good to dig date ("Called") does not count; a daily check moves the job on the day the locate becomes clear, once, at that change.
+  5. "Received moves the card forward (to Ready to Pull or the stage your rules give). Ordered only updates the materials status; it does not move the card."
+  - For every automatic move: only forward; each move leaves a line in the job's history saying why ("Moved to Permit Pending by itself: 811 locate is clear to dig."); it can be dragged back, and a job dragged back is not pushed forward again by the next save: it moves only when the locate becomes clear, the permit becomes issued or not needed, or the order becomes Received.
+- **How the app reads it** (apps/portal/src/server/lib/waitingStageMove.ts):
+  - Has a drawing: the job is marked drawn (drawingComplete), or its quote has a yard drawn in the quote builder (layout.yard) or the customer's website drawing (layout.widgetDrawing); the same test as Smart Schedule's Need Drawing tag (web jobDrawing.ts). Customer site plans (Files) are not counted: they belong to the customer, not the quote.
+  - Ready to Schedule: there is no Operations stage by that name (the start list, dev and live). The app uses a stage named "Ready to Schedule" if one is added in Settings, else the last board stage before Scheduled: Ready to Pull (id `ready_to_pull`). A repair also waits for its permit when the office set it to Needed (it starts Not needed).
+  - Only from Awaiting Locates or Permit Pending on a locate or permit change; on Received from any of the job's own waiting stages. Stage rules can still refuse a move.
+
 ## 2026-10-27: careful removal 1.5 × the install rate; commission on by default for the Salesman
 
 - **Jonathan:** "Careful removal is 1.5x the install rate. Fix Settings if it says 0.3, and tell me where 0.3 came from."

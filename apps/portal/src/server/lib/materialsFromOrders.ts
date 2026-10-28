@@ -19,8 +19,11 @@
  *
  * The job is saved like any other job save (updatedAt moves, so every open
  * browser picks it up on its next read; stage moves and automation events
- * recorded; audit log). Only the materials change: a job's own Operations
- * stage is never moved by this (that waits for Jonathan, FEATURES 9ah).
+ * recorded; audit log). Marked Ordered changes only the materials. Marked
+ * Received also moves a job in its own waiting stage on to the stage its
+ * records put it in (Ready to Pull once the locate is clear and the permit
+ * issued or not needed), forward only, with a line in its history
+ * (lib/waitingStageMove.ts; Jonathan, Oct 27 2026).
  *
  * The job of an order: its jobId, else the live job of its quote.
  */
@@ -30,6 +33,7 @@ import { auditSystem } from './auditLog.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { loadOpsStages } from './opsStages.js'
 import { stageOfJob } from './opsStageModel.js'
+import { moveFactsOf, noteAutoMove, waitingStageMove } from './waitingStageMove.js'
 
 export type MaterialsStatus = 'not_ordered' | 'ordered' | 'received' | 'loaded'
 
@@ -93,8 +97,10 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
     if (!next) continue
     const data: Record<string, unknown> = { materialsStatus: next }
     const was = stageOfJob(stages, job)
-    // The job's own board stage is left alone: moving it on by itself waits for Jonathan (FEATURES 9ah, NEEDS JONATHAN).
-    const stageTo = stageOfJob(stages, { ...job, ...data })
+    let stageTo = stageOfJob(stages, { ...job, ...data })
+    // Received moves the card on to the stage its records put it in (lib/waitingStageMove.ts); Ordered only records the materials (Jonathan, Oct 27 2026).
+    const w = next === 'received' ? await waitingStageMove(accountId, stages, job, { ...job, ...data }, await moveFactsOf(accountId, job)) : null
+    if (w) { data.opsStage = w; stageTo = w }
     out.push({ jobId, customer: job.customerName || '', from: job.materialsStatus, to: next, stageFrom: was, stageTo })
     if (opts.dryRun) continue
     // Only while it is still behind: a save a moment ago that already moved it on keeps it.
@@ -104,6 +110,7 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
       if (!d.count) return null
       const r = await tx.savedJob.findUniqueOrThrow({ where: { id: jobId } })
       await recordJobChanges(accountId, job, r, tx)
+      if (w) await noteAutoMove(jobId, stages, w, 'materials received (Sales Order marked Received)', tx)
       return r
     })
     if (!row) { out.pop(); continue }

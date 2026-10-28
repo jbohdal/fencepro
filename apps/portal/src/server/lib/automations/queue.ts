@@ -34,6 +34,7 @@ import { isQuietImportCard } from '../importCards.js'
 import { followUpMorningPush } from '../followUps.js'
 import { proposalOpenedSweep } from '../proposalViews.js'
 import { closeFinishedTasks } from '../taskAutoClose.js'
+import { locatesClearSweep } from '../waitingStageMove.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
 import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../notificationService.js'
 import type { AutomationEvent, AutomationRule, AutomationRun } from '@prisma/client'
@@ -589,6 +590,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
         try { await proposalOpenedSweep(now) } catch (err) { console.error('[automations] proposal opened push:', err) }
         // Automation tasks whose job says they are done (permit Approved, scheduled, materials ordered, job Paid) close by themselves.
         try { await closeFinishedTasks() } catch (err) { console.error('[automations] closing finished tasks:', err) }
+        // A job waiting on its 811 locate moves on the day the locate becomes Clear to dig, once (lib/waitingStageMove.ts).
+        try { await locatesClearSweep(now) } catch (err) { console.error('[automations] locate clear sweep:', err) }
       }
     }
     for (let guard = 0; guard < 20; guard++) {

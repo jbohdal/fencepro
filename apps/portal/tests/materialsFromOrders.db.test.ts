@@ -6,8 +6,9 @@
  *   - an order marked Ordered: its job says ordered (job row, the list a
  *     second browser reads with ?since=, the Materials Confirmed milestone);
  *     a job in its own Need Drawing stage, locates in and permit not needed,
- *     keeps its board stage (moving it waits for Jonathan, FEATURES 9ah);
- *   - marked Received: the job says received;
+ *     keeps its board stage (Ordered only records the materials);
+ *   - marked Received: the job says received and moves on to Ready to Pull
+ *     (locate clear, permit not needed), with a line in its history;
  *   - a job already Loaded stays Loaded when its order says Ordered (never backward);
  *   - an order found by its quote when it has no jobId;
  *   - an order put back to pending changes nothing on the job.
@@ -85,6 +86,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     await prisma.notification.deleteMany({ where: { jobId: { in: jobIds } } })
     await prisma.task.deleteMany({ where: { jobId: { in: jobIds } } })
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: jobIds } } })
+    await prisma.activityLog.deleteMany({ where: { entityType: 'job', entityId: { in: jobIds } } })
     await prisma.savedJob.deleteMany({ where: { id: { in: jobIds } } })
     server.close()
   })
@@ -99,7 +101,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     await mark({ [orderIds[0]]: 'ordered', [orderIds[1]]: 'ordered', [orderIds[2]]: 'ordered' })
     const a = await job(ids.a)
     expect(a.materialsStatus).toBe('ordered')
-    expect(a.opsStage).toBe('need_drawing') // the board stage is left alone (FEATURES 9ah)
+    expect(a.opsStage).toBe('need_drawing') // Ordered does not move the card (Jonathan, Oct 27 2026)
     expect((await job(ids.b)).materialsStatus).toBe('loaded')
     expect((await job(ids.c)).materialsStatus).toBe('ordered')
 
@@ -117,7 +119,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     // Received.
     await mark({ [orderIds[0]]: 'received' })
     expect((await job(ids.a)).materialsStatus).toBe('received')
-    expect((await job(ids.a)).opsStage).toBe('need_drawing')
+    expect((await job(ids.a)).opsStage).toBe('ready_to_pull')
+    const lines = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: ids.a } })
+    expect(lines.map(l => l.body)).toEqual(['Moved to Ready to Pull by itself: materials received (Sales Order marked Received).'])
 
     // Put back to pending: the job keeps what it has.
     await mark({ [orderIds[0]]: 'pending', [orderIds[2]]: 'pending' })

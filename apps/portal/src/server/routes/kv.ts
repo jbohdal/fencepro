@@ -36,7 +36,7 @@ const KEY_PATTERN = /^[a-z0-9_]{1,64}$/
  * the role, and never changed from one (until Oct 2026 GET /api/kv returned
  * them to every signed-in login).
  */
-const SERVER_ONLY_KEYS = new Set(['push_vapid', 'gmail_token'])
+const SERVER_ONLY_KEYS = new Set(['push_vapid', 'gmail_token', 'ops_locate_clear_day'])
 export function isServerOnlyKey(key: string): boolean {
   return SERVER_ONLY_KEYS.has(key) || key.startsWith('install:') || /(token|secret|vapid|password|private)/i.test(key)
 }

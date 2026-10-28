@@ -26,7 +26,8 @@ import { crewScope } from '../lib/crewScope.js'
 import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../lib/notificationService.js'
 import { refuseNoPrices } from '../lib/costRedact.js'
 import { Router } from 'express'
-import { stageFollowsLocateAndPermit } from '../lib/waitingStageMove.js'
+import { stageFollowsLocateAndPermit, permitReason } from '../lib/waitingStageMove.js'
+import { permitStatusOf } from '../lib/permitStatus.js'
 import { z } from 'zod'
 import fs from 'fs'
 import jwt from 'jsonwebtoken'
@@ -43,7 +44,7 @@ import { buildContext, loadLeads, jobForCard, opsStageOfJob, opsStageName, TEMPL
 import { loadPipelineStages } from '../lib/pipelineStages.js'
 import * as pipelineModel from '../lib/pipelineStageModel.js'
 import { loadOpsStages } from '../lib/opsStages.js'
-import { pickableStages, stageById, stageIdsInRule } from '../lib/opsStageModel.js'
+import { permitIsOk, pickableStages, stageById, stageIdsInRule } from '../lib/opsStageModel.js'
 import { missingFor } from '../lib/automations/stageRules.js'
 import { saveSubscription, sendPush, vapidKeys } from '../lib/automations/push.js'
 import { HELD_TEXT } from '../lib/outboundGate.js'
@@ -467,6 +468,8 @@ router.put('/permits/:jobId', requireCan('permits.change'), async (req: any, res
     const p = permitSchema.parse(req.body)
     const accountId = req.user.crmAccountId
     const before = await prisma.permit.findUnique({ where: { jobId: job.id } })
+    // The permit as every screen read it before this save (a repair with no record: Not needed).
+    const statusBefore = before?.status ?? await permitStatusOf(accountId, job)
     const save = () => prisma.$transaction(async tx => {
       const row = await tx.permit.upsert({ where: { jobId: job.id }, create: { accountId, jobId: job.id, ...p, updatedBy: req.user.email }, update: { ...p, updatedBy: req.user.email } })
       if (before?.status !== row.status) {
@@ -478,8 +481,8 @@ router.put('/permits/:jobId', requireCan('permits.change'), async (req: any, res
     const permit = await save().catch(e => { if (isUniqueViolation(e)) return save(); throw e })
     // "File the fence permit for …" closes by itself once it is Approved or Not needed (lib/taskAutoClose.ts).
     if (before?.status !== permit.status) closeTasksSoon(job.id)
-    // Waiting on the permit (or the locate): the job moves on to the stage its records put it in (lib/waitingStageMove.ts).
-    if (before?.status !== permit.status) await stageFollowsLocateAndPermit(accountId, job.id, `Permit saved, ${req.user.email ?? 'staff'}`)
+    // The permit just became issued or Not needed: a job waiting on it moves on (lib/waitingStageMove.ts). Only at that change.
+    if (!permitIsOk(statusBefore) && permitIsOk(permit.status)) await stageFollowsLocateAndPermit(accountId, job.id, permitReason(permit.status), `Permit saved, ${req.user.email ?? 'staff'}`)
     res.json({ success: true, data: { permit, portal: portalFor(permit.county) } })
   } catch (err) { fail(res, err, 'save the permit') }
 })

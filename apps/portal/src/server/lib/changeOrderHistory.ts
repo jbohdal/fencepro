@@ -13,6 +13,7 @@ import { pricingModule } from './estimates.js'
 import { approvedText, signedUsd, whatChanged, currentWorkRow } from './changeOrderWork.js'
 import { scheduleFit } from './changeOrderWork.js'
 import { moneyText } from './paymentMath.js'
+import { AUTO_MOVE_KIND } from './waitingStageMove.js'
 
 export interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
 
@@ -65,5 +66,8 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
   }
   const logs = await prisma.billingLog.findMany({ where: { accountId, jobId, kind: { in: ['final_follows', 'change_order_invoice', 'change_order_invoice_void', 'made'] } }, orderBy: { at: 'desc' }, take: 50 })
   for (const l of logs) items.push({ at: l.at.toISOString(), kind: 'billing', title: l.text, detail: '', by: l.byName })
+  // Board moves the job made by itself ("Moved to Permit Pending by itself: 811 locate is clear to dig."; lib/waitingStageMove.ts).
+  const moves = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, metadata: { path: ['kind'], equals: AUTO_MOVE_KIND } }, orderBy: { createdAt: 'desc' }, take: 50 })
+  for (const m of moves) items.push({ at: m.createdAt.toISOString(), kind: 'stage', title: m.body, detail: '', by: '' })
   return { items: items.sort((a, b) => b.at.localeCompare(a.at)), scheduleWarning: await scheduleFit(accountId, jobId), contractRev }
 }
