@@ -9,8 +9,8 @@ import { useState } from 'react'
 import SitePlan from './SitePlan'
 import type { LayoutResult, YardLayout } from './yardLayout'
 import {
-  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices,
-  type JobType, type MoveInputs, type RepairInputs, type RepairItemKey, type WorkResult, type PostType,
+  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices, repairHint,
+  type JobType, type MoveInputs, type RepairInputs, type MoveDraft, type RepairDraft, type MoveRepairSettings, type PostRateKey, type RepairItemKey, type WorkResult, type PostType,
 } from './moveRepair'
 import type { QuoteStyle } from './quoteCalc'
 
@@ -50,10 +50,15 @@ function Toggle({ on, onChange, label, hint, data }: { on: boolean; onChange: (v
   )
 }
 
-function PostTypePick({ value, onChange, label }: { value: PostType; onChange: (v: PostType) => void; label: string }) {
+/**
+ * How the OLD posts come out (what pulling and hauling them is priced at). It follows the style until a
+ * button is tapped; after that the tap stays, and `note` says when it differs from the style.
+ */
+function PostTypePick({ value, onChange, label, note }: { value: PostType; onChange: (v: PostType) => void; label: string; note?: string | null }) {
   return (
-    <div>
+    <div data-old-posts-method>
       <p className="text-xs text-gray-500 mb-1">{label}</p>
+      {note && <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mb-1" data-old-posts-note>{note}</p>}
       <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-xl p-1">
         {([['nd', 'No dig'], ['ds', 'Dig set (concrete)']] as const).map(([k, l]) => (
           <button key={k} type="button" onClick={() => onChange(k)} aria-pressed={value === k} data-post-type={k}
@@ -68,10 +73,13 @@ const numIn = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-base focu
 
 // ── Move ─────────────────────────────────────────────────────────────────────
 
-export function MovePanel({ style, move, setMove, defaultPostType, defaultDamagePct, newLine, yard, layoutResult, runSections, widthFt }: {
+export function MovePanel({ style, move, setMove, oldPostsNote, defaultPostType, defaultDamagePct, newLine, yard, layoutResult, runSections, widthFt }: {
   style: QuoteStyle | undefined
+  /** As priced (the old posts' method filled in). */
   move: MoveInputs
-  setMove: (fn: (m: MoveInputs) => MoveInputs) => void
+  /** The saved inputs: the old posts' method is blank until picked by hand. */
+  setMove: (fn: (m: MoveDraft) => MoveDraft) => void
+  oldPostsNote?: string | null
   defaultPostType: PostType
   defaultDamagePct: number
   newLine: { walkGates: number; dblGates: number; footage: number; sections: number }
@@ -82,7 +90,7 @@ export function MovePanel({ style, move, setMove, defaultPostType, defaultDamage
 }) {
   const width = style ? workWidth(style) : 6
   const facts = oldLineFacts(move, width)
-  const set = (patch: Partial<MoveInputs>) => setMove(m => ({ ...m, ...patch }))
+  const set = (patch: Partial<MoveDraft>) => setMove(m => ({ ...m, ...patch }))
   const optNum = (v: string) => (v.trim() === '' ? null : Math.max(0, Number(v) || 0))
   const gates = newLine.walkGates + newLine.dblGates
   const sides = yard ? yard.sides.filter(s => s.on && s.lengthIn > 0) : []
@@ -112,7 +120,7 @@ export function MovePanel({ style, move, setMove, defaultPostType, defaultDamage
           <input type="number" inputMode="decimal" min={0} max={100} className={numIn} value={move.damagePct ?? ''} placeholder={`${defaultDamagePct}% (Settings)`} onChange={e => set({ damagePct: e.target.value.trim() === '' ? null : Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} data-move-damage />
         </label>
       </div>
-      <PostTypePick label={`Old posts are (default from the style: ${defaultPostType === 'nd' ? 'no dig' : 'dig set'})`} value={move.oldPostType} onChange={v => set({ oldPostType: v })} />
+      <PostTypePick label={`The old posts come out of (the style is ${defaultPostType === 'nd' ? 'no dig' : 'dig set'})`} note={oldPostsNote} value={move.oldPostType} onChange={v => set({ oldPostType: v })} />
       <Toggle label="New post caps" hint="Off: the old caps are reused" on={move.newPostCaps} onChange={v => set({ newPostCaps: v })} data="new-caps" />
       {gates > 0 && (
         <div data-move-gates>
@@ -149,10 +157,15 @@ export function MovePanel({ style, move, setMove, defaultPostType, defaultDamage
 
 // ── Repair ───────────────────────────────────────────────────────────────────
 
-export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runSections, widthFt }: {
+export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates, yard, layoutResult, runSections, widthFt }: {
   style: QuoteStyle | undefined
+  /** As priced (the old posts' method filled in). */
   repair: RepairInputs
-  setRepair: (fn: (r: RepairInputs) => RepairInputs) => void
+  /** The saved inputs: the old posts' method is blank until picked by hand. */
+  setRepair: (fn: (r: RepairDraft) => RepairDraft) => void
+  oldPostsNote?: string | null
+  /** Settings' per post rates, for people who see costs (null: the hints say no prices). */
+  postRates?: Pick<MoveRepairSettings, PostRateKey> | null
   yard: YardLayout | null
   layoutResult: LayoutResult | null
   runSections: number[]
@@ -162,7 +175,7 @@ export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runS
   // The list as it was before the offer's Add, for its Undo.
   const [added, setAdded] = useState<{ before: RepairInputs['items']; what: RepairInputs['what'] } | null>(null)
   const offer = starterOffer(repair.what, repair.items)
-  const set = (patch: Partial<RepairInputs>) => setRepair(r => ({ ...r, ...patch }))
+  const set = (patch: Partial<RepairDraft>) => setRepair(r => ({ ...r, ...patch }))
   const qty = (k: RepairItemKey) => repair.items[k] ?? 0
   const setQty = (k: RepairItemKey, n: number) => setRepair(r => ({ ...r, items: { ...r.items, [k]: n } }))
   const choices = style ? repairPartChoices(style) : []
@@ -214,7 +227,7 @@ export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runS
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900">{REPAIR_LABEL[k]}</p>
               {isStarterItem(repair.what, k) && qty(k) > 0 && <p className="text-xs font-semibold text-orange-700">Added by "{WHAT_HAPPENED[repair.what].label}"</p>}
-              <p className="text-xs text-gray-500">{REPAIR_HINT[k]}</p>
+              <p className="text-xs text-gray-500" data-repair-hint={k}>{postRates ? repairHint(k, postRates) : REPAIR_HINT[k]}</p>
             </div>
             <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} />
           </div>
@@ -247,7 +260,7 @@ export function RepairPanel({ style, repair, setRepair, yard, layoutResult, runS
       )}
       {(qty('resetPost') > 0 || qty('replacePost') > 0) && (
         <>
-          <PostTypePick label="The posts are" value={repair.postType} onChange={v => set({ postType: v })} />
+          <PostTypePick label="The old posts come out of" note={oldPostsNote} value={repair.postType} onChange={v => set({ postType: v })} />
           <Toggle label="New post caps" hint="Off: the old caps are reused" on={repair.newPostCaps} onChange={v => set({ newPostCaps: v })} data="new-caps" />
         </>
       )}

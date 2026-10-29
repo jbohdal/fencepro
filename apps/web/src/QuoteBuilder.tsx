@@ -53,7 +53,7 @@ import { isQuotable } from './styleAvailability'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
-  REPAIR_ITEMS, repairLines, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
+  REPAIR_ITEMS, repairLines, oldPostsMethod, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
@@ -609,8 +609,9 @@ export default function QuoteBuilder({
   useEffect(() => { if (signedQuote && init?.id) void refreshChangeOrders(init.id) }, [signedQuote, init?.id])
   // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
   const [jobType, setJobType] = useState<JobType>(init?.work?.type ?? 'new')
-  const [move, setMove] = useState<Omit<MoveInputs, 'oldPostType'> & { oldPostType?: PostType }>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
-  const [repair, setRepair] = useState<Omit<RepairInputs, 'postType'> & { postType?: PostType }>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
+  // The old posts' method stays blank (it follows the style) until picked by hand; a saved quote opens with the one it saved.
+  const [move, setMove] = useState<MoveDraft>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
+  const [repair, setRepair] = useState<RepairDraft>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
   const [offerNewFence, setOfferNewFence] = useState<boolean>(!!init?.work?.newFence?.offered)
   const [offerMoveAsIs, setOfferMoveAsIs] = useState<boolean>(true)
 
@@ -710,8 +711,10 @@ export default function QuoteBuilder({
   // ── Move or repair inputs, and the tier set (the server needs them too) ──
   const mr = moveRepairSettings(cfg)
   const stylePostType: PostType = style ? postTypeOf(style) : 'nd'
-  const moveIn: MoveInputs = { ...move, oldPostType: move.oldPostType ?? stylePostType }
-  const repairIn: RepairInputs = { ...repair, postType: repair.postType ?? stylePostType }
+  const moveOldPosts = oldPostsMethod(move.oldPostType, stylePostType)
+  const repairOldPosts = oldPostsMethod(repair.postType, stylePostType)
+  const moveIn: MoveInputs = { ...move, oldPostType: moveOldPosts.type }
+  const repairIn: RepairInputs = { ...repair, postType: repairOldPosts.type }
   // Good, Better, Best: the tier set for this style's category (Settings → Good Better Best),
   // priced from the same layout, no taps needed. A quote already sent keeps the
   // tiers it was sent with unless "Use current tiers" is tapped.
@@ -1551,13 +1554,13 @@ export default function QuoteBuilder({
             </div>
 
             {jobType === 'move' && (
-              <MovePanel style={style} move={moveIn} setMove={fn => setMove(m => fn({ ...m, oldPostType: m.oldPostType ?? stylePostType }))}
-                defaultPostType={stylePostType} defaultDamagePct={style ? damagePctFor(mr, style.name) : mr.damagePctDefault}
+              <MovePanel style={style} move={moveIn} setMove={setMove} oldPostsNote={moveOldPosts.note}
+                defaultPostType={stylePostType}defaultDamagePct={style ? damagePctFor(mr, style.name) : mr.damagePctDefault}
                 newLine={{ walkGates: effWalk, dblGates: effDbl, footage: totalFootage, sections: work?.sections ?? 0 }}
                 yard={fromLayout ? yard : null} layoutResult={layoutResult} runSections={calc.perRunSections} widthFt={widthFt} />
             )}
             {jobType === 'repair' && (
-              <RepairPanel style={style} repair={repairIn} setRepair={fn => setRepair(r => fn({ ...r, postType: r.postType ?? stylePostType }))}
+              <RepairPanel style={style} repair={repairIn} setRepair={setRepair} oldPostsNote={repairOldPosts.note} postRates={internal ? mr : null}
                 yard={fromLayout ? yard : null} layoutResult={layoutResult} runSections={calc.perRunSections} widthFt={widthFt} />
             )}
 

@@ -614,13 +614,46 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
 
 export const REPAIR_HINT: Record<RepairItemKey, string> = {
   resetPost: 'Pull it, new post and setting material, rehang the sections on it',
-  replacePost: 'New post and setting material; dig set adds the concrete pull and disposal',
+  replacePost: 'New post and setting material; the old post is pulled and hauled away',
   repairSection: 'New pickets or rails only, reuse what is good',
   replaceSection: 'A whole new section',
   rehangGate: 'New hinges and latch',
   replaceGate: 'The whole gate kit',
   haulDebris: 'At the tear out rate per section',
   footerDisposal: 'Per post: haul off the concrete footer',
+}
+
+/**
+ * The hint under a repair item on the quote builder, for people who see costs:
+ * the post items add what pulling and hauling the old post costs, read from
+ * Settings > Moves and Repairs (never typed in here, so a rate change shows).
+ * Since Oct 29 2026 no dig posts are charged too, not only dig set ones.
+ */
+export function repairHint(k: RepairItemKey, s: Pick<MoveRepairSettings, PostRateKey>): string {
+  if (k !== 'resetPost' && k !== 'replacePost') return REPAIR_HINT[k]
+  const r = (c: number | null) => (c === null ? 'not set' : usd(c / 100))
+  return `${REPAIR_HINT[k]}. Pull and haul the old post: no dig ${r(s.pullNdLaborCents)} + ${r(s.pullNdDisposalCents)}, dig set ${r(s.pullDsLaborCents)} + ${r(s.pullDsDisposalCents)} (Settings > Moves and Repairs)`
+}
+
+/** A move or repair being entered: the old posts' method is blank until picked by hand (or loaded from a saved quote). */
+export type MoveDraft = Omit<MoveInputs, 'oldPostType'> & { oldPostType?: PostType }
+export type RepairDraft = Omit<RepairInputs, 'postType'> & { postType?: PostType }
+
+const METHOD_WORD: Record<PostType, string> = { nd: 'No dig', ds: 'Dig set' }
+
+/**
+ * How the OLD posts come out (what pulling and hauling them is priced at).
+ * Not picked by hand: the style's install method, so a style change moves it
+ * too (review Oct 29 2026: a No dig start switched to Dig set kept pricing the
+ * old posts as no dig, $16 a post too cheap in cost). Picked by hand, or saved with
+ * the quote: that pick stays, and a note says when it differs from the style.
+ */
+export function oldPostsMethod(picked: PostType | null | undefined, styleType: PostType): { type: PostType; byHand: boolean; note: string | null } {
+  if (picked !== 'nd' && picked !== 'ds') return { type: styleType, byHand: false, note: null }
+  return {
+    type: picked, byHand: true,
+    note: picked === styleType ? null : `Old posts: ${METHOD_WORD[picked]}. New fence: ${METHOD_WORD[styleType]}. Check the old posts.`,
+  }
 }
 
 /** What each "What happened?" answer starts the list with. */
