@@ -261,7 +261,7 @@ async function bookByStaff(req: any, res: any) {
     const d = createSchema.parse(req.body)
     const accountId = req.user.crmAccountId
     const contact = await prisma.crmContact.findFirst({ where: { id: d.crmContactId, accountId, deletedAt: null }, select: { id: true, serviceAddress: true } })
-    if (!contact) { res.status(400).json({ success: false, error: 'That customer is not saved on the server yet. It will be booked once the customer is.' }); return }
+    if (!contact) { res.status(400).json({ success: false, code: 'CUSTOMER_NOT_SAVED', error: 'That customer is not saved on the server yet. It will be booked once the customer is.' }); return }
     // Sent again because the phone did not hear the answer: the first one stands.
     if (d.id) {
       const already = await prisma.appointment.findFirst({ where: { id: d.id, accountId }, include: { contact: { select: contactSelect } } })

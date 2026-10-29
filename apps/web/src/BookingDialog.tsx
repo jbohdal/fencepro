@@ -41,6 +41,9 @@ import { SaveStatus } from './SaveStatus'
 import { useBookingTeam } from './bookingTeamStore'
 import { newBookingMemberOf, memberOf, isWith, homeOf } from './bookingTeamModel'
 import { signedInUserId } from './crmAuth'
+import { loadSchedule, isScheduleHydrated } from './scheduleStore'
+import { fetchWeekendJobs } from './installScheduleApi'
+import { crewDaysOfWeek, crewDayProblem } from '../../portal/src/server/lib/installDays'
 
 export interface BookingRequest {
   customerId?: string
@@ -142,6 +145,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [newBookingId] = useState(() => crypto.randomUUID())
   const [booked, setBooked] = useState<(Appointment & { pending?: boolean }) | null>(null)
   const [search, setSearch] = useState('')
+  // The server turned the booking down and said why (an install on a day the crew does not work): shown here,
+  // and the dialog stays open to change the day. Nothing was kept on the phone.
+  const [refused, setRefused] = useState('')
 
   // The customer's address until another property is typed in.
   useEffect(() => { if (!existing && customer && !address) setAddress(customer.serviceAddress || '') }, [customerId])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -235,12 +241,31 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   }
   const timeChanged = !!existing && (existing.startAt || null) !== (startAt?.toISOString() ?? null)
 
+  // An install on a job goes on crew days only, as the server rules (portal lib/installBooking.ts): the days in
+  // Schedule > Settings, every day for a job booked "The crew works weekends on this job". Said before Book; the
+  // server still decides (without the Schedule settings or the weekend jobs read, nothing is said here).
+  const installJobId = type === 'install' && jobId ? jobId : ''
+  const [weekendJobs, setWeekendJobs] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!installJobId || weekendJobs) return
+    let live = true
+    void fetchWeekendJobs().then(r => { if (live && r.ok) setWeekendJobs(r.data) })
+    return () => { live = false }
+  }, [installJobId])  // eslint-disable-line react-hooks/exhaustive-deps
+  const notCrewDay = installJobId && startAt && weekendJobs && isScheduleHydrated()
+    ? crewDayProblem(date, crewDaysOfWeek(loadSchedule().settings.workDays, weekendJobs.includes(installJobId)))
+    : null
+  const startOk = !existing || existing.type !== 'install' || existing.jobId !== installJobId || timeChanged
+  const dayProblem = notCrewDay && startOk ? notCrewDay : null
+  useEffect(() => { setRefused('') }, [date, time, minutes, type, jobId, personId])
+
   async function save() {
     if (!customerId) return
     // Book tapped twice before the button greys out: the second tap does nothing.
-    if (inFlight.current) return
+    if (inFlight.current || dayProblem) return
     inFlight.current = true
     setSaving(true)
+    setRefused('')
     const body = {
       type, address,
       // The login and its name; an appointment kept with a former team member sends what it had (no change).
@@ -249,9 +274,10 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
       // An install, or a service or warranty visit opened from a job (a service request): on that job.
       jobId: (type === 'install' || ((type === 'service' || type === 'warranty') && !!req.jobId)) && jobId ? jobId : null, quoteId: existing?.quoteId ?? req.quoteId ?? null,
     }
+    const onRefused = (why: string) => setRefused(why)
     const saved = existing
-      ? await updateAppointment(existing.id, body, timeChanged ? reason || 'Rescheduled' : undefined)
-      : await createAppointment({ id: newBookingId, crmContactId: customerId, ...body })
+      ? await updateAppointment(existing.id, body, timeChanged ? reason || 'Rescheduled' : undefined, { onRefused })
+      : await createAppointment({ id: newBookingId, crmContactId: customerId, ...body }, { onRefused })
     inFlight.current = false
     setSaving(false)
     if (!saved) return
@@ -536,7 +562,12 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
               )}
               {warnings.map(w => <p key={w} className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2" data-warning>⚠ {w}</p>)}
 
-              <button onClick={save} disabled={!customerId || saving || (!allDay && !time)} data-save
+              {(dayProblem || refused) && (
+                <p className="text-sm bg-red-50 text-red-800 border border-red-200 rounded-lg px-3 py-2" role="alert" data-booking-refused={refused ? 'server' : 'day'}>
+                  {refused ? <><b>{existing ? 'Not changed.' : 'Not booked.'}</b> {refused}</> : dayProblem}
+                </p>
+              )}
+              <button onClick={save} disabled={!customerId || saving || (!allDay && !time) || !!dayProblem} data-save
                 className="btn btn-primary btn-lg w-full disabled:opacity-40">
                 {saving ? 'Saving…' : existing ? 'Save changes' : 'Book'}
               </button>

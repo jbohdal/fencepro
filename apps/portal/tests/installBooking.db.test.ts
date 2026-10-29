@@ -22,6 +22,7 @@ import type { AddressInfo } from 'net'
 import type { Server } from 'http'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { scheduleChangedSince, appointmentCrewDays, setsInstallDate } from '../src/server/lib/installBooking'
+import { crewDayProblem, crewDaysOfWeek } from '../src/server/lib/installDays'
 
 describe('install booking helpers', () => {
   test('an install on a job that still stands sets the install date', () => {
@@ -38,6 +39,18 @@ describe('install booking helpers', () => {
     // Thu to Mon midnight: Thu (Fri, Sat, Sun are not crew days).
     expect(appointmentCrewDays({ allDay: true, startAt: new Date('2026-11-12T05:00:00Z'), endAt: new Date('2026-11-16T05:00:00Z') }, week)).toBe(1)
     expect(appointmentCrewDays({ allDay: false, startAt: new Date('2026-11-09T13:00:00Z'), endAt: new Date('2026-11-09T15:00:00Z') }, week)).toBeNull()
+  })
+  test('crewDayProblem: the one rule the server and the booking dialog use', () => {
+    const week = crewDaysOfWeek(null)
+    expect(crewDayProblem('2026-11-02', week)).toBeNull()
+    expect(crewDayProblem('2026-10-29', week)).toBeNull()
+    expect(crewDayProblem('2026-10-30', week)).toBe('Installs go on crew days (Monday to Thursday). Fri, Oct 30 is not one. Pick a crew day, or book it on the Schedule with "The crew works weekends on this job" ticked.')
+    expect(crewDayProblem('2026-10-31', week)).toMatch(/Sat, Oct 31 is not one/)
+    expect(crewDayProblem('2026-11-01', week)).toMatch(/Sun, Nov 1 is not one/)
+    // Friday ticked in Schedule settings; a job booked weekends too.
+    expect(crewDayProblem('2026-10-30', crewDaysOfWeek([1, 2, 3, 4, 5]))).toBeNull()
+    expect(crewDayProblem('2026-10-31', crewDaysOfWeek([1, 2, 3, 4, 5]))).toMatch(/^Installs go on crew days \(Monday to Friday\)/)
+    expect(crewDayProblem('2026-11-01', crewDaysOfWeek(null, true))).toBeNull()
   })
   test('the schedule changed since the booking: another day, crew, stage or board entry', () => {
     const after = { scheduledDate: '2026-11-02', scheduledEndDate: '2026-11-02', status: 'scheduled', opsStage: 'scheduled', crewAssigned: 'Crew 1', estimatedDays: 1, grid: [{ date: '2026-11-02', crewId: 'c1' }] }

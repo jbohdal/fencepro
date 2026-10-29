@@ -274,6 +274,16 @@ export function weekWords(days: number[]): string {
   return names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
+/**
+ * Why an install cannot start on `day` (not a crew day of `week`), in the words the booking shows, or null.
+ * The server refuses a booking with it (lib/installBooking.ts); the booking dialog says it before sending.
+ */
+export function crewDayProblem(day: Ymd, week: number[]): string | null {
+  if (!isYmd(day) || isCrewDay(day, week)) return null
+  const when = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' })
+  return `Installs go on crew days (${weekWords(week)}). ${when} is not one. Pick a crew day, or book it on the Schedule with "The crew works weekends on this job" ticked.`
+}
+
 /** "Thu 12/3" */
 export function shortDayWords(day: Ymd): string {
   return isYmd(day) ? `${DAY_LONG[weekdayOf(day)].slice(0, 3)} ${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}` : day

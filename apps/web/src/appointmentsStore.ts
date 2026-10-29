@@ -153,6 +153,24 @@ const apptKey = (id: string) => `appointment:${id}`
 /** How long a booking waits for the server before saying it is kept on the phone. */
 const CONFIRM_WAIT_MS = 10_000
 
+/**
+ * Bookings and changes the server turned down with a reason (outbox refusedWithReason: an install on a day the
+ * crew does not work, a job that is gone). They are off the phone already; the reason waits here for the screen
+ * that made the change (settle), keyed by appointment id.
+ */
+const refusals = new Map<string, string>()
+/** Appointments a screen is waiting on right now (settle): a refusal for one of them is shown there, not as a toast. */
+const settling = new Set<string>()
+
+/** How a screen hears that the server turned its booking or change down, and why. Without it: a toast. */
+export interface SaveOptions { onRefused?: (reason: string) => void }
+
+function tellRefused(id: string, title: string, reason: string) {
+  if (settling.has(id)) { refusals.set(id, reason); return }
+  // Turned down after the screen stopped waiting (slow signal): said where it is seen.
+  toast.error(title, reason)
+}
+
 function failedMessage(key: string): string | null {
   const st = statusOf([key])
   return st.status === 'failed' ? st.error ?? 'The server did not accept it.' : null
@@ -163,7 +181,7 @@ function failedMessage(key: string): string | null {
  * the server confirms it, or marked `pending` when there is no signal (it is
  * booked by itself later). Null only when the server refused it.
  */
-export async function createAppointment(input: NewAppointment & { id?: string }): Promise<ShownAppointment | null> {
+export async function createAppointment(input: NewAppointment & { id?: string }, opts: SaveOptions = {}): Promise<ShownAppointment | null> {
   // The screen's own id when it has one (chosen when the dialog opened), so a second tap is the same booking.
   const id = input.id && input.id.length >= 8 ? input.id : newId()
   const c = getCustomerById(input.crmContactId)
@@ -178,12 +196,22 @@ export async function createAppointment(input: NewAppointment & { id?: string })
   }
   put(local)
   const waitFor = pendingFor(`customer:${input.crmContactId}`).some(o => o.kind === 'customer.create') ? [`customer:${input.crmContactId}`] : []
+  settling.add(id)
   await enqueue<ApptCreate>({ key: apptKey(id), kind: 'appointment.create', payload: { input: { ...input, id }, local }, label: `${local.customerName || 'Appointment'}, ${input.type} booked`, after: waitFor })
-  return settle(id)
+  return settle(id, 'Appointment not booked', opts)
 }
 
-async function settle(id: string): Promise<ShownAppointment | null> {
-  const done = await whenSaved(apptKey(id), CONFIRM_WAIT_MS)
+async function settle(id: string, refusedTitle: string, opts: SaveOptions): Promise<ShownAppointment | null> {
+  settling.add(id)
+  let done: boolean
+  try { done = await whenSaved(apptKey(id), CONFIRM_WAIT_MS) } finally { settling.delete(id) }
+  const refused = refusals.get(id)
+  if (refused !== undefined) {
+    refusals.delete(id)
+    if (opts.onRefused) opts.onRefused(refused)
+    else toast.error(refusedTitle, refused)
+    return null
+  }
   const failed = failedMessage(apptKey(id))
   if (failed) { toast.error('Appointment not saved', failed); return null }
   const a = getAppointment(id)
@@ -199,7 +227,7 @@ export type AppointmentChanges = Partial<Pick<Appointment,
  * Shown at once and kept on this phone. Null when the server refused it
  * (changed on another device first: the screen then shows that change).
  */
-export async function updateAppointment(id: string, changes: AppointmentChanges, reason?: string): Promise<ShownAppointment | null> {
+export async function updateAppointment(id: string, changes: AppointmentChanges, reason?: string, opts: SaveOptions = {}): Promise<ShownAppointment | null> {
   const cur = getAppointment(id)
   if (!cur) return null
   const local: Appointment = { ...cur, ...changes } as Appointment
@@ -207,12 +235,19 @@ export async function updateAppointment(id: string, changes: AppointmentChanges,
   const otherPerson = ('assignedToUserId' in changes && changes.assignedToUserId !== cur.assignedToUserId) || ('assignedTo' in changes && changes.assignedTo !== cur.assignedTo)
   if (otherPerson) { local.rep = undefined; if (!('assignedToUserId' in changes)) local.assignedToUserId = null }
   put(local)
+  settling.add(id)
   await enqueue<ApptChange>({ key: apptKey(id), kind: 'appointment.update', payload: { id, changes, reason, local }, label: `${cur.customerName || 'Appointment'}, appointment changes`, coalesce: false })
-  return settle(id)
+  return settle(id, 'Appointment not changed', opts)
 }
 
 registerKind<ApptCreate>('appointment.create', {
   refused: () => { void refreshAppointments() },
+  // Turned down with a reason (an install on a day the crew does not work): never booked, so off this phone's list.
+  refusedWithReason: (op, reason) => {
+    const id = op.payload.local.id
+    if (cache.some(a => a.id === id)) { cache = cache.filter(a => a.id !== id); emit() }
+    tellRefused(id, 'Appointment not booked', reason)
+  },
   what: () => 'This appointment',
   send: op => sendJson('POST', '/api/appointments', op.payload.input).then(r => r.result),
   confirmed: (_op, data) => { if (data) put(data as Appointment) },
@@ -221,6 +256,11 @@ registerKind<ApptCreate>('appointment.create', {
 
 registerKind<ApptChange>('appointment.update', {
   refused: () => { void refreshAppointments() },
+  // Turned down with a reason (moved onto a day the crew does not work): the server's copy goes back on screen.
+  refusedWithReason: (op, reason) => {
+    void refreshAppointmentsFor(op.payload.local.crmContactId)
+    tellRefused(op.payload.id, 'Appointment not changed', reason)
+  },
   what: () => 'This change to the appointment',
   send: async (op: Op<ApptChange>) => {
     // Built on the copy the server last confirmed (earlier changes from this phone go first).
