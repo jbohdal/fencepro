@@ -9,6 +9,9 @@
  *   #32 The signed contract says Getter Done Fence obtains the permits (Settings as saved on live had the
  *       customer get it, frozen on the sent proposal too).
  *   A sale from before the rules began (Oct 20, $7,113.83): billed and printed to the cent, its terms as signed.
+ *   The job's price (review, Oct 29): a sale signed on the link, or marked Sold in the app (POST /api/saved-jobs, as
+ *       an older phone sends the quote's cents), or a job whose schedule settles, reads the whole dollar the customer
+ *       saw and is billed; deposit + final = the job's contract. A sale from before keeps its job price to the cent.
  *
  * Writes only inside beforeAll, test and afterAll; removes what it made.
  */
@@ -17,6 +20,9 @@ import 'dotenv/config'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import express from 'express'
+import jwt from 'jsonwebtoken'
+import type { AddressInfo } from 'net'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { pdfText } from './pdfText'
 
@@ -27,6 +33,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
   const billing = await import('../src/server/lib/contractBilling.js')
   const { contractForQuote, CONTRACT_SELECT } = await import('../src/server/lib/contractPdf.js')
   const { CUSTOMER_DOLLARS_KEY } = await import('../src/server/lib/customerDollars.js')
+  const { default: savedJobs } = await import('../src/server/routes/saved-jobs.js')
+  const { resolveSecret } = await import('../src/server/lib/secrets.js')
 
   // Settings → Contract Templates as saved on live (Oct 29 2026).
   const PAYMENT = 'A 50% deposit is required to schedule the project. The remaining balance is due upon completion. We accept cash, check, ACH, and major credit cards.'
@@ -39,6 +47,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
   const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
   let accountId = ''
+  let owner = '', base = ''
+  let server: ReturnType<express.Express['listen']> | null = null
+  const post = (p: string, body: unknown) => fetch(base + p, { method: 'POST', headers: { Authorization: `Bearer ${owner}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json() as any }))
+  /** The job as Operations reads it, and its schedule: deposit + final must be the job's contract to the cent. */
+  const jobAndBill = async (jobId: string) => {
+    const job = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    const s = await billing.scheduleView(accountId, jobId)
+    return { job, s, billedCents: s.invoices.reduce((t: number, i: any) => t + i.amountCents, 0) }
+  }
   const quotes: string[] = []
   const by = { userId: null, name: 'E2E test' }
 
@@ -73,9 +90,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
     const before = new Date(Date.now() - 60_000).toISOString()
     await prisma.accountKeyValue.create({ data: { accountId, key: 'billing:schedules-from', value: before } })
     await prisma.accountKeyValue.create({ data: { accountId, key: CUSTOMER_DOLLARS_KEY, value: before } })
+    // The office's phone, signed in to this test company, saving a job the way the app does (routes/saved-jobs.ts).
+    const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
+    owner = jwt.sign({ sub: user.id, email: user.email, role: 'super_admin', crmAccountId: accountId }, resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me'), { expiresIn: '10m' })
+    const app = express()
+    app.use(express.json({ limit: '2mb' }))
+    app.use('/api/saved-jobs', savedJobs)
+    server = app.listen(0)
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
 
   afterAll(async () => {
+    server?.close()
     if (!accountId) return
     const jobs = (await prisma.savedJob.findMany({ where: { accountId }, select: { id: true } })).map(j => j.id)
     const docs = await prisma.signedDocument.findMany({ where: { accountId } })
@@ -90,6 +116,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: [...jobs, ...quotes] } } }).catch(() => {})
     await prisma.savedJob.deleteMany({ where: { accountId } })
     await prisma.jobQuotedCost.deleteMany({ where: { quoteId: { in: quotes } } })
+    await prisma.inventoryPendingOrder.deleteMany({ where: { quoteId: { in: quotes } } }).catch(() => {})
     await prisma.proposalView.deleteMany({ where: { quoteId: { in: quotes } } }).catch(() => {})
     await prisma.notification.deleteMany({ where: { title: { startsWith: 'Proposal accepted: E2E Oct29' } } })
     await prisma.savedQuote.deleteMany({ where: { accountId } })
@@ -112,8 +139,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
     expect(s.signedCents).toBe(553_200)
     expect(s.contractCents).toBe(553_200)
     expect(kinds(s)).toEqual([['deposit', 276_600], ['final', 276_600]])
-    // The job follows the schedule's contract.
-    expect((await prisma.savedJob.findUnique({ where: { id: job.id } }))!.contractValue).toBe(5532)
+    // The job reads what the customer signed and is billed: its price and its contract, never the quote's cents.
+    const j = await jobAndBill(job.id)
+    expect(j.job.quotePrice).toBe(5532)
+    expect(j.job.contractValue).toBe(5532)
+    expect(j.billedCents).toBe(Math.round(j.job.contractValue * 100))
     // The quote keeps its price as priced (a sent quote is never repriced); the customer is billed what was shown.
     expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.finalPrice).toBe(5532.39)
     // Frozen at signing: the terms as the page showed them.
@@ -156,6 +186,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
     const s = await billing.scheduleView(accountId, job.id)
     expect(s.signedCents).toBe(711_383)
     expect(kinds(s)).toEqual([['deposit', 355_692], ['final', 355_691]])
+    // Its job is exactly as it was: the price to the cent, deposit + final = its contract.
+    const j = await jobAndBill(job.id)
+    expect(j.job.quotePrice).toBe(7113.83)
+    expect(j.job.contractValue).toBe(7113.83)
+    expect(j.billedCents).toBe(711_383)
     const text = await contractText(q.id)
     expect(text).toContain('Price $7,113.83')
     expect(text).toContain('50% to schedule: $3,556.92')
@@ -164,5 +199,53 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
     // Its page (sold, not signed on the link) shows the terms as signed too.
     const { p } = await proposalPage(q as any, q.proposal as any, true)
     expect(p.terms!.find(t => t.key === 'permits')!.text).toBe(PERMIT_OLD)
+  })
+
+  test('marked Sold in the app: the job reads the whole dollar, from any phone, and deposit + final = its contract', async () => {
+    // An older phone copies the quote's cents ($5,532.39); the new one sends the whole dollar ($5,532, web jobPrice.ts).
+    for (const [name, sent] of [['E2E Oct29 App Old Phone', 5532.39], ['E2E Oct29 App New Phone', 5532]] as const) {
+      const q = await sentQuote(name, [5532.39], 50, { status: 'SOLD', soldAt: new Date() })
+      const r = await post('/api/saved-jobs', { quoteId: q.id, customerName: q.customerName, customerAddress: q.customerAddress, fenceStyle: q.fenceStyle, quotePrice: sent, contractValue: sent, status: 'staging' })
+      expect(r.status).toBe(201)
+      expect(r.json.data.quotePrice).toBe(5532)
+      expect(r.json.data.contractValue).toBe(5532)
+      const j = await jobAndBill(r.json.data.id)
+      expect(j.job.quotePrice).toBe(5532)
+      expect(j.job.contractValue).toBe(5532)
+      expect(kinds(j.s)).toEqual([['deposit', 276_600], ['final', 276_600]])
+      expect(j.billedCents).toBe(553_200)
+      // The quote keeps its own price as priced.
+      expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.finalPrice).toBe(5532.39)
+    }
+  })
+
+  test('a price typed by hand on a sold job is left as typed (only a copy of the quote price is corrected)', async () => {
+    const q = await sentQuote('E2E Oct29 App Typed', [5532.39], 50, { status: 'SOLD', soldAt: new Date() })
+    const r = await post('/api/saved-jobs', { quoteId: q.id, customerName: q.customerName, quotePrice: 5000, contractValue: 5000, status: 'staging' })
+    expect(r.status).toBe(201)
+    expect(r.json.data.quotePrice).toBe(5000)
+  })
+
+  test("a job made with the quote's cents before this fix: its price follows the schedule when it settles", async () => {
+    const q = await sentQuote('E2E Oct29 Settles', [7113.83], 50, { status: 'SOLD', soldAt: new Date() })
+    const job = await prisma.savedJob.create({ data: { accountId, quoteId: q.id, customerName: q.customerName, quotePrice: 7113.83, contractValue: 7113.83 } as any })
+    await billing.ensureSchedule(accountId, job.id, 'sold', by)
+    const j = await jobAndBill(job.id)
+    expect(j.s.signedCents).toBe(711_400)
+    expect(j.job.quotePrice).toBe(7114)
+    expect(j.job.contractValue).toBe(7114)
+    expect(kinds(j.s)).toEqual([['deposit', 355_700], ['final', 355_700]])
+    expect(j.billedCents).toBe(Math.round(j.job.contractValue * 100))
+  })
+
+  test('a sale from before the rules began, its job made in the app: kept to the cent', async () => {
+    // Even a phone that rounded it gets the price as it was signed.
+    for (const sent of [7113.83, 7114]) {
+      const q = await sentQuote(`E2E Oct29 Before App ${sent}`, [7113.83], 50, { status: 'SOLD', soldAt: new Date('2026-10-20T15:00:00Z') })
+      const r = await post('/api/saved-jobs', { quoteId: q.id, customerName: q.customerName, quotePrice: sent, contractValue: sent, status: 'staging' })
+      expect([200, 201]).toContain(r.status)
+      expect(r.json.data.quotePrice).toBe(7113.83)
+      expect(r.json.data.contractValue).toBe(7113.83)
+    }
   })
 })

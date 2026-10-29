@@ -13,7 +13,8 @@
 import { describe, test, expect } from 'vitest'
 import { termsAsAsked, askedDepositPct, stampTerms, proposalTerms, contractSectionsOf, DEFAULT_CONTRACT_SECTIONS, PERMIT_SENTENCE, OLD_PERMIT_SENTENCE } from '../../web/src/contractTerms'
 import { askedDepositPct as serverAsked, customerDepositCents, shownDollarCents } from '../src/server/lib/paymentMath'
-import { depositPctOf } from '../src/server/lib/contractBilling'
+import { depositPctOf, shownJobPriceOf } from '../src/server/lib/contractBilling'
+import { jobPriceOfQuote } from '../../web/src/jobPrice'
 import { onCustomerDollars, signedAtOf } from '../src/server/lib/customerDollars'
 import { contractPdf } from '../src/server/lib/contractPdf'
 import { pdfText } from './pdfText'
@@ -112,5 +113,35 @@ describe('a contract signed before the rules began opens as it was signed', () =
     expect(now).not.toContain('the customer is responsible for obtaining')
     expect(now).toContain(`Price $${(shownDollarCents(553_239) / 100).toLocaleString('en-US')}.00`)
     expect(now).toContain('50% to schedule: $2,766.00')
+  })
+})
+
+describe("D1: a sale's job carries the whole dollar the customer saw (job price review, Oct 29 2026)", () => {
+  const from = new Date('2026-10-29T12:00:00Z')
+  const quote = (over: Record<string, unknown> = {}) => ({ id: 'q', status: 'SOLD', acceptedAt: null, soldAt: new Date('2026-10-29T15:00:00Z'), finalPrice: 7113.83, proposal: null, chosenOption: null, fenceStyle: 'WV', ...over }) as any
+
+  test('marked Sold after the rules began: the whole dollar, as the billing works it out', () => {
+    expect(shownJobPriceOf(quote(), from)).toBe(7114)
+    expect(shownJobPriceOf(quote({ finalPrice: 7113.49 }), from)).toBe(7113)
+    expect(shownJobPriceOf(quote({ finalPrice: 5532 }), from)).toBe(5532)
+  })
+
+  test('accepted on the link: the chosen option, to the whole dollar', () => {
+    const proposal = { options: [{ finalPrice: 5532.39 }, { finalPrice: 4669.9 }] }
+    expect(shownJobPriceOf(quote({ acceptedAt: new Date('2026-10-29T15:00:00Z'), proposal, chosenOption: 1, finalPrice: 4669.9 }), from)).toBe(4670)
+  })
+
+  test('signed before the rules began, or no price: none (the job keeps its price to the cent)', () => {
+    expect(shownJobPriceOf(quote({ soldAt: new Date('2026-10-20T15:00:00Z') }), from)).toBeNull()
+    expect(shownJobPriceOf(quote({ soldAt: null }), from)).toBeNull()
+    expect(shownJobPriceOf(quote({ finalPrice: 0 }), from)).toBeNull()
+    expect(shownJobPriceOf(null, from)).toBeNull()
+  })
+
+  test("the phone's new job: sold now, the whole dollar; sold before, as priced (the server decides it)", () => {
+    expect(jobPriceOfQuote({ finalPrice: 7113.83 })).toBe(7114)
+    expect(jobPriceOfQuote({ finalPrice: 7113.83, soldAt: null })).toBe(7114)
+    expect(jobPriceOfQuote({ finalPrice: 7113.49 })).toBe(7113)
+    expect(jobPriceOfQuote({ finalPrice: 7113.83, soldAt: '2026-10-20T15:00:00Z' })).toBe(7113.83)
   })
 })
