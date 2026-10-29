@@ -38,7 +38,8 @@ import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
 import { findPossibleMatches } from '../lib/customerMerge.js'
 import { salesScopeOf } from '../lib/salesScope.js'
-import { repForSave } from '../lib/salesRep.js'
+import { repForSave, sameName } from '../lib/salesRep.js'
+import { loginForRep, moveCallbacks } from '../lib/leadCallback.js'
 
 const router = Router()
 
@@ -318,6 +319,11 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
         isCompleted: data.isCompleted,
       },
     })
+    // A new Sales rep: the customer's open call back goes with it (Jonathan, Oct 29 2026, D7; lib/leadCallback.ts).
+    if (data.salesRep !== undefined && updated.salesRep?.trim() && !sameName(updated.salesRep, existing.salesRep)) {
+      const to = await loginForRep(req.user.crmAccountId, updated.salesRep)
+      if (to) await moveCallbacks(req.user.crmAccountId, updated.id, to)
+    }
     await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: updated })
     res.json({ success: true, data: updated })
   } catch (err) {
