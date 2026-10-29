@@ -55,7 +55,8 @@ async function invite(role, label) {
   const password = `Gc-${crypto.randomBytes(9).toString('base64url')}`
   const acc = await call('', 'POST', '/api/crm-auth/accept-invite', { token: new URL(inv.json.data.inviteUrl).searchParams.get('token'), email, password })
   if (!acc.json?.data?.accessToken) throw new Error(`accept invite ${role}: ${acc.status} ${acc.text.slice(0, 200)}`)
-  return { role, email, password }
+  const me = await call(acc.json.data.accessToken, 'GET', '/api/crm-auth/me')
+  return { role, email, password, token: acc.json.data.accessToken, userId: me.json?.data?.id ?? null }
 }
 
 let chrome, safari
@@ -162,6 +163,9 @@ async function main() {
 
     const card = await officeAddsLead(O, 'GREENCHECK', `${TODAY} Green Yard`, '3525550109')
     check(!!card, `office added the lead (card ${card.stage})`)
+    // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the office assigns it.
+    const assigned = await call(office.token, 'POST', `/api/lead-assign/${card.customerId}`, { to: sales.userId })
+    check(assigned.status === 200, `office assigned the lead to the Salesman (${assigned.status}${assigned.status === 200 ? '' : ' ' + assigned.text.slice(0, 200)})`)
 
     // The Salesman quotes from the card on her phone.
     let page = await go(S, `/pipeline?card=${encodeURIComponent(card.id)}`)

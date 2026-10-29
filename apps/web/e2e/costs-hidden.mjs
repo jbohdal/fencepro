@@ -44,7 +44,7 @@ const call = async (token, method, p, body) => {
 }
 const owner = (m, p, b) => call(OWNER, m, p, b)
 const stamp = Date.now().toString(36).slice(-6)
-const made = { users: [] }
+const made = { users: [], quotes: [] }
 
 // ── What must never reach the Installer ──
 const COST_FIELDS = ['unitCost', 'fallbackCost', 'materialCost', 'laborCost', 'tearOutCost', 'totalCOGS', 'gmPct', 'grossMargin', 'margin', 'margins',
@@ -127,6 +127,13 @@ try {
   const office = await invite('office_staff', `Office ${stamp}`)
   const crew = await invite('field_crew', `Installer ${stamp}`)
   check('logins: a Salesman, an Office Staff and an Installer', !!sales.token && !!office.token && !!crew.token)
+  // The Salesman sees only the Salesman's own and assigned quotes (lib/salesScope.ts, Oct 28 2026): a copy of the
+  // costed quote with the Salesman as its Sales rep, no customer, removed at the end.
+  const { id: _id, crmContactId: _c, shareToken: _t, acceptedAt: _a, createdAt: _ca, updatedAt: _u, ownerId: _o, ...copy } = costed
+  const salesQuote = (await owner('POST', '/api/saved-quotes', { ...copy, crmContactId: null, customerName: `E2E Costs ${stamp}`, salesRep: `E2E Salesman ${stamp}`, status: 'DRAFT' })).json.data
+  if (salesQuote?.id) made.quotes.push(salesQuote.id)
+  check('setup: a quote of the Salesman\'s with the same costs', !!salesQuote?.id && salesQuote.totalCOGS === costed.totalCOGS && salesQuote.finalPrice === costed.finalPrice, `${salesQuote?.totalCOGS} ${salesQuote?.finalPrice}`)
+  check('salesman: a quote not the Salesman\'s is not found (404)', (await call(sales.token, 'GET', `/api/saved-quotes/${costed?.id}`)).status === 404)
 
   // ── 2. Straight to the server ──
   const reads = ['/api/business-state', '/api/inventory-state', '/api/saved-quotes', '/api/saved-jobs', '/api/kv', '/api/vendor-state', '/api/tier-sets', '/api/pipeline', '/api/schedule/jobs', '/api/schedule/ready']
@@ -146,9 +153,9 @@ try {
   const qp = await call(crew.token, 'POST', '/api/quote-pricing', { request: { fenceStyle: "WV-ND 6'x8' Privacy", runs: [{ ft: 120, rail: 'auto' }], corners: 2, ends: 2, walkGates: 1, dblGates: 0, overrides: {}, jobType: 'new' } })
   refused.push(['/api/quote-pricing', qp.status])
   check('installer: the money routes, papers with prices and customers\' messages refuse it', refused.every(([, s]) => s === 403), JSON.stringify(refused))
-  for (const [who, t] of [['salesman', sales], ['office', office]]) {
+  for (const [who, t, qid] of [['salesman', sales, salesQuote?.id], ['office', office, costed?.id]]) {
     const i = (await call(t.token, 'GET', '/api/inventory-state')).text
-    const q = (await call(t.token, 'GET', `/api/saved-quotes/${costed?.id}`)).json.data
+    const q = (await call(t.token, 'GET', `/api/saved-quotes/${qid}`)).json.data
     check(`${who}: sees costs and prices, as the owner does`, costRe.test(i) && valueHits(i).length > 5 && q?.totalCOGS === costed?.totalCOGS && q?.finalPrice === costed?.finalPrice)
   }
   check('office: vendor invoices open', (await call(office.token, 'GET', '/api/vendor-invoices')).status === 200)
@@ -169,7 +176,7 @@ try {
 
   // ── 4. The Salesman and the office see the costs ──
   const s = await signedIn(sales, true)
-  await go(s.page, `/quotes?qv=${costed.id}`)
+  await go(s.page, `/quotes?qv=${salesQuote.id}`)
   await s.page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
   const sd = await s.page.locator('[data-quote-drawer]').innerText().catch(() => '')
   check('salesman: the quote shows its margin and cost breakdown', /margin/i.test(sd) && /Material cost/.test(sd), sd.slice(0, 80))
@@ -188,6 +195,7 @@ try {
 } finally {
   const users = (await owner('GET', '/api/crm-auth/users')).json.data ?? []
   for (const u of users.filter(x => made.users.includes(x.email))) await owner('DELETE', `/api/crm-auth/users/${u.id}`).catch(() => {})
+  for (const id of made.quotes) await owner('DELETE', `/api/saved-quotes/${id}`).catch(() => {})
   await chrome.close(); await safari.close()
 }
 const failed = results.filter(r => !r).length

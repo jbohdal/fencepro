@@ -70,10 +70,10 @@ const state = async (c) => {
 const until = async (c, test, tries = 16) => { let s; for (let i = 0; i < tries; i++) { s = await state(c); if (test(s)) return s; await sleep(1000) } return s }
 
 const made = []
-async function makeCustomer(label) {
+async function makeCustomer(label, salesRep) {
   const stamp = Date.now().toString(36).slice(-5)
   const first = 'E2E', last = `${label} ${stamp}`
-  const r = await owner('POST', '/api/crm-contacts', { firstName: first, lastName: last, phone: `352555${String(crypto.randomInt(10000)).padStart(4, '0')}`, serviceAddress: '1 Test Way, Ocala, FL 34470' })
+  const r = await owner('POST', '/api/crm-contacts', { firstName: first, lastName: last, phone: `352555${String(crypto.randomInt(10000)).padStart(4, '0')}`, serviceAddress: '1 Test Way, Ocala, FL 34470', ...(salesRep ? { salesRep } : {}) })
   const id = r.json.data?.contact?.id ?? r.json.data?.id
   if (!id) return null
   made.push(id)
@@ -192,7 +192,10 @@ async function salesman() {
   const acc = await fetch(`${API}/api/crm-auth/accept-invite`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, email, password: `E2e-${crypto.randomUUID()}` }) }).then(r => r.json()).catch(() => ({}))
   const sales = acc?.data?.accessToken
   if (!sales) { check('salesman: invited and signed in', false, JSON.stringify(acc).slice(0, 120)); return }
-  const c = await makeCustomer('Sales Cannot')
+  // The Salesman's own customer (Sales rep: the Salesman): one not the Salesman's is not even found (lib/salesScope.ts, Oct 28 2026).
+  const c = await makeCustomer('Sales Cannot', `E2E Salesman`)
+  const other = await makeCustomer('Not His')
+  check('salesman: a customer not the Salesman\'s is not found (404), nor deleted', (await call(sales, 'DELETE', `/api/crm-contacts/${other.id}`)).status === 404 && (await call(sales, 'GET', `/api/crm-contacts/${other.id}`)).status === 404)
   const del = await call(sales, 'DELETE', `/api/crm-contacts/${c.id}`)
   check('salesman: the server refuses to delete a customer', del.status === 403, String(del.status))
   check('salesman: ...or a card', (await call(sales, 'DELETE', `/api/pipeline/cards/${c.cardId}`)).status === 403)

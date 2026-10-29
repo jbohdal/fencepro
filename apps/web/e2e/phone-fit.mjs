@@ -195,6 +195,8 @@ async function makeCustomer() {
   const r = await owner('POST', '/api/crm-contacts', {
     firstName: 'E2E', lastName: LAST, phone: PHONE, email: `e2e-phone-fit-${stamp}@example.test`,
     serviceAddress: '1234 SW Long Street Name Road, Ocala, FL 34476', leadSource: 'Referral', tags: ['Test', 'Phone fit'],
+    // The Salesman this test invites is its Sales rep: the Salesman sees only the Salesman's own customers (lib/salesScope.ts, Oct 28 2026).
+    ...(want('salesman') ? { salesRep: `E2E Phone Fit ${stamp}` } : {}),
     lead: { id: cardId, firstName: 'E2E', lastName: LAST, phone: PHONE, address: '1234 SW Long Street Name Road, Ocala, FL 34476', stage: (v?.stages ?? [])[0] || 'First Contact', createdAt: today, lastMoved: today, leadSource: 'Referral', email: '', notes: '' },
   })
   made.contactId = r.json.data?.contact?.id ?? r.json.data?.id ?? null
