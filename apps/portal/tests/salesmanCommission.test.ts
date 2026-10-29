@@ -5,7 +5,8 @@
  * builder's "Salesman on this job?" switch.)
  */
 import { describe, test, expect } from 'vitest'
-import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote, savedCommission } from '../../web/src/salesmanCommission'
+import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote, savedCommission, salesmanQuoteView } from '../../web/src/salesmanCommission'
+import { isMine } from '../src/server/lib/salesScope'
 import { calculatePrice, type PriceInputs, type PricingSettings, type StylePricing } from '../../web/src/pricingEngine'
 import { seesCosts } from '../../web/src/moveRepair'
 
@@ -118,10 +119,47 @@ describe('a saved quote\'s margin for a Salesman login (review, Oct 27 2026)', (
     expect(q.gmPct).toBe(0.35)
     expect(withShownMargin(q, true)).toBe(q)
   })
-  test('her quotes: the sales rep is her name', () => {
-    expect(isRepsQuote('christa  feagin', 'Christa Feagin')).toBe(true)
-    expect(isRepsQuote('Jonathan Bohdal', 'Christa Feagin')).toBe(false)
-    expect(isRepsQuote('', '')).toBe(false)
+  test('the Salesman is the Sales rep: full name or first name, any case or spacing (the server\'s match)', () => {
+    const me = { firstName: 'Christa', lastName: 'Feagin' }
+    expect(isRepsQuote('christa  feagin', me)).toBe(true)
+    expect(isRepsQuote('Christa', me)).toBe(true)
+    expect(isRepsQuote('Christa ', me)).toBe(true)
+    expect(isRepsQuote('Jonathan Bohdal', me)).toBe(false)
+    expect(isRepsQuote('Feagin', me)).toBe(false)
+    expect(isRepsQuote('', me)).toBe(false)
+    expect(isRepsQuote('Christa', null)).toBe(false)
+  })
+  test('the web match agrees with the server\'s isMine on the review\'s quotes', () => {
+    const scope = { names: ['Christa Feagin', 'Christa'] }
+    for (const rep of ['Christa', 'Christa ', 'Jonathan Bohdal', '', 'CHRISTA FEAGIN', 'Chris']) {
+      expect(isRepsQuote(rep, { firstName: 'Christa', lastName: 'Feagin' })).toBe(isMine(scope, rep))
+    }
+  })
+})
+
+describe('The Salesman\'s Quotes screen lists every quote the server sent (review Oct 28 2026)', () => {
+  // The review: the server sent 4, the screen said "0 of 0".
+  const sent = [
+    { id: 'a', salesRep: 'Christa', status: 'SENT' },
+    { id: 'b', salesRep: 'Christa ', status: 'DRAFT' },
+    { id: 'c', salesRep: 'Jonathan Bohdal', status: 'DRAFT' }, // a quote of the Salesman's own customer
+    { id: 'd', salesRep: null, status: 'SOLD' },
+  ]
+  const me = { firstName: 'Christa', lastName: 'Feagin' }
+  test('all 4 listed; 2 with the Salesman as Sales rep', () => {
+    const v = salesmanQuoteView(sent, 'sales_rep', me)
+    expect(v.listed.map(q => q.id)).toEqual(['a', 'b', 'c', 'd'])
+    expect(v.mine.map(q => q.id)).toEqual(['a', 'b'])
+  })
+  test('the open count matches the Dashboard\'s (DRAFT or SENT of every quote held)', () => {
+    const v = salesmanQuoteView(sent, 'sales_rep', me)
+    const dashboardOpen = sent.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length
+    expect(v.listed.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length).toBe(dashboardOpen)
+  })
+  test('owner and office: the whole list, no split', () => {
+    const v = salesmanQuoteView(sent, 'super_admin', { firstName: 'Jonathan', lastName: 'Bohdal' })
+    expect(v.listed.length).toBe(4)
+    expect(v.mine).toEqual([])
   })
 })
 
