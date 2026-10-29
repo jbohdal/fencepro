@@ -207,6 +207,54 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('delete, restore, archive (dev da
     expect(((await call('owner', 'GET', '/api/schedule/jobs')).json.data as any[]).some(g => g.id === x.g.id)).toBe(true)
   })
 
+  test('delete a job: its Pending and Ordered Sales Orders are cancelled with a note, a Received one is left; restore puts them back as they were', async () => {
+    const x = await makeCustomer('orders')
+    const order = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
+      id: `${id}-${tag}`, quoteId: x.q.id, quoteName: `WV 6ft Privacy — Test orders`, jobId: x.j.id, customerId: x.c.id, customerName: 'Test orders',
+      status, totalCostCents: 41200, items: [{ id: `i-${id}`, itemName: 'ND, Donut', requiredQuantity: 100, unitCostCents: 412, totalCostCents: 41200, quantityReceived: 0 }],
+      notes: '', createdAt: '2026-10-28T12:00:00.000Z', updatedAt: '2026-10-28T12:00:00.000Z', ...extra,
+    })
+    const other = { ...order('other', 'pending'), quoteId: 'another-quote', jobId: 'another-job', customerId: 'another-customer' }
+    const orders = [order('p', 'pending'), order('o', 'ordered', { orderedAt: '2026-10-28T13:00:00.000Z', notes: 'Stephens PO 4471' }), order('r', 'received', { receivedAt: '2026-10-28T14:00:00.000Z' }), other]
+    await prisma.businessState.upsert({ where: { accountId }, create: { accountId, pendingOrders: orders }, update: { pendingOrders: orders, version: { increment: 1 } } })
+    const listNow = async () => ((await prisma.businessState.findUnique({ where: { accountId } })).pendingOrders as any[])
+    const byId = async (id: string) => (await listNow()).find(o => o.id === `${id}-${tag}`)
+
+    expect((await call('owner', 'DELETE', `/api/saved-jobs/${x.j.id}`)).status).toBe(200)
+    // Still on the list (Inventory > Sales Orders, Cancelled), with why.
+    expect(await listNow()).toHaveLength(4)
+    const p = await byId('p'), o = await byId('o')
+    expect(p.status).toBe('cancelled')
+    expect(p.cancelledAt).toBeTruthy()
+    expect(p.notes).toMatch(/^Cancelled [A-Z][a-z]{2} \d{1,2}, \d{4}: its job was deleted\. Restoring it \(Settings > Deleted Records\) brings this order back as it was\.$/)
+    expect(o.status).toBe('cancelled')
+    expect(o.notes.startsWith('Stephens PO 4471\nCancelled ')).toBe(true)
+    expect(await byId('r')).toEqual(orders[2])
+    expect(await byId('other')).toEqual(other)
+    const [row] = await logRows(x.j.id)
+    expect(row.snapshot.changed.map((c: any) => c.id).sort()).toEqual([`o-${tag}`, `p-${tag}`])
+    expect(row.snapshot.items.filter((i: any) => i.doc === 'business.pendingOrders')).toHaveLength(0)
+    expect(row.ids).toEqual(expect.arrayContaining([`o-${tag}`, `p-${tag}`]))
+
+    expect((await call('owner', 'POST', `/api/deleted-records/${row.id}/restore`)).status).toBe(200)
+    expect(await listNow()).toEqual(orders)
+  })
+
+  test('restore leaves a cancelled Sales Order that changed after the delete, and says so', async () => {
+    const x = await makeCustomer('orders2')
+    const o = { id: `p2-${tag}`, quoteId: x.q.id, quoteName: 'WV 6ft Privacy — Test orders2', jobId: x.j.id, customerName: 'Test orders2', status: 'pending', totalCostCents: 0, items: [], notes: '', createdAt: '2026-10-28T12:00:00.000Z', updatedAt: '2026-10-28T12:00:00.000Z' }
+    await prisma.businessState.upsert({ where: { accountId }, create: { accountId, pendingOrders: [o] }, update: { pendingOrders: [o], version: { increment: 1 } } })
+    expect((await call('owner', 'DELETE', `/api/saved-jobs/${x.j.id}`)).status).toBe(200)
+    const s = await prisma.businessState.findUnique({ where: { accountId } })
+    await prisma.businessState.update({ where: { accountId }, data: { pendingOrders: (s.pendingOrders as any[]).map(z => ({ ...z, notes: `${z.notes}\nCalled the supplier` })), version: { increment: 1 } } })
+    const [row] = await logRows(x.j.id)
+    const r = await call('owner', 'POST', `/api/deleted-records/${row.id}/restore`)
+    expect(r.status).toBe(200)
+    expect(r.json.data.skipped).toContainEqual({ what: 'Sales Order WV 6ft Privacy — Test orders2', why: 'it changed after it was deleted' })
+    expect(((await prisma.businessState.findUnique({ where: { accountId } })).pendingOrders as any[])[0].status).toBe('cancelled')
+    expect((await boardJobs()).some(j => j.id === x.j.id)).toBe(true)
+  })
+
   test('delete a card: off the board and logged; an older screen cannot put it back; restore', async () => {
     const x = await makeCustomer('card')
     expect((await call('owner', 'DELETE', `/api/pipeline/cards/${x.card.id}`)).status).toBe(200)

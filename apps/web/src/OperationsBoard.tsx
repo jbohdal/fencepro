@@ -24,7 +24,7 @@ import { loadSchedule, crewName } from './scheduleStore'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type UnifiedJob,
-  buildUnifiedList, DetailPanel, fenceText, needDrawingNote,
+  buildUnifiedList, DetailPanel, fenceText, needDrawingNote, jobIsDrawn,
 } from './OperationsPage'
 import { type Job, type JobStatus, updateJob, advanceJob, holdJob, unholdJob, getJob } from './jobStore'
 import { whenSaved, statusOf } from './outbox'
@@ -36,7 +36,7 @@ import { fireOpsStageChange } from './automationTrigger'
 import { onJobCompleted } from './jobCompleteFlow'
 import { useMilestoneSummary, permitOkOf } from './jobTruthApi'
 import { isRepairJob } from './jobWork'
-import { materialsMoveQuestion, bulkMaterialsMoveQuestion } from './materialsMoveQuestion'
+import { handMoveQuestion, bulkHandMoveQuestion, type DrawingFacts } from './materialsMoveQuestion'
 import { toast } from './toast'
 import KanbanBoard, { type KanbanColumn } from './KanbanBoard'
 import PopMenu, { PopItem } from './PopMenu'
@@ -269,7 +269,8 @@ export default function OperationsBoard() {
     const updates = stageFields(targetStage, j.rawJob, TODAY()) as Partial<Job> | null
     if (!target || !updates) return false
     // Materials Ordered and Ready to Pull record the materials: asked first when they are not so yet (round 2, Oct 28 2026).
-    const q = opts.asked ? null : materialsMoveQuestion(targetStage, target.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName })
+    // Past Need Drawing records the drawing done: asked first when the job has no drawing on file (review Oct 28 2026).
+    const q = opts.asked ? null : handMoveQuestion(targetStage, target.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }, drawingFacts(j, updates))
     if (q && !window.confirm(q)) return false
     // A closed job (Complete, Invoiced, Paid) goes back only with Reopen, by the owner or the office (the server refuses it otherwise).
     const reopen = isDoneStage(j.opsStage) && movesBack(j.opsStage, targetStage)
@@ -303,6 +304,11 @@ export default function OperationsBoard() {
     }
   }
 
+  /** What the drawing question needs: does the move record the drawing done, and has the job one on file. */
+  function drawingFacts(j: UnifiedJob, updates: { drawingComplete?: unknown } | null | undefined): DrawingFacts {
+    return { recordsDrawing: updates?.drawingComplete === true, hasDrawing: jobIsDrawn(j), repair: isRepairJob(j.rawJob) }
+  }
+
   /** The green "Moved" only once the server has the job at that stage; otherwise what happened instead. */
   async function sayWhenMoved(jobId: string, stageId: string, title: string, body?: string) {
     const key = `job:${jobId}`
@@ -327,7 +333,7 @@ export default function OperationsBoard() {
   function onAdvance(j: UnifiedJob): boolean {
     if (j.source !== 'job' || !j.rawJob) return false
     const next = advanceStage(j.opsStage, permitOkOf(j.id), isRepairJob(j.rawJob), j.rawJob?.materialsStatus)
-    const q = next ? materialsMoveQuestion(next.id, next.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }) : null
+    const q = next ? handMoveQuestion(next.id, next.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }, drawingFacts(j, stageFields(next.id, j.rawJob, TODAY()))) : null
     if (q && !window.confirm(q)) return false
     const fromStatus = j.rawJob.status
     const result = advanceJob(j.id, permitOkOf(j.id), isRepairJob(j.rawJob))
@@ -571,8 +577,11 @@ export default function OperationsBoard() {
           onBulkMove={(toStage) => {
             const ids = bulkSelected
             const picked = jobs.filter(j => ids.has(j.id))
-            // One question for the lot when the move would record materials for some of them (round 2, Oct 28 2026).
-            const q = bulkMaterialsMoveQuestion(toStage, stageName(toStage), picked.map(j => ({ materialsStatus: j.rawJob?.materialsStatus })))
+            // One question for the lot when the move would record materials or drawings for some of them (round 2, Oct 28 2026).
+            const q = bulkHandMoveQuestion(toStage, stageName(toStage), picked.map(j => ({
+              materialsStatus: j.rawJob?.materialsStatus,
+              ...drawingFacts(j, j.rawJob ? stageFields(toStage, j.rawJob, TODAY()) : null),
+            })))
             if (q && !window.confirm(q)) return
             picked.forEach(j => moveJobToStage(j, toStage, { asked: true }))
             setBulkSelected(new Set())

@@ -2,7 +2,7 @@
 import { describe, test, expect } from 'vitest'
 import { materialsOfOrder, raisedMaterials, ordersNowBought, ordersAfterJobMaterials } from '../src/server/lib/materialsFromOrders.js'
 import { heldForDrawing, moveMoreWords, DRAWN_WAITS_WORDS } from '../src/server/lib/waitingStageMove.js'
-import { START_OPS_STAGES, waitsOnlyForDrawing, HELD_FOR_DRAWING_WORDS } from '../src/server/lib/opsStageModel.js'
+import { START_OPS_STAGES, waitsOnlyForDrawing, needDrawingWords, HELD_FOR_DRAWING_WORDS } from '../src/server/lib/opsStageModel.js'
 
 describe('materials follow the Sales Order', () => {
   test('what an order says', () => {
@@ -65,6 +65,20 @@ describe('materials follow the Sales Order', () => {
     expect(moveMoreWords('need_drawing', f, 'not_ordered')).toBe('')
     expect(moveMoreWords('need_drawing', { ...f, drawing: true }, 'received')).toBe(DRAWN_WAITS_WORDS)
     expect(HELD_FOR_DRAWING_WORDS).toBe('Materials in; waits for its drawing')
+  })
+
+  test('a drawn job in Need Drawing says "order materials" only while nothing is ordered (review Oct 28 2026)', () => {
+    const drawn = { drawing: true, repair: false }
+    const undrawn = { drawing: false, repair: false }
+    expect(needDrawingWords('need_drawing', 'not_ordered', drawn)).toEqual({ kind: 'drawn', text: 'Drawn: order materials' })
+    expect(needDrawingWords('need_drawing', null, drawn)).toEqual({ kind: 'drawn', text: 'Drawn: order materials' })
+    expect(needDrawingWords('need_drawing', 'ordered', drawn)).toEqual({ kind: 'drawn', text: 'Drawn, materials ordered' })
+    expect(needDrawingWords('need_drawing', 'received', drawn)).toEqual({ kind: 'drawn', text: 'Drawn, materials in' })
+    expect(needDrawingWords('need_drawing', 'loaded', drawn)).toEqual({ kind: 'drawn', text: 'Drawn, materials in' })
+    expect(needDrawingWords('need_drawing', 'received', undrawn)).toEqual({ kind: 'held', text: HELD_FOR_DRAWING_WORDS })
+    expect(needDrawingWords('need_drawing', 'ordered', undrawn)).toBeNull()
+    expect(needDrawingWords('need_drawing', 'received', { drawing: false, repair: true })).toBeNull()
+    expect(needDrawingWords('materials_ordered', 'ordered', drawn)).toBeNull()
   })
 
   test('a hand move that records materials marks the job\'s pending Sales Order Ordered, never Received (audit #54)', () => {

@@ -288,6 +288,24 @@ export function waitsOnlyForDrawing(stageId: string | null | undefined, material
 /** What the card, the job panel and the history line say of such a job. */
 export const HELD_FOR_DRAWING_WORDS = 'Materials in; waits for its drawing'
 
+/**
+ * What a job in Need Drawing says on its board card and job panel, or null.
+ * Drawn (f.drawing): what is still ahead of it, by its materials. Review Oct
+ * 28 2026: "✓ Drawn: order materials" showed on a job whose materials were
+ * already Ordered or Received; it says so only while nothing is ordered.
+ * Still to be drawn with its materials in: HELD_FOR_DRAWING_WORDS (audit #55).
+ */
+export function needDrawingWords(stageId: string | null | undefined, materials: string | null | undefined, f: { drawing: boolean; repair: boolean }): { kind: 'drawn' | 'held'; text: string } | null {
+  if (stageId !== 'need_drawing') return null
+  if (f.drawing) {
+    const rank = MATERIALS_RANK[materials || 'not_ordered'] ?? 0
+    if (rank < MATERIALS_RANK.ordered) return { kind: 'drawn', text: 'Drawn: order materials' }
+    return { kind: 'drawn', text: rank < MATERIALS_RANK.received ? 'Drawn, materials ordered' : 'Drawn, materials in' }
+  }
+  if (waitsOnlyForDrawing(stageId, materials, f)) return { kind: 'held', text: HELD_FOR_DRAWING_WORDS }
+  return null
+}
+
 export function fieldsForStage(list: OpsStageDef[], id: string, job: OpsJobLike, today: string, opts: { stageOnly?: boolean } = {}): Record<string, unknown> | null {
   const phase = phaseOf(list, id)
   if (!phase) return null

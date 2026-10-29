@@ -30,7 +30,7 @@ import { getJobs, refreshJobs, type Job } from './jobStore'
 import { useBackLayer } from './nav'
 import { stageOf, stageName, stageInfo, stagePhase, nextOpsStage, advanceStage, pickable, useOpsStages, getCompleteOpsStage } from './opsStagesStore'
 import { useMilestoneSummary, permitOkOf } from './jobTruthApi'
-import { isDonePhase, waitsOnlyForDrawing, HELD_FOR_DRAWING_WORDS } from './opsStageModel'
+import { isDonePhase, needDrawingWords } from './opsStageModel'
 import { ChangeOrderPanel, ChangeOrderButton, JobTimeline, useChangeOrdersLive } from './ChangeOrders'
 import { can, isCrewLogin } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
@@ -123,10 +123,8 @@ export function jobIsDrawn(j: { drawingComplete?: boolean; rawJob?: { drawingCom
  */
 export function needDrawingNote(j: UnifiedJob): { kind: 'drawn' | 'held'; text: string } | null {
   if (j.source !== 'job' || j.opsStage !== 'need_drawing') return null
-  const drawn = jobIsDrawn(j)
-  if (drawn) return { kind: 'drawn', text: 'Drawn: order materials' }
-  if (waitsOnlyForDrawing(j.opsStage, j.rawJob?.materialsStatus ?? j.materialsStatus, { drawing: drawn, repair: isRepairJob(j.rawJob) })) return { kind: 'held', text: HELD_FOR_DRAWING_WORDS }
-  return null
+  // Drawn: "order materials" only while nothing is ordered (review Oct 28 2026; opsStageModel needDrawingWords).
+  return needDrawingWords(j.opsStage, j.rawJob?.materialsStatus ?? j.materialsStatus, { drawing: jobIsDrawn(j), repair: isRepairJob(j.rawJob) })
 }
 
 /** How the board names the job's fence: "Repair · White Vinyl …" for a repair or move; a sold best price job names its panels (soldStyleLabel). */

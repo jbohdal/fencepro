@@ -18,6 +18,13 @@
  *             their payments), reserved materials and pull sheets.
  *   card      its follow up and pending calls.
  *
+ * Sales Orders (business.pendingOrders) are not taken off the list: one still
+ * Pending or Ordered is marked Cancelled, with a note saying why, and the
+ * snapshot keeps it as it was (changed), so a restore puts it back exactly.
+ * One Received (or already Cancelled) is left as it is: Received is the
+ * record of what came in and the stock counts it changed. Review Oct 28 2026:
+ * the Sales Order list held Pending orders for jobs that were gone.
+ *
  * Queued automation steps (texts, emails) for anything deleted are stopped
  * (status skipped). A restore never sends them again.
  *
@@ -39,6 +46,7 @@
  */
 
 import prisma from './prisma.js'
+import { ORDER_TO_CANCEL, cancelOrderForDeletion, sameJson } from './ordersOfDeletedJobs.js'
 
 type Tx = any
 
@@ -92,6 +100,8 @@ export const CUSTOMER_ID_KV = ['fencepro_customer_activity', 'fencepro_files', '
 export interface SnapRow { model: SoftModel; id: string; row: any }
 export interface SnapHard { model: HardModel; id: string; row: any }
 export interface SnapItem { doc: ListDoc; id: string; item: any }
+/** A list entry the deletion changed in place (a Sales Order marked Cancelled): as it was, and as the deletion left it. */
+export interface SnapChanged { doc: ListDoc; id: string; before: any; after: any }
 export interface Snapshot {
   v: 1
   /** Soft deleted rows: deletedAt was set to the log's deletedAt. */
@@ -102,6 +112,8 @@ export interface Snapshot {
   items: SnapItem[]
   /** Queued automation steps stopped (never queued again by a restore). */
   runsStopped: Array<{ id: string; status: string }>
+  /** Entries changed in place (a Sales Order cancelled); not in logs made before Oct 28 2026. */
+  changed?: SnapChanged[]
 }
 
 export interface Actor { accountId: string; userId: string | null }
@@ -191,6 +203,8 @@ interface Plan {
   rows: Array<{ model: SoftModel; ids: string[] }>
   cards: { leads: string[]; archivedLeads: string[] }
   business: { invoices: string[]; payments: string[]; pendingOrders: string[]; pullSheets: string[]; statements: string[] }
+  /** Sales Orders still Pending or Ordered, to mark Cancelled, and why. */
+  cancelOrders: Array<{ id: string; why: string }>
   contactIds: string[]; quoteIds: string[]; jobIds: string[]; cardIds: string[]
 }
 
@@ -225,11 +239,16 @@ async function plan(tx: Tx, accountId: string, roots: Roots): Promise<Plan> {
   const business = {
     invoices,
     payments: arr(biz?.payments).filter(x => hit(x) || (x?.invoiceId && invoices.includes(x.invoiceId))).map(x => x.id),
-    pendingOrders: arr(biz?.pendingOrders).filter(hit).map(x => x.id),
+    // Sales Orders stay on the list (cancelOrders, below).
+    pendingOrders: [] as string[],
     pullSheets: arr(biz?.pullSheets).filter(hit).map(x => x.id),
     statements: arr(biz?.statements).filter(hit).map(x => x.id),
   }
-  return { rows, cards, business, contactIds: C, quoteIds: Q, jobIds: J, cardIds: uniq([...cards.leads, ...cards.archivedLeads]) }
+  const cancelOrders = arr(biz?.pendingOrders).filter(x => x?.id && hit(x) && ORDER_TO_CANCEL.has(x.status)).map(x => ({
+    id: String(x.id),
+    why: x?.jobId && J.includes(x.jobId) ? 'its job was deleted' : x?.quoteId && Q.includes(x.quoteId) ? 'its quote was deleted' : 'its customer was deleted',
+  }))
+  return { rows, cards, business, cancelOrders, contactIds: C, quoteIds: Q, jobIds: J, cardIds: uniq([...cards.leads, ...cards.archivedLeads]) }
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────────
@@ -314,7 +333,7 @@ export async function deleteRootsTx(tx: Tx, actor: Actor, roots: Roots, at: Date
     }
 
     const bizFields = Object.entries(p.business).filter(([, ids]) => ids.length)
-    if (bizFields.length) {
+    if (bizFields.length || p.cancelOrders.length) {
       const biz = await lockDoc(tx, 'business', accountId)
       const next: Record<string, any[]> = {}
       for (const [field, ids] of bizFields) {
@@ -322,6 +341,17 @@ export async function deleteRootsTx(tx: Tx, actor: Actor, roots: Roots, at: Date
           if (!ids.includes(x?.id)) return true
           snap.items.push({ doc: `business.${field}` as ListDoc, id: x.id, item: json(x) })
           return false
+        })
+      }
+      if (p.cancelOrders.length) {
+        const why = new Map(p.cancelOrders.map(c => [c.id, c.why]))
+        snap.changed = []
+        next.pendingOrders = arr(next.pendingOrders ?? biz?.pendingOrders).map(o => {
+          const w = o?.id ? why.get(String(o.id)) : undefined
+          if (!w || !ORDER_TO_CANCEL.has(o.status)) return o
+          const after = cancelOrderForDeletion(o, w, at)
+          snap.changed!.push({ doc: 'business.pendingOrders', id: String(o.id), before: json(o), after: json(after) })
+          return after
         })
       }
       await writeDoc(tx, 'business', accountId, next)
@@ -346,7 +376,7 @@ async function stopRuns(tx: Tx, accountId: string, entityIds: string[], at: Date
 }
 
 export function idsInSnapshot(s: Snapshot): string[] {
-  return uniq([...s.rows.map(r => r.id), ...s.hard.map(h => h.id), ...s.items.map(i => i.id)])
+  return uniq([...s.rows.map(r => r.id), ...s.hard.map(h => h.id), ...s.items.map(i => i.id), ...(s.changed ?? []).map(c => c.id)])
 }
 
 /** How many of each kind the snapshot holds ("3 quotes, 1 job, 1 card"). */
@@ -356,6 +386,7 @@ export function countsOf(s: Snapshot): Record<string, number> {
   for (const r of s.rows) add(r.model)
   for (const h of s.hard) add(h.model)
   for (const i of s.items) add(i.doc)
+  for (const c of s.changed ?? []) add(`${c.doc}.cancelled`)
   return out
 }
 
@@ -499,6 +530,28 @@ export async function restoreDeletion(actor: Actor, logId: string): Promise<Rest
           skipped.push({ what: labelOf(i.doc, i.item), why: 'one with the same id is already there' }); continue
         }
         fields[field] = [...arr(fields[field] ?? cur[field]), i.item]
+        restored++
+      }
+      if (Object.keys(fields).length) await writeDoc(tx, doc, accountId, fields)
+    }
+
+    // Entries the deletion changed in place (a Sales Order it cancelled): back as they were, only if still as it left them.
+    const changedByDoc = new Map<DocName, SnapChanged[]>()
+    for (const c of snap.changed ?? []) {
+      const d = c.doc.split('.')[0] as DocName
+      changedByDoc.set(d, [...(changedByDoc.get(d) ?? []), c])
+    }
+    for (const [doc, list] of changedByDoc) {
+      const cur = await lockDoc(tx, doc, accountId)
+      const fields: Record<string, any[]> = {}
+      for (const c of list) {
+        const field = c.doc.split('.')[1]
+        const now = arr(fields[field] ?? cur?.[field])
+        const at = now.findIndex(x => itemIdOf(c.doc, x) === c.id)
+        const what = c.doc === 'business.pendingOrders' ? `Sales Order ${c.before?.quoteName || c.before?.customerName || c.id}`.trim() : labelOf(c.doc, c.before)
+        if (at < 0) { skipped.push({ what, why: 'it no longer exists' }); continue }
+        if (!sameJson(now[at], c.after)) { skipped.push({ what, why: 'it changed after it was deleted' }); continue }
+        fields[field] = now.map((x, i) => (i === at ? c.before : x))
         restored++
       }
       if (Object.keys(fields).length) await writeDoc(tx, doc, accountId, fields)
