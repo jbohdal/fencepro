@@ -38,6 +38,8 @@ import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
 import { findPossibleMatches } from '../lib/customerMerge.js'
 import { salesScopeOf, forgetAllScopes } from '../lib/salesScope.js'
+import { moveOpenQuotes } from '../lib/quotesFollowCustomer.js'
+import { setCardsRep } from '../lib/leadAssign.js'
 import { staffRoleOf } from '../lib/costRedact.js'
 import { defaultRepFor, enteringName, isSalesmanRole, repChanges, salesmanChoices, SALESMAN_CHANGE_REFUSED } from '../lib/salesmanChoice.js'
 
@@ -343,7 +345,13 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
         isCompleted: data.isCompleted,
       },
     })
-    await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: updated })
+    // The customer's open cards, and open quotes with their commission, go with the new Salesman, as on the customer
+    // page's Change (lib/leadAssign.ts); sold ones stay (lib/quotesFollowCustomer.ts).
+    if (salesRepChanged && updated.salesRep?.trim()) await setCardsRep(req.user.crmAccountId, updated.id, updated.salesRep)
+    const quotesMoved = salesRepChanged && updated.salesRep?.trim()
+      ? await moveOpenQuotes({ accountId: req.user.crmAccountId, contactId: updated.id, toRep: updated.salesRep, by: { id: req.user.id ?? null, name: (await enteringName(req.user.id)) || req.user.email || 'the office' } })
+      : []
+    await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: quotesMoved.length ? { ...updated, quotesMoved } : updated })
     if (salesRepChanged) forgetAllScopes()
     res.json({ success: true, data: updated })
   } catch (err) {

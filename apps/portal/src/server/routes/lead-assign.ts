@@ -70,8 +70,9 @@ router.post('/:customerId', async (req: any, res) => {
     const contactId = String(req.params.customerId)
     const r = await assignLead({ accountId: req.user.crmAccountId, contactId, toUserId: body.to, by: { id: req.user.id, name: req.user.name }, replace: body.replace })
     if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, error: r.error, ...(r.rep ? { rep: r.rep } : {}) }); return }
-    if (!r.already) await audit(req, 'update', 'CrmContact', contactId, { newValues: { leadAssignedTo: r.assignedTo, cards: r.cardIds, replace: !!body.replace } })
-    res.json({ success: true, data: { assignedTo: r.assignedTo, already: r.already, cardIds: r.cardIds }, version: r.version })
+    // The open quotes moved with the customer, with their prices (unchanged) and the commission each carries (lib/quotesFollowCustomer.ts).
+    if (!r.already || r.quotesMoved.length) await audit(req, 'update', 'CrmContact', contactId, { newValues: { leadAssignedTo: r.assignedTo, cards: r.cardIds, replace: !!body.replace, quotesMoved: r.quotesMoved } })
+    res.json({ success: true, data: { assignedTo: r.assignedTo, already: r.already, cardIds: r.cardIds, quotesMoved: r.quotesMoved.length }, version: r.version })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[lead-assign] assign error:', err)

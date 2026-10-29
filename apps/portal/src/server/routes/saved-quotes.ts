@@ -32,7 +32,8 @@ import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
-import { repForSave, repName } from '../lib/salesRep.js'
+import { repForSave, repName, sameName } from '../lib/salesRep.js'
+import { quoteRepKept } from '../lib/quotesFollowCustomer.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
@@ -361,6 +362,12 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         for (const k of Object.keys(data)) if (k !== 'crmContactId' && k !== 'leadSource' && k !== 'salesRep') (data as any)[k] = kept[k]
         keptSentPrices = changes
       }
+    }
+    // An open quote's rep is its customer's Salesman (lib/quotesFollowCustomer.ts): a copy read before the Salesman
+    // was changed keeps the rest of its save, never the old rep.
+    if (data.salesRep?.trim() && existing.crmContactId && !sameName(data.salesRep, existing.salesRep)) {
+      const customer = await prisma.crmContact.findFirst({ where: { id: existing.crmContactId, accountId: existing.accountId }, select: { salesRep: true } })
+      if (quoteRepKept({ existing, sentRep: data.salesRep, sentContactId: data.crmContactId, customerRep: customer?.salesRep })) data.salesRep = existing.salesRep
     }
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
