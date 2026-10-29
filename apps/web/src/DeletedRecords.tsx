@@ -61,6 +61,8 @@ const KIND: Record<string, [string, string]> = {
   'pipeline.leads': ['card', 'cards'], 'pipeline.archivedLeads': ['archived card', 'archived cards'],
   'business.invoices': ['invoice', 'invoices'], 'business.payments': ['payment', 'payments'],
   'business.pendingOrders': ['materials order', 'materials orders'], 'business.pullSheets': ['pull sheet', 'pull sheets'],
+  // A Sales Order a deletion marked Cancelled (lib/deletion.ts); a restore puts it back as it was.
+  'business.pendingOrders.cancelled': ['Sales Order cancelled', 'Sales Orders cancelled'],
   'business.statements': ['statement', 'statements'], cardFollowUp: ['follow up', 'follow ups'], pendingTouch: ['pending call', 'pending calls'],
   'inventory.stockLevels': ['stock count', 'stock counts'],
   crmContact: ['customer', 'customers'], customerPossibleMatch: ['possible match', 'possible matches'],

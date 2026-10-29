@@ -246,6 +246,8 @@ function OrderDetail({ order, onAdvance, onRemove }: {
             <h2 className="text-lg font-bold text-gray-900">{order.customerName}</h2>
             <p className="text-xs text-gray-500 mt-0.5">{order.quoteName}</p>
             <p className="text-[10px] text-gray-400 mt-1">Created {new Date(order.createdAt).toLocaleString()}</p>
+            {/* Why it was cancelled, when a deletion cancelled it (portal lib/deletion.ts), and any other note. */}
+            {order.notes?.trim() && <p className="text-xs text-gray-700 mt-2 whitespace-pre-line break-words" data-order-notes>{order.notes}</p>}
           </div>
           <span className={`text-[10px] font-bold px-3 py-1 rounded-full ${STATUS_COLORS[order.status]}`}>{order.status}</span>
         </div>
