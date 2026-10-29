@@ -53,7 +53,7 @@ import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord, noteChangeFor, noteAuthor } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
-import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer, replaceUrl } from './nav'
+import { navigate, goBack, goBackThen, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer, replaceUrl } from './nav'
 import { CUSTOMER_FILTERS, asCustomerFilter, type CustomerFilter } from './customerFilters'
 import { SaveStatus } from './SaveStatus'
 import { newId } from './recordSync'
@@ -393,7 +393,7 @@ function CustomerForm({
             {!initial?.id ? (
               <label className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 cursor-pointer" data-book-estimate-now>
                 <input type="checkbox" className="mt-0.5" checked={bookNow} onChange={e => setBookNow(e.target.checked)} />
-                <span className="text-sm text-gray-800"><b>Book estimate now</b><span className="block text-xs text-gray-500">Opens the booking dialog after saving.</span></span>
+                <span className="text-sm text-gray-800"><b>Book estimate now</b><span className="block text-xs text-gray-500">Opens the booking dialog after saving, with the Salesman chosen here.</span></span>
               </label>
             ) : (
               <div className="text-xs text-gray-500 self-end pb-2">Appointments are booked from the customer page (Book appointment).</div>
@@ -1837,15 +1837,30 @@ export default function CustomersPage({ onNewQuote }: {
       // The Salesman gave the new customer to another Salesman: it leaves the Salesman's list once saved
       // (portal lib/salesScope.ts), so the screen goes back to the list rather than to a page that will close.
       const givenAway = isNew && signedInRole() === 'sales_rep' && !!c.salesRep.trim() && !isMyRep(c.salesRep)
+      // "Book estimate now": the visit is with the customer's chosen Salesman to start ("With" can change it).
+      const book = () => openBooking({ customerId: customer.id, type: 'estimate', withName: customer.salesRep || c.salesRep, customer })
       if (givenAway) {
+        const rep = c.salesRep.trim()
+        if (bookEstimate) {
+          // Booked before they leave: the booking opens on the list (a window opened before the Back arrived
+          // would close with it) and keeps the customer from this save once the list drops them. The Salesman
+          // can book with anyone on the team (portal routes/appointments.ts); after closing, they are gone
+          // from this phone, so closing without booking says so.
+          goBackThen('/customers', () => openBooking({
+            customerId: customer.id, type: 'estimate', withName: rep, customer,
+            onCancel: () => toast.info('Estimate not booked', `${`${customer.firstName} ${customer.lastName}`.trim() || 'This customer'} is ${rep}'s customer now and is off your list, so you cannot book it later. Ask ${rep} or the office to book the estimate.`),
+          }))
+          toast.info('Customer added', `${rep} is the Salesman and sees them as soon as they are saved. Book the estimate now: once you close the booking, they leave your list.`)
+          return
+        }
         goBack('/customers')
-        toast.info('Customer added', `${c.salesRep.trim()} is the Salesman and sees them as soon as they are saved. They leave your list.`)
+        toast.info('Customer added', `${rep} is the Salesman and sees them as soon as they are saved. They leave your list.`)
         return
       }
       // A new customer takes the place of the "new customer" screen in the history.
       if (isNew) navigate(`/customers/${encodeURIComponent(customer.id)}`, { replace: true })
       setEditing(false)
-      if (isNew && bookEstimate) openBooking({ customerId: customer.id, type: 'estimate' })
+      if (isNew && bookEstimate) book()
 
       // Not "saved" yet: the status by their name says Saved once the server has it.
       if (isNew) toast.info('Customer added', `They are on the pipeline under ${pipelineStageName(roleId('first'))}.${c.salesRep.trim() && !isMyRep(c.salesRep) ? ` ${c.salesRep.trim()} is the Salesman and sees them as soon as they are saved.` : ''} The status by their name says Saved once the office has it.`)

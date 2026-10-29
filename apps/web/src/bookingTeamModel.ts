@@ -55,6 +55,29 @@ export const newBookingMemberOf = (team: TeamMember[], signedInUserId: string | 
   (signedInUserId ? team.find(m => m.userId === signedInUserId) : undefined) ?? defaultMemberOf(team)
 
 /**
+ * The team member a Salesman's name is (a customer's Salesman, as the Salesman
+ * choice writes it: "Christa Feagin"): the full name, else the first name when
+ * only one member has it, any case or spacing. Null when nobody on the team is.
+ */
+export function memberNamed(team: TeamMember[], name: string | null | undefined): TeamMember | null {
+  const n = norm(name)
+  if (!n) return null
+  const full = team.filter(m => norm(m.name) === n)
+  if (full.length) return full.length === 1 ? full[0] : null
+  const first = team.filter(m => norm(m.firstName) === n)
+  return first.length === 1 ? first[0] : null
+}
+
+/**
+ * The person "With" starts on for an estimate booked as a new customer is
+ * saved (New Customer's "Book estimate now"): the customer's chosen Salesman
+ * when on the team (the visit is theirs: a Salesman who gives a customer to
+ * the owner books it with the owner); otherwise as any new booking.
+ */
+export const bookingMemberFor = (team: TeamMember[], signedInUserId: string | null | undefined, salesmanName?: string | null): TeamMember | null =>
+  memberNamed(team, salesmanName) ?? newBookingMemberOf(team, signedInUserId)
+
+/**
  * The team member an appointment is with, or null when that person is not on
  * the team now. The login kept on it decides; a name alone (older appointments)
  * is matched exactly, case and spaces aside.
