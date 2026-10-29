@@ -165,7 +165,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty updates (dev database)'
     const contract = pdfText((await raw(`/p/wu/${tok}/contract.pdf`)).buf)
     expect(contract).toContain('Lifetime Craftsmanship Warranty')
     expect(contract).toContain(W.LIFETIME_TEXT)
-    expect(contract).toContain('$12,900.91')
+    // Signed today: the contract shows the whole dollar the proposal showed (D1, Oct 29 2026).
+    expect(contract).toContain('$12,901.00')
     expect(pdfText((await raw(`/p/${q.shareToken}/contract.pdf`)).buf)).toContain(W.LIFETIME_TEXT)
     const accepted = await html(`/p/wu/${tok}`)
     expect(accepted).toContain('section class="done"')
@@ -234,7 +235,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty updates (dev database)'
     const contract = pdfText((await raw(`/p/${q.shareToken}/contract.pdf`)).buf)
     expect(contract).toContain(W.ONE_YEAR_TEXT)
     expect(contract).not.toContain('Lifetime')
-    expect(contract).toContain('$14,814.70')
+    expect(contract).toContain('$14,815.00')
     // Sending again now: nothing changed for them.
     const after = (await call('GET', `/api/warranties/quote/${q.id}/update`)).json.data
     expect(after.options[0]).toMatchObject({ changed: false, before: { name: 'Lifetime Craftsmanship Warranty' } })
