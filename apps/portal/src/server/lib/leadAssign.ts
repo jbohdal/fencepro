@@ -137,6 +137,19 @@ export async function leadRepOf(accountId: string, contactId: string): Promise<L
 // ── The push ────────────────────────────────────────────────────────────────
 
 export type LeadPushSend = (accountId: string, msg: PushMessage, userIds: string[]) => Promise<PushResult>
+/** The Assign screen for one lead: where its push and its bell entry open. */
+export const assignLeadLink = (contactId: string): string => `/assign-lead?customer=${encodeURIComponent(contactId)}`
+
+/**
+ * Where a new lead's bell entry goes: the Assign screen while nobody has it
+ * (review, Oct 28 2026: the bell opened the customer page, with no Assign
+ * buttons), else `otherwise` (its card, its customer).
+ */
+export async function newLeadLink(accountId: string, contactId: string, otherwise: string | null): Promise<string | null> {
+  const rep = await leadRepOf(accountId, contactId).catch(() => null)
+  return rep ? otherwise : assignLeadLink(contactId)
+}
+
 export interface LeadPushDeps { send?: LeadPushSend; allowed?: boolean }
 export interface LeadPushOutcome { pushed: boolean; why?: string; title?: string; body?: string; to?: string[]; held?: boolean; result?: PushResult }
 
@@ -166,7 +179,7 @@ export async function pushNewLead(accountId: string, contactId: string, facts: L
   const owners = await ownerIds(accountId)
   if (!owners.length) return { pushed: false, why: 'no owner login' }
   const { title, body } = leadPushWords(facts)
-  const url = `/assign-lead?customer=${encodeURIComponent(contactId)}`
+  const url = assignLeadLink(contactId)
   // Buttons on the push where the phone shows them (not an iPhone home screen app): one per person, the push carries up to two.
   const people = await assignees(accountId)
   const actions = people.slice(0, 2).map(p => ({ action: `assign:${p.id}`, title: `Assign to ${p.name.split(' ')[0]}` }))

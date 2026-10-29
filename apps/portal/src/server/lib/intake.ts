@@ -13,7 +13,7 @@ import { withLock } from './once.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId } from './pipelineStageModel.js'
 import { findPossibleMatches } from './customerMerge.js'
-import { pushNewLeadSoon } from './leadAssign.js'
+import { pushNewLeadSoon, newLeadLink } from './leadAssign.js'
 
 export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
 
@@ -176,8 +176,8 @@ async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<I
       title: `${label}: ${displayName || input.phone || 'new lead'}`,
       body: input.summary.split('\n').slice(0, 3).join(' · ').slice(0, 400),
       type: 'info',
-      // Tapping it opens the lead's customer.
-      link: `/customers?customer=${encodeURIComponent(contact.id)}`,
+      // Tapping it opens the Assign screen while nobody has the lead, else the lead's customer.
+      link: await newLeadLink(accountId, contact.id, `/customers?customer=${encodeURIComponent(contact.id)}`),
     },
   }).catch(err => console.error('[intake] notification failed:', err))
 

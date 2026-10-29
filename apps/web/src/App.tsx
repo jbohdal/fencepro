@@ -185,6 +185,8 @@ const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
 // Every page the app can show, for its address (/customers, /pipeline, ...).
 // Job: one job's page, read only, at /job?id= (the Salesman's; JobPage.tsx). Not a menu line.
 // Assign Lead: /assign-lead?customer=<id>, where the owner's push about a new lead opens (AssignLeadPage.tsx). Not a menu line.
+/** The Assign screen's address; it reads its own ?customer=. */
+const ASSIGN_LEAD_PATH = pagePath('Assign Lead')
 const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging', 'Job', 'Assign Lead'])]
 const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Follow ups', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'My installs', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
 
@@ -519,10 +521,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // Every screen has its own address, so Back, reloads and links work (see
   // nav.ts). Links from outside the app: ?customer=<id> (a calendar event's
   // "Open in EZ Biz") opens that customer; ?settings=calendar (back from
-  // Google) opens Settings.
+  // Google) opens Settings. The Assign screen reads its own ?customer= (a new
+  // lead's push opens /assign-lead?customer=<id>; on an iPhone that loads the
+  // app fresh), so it is left as it is.
   useState(() => {
     const q = new URLSearchParams(window.location.search)
-    const id = q.get('customer')
+    const id = window.location.pathname === ASSIGN_LEAD_PATH ? null : q.get('customer')
     if (id) { q.delete('customer'); startNav(`/customers/${encodeURIComponent(id)}${q.toString() ? `?${q}` : ''}${window.location.hash}`) }
     else if (q.get('settings') && window.location.pathname === '/') startNav(`/settings${window.location.search}${window.location.hash}`)
     // The Salesman starts her day on Today, not the company Dashboard (review, Oct 25, 2026).
@@ -531,6 +535,20 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     return true
   })
   const nav = useNav()
+  // A push tapped while the app is open: the service worker (public/sw.js) asks the open app to go to the
+  // push's screen when the phone will not let it change the page itself (an iPhone home screen app).
+  useEffect(() => {
+    const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : null
+    if (!sw) return
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data as { type?: string; url?: string } | null
+      if (d?.type !== 'ezbiz:open' || typeof d.url !== 'string') return
+      const u = new URL(d.url, window.location.origin)
+      if (u.origin === window.location.origin) navigate(u.pathname + u.search + u.hash)
+    }
+    sw.addEventListener('message', onMessage)
+    return () => sw.removeEventListener('message', onMessage)
+  }, [])
   const active = pageForPath(nav.path, PAGE_NAMES)
   const setActive = (page: string) => navigate(pagePath(page))
   const [showQuote, setShowQuote]       = useState(false)

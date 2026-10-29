@@ -69,6 +69,26 @@ try {
   browser = await webkit.launch()
   const ctx = await browser.newContext({ ...devices['iPhone 13'] })
   await signInByCookie(ctx, { api: API })
+
+  // Tapping the push on an iPhone loads its link fresh: the Assign screen, not the customer page (review Oct 28 2026).
+  {
+    const fresh = await ctx.newPage()
+    await fresh.goto(`${APP}/assign-lead?customer=${encodeURIComponent(contactId)}`, { waitUntil: 'domcontentloaded' })
+    const one = fresh.locator(`[data-assign-lead="${contactId}"]`)
+    await one.waitFor({ timeout: 45000 }).catch(() => {})
+    check(new URL(fresh.url()).pathname === '/assign-lead', `the push's link loaded fresh stays on the Assign screen (${new URL(fresh.url()).pathname})`)
+    check(await one.locator(`[data-assign-to="${salesman.id}"]`).isVisible().catch(() => false), 'and shows the Assign buttons for this lead')
+    await fresh.screenshot({ path: process.env.SHOTS ? `${process.env.SHOTS}/0-fresh-assign.png` : '/dev/null' }).catch(() => {})
+    // The bell entry for the same lead opens the Assign screen too.
+    const link = sql(`SELECT link FROM "Notification" WHERE title = ${lit('Website quote: ' + name)} ORDER BY "createdAt" DESC LIMIT 1`)
+    check(link === `/assign-lead?customer=${contactId}`, `the bell entry links to the Assign screen (${link})`)
+    await fresh.locator('button[aria-label="Notifications"]').first().tap()
+    await fresh.locator(`button:has-text("Website quote: ${name}")`).first().tap()
+    await fresh.waitForURL(u => u.pathname === '/assign-lead', { timeout: 10000 }).catch(() => {})
+    check(new URL(fresh.url()).pathname === '/assign-lead' && new URL(fresh.url()).searchParams.get('customer') === contactId, `tapping the bell entry opens the Assign screen (${new URL(fresh.url()).pathname}${new URL(fresh.url()).search})`)
+    await fresh.close()
+  }
+
   const page = await ctx.newPage()
   await page.goto(`${APP}/`, { waitUntil: 'domcontentloaded' })
   const banner = page.locator('[data-waiting-leads]')

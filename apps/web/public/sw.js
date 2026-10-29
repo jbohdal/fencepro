@@ -49,10 +49,21 @@ self.addEventListener('push', e => {
   }))
 })
 
+// The app already open: focus it and take it to the push's screen. Loading the address in it works where the
+// phone allows (the app reads /assign-lead?customer= on a fresh load); where it refuses (an iPhone home screen
+// app, a window this worker does not control) the open app is asked to go there itself (App.tsx, 'ezbiz:open').
+// Not open: a new window at the address.
 async function openApp(url) {
   const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-  const here = open.find(c => new URL(c.url).origin === self.location.origin)
-  if (here) { await here.focus(); try { await here.navigate(url) } catch { /* an iPhone home screen app may refuse: it is open and focused anyway */ } return }
+  const mine = open.filter(c => new URL(c.url).origin === self.location.origin)
+  const here = mine.find(c => c.focused) || mine.find(c => c.visibilityState === 'visible') || mine[0]
+  if (here) {
+    try { await here.focus() } catch { /* focus needs the tap; it is the tap */ }
+    let moved = null
+    try { moved = typeof here.navigate === 'function' ? await here.navigate(url) : null } catch { moved = null }
+    if (!moved) here.postMessage({ type: 'ezbiz:open', url })
+    return
+  }
   await self.clients.openWindow(url)
 }
 
