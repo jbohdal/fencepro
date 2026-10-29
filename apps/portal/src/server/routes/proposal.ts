@@ -22,6 +22,7 @@ import prisma from '../lib/prisma.js'
 import { Prisma } from '@prisma/client'
 import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount, signedNow } from './saved-quotes.js'
+import { sameValue } from '../lib/quoteLock.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
 import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
@@ -35,7 +36,8 @@ import { installDateOf } from '../lib/warranties.js'
 import { pricingModule, plainStyleName } from '../lib/estimates.js'
 import { styleRecords } from '../lib/ownTier.js'
 import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
-import { depositOf } from '../lib/paymentMath.js'
+import { shownDollarCents, customerDepositCents, pricedWholeDollar } from '../lib/paymentMath.js'
+import { quoteOnCustomerDollars } from '../lib/customerDollars.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
@@ -86,7 +88,9 @@ export function refusalText(why: 'signed' | 'accepted', label: string, phone: st
 }
 
 export const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
-const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('en-US')
+/** A price as the page shows it: the whole dollar the customer pays (lib/paymentMath.ts shownDollarCents, D1 Oct 29 2026). */
+const money = (n: number) => moneyCents(Math.round((n || 0) * 100))
+const moneyCents = (c: number) => (c < 0 ? '-' : '') + '$' + (Math.abs(shownDollarCents(c)) / 100).toLocaleString('en-US')
 const money2 = (n: number) => '$' + (n || 0).toFixed(2)
 
 /** Only our own drawing: an <svg> with no scripts, handlers or links. */
@@ -186,7 +190,10 @@ export function standingOptionOf(options: Array<Pick<ProposalOption, 'fenceStyle
 export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; chosenOption?: number | null; fenceStyle: string; finalPrice: number; status?: string | null; soldAt?: Date | null; firstViewedAt?: Date | null; viewCount?: number | null }, p: Proposal, signed = false): Promise<{ p: Proposal; view: ProposalPageView }> {
   const m = await pricingModule()
   const frozen = await termsOn(p)
-  const terms = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId, { repair: p.kind === 'repair' }))
+  const asSigned = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId, { repair: p.kind === 'repair' }))
+  // Not signed before Oct 29 2026: the proposal's own deposit in Payment Terms (D2) and the new permit sentence
+  // (#32), as the contract will print them (lib/contractPdf.ts). Signed before: as signed.
+  const terms = await quoteOnCustomerDollars(q) ? m.termsAsAsked(asSigned, p.depositPct) : asSigned
   const address = p.company?.address || await companyAddress(q.accountId)
   const shown: Proposal = { ...p, terms, company: { ...(p.company ?? {}), ...(address ? { address } : {}) } }
   const dup = m.sameFenceAs(p.options)
@@ -226,15 +233,31 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
 /** An option's price block: the final price; with "Show as discount" and a reduction, the list price and a Discount line above it. */
 export function optionPriceHtml(p: Pick<Proposal, 'showDiscount'>, o: Pick<ProposalOption, 'finalPrice' | 'adjustmentCents'>): string {
   const adj = Math.round(Number(o.adjustmentCents) || 0)
-  const fmt = money
-  if (p.showDiscount !== true || !(adj < 0)) return `<span class="price">${fmt(o.finalPrice)}</span>`
-  const list = Math.round(o.finalPrice * 100 - adj) / 100
-  return `<span class="list" data-list-price>Price <s>${fmt(list)}</s></span><span class="disc" data-discount>Discount −${fmt(-adj / 100)}</span><span class="price" data-final-price>${fmt(o.finalPrice)}</span>`
+  const finalCents = shownDollarCents(Math.round(o.finalPrice * 100))
+  if (p.showDiscount !== true || !(adj < 0)) return `<span class="price">${moneyCents(finalCents)}</span>`
+  // The three lines add up as shown: the Discount is the list price shown less the price shown (a cents quote's
+  // list and price each round to the dollar, so their own discount could read a dollar off).
+  const listCents = shownDollarCents(Math.round(o.finalPrice * 100) - adj)
+  return `<span class="list" data-list-price>Price <s>${moneyCents(listCents)}</s></span><span class="disc" data-discount>Discount −${moneyCents(listCents - finalCents)}</span><span class="price" data-final-price>${moneyCents(finalCents)}</span>`
 }
 
-/** The deposit shown for an option's price (dollars): as the payment schedule makes it (lib/paymentMath.ts depositOf). */
+/**
+ * The deposit shown for an option's price, in cents: the deposit invoice signing makes (lib/paymentMath.ts
+ * customerDepositCents; none when the proposal asks none). Whole dollar by the proposal or by the quote's pricing,
+ * as the schedule and the contract read it.
+ */
+export function depositCents(p: Pick<Proposal, 'depositPct' | 'wholeDollar'>, price: number, pricing?: unknown): number {
+  return customerDepositCents(Math.round(price * 100), p.depositPct, pricedWholeDollar({ proposal: p, pricing }))
+}
+
+/** The deposit as the page prints it ("$3,557"). */
+export function depositText(p: Pick<Proposal, 'depositPct' | 'wholeDollar'>, price: number, pricing?: unknown): string {
+  return moneyCents(depositCents(p, price, pricing))
+}
+
+/** The deposit shown for an option's price, in dollars (depositCents). */
 export function depositDollars(p: Pick<Proposal, 'depositPct' | 'wholeDollar'>, price: number): number {
-  return p.wholeDollar === true ? depositOf(Math.round(price * 100), Number(p.depositPct), true) / 100 : price * (Number(p.depositPct) / 100)
+  return depositCents(p, price) / 100
 }
 
 export function logoPath(): string | null {
@@ -538,7 +561,12 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
     return refused(q, 'signed')
   }
   // The terms the customer just read: frozen on the proposal now if it went out before terms were (lib/contractTerms.ts).
-  const termsNow = (await termsOn(p)) ? null : await currentTerms(q.accountId, { repair: p?.kind === 'repair' })
+  // Not signed before Oct 29 2026: frozen with the proposal's own deposit and the new permit sentence, as the page
+  // showed them (proposalPage, lib/customerDollars.ts).
+  const frozenWas = await termsOn(p)
+  const termsWere = frozenWas ?? await currentTerms(q.accountId, { repair: p?.kind === 'repair' })
+  const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct) : termsWere
+  const termsNow = frozenWas && sameValue(termsAsShown, frozenWas) ? null : termsAsShown
   // The quote becomes the option the customer chose, exactly as it was priced.
   const s = opt.snapshot ?? {}
   const layout = q.layout as any
@@ -671,8 +699,9 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
     if (hidden.has(i) && i !== chosen) return ''
     // Accepted or sold: the fence that stands only.
     if (single && (none || i !== chosen)) return ''
-    const diff = o.finalPrice - base
-    const save = i !== chosen && diff < -0.5 ? `<span class="save">Save ${money(-diff)}</span>` : i !== chosen && diff > 0.5 ? `<span class="more">${money(diff)} more</span>` : ''
+    // Between the prices as shown, so "Save $X" is the difference the customer reads.
+    const diff = shownDollarCents(Math.round(o.finalPrice * 100)) - shownDollarCents(Math.round(base * 100))
+    const save = i !== chosen && diff < 0 ? `<span class="save">Save ${moneyCents(-diff)}</span>` : i !== chosen && diff > 0 ? `<span class="more">${moneyCents(diff)} more</span>` : ''
     const monthly = fin ? `<p class="monthly">As low as ${monthlyText(monthlyPayment(o.finalPrice, fin.apr ?? 0, fin.months!))}/month for ${fin.months} months${fin.provider ? ` with ${esc(fin.provider)}` : ''}</p>` : ''
     const photo = o.photoId ? `<img class="photo" src="photo/${esc(o.photoId)}" alt="${esc(o.label)}" loading="lazy">` : ''
     return `<label class="opt${i === chosen ? ' on' : ''}" data-option="${i}">
@@ -691,8 +720,10 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
     </label>`
   }).join('')
 
+  // The deposit invoice signing makes, for each option (worked out here; the page's script only shows it).
+  const deposits = p.options.map(o => depositText(p, o.finalPrice, q.pricing))
   const deposit = (p.depositPct ?? 0) > 0 && !none
-    ? `<section><h2>Deposit</h2><p id="deposit" data-pct="${Number(p.depositPct)}"${whole ? ' data-whole="1"' : ''}>${esc(p.depositPct)}% to schedule: <b>${money(depositDollars(p, p.options[chosen].finalPrice))}</b></p>${p.depositNote ? `<p class="small">${esc(p.depositNote)}</p>` : ''}</section>`
+    ? `<section><h2>Deposit</h2><p id="deposit">${esc(p.depositPct)}% to schedule: <b>${deposits[chosen]}</b></p>${p.depositNote ? `<p class="small">${esc(p.depositNote)}</p>` : ''}</section>`
     : ''
   // No zero counts, "end posts" with no gates, and a repair's description said once (lib/customerFenceName.ts customerIncluded).
   const includedLines = customerIncluded(p)
@@ -756,10 +787,10 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
   try{history.replaceState(null,'',location.pathname+location.hash)}catch(_){}` : '') + (!canSign ? '' : `
   (function(){
     var opts=[].slice.call(document.querySelectorAll('.opt'));
-    var prices=${JSON.stringify(p.options.map(o => o.finalPrice))};
+    var deps=${JSON.stringify(deposits)};
     var dep=document.getElementById('deposit');
     var ws=${JSON.stringify(perOption ? p.options.map(o => wOf(o)) : []).replace(/</g, '\\u003c')},wn=document.getElementById('wname'),wt=document.getElementById('wtext');
-    function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){var b=dep.querySelector('b');var c=Math.round(Math.round(prices[+r.value]*100)*(+dep.dataset.pct)/100);b.textContent='$'+(dep.dataset.whole?Math.floor(c/100):Math.round(c/100)).toLocaleString('en-US');}if(r.checked&&ws.length&&wt){var w=ws[+r.value]||{name:'',text:''};if(wn)wn.textContent=w.name;wt.textContent=w.text}});}
+    function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){dep.querySelector('b').textContent=deps[+r.value]||''}if(r.checked&&ws.length&&wt){var w=ws[+r.value]||{name:'',text:''};if(wn)wn.textContent=w.name;wt.textContent=w.text}});}
     opts.forEach(function(o){o.querySelector('input').addEventListener('change',pick)});
     var c=document.getElementById('sig'),x=c.getContext('2d'),down=false,inked=false;
     x.lineWidth=3;x.lineCap='round';x.strokeStyle='#1C1030';

@@ -187,9 +187,12 @@ describe('deposit and final: whole dollars that add up to the contract', () => {
     expect(depositOf(500_100, 50, true)).toBe(250_000)
   })
 
-  test('a contract from before keeps its deposit to the cent (sent and signed never change)', () => {
+  test('a contract signed before Oct 29 2026 keeps its deposit to the cent; a cents proposal shows and bills the dollar it showed', () => {
+    // Signed before (lib/customerDollars.ts): to the cent, as it was billed and printed.
     expect(depositOf(500_027, 50)).toBe(250_014)
-    expect(depositDollars({ depositPct: 50 }, 5000.27)).toBeCloseTo(2500.135, 6)
+    // The page of a cents proposal (sent before the whole dollar rule) shows the deposit to the dollar, and signing
+    // now bills that (Jonathan, Oct 29 2026, D1: "Customers pay what they saw").
+    expect(depositDollars({ depositPct: 50 }, 5000.27)).toBe(2500)
     expect(pricedWholeDollar({ proposal: { wholeDollar: true } })).toBe(true)
     expect(pricedWholeDollar({ pricing: { wholeDollar: true } })).toBe(true)
     expect(pricedWholeDollar({ proposal: { depositPct: 50 }, pricing: { costFactor: 0.6 } })).toBe(false)

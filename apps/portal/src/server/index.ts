@@ -97,6 +97,7 @@ import { ensureGreenFollowsBlackAll } from './lib/greenChainLinkFollow.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
+import { ensureCustomerDollarsFromAll } from './lib/customerDollars.js'
 import { hideCostsFromLimitedLogins, refuseNoPrices } from './lib/costRedact.js'
 import { listTables } from './lib/listTable.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
@@ -478,6 +479,8 @@ printEnvValidation()
 // On Vercel, the app is exported and Vercel manages the serverless lifecycle.
 const isVercel = process.env.VERCEL === '1'
 if (!isVercel) {
+  // When Jonathan's Oct 29 2026 billing and contract rules began, recorded before the first signing after a deploy (lib/customerDollars.ts).
+  ensureCustomerDollarsFromAll().catch(err => console.error('[contracts] Oct 29 rules start check failed:', err))
   const server = app.listen(PORT, HOST, () => {
     console.log(`🚀 EZ Biz API running on port ${PORT}`)
     console.log(`   CORS origin: ${CLIENT_URL}`)

@@ -1,9 +1,11 @@
 /**
  * Payment schedules, payments and receipts (dev database, DEV_DB=1; refuses any other).
  *
- * - A job for a signed quote gets its schedule from the contract: $8,914.27 at
- *   50% is a $4,457.14 deposit and a $4,457.13 final, to the cent; the
- *   proposal's own deposit percent when it has one.
+ * - A job for a signed quote gets its schedule from the contract: $8,914.27
+ *   signed from Oct 29 2026 on is billed the $8,914 the customer saw (D1), a
+ *   $4,457 deposit and a $4,457 final; the proposal's own deposit percent
+ *   when it has one (contractRulesOct29.db.test.ts: 0% and blank, the signed
+ *   contract, a sale from before).
  * - Payments of any amount: oldest open invoice first, the rest carried; a
  *   short payment leaves a balance; over pays to a credit. The invoice's own
  *   amount never moves with a payment.
@@ -86,6 +88,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     ownerId = user.id
     // Schedules began before this run's sales, as on live after the deploy.
     await billing.schedulesFrom(accountId)
+    // And the Oct 29 2026 rules (lib/customerDollars.ts): these sales are signed after.
+    await (await import('../src/server/lib/customerDollars.js')).customerDollarsFrom(accountId)
     owner = jwt.sign({ sub: user.id, email: user.email, role: 'super_admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     sales = jwt.sign({ sub: user.id, email: user.email, role: 'sales_rep', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     const app = express()
@@ -131,17 +135,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     server?.close()
   })
 
-  test('$8,914.27 sold at 50%: deposit $4,457.14 + final $4,457.13, due at signing and on completion', async () => {
+  test('$8,914.27 sold at 50%: billed $8,914 as shown, deposit $4,457 + final $4,457, due at signing and on completion', async () => {
     const { jobId } = await soldJob(8914.27)
     const s = await view(jobId)
-    expect(s.signedCents).toBe(891427)
-    expect(byKind(s, 'deposit').amountCents).toBe(445714)
-    expect(byKind(s, 'final').amountCents).toBe(445713)
-    expect(byKind(s, 'deposit').amountCents + byKind(s, 'final').amountCents).toBe(891427)
+    expect(s.signedCents).toBe(891400)
+    expect(byKind(s, 'deposit').amountCents).toBe(445700)
+    expect(byKind(s, 'final').amountCents).toBe(445700)
+    expect(byKind(s, 'deposit').amountCents + byKind(s, 'final').amountCents).toBe(891400)
     expect(byKind(s, 'deposit').dueOn).toBe('signing')
     expect(byKind(s, 'final').dueOn).toBe('completion')
     expect(byKind(s, 'final').dueDate).toBeNull()
-    expect(s.invoices.every((i: any) => i.contractCents === 891427)).toBe(true)
+    expect(s.invoices.every((i: any) => i.contractCents === 891400)).toBe(true)
     // Marked installed: the Final is due on the install date.
     await call(owner, 'PATCH', `/api/saved-jobs/${jobId}`, { completedDate: '2026-10-30' })
     expect(byKind(await view(jobId), 'final').dueDate).toBe('2026-10-30')
@@ -157,8 +161,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
   test("the proposal's own deposit percent", async () => {
     const { jobId } = await soldJob(3333.33, { depositPct: 30, options: [{ finalPrice: 3333.33 }] })
     const s = await view(jobId)
+    // $3,333.33 shows $3,333: 30% of it as the page showed it, $1,000; the final the rest of the $3,333.
+    expect(s.signedCents).toBe(333300)
     expect(byKind(s, 'deposit').amountCents).toBe(100000)
-    expect(byKind(s, 'final').amountCents).toBe(233333)
+    expect(byKind(s, 'final').amountCents).toBe(233300)
   })
 
   test('oldest first with carry; short and over; repeat create is one payment, one receipt; the invoice amount never moves', async () => {
@@ -167,7 +173,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     expect(a.r.status).toBe(201)
     const rec = a.r.json.data.receipt
     expect(rec.number).toBeGreaterThan(1000)
-    expect(rec.says.balanceCents).toBe(491427)
+    expect(rec.says.balanceCents).toBe(491400)
     expect(rec.says.forText).toBe('Deposit')
     // Sent again (the answer was lost): the same payment and receipt.
     const again = await call(owner, 'POST', '/api/payments', { id: a.id, jobId, amountCents: 400000, method: 'check', checkNumber: '1042' })
@@ -176,14 +182,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     expect(await prisma.contractPayment.count({ where: { jobId } })).toBe(1)
     expect(await prisma.receipt.count({ where: { jobId } })).toBe(1)
     const b = await pay(owner, jobId, 500000, { method: 'zelle', checkNumber: null })
-    // 500,000 more: 45,714 finishes the deposit, 445,713 pays the final, 8,573 is over (a credit).
-    expect(b.r.json.data.receipt.says.forItems).toEqual([{ label: 'Deposit', cents: 45714 }, { label: 'Final payment', cents: 445713 }, { label: 'Credit (over the balance)', cents: 8573 }])
+    // 500,000 more: 45,700 finishes the deposit, 445,700 pays the final, 8,600 is over (a credit).
+    expect(b.r.json.data.receipt.says.forItems).toEqual([{ label: 'Deposit', cents: 45700 }, { label: 'Final payment', cents: 445700 }, { label: 'Credit (over the balance)', cents: 8600 }])
     const s = await view(jobId)
-    expect(byKind(s, 'deposit').amountCents).toBe(445714)
+    expect(byKind(s, 'deposit').amountCents).toBe(445700)
     expect(byKind(s, 'deposit').balanceCents).toBe(0)
-    expect(byKind(s, 'final').amountCents).toBe(445713)
-    expect(s.creditCents).toBe(900000 - 891427)
-    expect(s.balanceCents).toBe(891427 - 900000)
+    expect(byKind(s, 'final').amountCents).toBe(445700)
+    expect(s.creditCents).toBe(900000 - 891400)
+    expect(s.balanceCents).toBe(891400 - 900000)
     expect(b.r.json.data.receipt.says.paidInFull).toBe(true)
     // The job's paid figures follow.
     const job = await prisma.savedJob.findUnique({ where: { id: jobId } })
@@ -359,7 +365,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     made.accounts.push(acct.id)
     const kristi = await prisma.crmContact.create({ data: { accountId: acct.id, firstName: 'E2E Kristi', lastName: 'Murphy' } as any })
     made.contacts.push(kristi.id)
-    const q = await prisma.savedQuote.create({ data: { accountId: acct.id, crmContactId: kristi.id, customerName: 'E2E Kristi Murphy', fenceStyle: "WV-ND 6'x8' Privacy", runs: [100], pullSheet: [], finalPrice: 8914.27, status: 'SOLD', soldAt: new Date() } as any })
+    const q = await prisma.savedQuote.create({ data: { accountId: acct.id, crmContactId: kristi.id, customerName: 'E2E Kristi Murphy', fenceStyle: "WV-ND 6'x8' Privacy", runs: [100], pullSheet: [], finalPrice: 8914.27, status: 'SOLD', soldAt: new Date('2026-10-21T15:00:00Z') } as any })
+    // Sold Oct 21, before the Oct 29 2026 rules: billed to the cent as signed (lib/customerDollars.ts).
+    await prisma.accountKeyValue.create({ data: { accountId: acct.id, key: 'contracts:customer-dollars-from', value: '2026-10-29T18:00:00.000Z' } })
     made.quotes.push(q.id)
     const job = await prisma.savedJob.create({ data: { accountId: acct.id, quoteId: q.id, crmContactId: kristi.id, customerName: 'E2E Kristi Murphy', quotePrice: 8914.27, contractValue: 8914.27 } as any })
     made.jobs.push(job.id)

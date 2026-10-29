@@ -18,7 +18,8 @@ import { logoPath, standingOptionOf } from '../routes/proposal.js'
 import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.js'
 import { pricingModule } from './estimates.js'
 import { acceptedOnUpdate } from './warrantyUpdates.js'
-import { depositOf, pricedWholeDollar } from './paymentMath.js'
+import { depositOf, pricedWholeDollar, shownDollarCents, customerDepositCents } from './paymentMath.js'
+import { quoteOnCustomerDollars } from './customerDollars.js'
 import { termsOn, companyAddress, type Term } from './contractTerms.js'
 import { plainIp } from './signedDocuments.js'
 import { workKindOf } from './installDays.js'
@@ -58,6 +59,12 @@ export interface ContractInput {
   depositNote: string
   /** Priced to the whole dollar (Oct 21 2026 on): the deposit is whole dollars, as the payment schedule makes it. */
   wholeDollar?: boolean
+  /**
+   * Signed from Oct 29 2026 on (lib/customerDollars.ts): the price and deposit as the proposal showed them and
+   * the schedule bills them, whole dollars (D1, lib/paymentMath.ts). Not set: to the cent, as contracts signed
+   * before were printed.
+   */
+  shownDollars?: boolean
   description: string
   warranty: OptionWarranty | null
   /** Plain words ("October 20, 2026"), null until installed. */
@@ -113,6 +120,18 @@ export function warrantyLines(w: OptionWarranty | null, installDate: string | nu
 /** The contract's title: a repair's says so. */
 export const contractTitle = (kind?: string | null) => (kind === 'repair' ? 'Fence Repair Contract' : 'Fence Contract')
 
+/** The price the contract prints, in cents: the whole dollar shown (signed from Oct 29 2026 on), else to the cent. */
+export function contractPriceCents(c: Pick<ContractInput, 'price' | 'shownDollars'>): number {
+  const cents = Math.round((c.price || 0) * 100)
+  return c.shownDollars ? shownDollarCents(cents) : cents
+}
+
+/** The deposit the contract prints, in cents: the deposit invoice signing makes (lib/contractBilling.ts makeScheduleIn). */
+export function contractDepositCents(c: Pick<ContractInput, 'price' | 'depositPct' | 'wholeDollar' | 'shownDollars'>): number {
+  const cents = Math.round((c.price || 0) * 100)
+  return c.shownDollars ? customerDepositCents(cents, c.depositPct, c.wholeDollar === true) : depositOf(cents, c.depositPct, c.wholeDollar === true)
+}
+
 export function contractPdf(c: ContractInput): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = pdfDocument({ size: 'LETTER', margin: 48, info: { Title: `Signed contract - ${c.customerName}`, Author: c.company.name } })
@@ -138,8 +157,8 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
       // The plain fence name, never the tier word: the same whether it was sold first or signed on the link (review Oct 27 2026).
       ['Fence', c.optionLabel],
       ...(c.footageFt > 0 ? [['Footage', `${Math.round(c.footageFt)} ft${c.gatesText ? `, ${c.gatesText}` : ''}`] as [string, string]] : []),
-      ['Price', money(c.price)],
-      ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(depositOf(Math.round(c.price * 100), c.depositPct, c.wholeDollar === true) / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
+      ['Price', money(contractPriceCents(c) / 100)],
+      ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(contractDepositCents(c) / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
       ['Warranty', c.warranty?.name || 'None written'],
     ]
     for (const [k, v] of facts) {
@@ -217,14 +236,15 @@ export async function repairedFenceName(fenceStyle: string | null | undefined): 
 }
 
 /** The option the customer accepted and its price, as the contract prints them ("White vinyl privacy at $10,000.00"). */
-export function acceptedOptionText(q: Pick<Q, 'proposal' | 'chosenOption' | 'fenceStyle' | 'finalPrice' | 'acceptedAt' | 'runRails'>, repairedStyle = ''): string {
+export function acceptedOptionText(q: Pick<Q, 'proposal' | 'chosenOption' | 'fenceStyle' | 'finalPrice' | 'acceptedAt' | 'runRails'>, repairedStyle = '', shownDollars = false): string {
   const p = q.proposal as any
   const opts = Array.isArray(p?.options) ? p.options : []
   const idx = typeof q.chosenOption === 'number' && opts[q.chosenOption] ? q.chosenOption : Math.max(0, opts.findIndex((o: any) => o?.fenceStyle === q.fenceStyle))
   const opt = opts[idx] ?? opts[0] ?? {}
   const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
   // A best price fence signed through its twin tier card: named as the fence that stands (routes/proposal.ts standingOptionOf).
-  return `${contractFenceName(q, idx, repairedStyle)} at ${money(price)}`
+  // Signed from Oct 29 2026 on: the whole dollar the proposal showed (D1), as the contract prints it.
+  return `${contractFenceName(q, idx, repairedStyle)} at ${money(contractPriceCents({ price, shownDollars }) / 100)}`
 }
 
 /**
@@ -250,7 +270,11 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
   const price = q.acceptedAt ? Number(opt.finalPrice) || q.finalPrice : q.finalPrice
   // Signed on the link: the signed record (time, IP, what was accepted) on every copy, not only the stored one.
   const repaired = p.kind === 'repair' ? await repairedFenceName(opt?.fenceStyle || q.fenceStyle) : ''
-  const record = signed ?? (q.acceptedAt ? { at: q.acceptedAt, ip: plainIp(q.acceptedIp ?? null), accepted: acceptedOptionText(q, repaired) } : null)
+  // Signed from Oct 29 2026 on: the price and deposit the customer saw (D1), the proposal's own deposit in the
+  // Payment Terms (D2) and the new permit sentence (#32). Signed before: exactly as it was signed.
+  const shownDollars = await quoteOnCustomerDollars(q)
+  const record = signed ?? (q.acceptedAt ? { at: q.acceptedAt, ip: plainIp(q.acceptedIp ?? null), accepted: acceptedOptionText(q, repaired, shownDollars) } : null)
+  const frozen = (await termsOn(p)) ?? []
   return contractPdf({
     company: {
       name: String(p.company?.name || co.name || 'Getter Done Fence'), phone: String(p.company?.phone || co.phone || ''), email: String(p.company?.email || co.email || ''),
@@ -261,13 +285,13 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
     footageFt: Number(p.footageFt) || 0, gatesText: p.kind ? '' : String(p.gatesText || ''),
     // No zero counts; a repair's description is said once, under The work (lib/customerFenceName.ts customerIncluded).
     included: customerIncluded(p), includedNote: String(p.includedNote || ''),
-    depositPct: Number(p.depositPct) || 0, depositNote: String(p.depositNote || ''), wholeDollar: pricedWholeDollar(q), description: p.kind ? String(p.description || '') : '',
+    depositPct: Number(p.depositPct) || 0, depositNote: String(p.depositNote || ''), wholeDollar: pricedWholeDollar(q), shownDollars, description: p.kind ? String(p.description || '') : '',
     warranty, installDate: day ? m.dayText(day) : null,
     acceptedBy: String(q.acceptedBy || ''), acceptedAt: q.acceptedAt ?? q.soldAt ?? null, signedHow: q.acceptedAt ? 'link' : 'in_person',
     signature: sig ? Buffer.from(sig[1], 'base64') : null,
     signedRecord: record,
     // Only the terms frozen on the proposal: what the customer read and signed.
-    terms: (await termsOn(p)) ?? [],
+    terms: shownDollars ? m.termsAsAsked(frozen, p.depositPct) : frozen,
     kind: p.kind === 'repair' || p.kind === 'move' ? p.kind : workKindOf(q.work) === 'new' ? null : workKindOf(q.work) as 'move' | 'repair',
   })
 }
