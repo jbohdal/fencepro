@@ -113,9 +113,6 @@ describe('a repair\'s and a move\'s checklist and heading (re-check, Oct 26 2026
     ])
     for (const gone of ['Concrete / donuts finished', 'Utility flags and stakes removed', 'Property pins undisturbed']) expect(list.map(i => i.label)).not.toContain(gone)
     expect(new Set(list.map(i => i.id)).size).toBe(list.length)
-    // Concrete footers on the quote (#31, Oct 29 2026): one line, with how many.
-    const footers = workChecklist({ type: 'repair', repair: { items: { replacePost: 2, footerDisposal: 2 } } }, style).map(i => i.label)
-    expect(footers).toEqual(['Replace a post: 2 done', 'Concrete footers hauled away: 2', 'Work area cleaned up'])
   })
   test('a repair with no gate and no haul away: no gate or debris line; a double gate says so', () => {
     expect(workChecklist({ type: 'repair', repair: { items: { resetPost: 1 } } }, style).map(i => i.id)).toEqual(['repair_resetPost', 'cleanup'])

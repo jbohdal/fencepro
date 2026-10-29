@@ -42,7 +42,7 @@ export const COST_KEYS: ReadonlySet<string> = new Set([
   'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate',
   'manHourRate', 'wage', 'wages', 'hourlyWage', 'overheadPct', 'overheadHistory', 'liveOverhead',
   'commissionSalesman', 'commissionNonSalesman', 'tearOutFence', 'tearOutGate', 'repairProfitPct',
-  'pullNdLaborCents', 'pullNdDisposalCents', 'pullDsLaborCents', 'pullDsDisposalCents', 'footerDisposalCents', 'rateHistory', 'woodFactor', 'woodFactorPct',
+  'pullNdLaborCents', 'pullNdDisposalCents', 'pullDsLaborCents', 'pullDsDisposalCents', 'woodFactor', 'woodFactorPct',
   // Job costing (actual costs)
   'actualMaterialCost', 'actualOtherCosts', 'actualLaborCost', 'subPaidCents',
   // Parts and supplier prices
