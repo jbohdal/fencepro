@@ -3,6 +3,26 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-29: received job materials, the office line in texts, per post repair rates
+
+- **D6, Jonathan** (Oct 29): "Materials received for a job go to that job and don't change shop stock at all."
+  - Mark Received on a Sales Order (Inventory > Sales Orders, and the Ordered list on the Inventory page) saves the order Received and the server records the materials on the job as before (lib/materialsFromOrders.ts). It no longer touches Inventory: no count on hand goes down or up, and the reserved count is left as it is. Before, it lowered the count on hand of each Inventory part with the same name by the order's quantity. The toast says "The materials are recorded on <customer>'s job. Shop stock counts in Inventory did not change."
+  - Every Sales Order is a job's (made from its pull sheet). The app has no stock order for the shop: draft purchase orders are job orders and never changed stock; stock comes in only by hand in Inventory (stock in, adjustments), which is unchanged.
+  - Live, read only on Oct 29: no Sales Order was ever marked Received (2 orders, both Pending), and no Inventory part has a count on hand at all, so Mark Received never lowered shop stock there. 25 parts still carry a reserved count from an older flow (nothing in the app sets it now); left as they are.
+  - In web pendingOrderStore.ts, PendingOrdersPage.tsx, materialsMoveQuestion.ts; pinned in portal tests/receivedNoStock.test.ts and materialsMoveQuestion.test.ts.
+- **#30, Jonathan** (Oct 29): "Booking and install texts use the office line (352) 789 4314, never Christa's cell."
+  - The office line is Settings > Company phone (config.company.phone, else supportPhone); live holds 3527894314. Not hard coded.
+  - Install texts (scheduled, moved, taken off, rain day moves; lib/installScheduling.ts) give it always; before, the job's salesman's Direct phone came first. With no company phone saved, the text gives no number and the Schedule window says so. The personal cell is still never given.
+  - Appointment booking confirmations (every kind) and the calendar invite now say "call or text our office at {company_phone}" by default (web appointmentMessages.ts); before, "me directly at {rep_phone}". Live has no edited templates, so the new words apply there. The Booked window's "no Direct phone" warning shows only when an edited template still uses {rep_phone}.
+  - Kept: the On my way text gives the person's Direct phone (sent by them, from their own phone, on the way). Change orders' "Questions" line gives the owner's Direct phone (844 2677) as decided Oct 26. Proposals give the company phone.
+  - Pinned in portal tests/installDays.test.ts, installScheduling.db.test.ts, appointmentMessages.test.ts and appointmentMessages.db.test.ts.
+- **#31, Jonathan** (Oct 29): "Pulling old posts: $10 per post. Hauling away: $10 per post. Concrete footer disposal: $15 per post."
+  - Settings > Moves and Repairs: pull labor per post 1000 cents (no dig and dig set), disposal per post 1000 cents (both), and a new **Concrete footer disposal per post**, 1500 cents.
+  - Concrete footer disposal is a repair item the salesman picks by count ("Concrete footer disposal (per post)"), like Haul away debris; it is not added by itself to dig set posts (not told). It is also in the change order pick list, and the walkthrough lists "Concrete footers hauled away: N". A fence move does not offer it (the request named repairs).
+  - Effective dated: a once per company start-up step (lib/repairPostRates.ts, key migration:repair-post-rates-2026-10-29) sets the rates with an entry in moveRepair.rateHistory (the day it ran, the rates, the ones replaced) and an audit line. It reaches live with the deploy that carries it and never runs again, so a later hand change in Settings stays. Saved quotes keep the cost lines and price they were priced with.
+  - Live before: pull $2.50 / $12.00 and disposal $7.50 / $24.00 (no dig / dig set), no footer rate.
+  - Pinned in portal tests/moveRepair.test.ts, repairPostRates.db.test.ts, changeOrderPicks.test.ts and walkthroughRules.test.ts.
+
 ## 2026-10-28: draft purchase orders show in Pending Orders, marked Draft
 
 - **Jonathan** (Oct 28): "Draft purchase orders from a hand move show in Pending Orders, marked Draft."
