@@ -128,6 +128,13 @@ async function setup() {
   const rj = await api('/api/saved-jobs', { method: 'POST', body: JSON.stringify({ customerName: REPAIR_NAME, crmContactId: made.repairContact, quoteId: made.repairQuote, customerAddress: REPAIR_ADDR, fenceStyle: "WV-ND 6'x8' Privacy", sections: 0, totalFeet: 0, quotePrice: 650, contractValue: 650, status: 'staging' }) })
   made.repairJob = rj.data?.id || ''
   check('setup: a Salesman login and a sold repair with its job, of its own', !!SALESMAN && !!made.repairContact && !!made.repairQuote && !!made.repairJob, `${!!SALESMAN} ${made.repairContact} ${made.repairQuote} ${made.repairJob}`)
+  // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the owner gives
+  // the website lead to the Salesman on the Assign screen (its call). The owner's visit made it his, so he answers
+  // Yes to "Already assigned to …: move it?" (replace).
+  if (SALESMAN?.id) {
+    const r = await fetch(`${API}/api/lead-assign/${made.contact}`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json', 'X-Staff-Request': '1' }, body: JSON.stringify({ to: SALESMAN.id, replace: true }) })
+    check('setup: the owner assigns the website lead to the Salesman', r.status === 200, `${r.status} ${(await r.text()).slice(0, 160)}`)
+  }
 }
 
 async function phone(browser) {
@@ -272,13 +279,17 @@ async function computer(browser) {
 
   // 3. The notification opens the lead.
   const link = psql(`select coalesce(link,'') from "Notification" where title='Website quote: ${q(NAME)}' order by "createdAt" desc limit 1`)
-  check('computer: the Website quote notification links to the lead\'s card', link === `/pipeline?card=${encodeURIComponent(made.card)}`, link)
+  // A new website lead's bell entry opens its Assign screen (lead-assign push, Oct 28 2026), then the card from there.
+  check('computer: the Website quote notification links to the lead\'s Assign screen', link === `/assign-lead?customer=${made.contact}` || link === `/assign-lead?customer=${encodeURIComponent(made.contact)}`, link)
   await page.goto(`${APP}/`)
   await sleep(3000)
   await page.locator('[aria-label="Notifications"]').first().click()
   await page.locator('button', { hasText: `Website quote: ${NAME}` }).first().click()
+  await page.waitForSelector(`[data-assign-lead="${made.contact}"]`, { timeout: 20000 }).catch(() => {})
+  check('computer: tapping it opens the lead\'s Assign screen', await page.locator(`[data-assign-lead="${made.contact}"]`).isVisible().catch(() => false), page.url())
+  await page.goto(`${APP}/pipeline?card=${encodeURIComponent(made.card)}`)
   await page.waitForSelector(`[data-card-window="${made.card}"]`, { timeout: 20000 }).catch(() => {})
-  check('computer: tapping it opens the lead\'s card window', await page.locator(`[data-card-window="${made.card}"]`).isVisible().catch(() => false), page.url())
+  check('computer: the lead\'s card window opens', await page.locator(`[data-card-window="${made.card}"]`).isVisible().catch(() => false), page.url())
   await shot(page, 'computer-1-notification-card')
 
   // 4. The card's New quote opens the same draft.
@@ -311,6 +322,8 @@ async function computer(browser) {
   const first = await toastText()
   check('computer: a PDF uploads and says so', /The invoice uploaded/.test(first), first.match(/The invoice[^\n]*\n?[^\n]*/)?.[0] ?? '')
   await sleep(3500)
+  // Toasts show one at a time and now stay long enough to read (Oct 28 2026): close the first, as the office would.
+  for (let i = 0; i < 5 && await page.locator('[data-toast] button').count(); i++) { await page.locator('[data-toast] button').first().click().catch(() => {}); await sleep(300) }
   // The same file again: the Mac refuses it, so it is not called uploaded.
   ;[fc] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-upload-pdf]')])
   await fc.setFiles(path.join(FIX, 'text.pdf'))
