@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import { navigate, useNav } from './nav'
+import { tapDecision } from './leadAssignTap'
 import { assignLead, loadLead, arrivedWords, useWaitingLeads, type AssignChoice, type LeadRep, type WaitingLead } from './leadAssign'
 
 const whoWords = (c: AssignChoice) => (c.me ? `${c.name} (me)` : c.name)
@@ -33,13 +34,16 @@ function AssignButtons({ lead, choices, rep: startRep, onDone }: { lead: Waiting
   const [busy, setBusy] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const [taken, setTaken] = useState<{ rep: LeadRep; want: AssignChoice } | null>(null)
+  // Someone already has the lead and another person was tapped: asked before anything is sent.
+  const [asking, setAsking] = useState<{ rep: LeadRep; want: AssignChoice } | null>(null)
+  const [theirs, setTheirs] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [rep, setRep] = useState<LeadRep | null>(startRep ?? null)
   useEffect(() => { setRep(startRep ?? null) }, [startRep])
 
   const go = async (c: AssignChoice, replace = false) => {
     if (busy) return
-    setBusy(c.id); setError(''); setTaken(null)
+    setBusy(c.id); setError(''); setTaken(null); setAsking(null); setTheirs(null)
     const r = await assignLead(lead.customerId, c.id, replace)
     setBusy(null)
     if (r.ok) { setDone(r.assignedTo); setRep(null); onDone?.(r.assignedTo); return }
@@ -60,11 +64,35 @@ function AssignButtons({ lead, choices, rep: startRep, onDone }: { lead: Waiting
     )
   }
   const already = rep && !taken
+  const tap = (c: AssignChoice) => {
+    if (busy) return
+    setError(''); setTaken(null)
+    const d = tapDecision(c, rep)
+    if (d === 'assign') { void go(c); return }
+    setAsking(null)
+    if (d === 'theirs') { setTheirs(c.name); return }
+    setTheirs(null)
+    setAsking({ rep: rep!, want: c })
+  }
   return (
     <div className="mt-3">
       {already && (
         <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900" data-lead-has-rep>
           Already assigned to <b>{rep!.name}</b>{rep!.by ? <> by {rep!.by}</> : null}{rep!.at ? <>, {arrivedWords(rep!.at)}</> : null}. Tap someone else to give it to them instead.
+        </div>
+      )}
+      {asking && (
+        <div className="mb-2 rounded-lg bg-amber-50 border border-amber-300 p-3 text-sm text-amber-900" role="alertdialog" aria-label="Move this lead?" data-lead-move-ask>
+          <div className="font-semibold">Take this lead from {asking.rep.name} and give it to {asking.want.name}?</div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <button className="btn btn-primary btn-sm min-h-[44px]" onClick={() => void go(asking.want, true)} disabled={!!busy} data-lead-move-yes>Yes, give it to {asking.want.name}</button>
+            <button className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => setAsking(null)} disabled={!!busy} data-lead-move-no>No, leave it with {asking.rep.name}</button>
+          </div>
+        </div>
+      )}
+      {theirs && !asking && (
+        <div className="mb-2 rounded-lg bg-gray-50 border border-gray-200 p-3 text-sm text-gray-800" role="status" data-lead-already-theirs>
+          It is already {theirs}'s. Nothing was changed.
         </div>
       )}
       {taken && (
@@ -79,7 +107,7 @@ function AssignButtons({ lead, choices, rep: startRep, onDone }: { lead: Waiting
       <div className="grid gap-2 sm:grid-cols-2">
         {choices.map(c => (
           <button key={c.id} className={`btn ${c.me ? 'btn-secondary' : 'btn-primary'} w-full min-h-[48px] justify-center`} disabled={!!busy}
-            onClick={() => void go(c, !!already)} data-assign-to={c.id}>
+            onClick={() => tap(c)} data-assign-to={c.id}>
             {busy === c.id ? 'Assigning…' : `Assign to ${whoWords(c)}`}
           </button>
         ))}

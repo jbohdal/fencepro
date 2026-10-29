@@ -123,6 +123,40 @@ try {
   const hist = await call(OWNER, 'GET', `/api/follow-ups/history?customerId=${contactId}`)
   const line = (hist.json.data ?? []).find(h => h.title === 'Lead assigned')
   check(!!line && line.detail.startsWith(`Lead assigned to ${salesman.name} by `), `the customer's History: "${line?.title}: ${line?.detail}" (${line?.by})`)
+
+  // Moving a lead someone already has asks first, with the names (review Oct 28 2026: one tap moved it at once).
+  {
+    const ownerRow = sql(`SELECT id || '|' || TRIM(COALESCE("firstName",'') || ' ' || COALESCE("lastName",'')) FROM "CrmUser" WHERE email = 'jbohdal@example.invalid'`).split('|')
+    const [ownerId, ownerName] = ownerRow
+    const again2 = await ctx.newPage()
+    await again2.goto(`${APP}/assign-lead?customer=${encodeURIComponent(contactId)}`, { waitUntil: 'domcontentloaded' })
+    const one = again2.locator(`[data-assign-lead="${contactId}"]`)
+    await one.locator('[data-lead-has-rep]').waitFor({ timeout: 45000 })
+    check((await one.locator('[data-lead-has-rep]').innerText()).includes(salesman.name), `the screen says who has it: "${(await one.locator('[data-lead-has-rep]').innerText()).trim()}"`)
+    await one.locator(`[data-assign-to="${ownerId}"]`).tap()
+    const ask = one.locator('[data-lead-move-ask]')
+    await ask.waitFor({ timeout: 5000 }).catch(() => {})
+    const askText = (await ask.innerText().catch(() => '')).split('\n')[0]
+    check(askText === `Take this lead from ${salesman.name} and give it to ${ownerName}?`, `a tap on another person asks first: "${askText}"`)
+    await sleep(800)
+    check(sql(`SELECT "salesRep" FROM "CrmContact" WHERE id = ${lit(contactId)}`) === salesman.name, 'nothing is changed before the answer')
+    await ask.locator('[data-lead-move-no]').tap()
+    check(!(await ask.isVisible().catch(() => false)) && sql(`SELECT "salesRep" FROM "CrmContact" WHERE id = ${lit(contactId)}`) === salesman.name, 'No leaves it with the Salesman')
+    const notesBefore = sql(`SELECT count(*) FROM "CrmContactNote" WHERE "crmContactId" = ${lit(contactId)} AND body LIKE 'Lead assigned to %'`)
+    await one.locator(`[data-assign-to="${salesman.id}"]`).tap()
+    await one.locator('[data-lead-already-theirs]').waitFor({ timeout: 5000 }).catch(() => {})
+    check(/already .*Nothing was changed/.test(await one.locator('[data-lead-already-theirs]').innerText().catch(() => '')), `a tap on the person who has it changes nothing: "${(await one.locator('[data-lead-already-theirs]').innerText().catch(() => '')).trim()}"`)
+    await sleep(800)
+    check(sql(`SELECT count(*) FROM "CrmContactNote" WHERE "crmContactId" = ${lit(contactId)} AND body LIKE 'Lead assigned to %'`) === notesBefore, 'and writes no new History line')
+    await again2.screenshot({ path: process.env.SHOTS ? `${process.env.SHOTS}/4-same-person.png` : '/dev/null' }).catch(() => {})
+    await one.locator(`[data-assign-to="${ownerId}"]`).tap()
+    await ask.waitFor({ timeout: 5000 })
+    await again2.screenshot({ path: process.env.SHOTS ? `${process.env.SHOTS}/5-ask.png` : '/dev/null' }).catch(() => {})
+    await ask.locator('[data-lead-move-yes]').tap()
+    await one.locator('[data-lead-assigned]').waitFor({ timeout: 20000 })
+    check(sql(`SELECT "salesRep" FROM "CrmContact" WHERE id = ${lit(contactId)}`) === ownerName, `Yes moves it: the Sales rep is now ${ownerName}`)
+    await again2.close()
+  }
 } catch (err) {
   failed++
   console.log(`FAIL  ${err?.message || err}`)
