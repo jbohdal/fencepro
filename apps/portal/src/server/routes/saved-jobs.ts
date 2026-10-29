@@ -40,7 +40,7 @@ import { loadOpsStages } from '../lib/opsStages.js'
 import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, phaseOf, sortedStages, MATERIALS_RANK, type OpsStageDef } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
-import { afterJobSaved } from '../lib/contractBilling.js'
+import { afterJobSaved, salePriceForJob } from '../lib/contractBilling.js'
 import { syncSalesOrderSafe } from '../lib/salesOrders.js'
 import { ordersFollowJobMaterials } from '../lib/materialsFromOrders.js'
 import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
@@ -245,6 +245,20 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     const { id: _ignored, ...fields } = data
     // No rep sent: the quote's (credited to whoever sold it, routes/saved-quotes.ts).
     if (!fields.salesRep?.trim() && data.quoteId) fields.salesRep = (await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { salesRep: true } }))?.salesRep ?? ''
+    // A job for a sale carries the price the sale is billed at (lib/contractBilling.ts salePriceForJob): signed from
+    // Oct 29 2026 on, the whole dollar the customer saw (D1), not the quote's cents an older screen copied; signed
+    // before, the quote's price to the cent. Only a copy of it is corrected (within a dollar): a price typed by hand
+    // is left as sent, and anything on top of the price (contractValue) stays on top.
+    if (data.quoteId && fields.quotePrice > 0) {
+      const sale = await salePriceForJob(req.user.crmAccountId, data.quoteId)
+      const saleCents = sale === null ? 0 : Math.round(sale * 100)
+      const sentCents = Math.round(fields.quotePrice * 100)
+      if (saleCents > 0 && sentCents !== saleCents && Math.abs(sentCents - saleCents) < 100) {
+        const contractCents = Math.round((fields.contractValue || 0) * 100)
+        fields.quotePrice = saleCents / 100
+        fields.contractValue = (contractCents > 0 ? contractCents - sentCents + saleCents : saleCents) / 100
+      }
+    }
     // The new job lands in the stage marked first in Settings (or the one its status stands for).
     const { stages } = await loadOpsStages(req.user.crmAccountId)
     const opsStage = reconcileOpsStage(stages, null, { ...data, opsStage: data.opsStage && stageById(stages, data.opsStage) ? data.opsStage : '' } as any)

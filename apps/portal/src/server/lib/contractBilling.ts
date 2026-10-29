@@ -43,7 +43,7 @@ import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { approvedTotalCents } from './changeOrders.js'
 import { applyPayments, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, shownDollarCents, customerDepositCents, askedDepositPct, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
-import { customerDollarsFrom, onCustomerDollars } from './customerDollars.js'
+import { customerDollarsFrom, onCustomerDollars, signedAtOf } from './customerDollars.js'
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
 import { plainStyleName } from './estimates.js'
@@ -88,6 +88,29 @@ export function pricedCentsOf(q: QuoteRow | null, job: { quotePrice: number; con
 export function signedCentsOf(q: QuoteRow | null, job: { quotePrice: number; contractValue: number }, shown = false): number {
   const c = pricedCentsOf(q, job)
   return shown ? shownDollarCents(c) : c
+}
+
+/**
+ * The price a sale's job carries, in dollars (its quotePrice, and its contractValue before change orders), for a
+ * quote signed from Oct 29 2026 on (D1): the whole dollar the customer saw and is billed, worked out by the same
+ * function the payment schedule uses (signedCentsOf), so the job and the billing cannot drift. Null for a quote
+ * signed before (its job keeps the price to the cent, as it always has) or with no price.
+ */
+export function shownJobPriceOf(q: QuoteRow | null, from: Date): number | null {
+  if (!q || !onCustomerDollars(q, from)) return null
+  const cents = signedCentsOf(q, { quotePrice: 0, contractValue: 0 }, true)
+  return cents > 0 ? cents / 100 : null
+}
+
+/**
+ * The price a new job for a quote of this company carries, in dollars: shownJobPriceOf, else (signed before Oct 29
+ * 2026) the quote's price to the cent. Null when there is no such quote or it has no price.
+ */
+export async function salePriceForJob(accountId: string, quoteId: string | null | undefined): Promise<number | null> {
+  if (!quoteId) return null
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId }, select: QUOTE_SELECT })
+  if (!q) return null
+  return shownJobPriceOf(q as QuoteRow, await customerDollarsFrom(accountId)) ?? (q.finalPrice > 0 ? q.finalPrice : null)
 }
 
 /** Has the quote a proposal (options to show the customer)? */
@@ -313,10 +336,14 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   // The job's paid figures, for the boards that read them (dollars there).
   const paid = payments.filter((p: any) => !p.voidedAt).reduce((s: number, p: any) => s + p.amountCents, 0)
   const last = payments.filter((p: any) => !p.voidedAt).sort((x: any, y: any) => y.paidOn.localeCompare(x.paidOn))[0]
+  // Signed from Oct 29 2026 on (D1): the job's price is the amount signed, the whole dollar the customer saw and is
+  // billed, so the job page never shows the quote's cents. A sale signed before keeps its job price as it is.
+  const sq = schedule.quoteId ? await tx.savedQuote.findFirst({ where: { id: schedule.quoteId, accountId }, select: { status: true, acceptedAt: true, soldAt: true } }) : null
+  const shownSale = !!sq && !!signedAtOf(sq) && onCustomerDollars(sq, await customerDollarsFrom(accountId))
   await tx.savedJob.update({
     where: { id: jobId },
     // contractValue: the contract with its change orders and adjustments, as the schedule has it (lib/changeOrders.ts adds the same).
-    data: { amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
+    data: { ...(shownSale ? { quotePrice: schedule.signedCents / 100 } : {}), amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
   })
 }
 
