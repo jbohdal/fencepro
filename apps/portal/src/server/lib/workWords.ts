@@ -8,8 +8,13 @@
 /** A pull sheet line that is work, not a part to pull or order (tear out, haul away, removal, labor). */
 export const isWorkLine = (item: string) => /\b(tear ?out|haul[- ]?away|remov(e|al)|labor|disposal)\b/i.test(item || '')
 
-export type RepairItemKey = 'resetPost' | 'replacePost' | 'repairSection' | 'replaceSection' | 'rehangGate' | 'replaceGate' | 'haulDebris'
-export const REPAIR_ITEMS: RepairItemKey[] = ['resetPost', 'replacePost', 'repairSection', 'replaceSection', 'rehangGate', 'replaceGate', 'haulDebris']
+/**
+ * footerDisposal: concrete footers hauled off, per post, at the rate in
+ * Settings > Moves and Repairs (Jonathan, Oct 29 2026, #31: "Concrete footer
+ * disposal: $15 per post."). A count the salesman picks, like the others.
+ */
+export type RepairItemKey = 'resetPost' | 'replacePost' | 'repairSection' | 'replaceSection' | 'rehangGate' | 'replaceGate' | 'haulDebris' | 'footerDisposal'
+export const REPAIR_ITEMS: RepairItemKey[] = ['resetPost', 'replacePost', 'repairSection', 'replaceSection', 'rehangGate', 'replaceGate', 'haulDebris', 'footerDisposal']
 
 export const REPAIR_LABEL: Record<RepairItemKey, string> = {
   resetPost: 'Reset a leaning post',
@@ -19,6 +24,7 @@ export const REPAIR_LABEL: Record<RepairItemKey, string> = {
   rehangGate: 'Rehang a gate with new hardware',
   replaceGate: 'Replace a gate',
   haulDebris: 'Haul away debris (per section)',
+  footerDisposal: 'Concrete footer disposal (per post)',
 }
 
 /** The parts of a quote's saved work (SavedQuote.work) these read. */

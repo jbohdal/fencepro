@@ -79,10 +79,11 @@ export function workChecklist(work: WorkWordsInput | null | undefined, styleList
     const items = work.repair?.items ?? {}
     const n = (k: keyof typeof items) => Math.max(0, Math.round(Number(items[k]) || 0))
     const gate = work.repair?.gateKind === 'double' ? 'double gate' : 'gate'
-    const out: TemplateItem[] = REPAIR_ITEMS.filter(k => k !== 'haulDebris' && n(k) > 0)
+    const out: TemplateItem[] = REPAIR_ITEMS.filter(k => k !== 'haulDebris' && k !== 'footerDisposal' && n(k) > 0)
       .map(k => ({ id: `repair_${k}`, label: `${REPAIR_LABEL[k]}${/Gate$/.test(k) && gate !== 'gate' ? ` (${gate})` : ''}: ${n(k)} done` }))
     if (n('rehangGate') + n('replaceGate') > 0) out.push({ id: 'gates', label: `The ${gate} opens, closes and latches` })
     if (n('haulDebris') > 0) out.push({ id: 'debris', label: 'Debris hauled away' })
+    if (n('footerDisposal') > 0) out.push({ id: 'footers', label: `Concrete footers hauled away: ${n('footerDisposal')}` })
     if (!out.length) out.push({ id: 'repair_done', label: 'Repair done as described on the quote' })
     out.push({ id: 'cleanup', label: 'Work area cleaned up' })
     return out
