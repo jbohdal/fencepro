@@ -54,7 +54,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
   const ND = "WV-ND 6'x8' Privacy", DS = "WV-DS 6'x8' Privacy"
   const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
   const made = { contacts: [] as string[], quotes: [] as string[], jobs: [] as string[] }
-  let accountId = '', owner = '', sales = '', base = ''
+  let accountId = '', owner = '', sales = '', base = '', userId = ''
   let server: ReturnType<express.Express['listen']>
   const call = (who: string, method: string, p: string, body?: unknown) => fetch(base + p, { method, headers: { ...(who ? { Authorization: `Bearer ${who}` } : {}), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
     .then(async r => { const t = await r.text(); let json: any = null; try { json = JSON.parse(t) } catch { /* html */ } return { status: r.status, json, text: t } })
@@ -67,7 +67,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     made.contacts.push(c.id)
     const q = await prisma.savedQuote.create({
       data: {
-        accountId, crmContactId: c.id, customerName: `E2E CO ${c.lastName}`, customerAddress: '3 Change Rd, Ocala FL', fenceStyle: ND, runs: [112], sections: 14, corners: 0, ends: 2,
+        // Made by the login the "sales" token names: the Salesman's own quote (lib/salesScope.ts).
+        accountId, ownerId: userId, crmContactId: c.id, customerName: `E2E CO ${c.lastName}`, customerAddress: '3 Change Rd, Ocala FL', fenceStyle: ND, runs: [112], sections: 14, corners: 0, ends: 2,
         materialCost: 3000, laborCost: 1500, totalCOGS: 4500, finalPrice: 6000, gmPct: 0.25,
         pullSheet: [{ item: 'Vinyl panel', qty: 14, unitCost: 100, total: 1400 }], status: 'SOLD', soldAt: new Date(),
       } as any,
@@ -83,6 +84,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
   beforeAll(async () => {
     const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
     accountId = user.crmAccountId!
+    userId = user.id
     await billing.schedulesFrom(accountId)
     owner = jwt.sign({ sub: user.id, email: user.email, role: 'super_admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     sales = jwt.sign({ sub: user.id, email: user.email, role: 'sales_rep', crmAccountId: accountId }, secret, { expiresIn: '10m' })

@@ -28,12 +28,14 @@ import { jobWarranty, SERVICE_TYPES } from '../lib/warranties.js'
 import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
 import { previewUpdate, createUpdate, markSent, summaryOf } from '../lib/warrantyUpdates.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
+import { refusedOutsideSalesScope } from '../lib/salesScope.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
 
 router.get('/job/:jobId', async (req: any, res) => {
   try {
+    if (await refusedOutsideSalesScope(req, res, { jobs: String(req.params.jobId) })) return
     const w = await jobWarranty(req.user.crmAccountId, String(req.params.jobId))
     if (!w) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     res.json({ success: true, data: w })
@@ -70,6 +72,7 @@ router.post('/service/:appointmentId/override', requireCan('schedule.change'), a
 // The signed contract shows the price and deposit: never the Installer's (lib/costRedact.ts refuseNoPrices).
 router.get('/quote/:quoteId/contract.pdf', refuseNoPrices, async (req: any, res) => {
   try {
+    if (await refusedOutsideSalesScope(req, res, { quotes: String(req.params.quoteId) })) return
     const q = await prisma.savedQuote.findFirst({ where: { id: String(req.params.quoteId), accountId: req.user.crmAccountId }, select: CONTRACT_SELECT })
     const pdf = q ? await contractForQuote(q) : null
     if (!pdf) { res.status(404).json({ success: false, error: 'This quote has no signed contract' }); return }
@@ -87,6 +90,7 @@ router.get('/quote/:quoteId/contract.pdf', refuseNoPrices, async (req: any, res)
 
 router.get('/quote/:quoteId/update', async (req: any, res) => {
   try {
+    if (await refusedOutsideSalesScope(req, res, { quotes: String(req.params.quoteId) })) return
     const p = await previewUpdate(req.user.crmAccountId, String(req.params.quoteId))
     if (!p) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
     res.json({ success: true, data: { ...p, preview: makePreviewToken(req.user.id, p.quoteId) } })
@@ -98,6 +102,7 @@ router.get('/quote/:quoteId/update', async (req: any, res) => {
 
 router.post('/quote/:quoteId/update', requireCan('quotes.change'), async (req: any, res) => {
   try {
+    if (await refusedOutsideSalesScope(req, res, { quotes: String(req.params.quoteId) })) return
     const me = await prisma.crmUser.findUnique({ where: { id: String(req.user.id) }, select: { firstName: true, lastName: true } }).catch(() => null)
     const name = `${me?.firstName || ''} ${me?.lastName || ''}`.trim() || String(req.user.email || 'Staff')
     const out = await createUpdate(req.user.crmAccountId, String(req.params.quoteId), { userId: req.user.id ?? null, name })
@@ -115,6 +120,9 @@ const sentSchema = z.object({ channel: z.enum(['text', 'email', 'copy']) })
 router.post('/update/:id/sent', requireCan('quotes.change'), async (req: any, res) => {
   try {
     const { channel } = sentSchema.parse(req.body)
+    // The Salesman: only an update on the Salesman's own or assigned quote (lib/salesScope.ts).
+    const of = await prisma.warrantyUpdate.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId }, select: { quoteId: true } })
+    if (of && await refusedOutsideSalesScope(req, res, { quotes: of.quoteId })) return
     const u = await markSent(req.user.crmAccountId, String(req.params.id), channel)
     if (!u) { res.status(404).json({ success: false, error: 'Warranty update not found' }); return }
     res.json({ success: true, data: summaryOf(u) })
