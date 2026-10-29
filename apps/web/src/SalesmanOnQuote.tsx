@@ -91,7 +91,7 @@ export default function SalesmanOnQuote({ quoteId, jobId, salesRep, label = 'Sal
                 {!pick && <option value="">Pick the Salesman…</option>}
                 {choices.map(c => <option key={c.id} value={c.id}>{c.me ? `${c.name} (me)` : c.name}</option>)}
               </select>
-              <p className="text-xs text-gray-500">Moves this {jobId && !quoteId ? 'job' : 'quote'} only (and its job and commission). The price and the signed papers stay as they are.</p>
+              <p className="text-xs text-gray-500">Moves this {jobId && !quoteId ? 'job' : 'quote'} only, with its commission (and its job, once signed). The price stays as it is.</p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn btn-primary btn-sm min-h-[44px]" disabled={!pick || busy || samePerson(choices.find(c => c.id === pick)?.name, current)} onClick={() => void send(pick, false)} data-quote-salesman-save>{busy ? 'Saving…' : 'Save'}</button>
                 <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => { setOpen(false); setError('') }}>Cancel</button>

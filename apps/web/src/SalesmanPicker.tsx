@@ -36,7 +36,7 @@ export default function SalesmanPicker({ value, onChange, onQuote = false, class
         {options.map(c => <option key={c.id} value={c.name}>{c.me ? `${c.name} (me)` : c.name}</option>)}
       </select>
       {!list && !failed && <p className="text-xs text-gray-500 mt-1">Loading the Salesmen…</p>}
-      {failed && <p className="text-xs text-amber-800 mt-1" data-salesman-offline>{start ? 'No signal for the Salesman list: it saves with you as Salesman.' : 'No signal for the Salesman list: it saves with the owner as Salesman.'} The owner or office can change it later.</p>}
+      {failed && <p className="text-xs text-amber-800 mt-1" data-salesman-offline>{start ? 'No signal for the Salesman list: it saves with you as Salesman.' : 'No signal for the Salesman list: it saves with the owner as Salesman.'} Only the owner can change it later.</p>}
       {words && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1.5" data-salesman-words>{words}</p>}
     </div>
   )
