@@ -40,6 +40,7 @@ import { linesOf, contractAround } from './changeOrders.js'
 import { bookingTeam } from './appointmentRep.js'
 import { plainStyleName } from './estimates.js'
 import { signedFileUrl } from './portalFiles.js'
+import { quoteOnCustomerDollars, customerDollarsFrom, onCustomerDollars } from './customerDollars.js'
 
 const UPLOAD_DIR = () => process.env.UPLOAD_DIR || './uploads'
 const TZ = 'America/New_York'
@@ -153,7 +154,7 @@ export async function fileSignedContract(quoteId: string, madeBy: MadeBy = 'sign
   const have = await prisma.signedDocument.findUnique({ where: { sourceKey: contractKey(q.id) } })
   if (have) return { doc: await complete(have, q.crmContactId, label, fileName), made: false }
   const repaired = (q.proposal as any)?.kind === 'repair' ? await repairedFenceName(q.fenceStyle) : ''
-  const pdf = await contractForQuote(q, { at: q.acceptedAt, ip: plainIp(q.acceptedIp), accepted: acceptedOptionText(q, repaired) })
+  const pdf = await contractForQuote(q, { at: q.acceptedAt, ip: plainIp(q.acceptedIp), accepted: acceptedOptionText(q, repaired, await quoteOnCustomerDollars(q)) })
   if (!pdf) return null
   const out = await store({
     accountId: q.accountId, sourceKey: contractKey(q.id), kind: 'contract', quoteId: q.id, changeOrderId: null, jobId: await jobOfQuote(q.accountId, q.id),
@@ -247,7 +248,8 @@ export interface SignedDocumentView {
  */
 async function views(all: Doc[]): Promise<SignedDocumentView[]> {
   if (!all.length) return []
-  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(all.map(r => r.quoteId))] }, deletedAt: null }, select: { id: true, proposal: true, chosenOption: true, fenceStyle: true, finalPrice: true, acceptedAt: true, runRails: true } })
+  const quotes = await prisma.savedQuote.findMany({ where: { id: { in: [...new Set(all.map(r => r.quoteId))] }, deletedAt: null }, select: { id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, finalPrice: true, acceptedAt: true, soldAt: true, status: true, runRails: true } })
+  const from = quotes.length ? await customerDollarsFrom(quotes[0].accountId) : new Date(0)
   const rows = all.filter(r => quotes.some(q => q.id === r.quoteId))
   // all rows: by the ids of these documents; a change order voided or deleted later still shows its number on what was signed.
   const cos = await prisma.changeOrder.findMany({ where: { id: { in: rows.map(r => r.changeOrderId).filter((x): x is string => !!x) } }, select: { id: true, number: true, totalCents: true } })
@@ -259,7 +261,7 @@ async function views(all: Doc[]): Promise<SignedDocumentView[]> {
     return {
       id: r.id, kind: r.kind as SignedKind,
       title: r.kind === 'contract' ? 'Contract' : `Change order CO-${co?.number ?? ''}`.trim(),
-      detail: r.kind === 'contract' ? (q ? acceptedOptionText(q) : '') : co ? changeOrderAcceptedText(co.number, co.totalCents) : '',
+      detail: r.kind === 'contract' ? (q ? acceptedOptionText(q, '', onCustomerDollars(q, from)) : '') : co ? changeOrderAcceptedText(co.number, co.totalCents) : '',
       signedAt: r.signedAt.toISOString(), signedOn: dayWords(r.signedAt), signedBy: r.signedBy,
       quoteId: r.quoteId, jobId: r.jobId, changeOrderId: r.changeOrderId,
       inPortal: !!f && !f.deletedAt && f.isVisibleToCustomer, portalFileId: r.portalFileId,

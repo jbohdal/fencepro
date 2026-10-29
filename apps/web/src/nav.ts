@@ -336,6 +336,17 @@ export function goBack(fallback: string) {
   else navigate(fallback, { replace: true })
 }
 
+/**
+ * Back to the screen before (as goBack), then `then` once it is there. A
+ * window opened right after a plain Back would be closed by that Back as it
+ * arrives (New Customer's "Book estimate now" for a customer the Salesman
+ * gave away: back to the list, then the booking).
+ */
+export function goBackThen(fallback: string, then: () => void) {
+  if (index > 0 || layers.length) { goBackOurselves(1); whenSettled(then) }
+  else { navigate(fallback, { replace: true }); whenSettled(then) }
+}
+
 /** Where a screen was opened from ("Sales Pipeline"), if it was opened with one. */
 export function openedFrom(): string | undefined { return state()?.from }
 

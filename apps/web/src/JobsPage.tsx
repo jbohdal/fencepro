@@ -13,6 +13,8 @@ import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
 import { can } from './permissions'
 import { archiveRecord } from './recordArchive'
+import SalesmanPicker from './SalesmanPicker'
+import { isMyRep } from './salesmanChoice'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,6 +89,8 @@ export function QuickAddModal({
   const [zip, setZip]             = useState('')
   const [leadSource, setLeadSource] = useState('')
   const [notes, setNotes]         = useState('')
+  // The Salesman choice: the person entering, unless another is picked (salesmanChoice.ts).
+  const [salesRep, setSalesRep]   = useState('')
   const [newCustomerId] = useState(() => newId())
   // A customer on file picked with "Use": the card goes on their record. Never set by a match alone.
   const [picked, setPicked] = useState<Customer | null>(null)
@@ -139,10 +143,12 @@ export function QuickAddModal({
       serviceAddress: address,
       city: city.trim(), state: state.trim(), zip: zip.trim(),
       leadSource, notes,
+      salesRep: salesRep.trim(),
     }, { stage })
     logCustomerActivity(customer.id, `Lead added to pipeline at ${stageName(stage)}`, { kind: 'stage_change' })
     onAdd(null)
-    toast.info('Lead added', 'With a customer record. Its status shows Saved once the office has it.')
+    if (salesRep.trim() && !isMyRep(salesRep)) toast.info('Lead added', `${salesRep.trim()} is the Salesman and sees it as soon as it is saved.`)
+    else toast.info('Lead added', 'With a customer record. Its status shows Saved once the office has it.')
   }
 
   return (
@@ -254,6 +260,9 @@ export function QuickAddModal({
               />
             </div>
           </div>
+          {picked
+            ? <p className="text-xs text-gray-500" data-salesman-kept>{`${picked.firstName} ${picked.lastName}`.trim()}'s Salesman stays as on file{picked.salesRep ? ` (${picked.salesRep})` : ''}.</p>
+            : <SalesmanPicker value={salesRep} onChange={setSalesRep} />}
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Lead Source</label>
             <select

@@ -14,6 +14,46 @@
 
 export const DEFAULT_DEPOSIT_PCT = 50
 
+/**
+ * What the customer pays for a price, in cents (Jonathan, Oct 29 2026, D1:
+ * "Customers pay what they saw"): the whole dollar the proposal shows, half a
+ * dollar up ($7,113.83 shows and is billed $7,114; $7,113.49 is $7,113). The
+ * proposal page prints prices with this (routes/proposal.ts), and a quote
+ * signed from Oct 29 2026 on is billed (lib/contractBilling.ts) and its
+ * contract printed (lib/contractPdf.ts) with it. A price already whole
+ * dollars is unchanged.
+ */
+export function shownDollarCents(cents: number): number {
+  const c = Math.round(Number(cents) || 0)
+  return c < 0 ? -Math.round(-c / 100) * 100 : Math.round(c / 100) * 100
+}
+
+/** The deposit percent a proposal asks for; null when it asks none: 0 or blank (Jonathan, Oct 29 2026, D2). */
+export function askedDepositPct(pct: unknown): number | null {
+  const n = typeof pct === 'number' ? pct : typeof pct === 'string' && pct.trim() ? Number(pct) : NaN
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : null
+}
+
+/**
+ * The deposit the customer is shown and billed, in cents, for an option's
+ * price (`priceCents`, as priced) and the proposal's deposit percent: one
+ * function for the proposal page, the contract and the deposit invoice, so
+ * they cannot drift.
+ *   - none (0 cents) when the proposal asks none (D2);
+ *   - priced to the whole dollar (Oct 21 2026 on): rounded down to the dollar
+ *     (depositOf), as those proposals have always shown it;
+ *   - a proposal priced with cents (sent before the whole dollar rule): the
+ *     deposit its page showed, to the whole dollar (half up).
+ * Never more than the shown price; the balance is the shown price less it.
+ */
+export function customerDepositCents(priceCents: number, pct: unknown, wholeDollar: boolean): number {
+  const p = askedDepositPct(pct)
+  if (p === null) return 0
+  const c = Math.round(priceCents)
+  const dep = wholeDollar ? depositOf(c, p, true) : shownDollarCents(Math.round((c * p) / 100))
+  return Math.max(0, Math.min(dep, shownDollarCents(c)))
+}
+
 export function depositOf(contractCents: number, pct: number | null | undefined, wholeDollars = false): number {
   const p = typeof pct === 'number' && pct > 0 && pct <= 100 ? pct : DEFAULT_DEPOSIT_PCT
   const exact = Math.round((contractCents * p) / 100)

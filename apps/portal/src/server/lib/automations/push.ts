@@ -19,6 +19,8 @@ export interface PushMessage {
   actions?: Array<{ action: string; title: string }>
   /** A lead's push: its buttons assign the lead from the push itself (public/sw.js, routes/lead-assign.ts). */
   assign?: { customerId: string }
+  /** Sound again although a push with the same tag is still showing (a lead's repeat push, lib/leadRepush.ts). */
+  renotify?: boolean
 }
 export interface PushSender {
   /** Resolves 'held' when the outbound gate kept it back (not the live install). */
@@ -96,7 +98,7 @@ export async function sendPush(accountId: string, msg: PushMessage, opts: { user
   const out: PushResult = { sent: 0, failed: 0, removed: 0, held: 0, subscribers: subs.length, errors: [] }
   if (!subs.length) return out
   const vapid = await vapidKeys(accountId)
-  const payload = JSON.stringify({ title: msg.title.slice(0, 120), body: msg.body.slice(0, 400), url: msg.url || '/', tag: msg.tag, ...(msg.actions?.length ? { actions: msg.actions.slice(0, 2) } : {}), ...(msg.assign ? { assign: msg.assign } : {}) })
+  const payload = JSON.stringify({ title: msg.title.slice(0, 120), body: msg.body.slice(0, 400), url: msg.url || '/', tag: msg.tag, ...(msg.actions?.length ? { actions: msg.actions.slice(0, 2) } : {}), ...(msg.assign ? { assign: msg.assign } : {}), ...(msg.renotify && msg.tag ? { renotify: true } : {}) })
   for (const s of subs) {
     try {
       if (await sender.send(s, payload, vapid) === 'held') out.held++

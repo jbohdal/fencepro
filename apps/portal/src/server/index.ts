@@ -97,6 +97,7 @@ import { ensureGreenFollowsBlackAll } from './lib/greenChainLinkFollow.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
+import { ensureCustomerDollarsFromAll } from './lib/customerDollars.js'
 import { hideCostsFromLimitedLogins, refuseNoPrices } from './lib/costRedact.js'
 import { listTables } from './lib/listTable.js'
 import quotePricingRoutes from './routes/quote-pricing.js'
@@ -126,6 +127,7 @@ import { servicePhotosPublic } from './routes/servicePhotosPublic.js'
 import serviceTicketRoutes from './routes/serviceTickets.js'
 import { portalPublicApi, portalPublicPage } from './routes/portalPublic.js'
 import { adoptHandMadeBillingAll } from './lib/billingAdoption.js'
+import { ensureRepairPostRatesAll } from './lib/repairPostRates.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -478,6 +480,8 @@ printEnvValidation()
 // On Vercel, the app is exported and Vercel manages the serverless lifecycle.
 const isVercel = process.env.VERCEL === '1'
 if (!isVercel) {
+  // When Jonathan's Oct 29 2026 billing and contract rules began, recorded before the first signing after a deploy (lib/customerDollars.ts).
+  ensureCustomerDollarsFromAll().catch(err => console.error('[contracts] Oct 29 rules start check failed:', err))
   const server = app.listen(PORT, HOST, () => {
     console.log(`🚀 EZ Biz API running on port ${PORT}`)
     console.log(`   CORS origin: ${CLIENT_URL}`)
@@ -540,6 +544,8 @@ if (!isVercel) {
       await ensureCostReviewAll().catch(err => console.error('[cost review] check failed:', err))
       // Invoices and payments typed in Billing for a sold job, into its payment schedule; nothing sent, no receipt made: once per company (lib/billingAdoption.ts).
       await adoptHandMadeBillingAll().catch(err => console.error('[billing] hand-made Billing check failed:', err))
+      // Repair per post rates Jonathan typed Oct 29 2026 (no dig pull $10 and haul away $10, concrete footer $15; dig set unchanged), effective dated: once per company (lib/repairPostRates.ts).
+      await ensureRepairPostRatesAll().catch(err => console.error('[repair rates] check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

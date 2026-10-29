@@ -6,7 +6,14 @@
  *   pull sheet and keeps it following approved change orders (portal
  *   lib/salesOrders.ts; status: pending)
  *   → user confirms materials ordered (status: ordered)
- *   → materials arrive (status: received) → inventory deducted
+ *   → materials arrive (status: received) → recorded on the job
+ *
+ * Received changes no shop stock (Jonathan, Oct 29 2026, D6: "Materials
+ * received for a job go to that job and don't change shop stock at all."):
+ * the parts go straight to the job, so no Inventory count on hand goes down
+ * or up. Before, Mark Received lowered the count on hand of each Inventory
+ * part with the same name by the order's quantity. Every Sales Order is a
+ * job's (made from its pull sheet); there is no stock order for the shop.
  *
  * Mirrors: inventory_pending_orders + inventory_pending_order_items tables.
  */
@@ -136,10 +143,7 @@ export function updatePendingOrderStatus(id: string, status: PendingOrderStatus)
   if (status === 'ordered' || status === 'received') {
     void whenBusinessStateSaved().then(ok => ok ? import('./jobStore').then(m => m.refreshJobs()) : undefined).catch(() => {})
   }
-  // On received: formally deduct from inventory
-  if (status === 'received') {
-    try { deductInventoryForOrder(all[idx]) } catch { /* noop */ }
-  }
+  // Received: the materials are the job's (the server records them on it, above); Inventory is not touched (D6, Oct 29 2026).
   if (status === 'cancelled') {
     try { releaseInventoryForOrder(all[idx]) } catch { /* noop */ }
   }
@@ -166,7 +170,7 @@ export function updatePendingOrderItem(orderId: string, itemId: string, updates:
 // Routes through inventoryStore (Phase 6) so reservations sync to the cloud
 // instead of being local to one browser.
 
-import { getInventory as storeGetInventory, saveInventory as storeSaveInventory, isInventoryHydrated } from './inventoryStore'
+import { getInventory as storeGetInventory, saveInventory as storeSaveInventory } from './inventoryStore'
 
 interface InventoryItem { id: string; name: string; quantity?: number; reservedQty?: number }
 
@@ -187,37 +191,14 @@ function releaseInventoryForOrder(order: PendingOrder) {
   saveInventory(inv)
 }
 
-function deductInventoryForOrder(order: PendingOrder) {
-  const inv = getInventory()
-  if (inv.length === 0) return
-  for (const oi of order.items) {
-    const m = inv.find(i => i.name?.toLowerCase() === oi.itemName?.toLowerCase())
-    if (m) {
-      m.quantity = Math.max(0, (m.quantity || 0) - oi.requiredQuantity)
-      m.reservedQty = Math.max(0, (m.reservedQty || 0) - oi.requiredQuantity)
-    }
-  }
-  saveInventory(inv)
-}
-
-const sameName = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
-
 /**
- * What Mark Received does to the stock counts, in plain words, for its toast
- * (review Oct 28 2026: it said "Inventory deducted."). deductInventoryForOrder
- * lowers the count on hand of each Inventory part with the same name as a
- * line, by that line's quantity (never below 0), and frees what the line held
- * reserved. A line with no such part changes nothing; neither does Inventory
- * not loaded yet (nothing is saved before it loads). Read before the order is
- * marked.
+ * What Mark Received does, in plain words, for its toast: the materials are
+ * recorded on the job, and no stock count changes (D6, Oct 29 2026; before,
+ * Mark Received lowered the counts on hand).
  */
-export function receivedStockWords(order: PendingOrder): string {
-  if (!isInventoryHydrated()) return 'Inventory has not loaded on this screen, so no stock count changed.'
-  const inv = getInventory()
-  const lines = order.items.length
-  const n = order.items.filter(oi => inv.some(i => sameName(i.name, oi.itemName))).length
-  if (!n) return `None of its ${lines === 1 ? 'part is' : `${lines} parts are`} in Inventory, so no stock count changed.`
-  return `In Inventory, the count on hand of ${n === lines ? (n === 1 ? 'its part' : `all ${n} of its parts`) : `${n} of its ${lines} parts`} went down by the quantity on this order.`
+export function receivedStockWords(order: Pick<PendingOrder, 'customerName'>): string {
+  const who = order.customerName?.trim()
+  return `The materials are recorded on ${who ? `${who}'s job` : 'the job'}. Shop stock counts in Inventory did not change.`
 }
 
 /** For a given order, list items that lack sufficient inventory. */

@@ -18,6 +18,8 @@ import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId, stageNameOf, isFinishedStage } from './pipelineStageModel.js'
 import { nyDay } from './warranties.js'
 import { customerFenceName, railsOf } from './customerFenceName.js'
+import { shownJobPriceOf } from './contractBilling.js'
+import { customerDollarsFrom } from './customerDollars.js'
 
 export async function onProposalAccepted(q: { id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string; leadSource: string; salesRep: string }, chosen: { label: string; fenceStyle: string; finalPrice: number; sections: number }, acceptedBy: string): Promise<void> {
   const price = '$' + Math.round(chosen.finalPrice).toLocaleString('en-US')
@@ -76,9 +78,13 @@ export async function ensureJobForAcceptedQuote(q: {
   id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string
   fenceStyle: string; sections: number; runs: unknown; walkGates: number; dblGates: number; tearOutSections: number; hasSalesman: boolean
   finalPrice: number; gmPct: number; notes: string; salesRep: string; leadSource: string
+  status: string; acceptedAt: Date | null; soldAt: Date | null; proposal: unknown; pricing?: unknown; chosenOption: number | null
 }): Promise<string | null> {
   const existing = await prisma.savedJob.findFirst({ where: { accountId: q.accountId, quoteId: q.id, deletedAt: null, archivedAt: null }, select: { id: true } })
   if (existing) return existing.id
+  // The job's price: signed from Oct 29 2026 on, the whole dollar the customer saw and is billed (D1, the payment
+  // schedule's own function); signed before, the quote's price to the cent, as it always was.
+  const price = shownJobPriceOf(q, await customerDollarsFrom(q.accountId)) ?? q.finalPrice
   const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(Number).filter(n => Number.isFinite(n)) : []
   // The same job (same customer, sold within 60 days, price within 10%): the
   // customer accepted another proposal for the same fence. One job, now
@@ -97,8 +103,8 @@ export async function ensureJobForAcceptedQuote(q: {
         data: {
           quoteId: q.id, fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((t, n) => t + n, 0)),
           walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections,
-          quotePrice: q.finalPrice, contractValue: q.finalPrice, gmPct: q.gmPct,
-          notes: `${same.notes ? same.notes + '\n' : ''}${day}: the customer accepted another proposal for this job (${q.fenceStyle}, $${Math.round(q.finalPrice).toLocaleString('en-US')}); the job follows it now. It was ${same.fenceStyle}, $${Math.round(same.contractValue).toLocaleString('en-US')}.`,
+          quotePrice: price, contractValue: price, gmPct: q.gmPct,
+          notes: `${same.notes ? same.notes + '\n' : ''}${day}: the customer accepted another proposal for this job (${q.fenceStyle}, $${Math.round(price).toLocaleString('en-US')}); the job follows it now. It was ${same.fenceStyle}, $${Math.round(same.contractValue).toLocaleString('en-US')}.`,
         },
       })
       console.log(`[proposal] quote ${q.id} accepted for the same job as ${same.id}; job follows it now`)
@@ -117,7 +123,7 @@ export async function ensureJobForAcceptedQuote(q: {
       customerName: q.customerName, customerPhone: q.customerPhone, customerEmail: q.customerEmail, customerAddress: q.customerAddress,
       fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((s, n) => s + n, 0)),
       walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections, hasSalesman: q.hasSalesman,
-      quotePrice: q.finalPrice, contractValue: q.finalPrice, gmPct: q.gmPct,
+      quotePrice: price, contractValue: price, gmPct: q.gmPct,
       estimatedDays: Math.max(1, Math.ceil(q.sections / 15)),
       notes: q.notes || '', salesRep: q.salesRep || '', leadSource: q.leadSource || '',
     },

@@ -82,6 +82,8 @@ interface EstimateModule {
   stampTerms(proposal: unknown, savedSections: unknown, savedProposal: unknown, frozen: boolean): unknown
   proposalTerms(savedSections: unknown): Array<{ key: string; title: string; text: string }>
   frozenTerms(proposal: unknown): Array<{ key: string; title: string; text: string }> | null
+  /** The terms with the proposal's own deposit in Payment Terms and the Oct 29 2026 permit sentence (web/src/contractTerms.ts). */
+  termsAsAsked<T extends { key: string; title: string; text: string }>(terms: T[], depositPct: unknown): T[]
   companyAddressOf(company: unknown): string
   /** Which proposal options are shown, and which starts selected (web/src/proposalOptions.ts). */
   sameFenceAs(options: unknown[] | null | undefined): number[]

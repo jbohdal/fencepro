@@ -65,7 +65,7 @@ export default function PendingOrdersPage() {
 
   function advance(order: PendingOrder, to: PendingOrderStatus) {
     try {
-      // What Mark Received does to the stock counts, read before it does it.
+      // What Mark Received does: the materials go to the job; no stock count changes (D6).
       const stock = to === 'received' ? receivedStockWords(order) : undefined
       updatePendingOrderStatus(order.id, to)
       toast.success(`Order marked ${STATUS_WORDS[to]}`, stock)

@@ -20,7 +20,12 @@
  *     load. A note on the customer's History says who assigned it, to whom
  *     and when. A lead already assigned to someone else is not changed
  *     without saying so first (409 ALREADY_ASSIGNED; the screen asks).
+ *     The customer's open quotes (and their commission) move with it; sold
+ *     ones stay with whoever sold them (lib/quotesFollowCustomer.ts).
  *   - Only the owner, admin, manager and office assign. Not the Salesman.
+ *     A lead that already has someone moves to another person only by the
+ *     owner (Jonathan, Oct 29 2026, "owner only"; lib/salesmanChoice.ts
+ *     isOwnerLogin): anyone else gets a 403 saying who has it.
  *   - Until assigned, the lead is on the waiting list the owner's Dashboard,
  *     Today and Sales Pipeline show at the top, whether or not the push
  *     reached a phone.
@@ -33,7 +38,9 @@ import { loadPipelineStages } from './pipelineStages.js'
 import { isFinishedStage } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
+import { moveCallbacks } from './leadCallback.js'
 import type { PushMessage, PushResult } from './automations/push.js'
+import { moveOpenQuotes, type MovedQuote } from './quotesFollowCustomer.js'
 
 /** Roles that may assign a lead: the owner, admin, manager and office. Never the Salesman or the Installer. */
 export const ASSIGNER_ROLES = new Set(['super_admin', 'admin', 'manager', 'office_staff'])
@@ -176,14 +183,24 @@ export function pushNewLeadSoon(accountId: string, contactId: string, facts: Lea
  */
 export async function pushNewLead(accountId: string, contactId: string, facts: LeadFacts, deps: LeadPushDeps = {}): Promise<LeadPushOutcome> {
   if (await leadRepOf(accountId, contactId)) return { pushed: false, why: 'already assigned' }
+  return deliverLeadPush(accountId, contactId, leadPushWords(facts), deps)
+}
+
+/**
+ * Send one lead push (the first, or a repeat: lib/leadRepush.ts) to the owner
+ * and admins, with its Assign buttons. Held in the dev outbox off the live
+ * install. `renotify`: the phone sounds again although a push for this lead
+ * (same tag) is still showing.
+ */
+export async function deliverLeadPush(accountId: string, contactId: string, words: { title: string; body: string }, deps: LeadPushDeps = {}, opts: { renotify?: boolean } = {}): Promise<LeadPushOutcome> {
   const owners = await ownerIds(accountId)
   if (!owners.length) return { pushed: false, why: 'no owner login' }
-  const { title, body } = leadPushWords(facts)
+  const { title, body } = words
   const url = assignLeadLink(contactId)
   // Buttons on the push where the phone shows them (not an iPhone home screen app): one per person, the push carries up to two.
   const people = await assignees(accountId)
   const actions = people.slice(0, 2).map(p => ({ action: `assign:${p.id}`, title: `Assign to ${p.name.split(' ')[0]}` }))
-  const msg: PushMessage = { title, body, url, tag: `lead-${contactId}`, actions, assign: { customerId: contactId } }
+  const msg: PushMessage = { title, body, url, tag: `lead-${contactId}`, actions, assign: { customerId: contactId }, ...(opts.renotify ? { renotify: true } : {}) }
   const to = owners.map(o => o.id)
   const allowed = deps.allowed ?? realDeliveryAllowed()
   if (!allowed && !deps.send) {
@@ -291,7 +308,7 @@ export async function leadForAssign(accountId: string, contactId: string): Promi
 // ── Assign ──────────────────────────────────────────────────────────────────
 
 export type AssignAnswer =
-  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null }
+  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null; callbackIds: string[]; quotesMoved: MovedQuote[] }
   | { ok: false; status: number; code: string; error: string; rep?: LeadRep }
 
 /**
@@ -299,7 +316,7 @@ export type AssignAnswer =
  * to X: assign to Y instead?"; without it a lead someone else has is left as
  * it is (409 ALREADY_ASSIGNED, with who has it, who assigned it and when).
  */
-export async function assignLead(input: { accountId: string; contactId: string; toUserId: string; by: { id: string; name: string }; replace?: boolean }): Promise<AssignAnswer> {
+export async function assignLead(input: { accountId: string; contactId: string; toUserId: string; by: { id: string; name: string }; replace?: boolean; byOwner: boolean }): Promise<AssignAnswer> {
   const { accountId, contactId } = input
   const contact = await prisma.crmContact.findFirst({ where: { id: contactId, accountId, deletedAt: null }, select: { id: true } })
   if (!contact) return { ok: false, status: 404, code: 'NOT_FOUND', error: 'That customer is not on file any more.' }
@@ -313,9 +330,19 @@ export async function assignLead(input: { accountId: string; contactId: string; 
     // Already theirs: make sure the customer and the cards both say so, no new note.
     const cardIds = await setCardsRep(accountId, contactId, target.name)
     await prisma.crmContact.updateMany({ where: { id: contactId, accountId, OR: [{ salesRep: null }, { salesRep: '' }] }, data: { salesRep: target.name } })
-    forgetScope(target.id)
+    // Its open call back too (D7, lib/leadCallback.ts), in case it was booked with someone else.
+    const callbackIds = await moveCallbacks(accountId, contactId, target)
+    // Open quotes left with someone else (before quotes moved with the customer) come along too (lib/quotesFollowCustomer.ts),
+    // when the owner does it: moving a quote's Salesman is the owner's (Oct 29 2026), so the office's tap leaves them.
+    const quotesMoved = input.byOwner ? await moveOpenQuotes({ accountId, contactId, toRep: target.name, by: input.by }) : []
+    for (const p of callbackIds.length || quotesMoved.length ? people : [target]) forgetScope(p.id)
     const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-    return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null }
+    return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved }
+  }
+  // A lead that already has a Salesman moves to someone else only by the owner (Jonathan, Oct 29 2026: "owner
+  // only"); the office keeps the one tap Assign of a lead nobody has.
+  if (current && !input.byOwner) {
+    return { ok: false, status: 403, code: 'NOT_ALLOWED', error: `Already assigned to ${current.name}. Only the owner can give a lead that has a Salesman to someone else.`, rep: current }
   }
   if (current && !input.replace) {
     const who = current.by ? ` by ${current.by}` : ''
@@ -328,17 +355,21 @@ export async function assignLead(input: { accountId: string; contactId: string; 
     // The board was busy for every try: the customer carries the rep, which is enough for the Salesman's scope.
     console.warn(`[lead-assign] could not write the rep on the cards of ${contactId}; the customer has it`)
   }
+  // The call back moves with the lead (Jonathan, Oct 29 2026, D7): its open call backs go to the new person.
+  const callbackIds = await moveCallbacks(accountId, contactId, target)
   await prisma.crmContactNote.create({
     data: {
       crmContactId: contactId, accountId, isPinned: false,
-      body: `${ASSIGN_NOTE_PREFIX}${target.name} by ${input.by.name}.${current ? ` It was ${current.name}'s.` : ''}`,
+      body: `${ASSIGN_NOTE_PREFIX}${target.name} by ${input.by.name}.${current ? ` It was ${current.name}'s.` : ''}${callbackIds.length ? ` The call back went with it.` : ''}`,
       createdBy: input.by.name, createdById: input.by.id,
     },
   })
+  // The customer's open quotes and their commission go with the customer; sold ones stay (lib/quotesFollowCustomer.ts).
+  const quotesMoved = await moveOpenQuotes({ accountId, contactId, toRep: target.name, by: input.by })
   // The Salesman's next request reads the scope again: this lead is in it (and out of the one it left).
   for (const p of people) forgetScope(p.id)
   const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null }
+  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved }
 }
 
 /**
@@ -346,7 +377,7 @@ export async function assignLead(input: { accountId: string; contactId: string; 
  * lost card keeps who had it). A versioned save like any other, tried again
  * when a browser saved in between. Null when the board stayed busy.
  */
-async function setCardsRep(accountId: string, contactId: string, rep: string): Promise<string[] | null> {
+export async function setCardsRep(accountId: string, contactId: string, rep: string): Promise<string[] | null> {
   const stages = await loadPipelineStages(accountId).then(s => s.stages).catch(() => [])
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await prisma.pipelineState.findUnique({ where: { accountId } })

@@ -31,12 +31,11 @@ import { checkJobMove } from './automations/stageRules.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { softDeleteLogged, type Actor } from './deletion.js'
 import { logScheduleChange, scheduleWords } from './jobActivity.js'
-import { staffLogins, loginByName } from './appointmentRep.js'
 import { floridaDay } from './automations/context.js'
 import { permitStatusesOf, permitStatusOf } from './permitStatus.js'
 import { calendarStatus } from './calendarSync/index.js'
 import {
-  crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, workKindOf, customerPhoneToGive, isYmd,
+  crewDaysOfWeek, installDays, isCrewDay, wholeCrewDays, daysForSections, rainDayMoves, installText, workKindOf, officePhoneToGive, isYmd,
   sameCrewClashes, namesWords, shortDayWords, type Ymd, type ReadyFacts,
 } from './installDays.js'
 
@@ -182,30 +181,29 @@ export interface PreparedText {
   /** False: no phone number on the customer, so there is nothing to open; `reason` says so. */
   allowed: boolean
   reason: string | null
-  /** Whose number the text gives: the job's salesman's Direct phone, or the company phone. */
-  callFrom: 'rep' | 'company'
+  /** The number the text gives: the office line (Settings > Company phone), never a salesman's own (#30, Oct 29 2026). Empty: none saved. */
+  officePhone: string
 }
 
-async function textFor(accountId: string, job: Json, kind: 'scheduled' | 'moved' | 'off', start: Ymd, ctx?: { staff: Json[]; company: { name: string; phone: string } }): Promise<PreparedText> {
+async function textFor(accountId: string, job: Json, kind: 'scheduled' | 'moved' | 'off', start: Ymd, ctx?: { company: { name: string; phone: string } }): Promise<PreparedText> {
   const c = ctx ?? await textContext(accountId)
   const contact = job.crmContactId ? await prisma.crmContact.findUnique({ where: { id: job.crmContactId }, select: { firstName: true, phone: true } }) : null
   const phone = contact?.phone || job.customerPhone || ''
-  const rep = loginByName(c.staff, job.salesRep)
-  const give = customerPhoneToGive(rep?.phone, c.company.phone)
+  const officePhone = officePhoneToGive(c.company.phone)
   const firstName = (contact?.firstName || String(job.customerName || '').trim().split(/\s+/)[0] || '').trim()
   // A repair or a move says so ("your fence repair is scheduled for ..."), from the job's quote's work.
   const q = job.quoteId ? await prisma.savedQuote.findUnique({ where: { id: String(job.quoteId) }, select: { work: true } }).catch(() => null) : null
   return {
     jobId: job.id, customerName: job.customerName, phone,
-    body: installText(kind, { company: c.company.name, firstName, start, phone: give.phone, work: workKindOf(q?.work) }),
-    allowed: !!phone, reason: phone ? null : 'No phone number on the customer.', callFrom: give.from,
+    body: installText(kind, { company: c.company.name, firstName, start, phone: officePhone, work: workKindOf(q?.work) }),
+    allowed: !!phone, reason: phone ? null : 'No phone number on the customer.', officePhone,
   }
 }
 
 async function textContext(accountId: string) {
-  const [staff, b] = await Promise.all([staffLogins(accountId), prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })])
+  const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
   const co = ((b?.config as Json)?.company ?? {}) as Json
-  return { staff, company: { name: String(co.name || 'Getter Done Fence'), phone: String(co.phone || co.supportPhone || '') } }
+  return { company: { name: String(co.name || 'Getter Done Fence'), phone: String(co.phone || co.supportPhone || '') } }
 }
 
 /* ── Schedule one job ───────────────────────────────────────────────────── */

@@ -103,7 +103,7 @@ describe('the list', () => {
     expect(l.noStyle).toBe(false)
     expect(l.items.filter(i => i.group === 'repair').map(i => i.source)).toEqual([
       'repair:resetPost', 'repair:replacePost', 'repair:repairSection', 'repair:replaceSection', 'repair:rehangGate:walk', 'repair:rehangGate:double',
-      'repair:replaceGate:walk', 'repair:replaceGate:double', 'repair:haulDebris', 'repair:pullPost',
+      'repair:replaceGate:walk', 'repair:replaceGate:double', 'repair:haulDebris', 'repair:footerDisposal', 'repair:pullPost',
     ])
     expect(l.items.filter(i => i.group === 'catalog').map(i => i.source)).toEqual(['catalog:c1'])
     expect(l.items.find(i => i.source === 'repair:replaceGate:double')!.label).toBe('Replace a gate (double gate)')

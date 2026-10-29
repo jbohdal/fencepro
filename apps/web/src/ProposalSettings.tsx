@@ -72,7 +72,7 @@ export default function ProposalSettings({ config, onChange, onOpenTiers }: { co
       <div>
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Deposit</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <label className="block text-xs text-gray-600">Deposit to schedule (% of the price; blank = not shown)
+          <label className="block text-xs text-gray-600">Deposit to schedule (% of the price; blank or 0 = no deposit)
             <input type="number" min={0} max={100} step={5} className={inputCls + ' mt-1'} value={p.depositPct ?? ''} onChange={e => set({ depositPct: num(e.target.value) })} data-deposit-pct />
           </label>
           <label className="block text-xs text-gray-600">How the deposit is paid

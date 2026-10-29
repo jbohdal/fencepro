@@ -12,7 +12,7 @@ describe('the materials question on a hand move', () => {
   test('Ready to Pull asks unless the materials are in', () => {
     const q = materialsMoveQuestion('ready_to_pull', 'Ready to Pull', { materialsStatus: 'not_ordered', customerName: 'Ann Lee' })
     expect(q).toContain("Ann Lee's materials are not ordered yet. Moving it to Ready to Pull records them as Received.")
-    expect(q).toContain('Its Sales Order (Inventory > Sales Orders) is marked Ordered, not Received: mark it Received there, so the stock counts follow.')
+    expect(q).toContain('Its Sales Order (Inventory > Sales Orders) is marked Ordered, not Received: mark it Received there when they come in, so the order matches.')
     expect(materialsMoveQuestion('ready_to_pull', 'Ready to Pull', { materialsStatus: 'ordered' })).toContain('ordered, not received yet')
     expect(materialsMoveQuestion('ready_to_pull', 'Ready to Pull', { materialsStatus: null })).toContain('not ordered yet')
     expect(materialsMoveQuestion('ready_to_pull', 'Ready to Pull', { materialsStatus: 'received' })).toBeNull()
@@ -26,7 +26,7 @@ describe('the materials question on a hand move', () => {
   })
   test('a bulk move asks once, with how many', () => {
     expect(bulkMaterialsMoveQuestion('ready_to_pull', 'Ready to Pull', [{ materialsStatus: 'received' }, { materialsStatus: 'ordered' }, { materialsStatus: 'not_ordered' }]))
-      .toContain('2 of the 3 selected jobs do not have materials received yet. Moving them to Ready to Pull records their materials as Received; their Sales Orders are marked Ordered, not Received: mark them Received in Inventory > Sales Orders, so the stock counts follow.')
+      .toContain('2 of the 3 selected jobs do not have materials received yet. Moving them to Ready to Pull records their materials as Received; their Sales Orders are marked Ordered, not Received: mark them Received in Inventory > Sales Orders when they come in, so the orders match.')
     expect(bulkMaterialsMoveQuestion('ready_to_pull', 'Ready to Pull', [{ materialsStatus: 'received' }])).toBeNull()
   })
 })

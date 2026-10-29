@@ -9,6 +9,7 @@
  *   GET    /:id       — single job
  *   POST   /          — create
  *   PATCH  /:id       — update (any field)
+ *   POST   /:id/salesman — the owner changes the job's Salesman (with its quote's), { to, confirm? }
  *   DELETE /:id       — soft archive
  *   POST   /sync      — bulk push from a localStorage payload
  *
@@ -35,12 +36,14 @@ import { checkJobMove, refuseBlocked } from '../lib/automations/stageRules.js'
 import { recordJobChanges } from '../lib/automations/hooks.js'
 import { roleOf, requireCan, can } from '../lib/permissions.js'
 import { repForJob } from '../lib/salesRep.js'
+import { samePerson } from '../lib/quotesFollowCustomer.js'
+import { salesmanMoveRoute } from '../lib/salesmanMove.js'
 import { hidesCosts, hidesPrices, isPriceKey, crewTextBack } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
 import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, phaseOf, sortedStages, MATERIALS_RANK, type OpsStageDef } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
 import { jobTotalsFor } from '../lib/changeOrders.js'
-import { afterJobSaved } from '../lib/contractBilling.js'
+import { afterJobSaved, salePriceForJob } from '../lib/contractBilling.js'
 import { syncSalesOrderSafe } from '../lib/salesOrders.js'
 import { ordersFollowJobMaterials } from '../lib/materialsFromOrders.js'
 import { saveLocate, jobMilestones, milestoneSummary, setHandTick, cardFollowsJob, closeOutIfDone } from '../lib/jobTruth.js'
@@ -245,6 +248,20 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     const { id: _ignored, ...fields } = data
     // No rep sent: the quote's (credited to whoever sold it, routes/saved-quotes.ts).
     if (!fields.salesRep?.trim() && data.quoteId) fields.salesRep = (await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { salesRep: true } }))?.salesRep ?? ''
+    // A job for a sale carries the price the sale is billed at (lib/contractBilling.ts salePriceForJob): signed from
+    // Oct 29 2026 on, the whole dollar the customer saw (D1), not the quote's cents an older screen copied; signed
+    // before, the quote's price to the cent. Only a copy of it is corrected (within a dollar): a price typed by hand
+    // is left as sent, and anything on top of the price (contractValue) stays on top.
+    if (data.quoteId && fields.quotePrice > 0) {
+      const sale = await salePriceForJob(req.user.crmAccountId, data.quoteId)
+      const saleCents = sale === null ? 0 : Math.round(sale * 100)
+      const sentCents = Math.round(fields.quotePrice * 100)
+      if (saleCents > 0 && sentCents !== saleCents && Math.abs(sentCents - saleCents) < 100) {
+        const contractCents = Math.round((fields.contractValue || 0) * 100)
+        fields.quotePrice = saleCents / 100
+        fields.contractValue = (contractCents > 0 ? contractCents - sentCents + saleCents : saleCents) / 100
+      }
+    }
     // The new job lands in the stage marked first in Settings (or the one its status stands for).
     const { stages } = await loadOpsStages(req.user.crmAccountId)
     const opsStage = reconcileOpsStage(stages, null, { ...data, opsStage: data.opsStage && stageById(stages, data.opsStage) ? data.opsStage : '' } as any)
@@ -335,6 +352,9 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
       if (existing.salesRep?.trim()) delete (data as any).salesRep
       else data.salesRep = (await repForJob(req, data.salesRep, data.quoteId === undefined ? existing.quoteId : data.quoteId)) ?? ''
     }
+    // The job's Salesman, once on it, changes only by the owner's Salesman control (lib/salesmanMove.ts, Oct 29 2026):
+    // another name sent here is an older copy of the job, so the rest is saved and the Salesman on file stays.
+    if (data.salesRep !== undefined && existing.salesRep?.trim() && !samePerson(data.salesRep, existing.salesRep)) delete (data as any).salesRep
     // The stage, by id (Settings > Operations Stages): moved on purpose, or as a status change moves it.
     if (data.opsStage && !stageById(stages, data.opsStage)) {
       res.status(400).json({ success: false, error: 'That stage is not in Settings > Operations Stages any more. Reload and pick another.' })
@@ -411,6 +431,9 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     res.status(500).json({ success: false, error: 'Failed to update job' })
   }
 })
+
+// ── The job's Salesman: the owner only, after asking; a job from a quote moves with its quote (lib/salesmanMove.ts) ──
+router.post('/:id/salesman', requireUser, requireAccount, salesmanMoveRoute('job'))
 
 // ── The 811 locate: one record on the job (lib/locates.ts); the crew packet saves the same fields ──
 /** The person, by name (Settings > Team), for "Ticked by hand by ..." and the locate's "Last saved by". */
@@ -499,7 +522,8 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
           await prisma.$transaction(async tx => {
             const row = await tx.savedJob.update({
               where: { id: existing.id },
-              data: { ...j, id: undefined as any, crmContactId: j.crmContactId || null, quoteId: j.quoteId || null, opsStage: reconcileOpsStage(stages, existing as any, { ...existing, ...j, opsStage: j.opsStage && stageById(stages, j.opsStage) ? j.opsStage : '' } as any) },
+              // The Salesman on the job stays: only the owner changes it (lib/salesmanMove.ts), never an old copy.
+              data: { ...j, ...(existing.salesRep?.trim() ? { salesRep: existing.salesRep } : {}), id: undefined as any, crmContactId: j.crmContactId || null, quoteId: j.quoteId || null, opsStage: reconcileOpsStage(stages, existing as any, { ...existing, ...j, opsStage: j.opsStage && stageById(stages, j.opsStage) ? j.opsStage : '' } as any) },
             })
             await recordJobChanges(req.user.crmAccountId, existing, row, tx)
           })

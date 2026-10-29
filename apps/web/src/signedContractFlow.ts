@@ -100,12 +100,12 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
   if (!alreadySold) {
     try {
       fireQuoteSold(updatedQuote.id, updatedQuote.customerId,
-        Math.round((updatedQuote.finalPrice || 0) * 100), {
+        Math.round((job!.contractValue || 0) * 100), {
         jobName: updatedQuote.customerName, customerName: updatedQuote.customerName,
         customerEmail: updatedQuote.customerEmail, customerPhone: updatedQuote.customerPhone,
         jobAddress: updatedQuote.customerAddress, fenceType: updatedQuote.fenceStyle,
-        assignedRep: updatedQuote.salesRep, quotePrice: updatedQuote.finalPrice,
-        contractValue: updatedQuote.finalPrice,
+        assignedRep: updatedQuote.salesRep, quotePrice: job!.quotePrice,
+        contractValue: job!.contractValue,
       })
     } catch {}
   }
@@ -160,6 +160,8 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
         phone: lead.phone || '',
         email: lead.email || '',
         serviceAddress: lead.address || '',
+        // The card's rep is the customer's Salesman (none: the server makes it whoever moved the card).
+        salesRep: (lead as { assignedRep?: string }).assignedRep || '',
       })
       customer = created
     } catch { customer = null }

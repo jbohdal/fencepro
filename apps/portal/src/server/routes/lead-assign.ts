@@ -6,8 +6,10 @@
  *   POST /api/lead-assign/:customerId  { to: <login id>, replace?: true }: assign it
  *
  * The owner, admin, manager and office only; the Salesman and the Installer
- * are refused (403). The push's own buttons (public/sw.js) post here too,
- * with the app's sign in cookie.
+ * are refused (403). A lead that already has a Salesman goes to someone else
+ * only by the owner (Oct 29 2026); anyone else gets a 403 saying who has it.
+ * The push's own buttons (public/sw.js) post here too, with the app's sign in
+ * cookie.
  */
 
 import { Router } from 'express'
@@ -20,6 +22,7 @@ import { audit } from '../lib/auditLog.js'
 import { plainZod } from '../lib/plainZod.js'
 import { repName } from '../lib/salesRep.js'
 import { assignLead, assignees, canAssignLeads, leadForAssign, waitingLeads } from '../lib/leadAssign.js'
+import { isOwnerLogin } from '../lib/salesmanChoice.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -68,10 +71,13 @@ router.post('/:customerId', async (req: any, res) => {
   try {
     const body = assignSchema.parse(req.body ?? {})
     const contactId = String(req.params.customerId)
-    const r = await assignLead({ accountId: req.user.crmAccountId, contactId, toUserId: body.to, by: { id: req.user.id, name: req.user.name }, replace: body.replace })
+    // A lead that already has a Salesman is moved by the owner only (lib/salesmanChoice.ts isOwnerLogin).
+    const byOwner = await isOwnerLogin(req.user.crmAccountId, req.user.id, req.user.role)
+    const r = await assignLead({ accountId: req.user.crmAccountId, contactId, toUserId: body.to, by: { id: req.user.id, name: req.user.name }, replace: body.replace, byOwner })
     if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, error: r.error, ...(r.rep ? { rep: r.rep } : {}) }); return }
-    if (!r.already) await audit(req, 'update', 'CrmContact', contactId, { newValues: { leadAssignedTo: r.assignedTo, cards: r.cardIds, replace: !!body.replace } })
-    res.json({ success: true, data: { assignedTo: r.assignedTo, already: r.already, cardIds: r.cardIds }, version: r.version })
+    // The open quotes moved with the customer, with their prices (unchanged) and the commission each carries (lib/quotesFollowCustomer.ts).
+    if (!r.already || r.quotesMoved.length) await audit(req, 'update', 'CrmContact', contactId, { newValues: { leadAssignedTo: r.assignedTo, cards: r.cardIds, callbacks: r.callbackIds, replace: !!body.replace, quotesMoved: r.quotesMoved } })
+    res.json({ success: true, data: { assignedTo: r.assignedTo, already: r.already, cardIds: r.cardIds, quotesMoved: r.quotesMoved.length }, version: r.version })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[lead-assign] assign error:', err)

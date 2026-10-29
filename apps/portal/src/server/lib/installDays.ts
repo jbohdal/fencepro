@@ -293,12 +293,17 @@ export function shortDayWords(day: Ymd): string {
 export const PERSONAL_CELL = '3525989785'
 const digits10 = (raw: string | null | undefined) => { const d = String(raw ?? '').replace(/\D/g, ''); return d.length === 11 && d.startsWith('1') ? d.slice(1) : d }
 
-/** The number the text gives: the rep's Direct phone, else the company phone; never the personal cell. */
-export function customerPhoneToGive(repPhone: string | null | undefined, companyPhone: string | null | undefined): { phone: string; from: 'rep' | 'company' } {
-  const rep = digits10(repPhone)
-  if (rep.length === 10 && rep !== PERSONAL_CELL) return { phone: phoneWords(rep), from: 'rep' }
+/**
+ * The number every booking and install text gives (scheduled, moved, taken
+ * off, rain day): the office line, the company phone in Settings > Company.
+ * Never a salesman's Direct phone or cell, never the personal cell (Jonathan,
+ * Oct 29 2026, #30: "Booking and install texts use the office line
+ * (352) 789 4314, never Christa's cell."). Before, the job's salesman's Direct
+ * phone came first. Empty when no usable company phone is saved.
+ */
+export function officePhoneToGive(companyPhone: string | null | undefined): string {
   const co = digits10(companyPhone)
-  return { phone: co.length === 10 && co !== PERSONAL_CELL ? phoneWords(co) : '', from: 'company' }
+  return co.length === 10 && co !== PERSONAL_CELL ? phoneWords(co) : ''
 }
 
 /** What the job is: a new fence, a repair or a fence move (the quote's work; a quote without work is a new fence). */

@@ -24,6 +24,16 @@ export interface ContractSection {
 /** One term as frozen on a proposal: what the customer reads and signs. */
 export interface ContractTerm { key: string; title: string; text: string }
 
+/**
+ * Permits (Jonathan, Oct 29 2026, audit #32): "Getter Done Fence obtains all
+ * required permits. Permit fees are billed separately at cost." It takes the
+ * place of the stock sentence that had the customer get the permit, in
+ * Settings as saved and on every proposal not yet signed. A contract already
+ * signed keeps the words it was signed with (frozen on its proposal).
+ */
+export const PERMIT_SENTENCE = 'Getter Done Fence obtains all required permits. Permit fees are billed separately at cost.'
+export const OLD_PERMIT_SENTENCE = 'Unless noted otherwise, the customer is responsible for obtaining any required permits.'
+
 export const DEFAULT_CONTRACT_SECTIONS: ContractSection[] = [
   {
     key: 'payment_terms',
@@ -52,7 +62,7 @@ export const DEFAULT_CONTRACT_SECTIONS: ContractSection[] = [
   {
     key: 'permits',
     title: 'Permits',
-    body: `Unless noted otherwise, the customer is responsible for obtaining any required permits. If a permit is denied after materials are ordered, any non-refundable costs will be billed.`,
+    body: `${PERMIT_SENTENCE} If a permit is denied after materials are ordered, any non-refundable costs will be billed.`,
     visible: true,
   },
   {
@@ -74,7 +84,12 @@ export function contractSectionsOf(saved: unknown): ContractSection[] {
   const list = Array.isArray(saved) ? saved.filter((s): s is ContractSection => !!s && typeof s === 'object' && typeof (s as any).key === 'string') : []
   if (list.length === 0) return DEFAULT_CONTRACT_SECTIONS
   const byKey = new Map(list.map(s => [s.key, s]))
-  return DEFAULT_CONTRACT_SECTIONS.map(d => byKey.get(d.key) || d)
+  return DEFAULT_CONTRACT_SECTIONS.map(d => {
+    const s = byKey.get(d.key)
+    if (!s) return d
+    // The stock permit sentence as saved before Oct 29 2026 reads as it does now (the rest as typed).
+    return s.key === 'permits' && typeof s.body === 'string' && s.body.includes(OLD_PERMIT_SENTENCE) ? { ...s, body: s.body.split(OLD_PERMIT_SENTENCE).join(PERMIT_SENTENCE) } : s
+  })
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' }
@@ -124,8 +139,43 @@ export function stampTerms(proposal: unknown, savedSections: unknown, savedPropo
     else delete out.terms
     return out
   }
-  out.terms = proposalTerms(savedSections)
+  out.terms = termsAsAsked(proposalTerms(savedSections), (proposal as { depositPct?: unknown }).depositPct)
   return out
+}
+
+/** The deposit percent a proposal asks for; null when it asks none (0 or blank: Jonathan, Oct 29 2026, D2). */
+export function askedDepositPct(pct: unknown): number | null {
+  const n = typeof pct === 'number' ? pct : typeof pct === 'string' && pct.trim() ? Number(pct) : NaN
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : null
+}
+
+const DEPOSIT_SENTENCE = /\bA \d+(?:\.\d+)?% deposit is required to schedule the project\./
+const BALANCE_SENTENCE = 'The remaining balance is due upon completion.'
+
+/**
+ * The terms as a proposal not yet signed shows them, and as its contract is
+ * signed (Oct 29 2026):
+ *   - Payment Terms says the proposal's own deposit: "A 30% deposit is
+ *     required ..." for 30%; for none (0 or blank, D2) "No deposit is
+ *     required to schedule the project." and "The full price is due upon
+ *     completion." Only those stock sentences change; words typed in their
+ *     place stay as typed.
+ *   - Permits: the stock sentence that had the customer get the permit reads
+ *     PERMIT_SENTENCE (#32).
+ * The same terms again give the same words (safe to run twice).
+ */
+export function termsAsAsked<T extends ContractTerm>(terms: T[], depositPct: unknown): T[] {
+  const pct = askedDepositPct(depositPct)
+  return terms.map(t => {
+    if (t.key === 'payment_terms' && DEPOSIT_SENTENCE.test(t.text)) {
+      const text = pct === null
+        ? t.text.replace(DEPOSIT_SENTENCE, 'No deposit is required to schedule the project.').split(BALANCE_SENTENCE).join('The full price is due upon completion.')
+        : t.text.replace(DEPOSIT_SENTENCE, `A ${pct}% deposit is required to schedule the project.`)
+      return { ...t, text }
+    }
+    if (t.key === 'permits' && t.text.includes(OLD_PERMIT_SENTENCE)) return { ...t, text: t.text.split(OLD_PERMIT_SENTENCE).join(PERMIT_SENTENCE) }
+    return t
+  })
 }
 
 /** "123 Main St, Ocala, FL 34470" from Settings → Company; '' when the street, city and ZIP are all empty. */

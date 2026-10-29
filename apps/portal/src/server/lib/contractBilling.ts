@@ -7,8 +7,10 @@
  *
  *   ensureSchedule     made by the server when a quote is signed (Sold in the
  *                      app, accepted on the customer's link, the signed card),
- *                      never typed: Deposit = contract × the proposal's deposit
- *                      percent (50 when it has none), due at signing; Final =
+ *                      never typed: Deposit = the deposit the proposal showed
+ *                      (lib/paymentMath.ts customerDepositCents; none when it
+ *                      asks 0% or blank, D2 Oct 29 2026; 50% for a quote with
+ *                      no proposal), due at signing; Final =
  *                      contract − deposit − progress, due on completion (its
  *                      date is the install date). No contract defines progress
  *                      invoices today; the shape is there (progress-1 ...).
@@ -40,7 +42,8 @@ import path from 'path'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { approvedTotalCents } from './changeOrders.js'
-import { applyPayments, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
+import { applyPayments, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, shownDollarCents, customerDepositCents, askedDepositPct, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
+import { customerDollarsFrom, onCustomerDollars, signedAtOf } from './customerDollars.js'
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
 import { plainStyleName } from './estimates.js'
@@ -67,8 +70,8 @@ export function dayWords(day: string): string {
 
 type QuoteRow = { id: string; status: string; acceptedAt: Date | null; soldAt: Date | null; finalPrice: number; proposal: unknown; pricing?: unknown; chosenOption: number | null; fenceStyle: string }
 
-/** The amount signed, in cents: accepted on the link, the option's price; signed in person, the quote's (as the contract PDF prints it). */
-export function signedCentsOf(q: QuoteRow | null, job: { quotePrice: number; contractValue: number }): number {
+/** The price signed as priced, in cents: accepted on the link, the option's price; signed in person, the quote's. */
+export function pricedCentsOf(q: QuoteRow | null, job: { quotePrice: number; contractValue: number }): number {
   if (q) {
     const p = q.proposal as any
     const opt = q.acceptedAt && p && Array.isArray(p.options) && typeof q.chosenOption === 'number' ? p.options[q.chosenOption] : null
@@ -78,10 +81,49 @@ export function signedCentsOf(q: QuoteRow | null, job: { quotePrice: number; con
   return Math.round((job.quotePrice || job.contractValue || 0) * 100)
 }
 
-/** The deposit percent on the signed proposal (the frozen one), else 50. */
+/**
+ * The amount signed, in cents, as the contract PDF prints it. Signed from Oct 29 2026 on (`shown`,
+ * lib/customerDollars.ts): the whole dollar the proposal showed (D1, shownDollarCents); before, to the cent as priced.
+ */
+export function signedCentsOf(q: QuoteRow | null, job: { quotePrice: number; contractValue: number }, shown = false): number {
+  const c = pricedCentsOf(q, job)
+  return shown ? shownDollarCents(c) : c
+}
+
+/**
+ * The price a sale's job carries, in dollars (its quotePrice, and its contractValue before change orders), for a
+ * quote signed from Oct 29 2026 on (D1): the whole dollar the customer saw and is billed, worked out by the same
+ * function the payment schedule uses (signedCentsOf), so the job and the billing cannot drift. Null for a quote
+ * signed before (its job keeps the price to the cent, as it always has) or with no price.
+ */
+export function shownJobPriceOf(q: QuoteRow | null, from: Date): number | null {
+  if (!q || !onCustomerDollars(q, from)) return null
+  const cents = signedCentsOf(q, { quotePrice: 0, contractValue: 0 }, true)
+  return cents > 0 ? cents / 100 : null
+}
+
+/**
+ * The price a new job for a quote of this company carries, in dollars: shownJobPriceOf, else (signed before Oct 29
+ * 2026) the quote's price to the cent. Null when there is no such quote or it has no price.
+ */
+export async function salePriceForJob(accountId: string, quoteId: string | null | undefined): Promise<number | null> {
+  if (!quoteId) return null
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId }, select: QUOTE_SELECT })
+  if (!q) return null
+  return shownJobPriceOf(q as QuoteRow, await customerDollarsFrom(accountId)) ?? (q.finalPrice > 0 ? q.finalPrice : null)
+}
+
+/** Has the quote a proposal (options to show the customer)? */
+const hasProposal = (q: { proposal: unknown } | null) => Array.isArray((q?.proposal as any)?.options) && (q!.proposal as any).options.length > 0
+
+/**
+ * The deposit percent of the schedule: the signed proposal's (the frozen one); 0 when it asks none, 0% or
+ * blank (Jonathan, Oct 29 2026, D2: "Honor what the proposal says"); 50 for a quote with no proposal at all
+ * (the contract's standard terms).
+ */
 export function depositPctOf(q: { proposal: unknown } | null): number {
-  const pct = Number((q?.proposal as any)?.depositPct)
-  return pct > 0 && pct <= 100 ? pct : DEFAULT_DEPOSIT_PCT
+  if (hasProposal(q)) return askedDepositPct((q!.proposal as any).depositPct) ?? 0
+  return DEFAULT_DEPOSIT_PCT
 }
 
 /** Progress invoices a contract defines: none do today. The shape a proposal would carry: progressPayments [{ label, pct }]. */
@@ -131,7 +173,10 @@ export async function makeScheduleIn(tx: any, accountId: string, jobId: string, 
   const job = await tx.savedJob.findFirst({ where: { id: jobId, accountId, deletedAt: null } })
   if (!job) return null
   const q: QuoteRow | null = job.quoteId ? await tx.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: QUOTE_SELECT }) : null
-  const signedCents = signedCentsOf(q, job)
+  // Signed from Oct 29 2026 on: billed at the whole dollar the customer saw (D1); before, to the cent.
+  const shown = onCustomerDollars(q, await customerDollarsFrom(accountId))
+  const pricedCents = pricedCentsOf(q, job)
+  const signedCents = signedCentsOf(q, job, shown)
   const depositPct = depositPctOf(q)
   const schedule = await tx.paymentSchedule.create({
     data: { accountId, jobId, quoteId: job.quoteId ?? null, crmContactId: job.crmContactId ?? null, signedCents, depositPct, source, createdBy: by.name },
@@ -154,10 +199,13 @@ export async function makeScheduleIn(tx: any, accountId: string, jobId: string, 
       others.push(h.amountCents)
     }
   } else {
-    // Whole dollars on a contract priced to the whole dollar, as its proposal and contract show it (routes/proposal.ts, lib/contractPdf.ts).
-    const deposit = depositOf(signedCents, depositPct, pricedWholeDollar(q))
-    await tx.contractInvoice.create({ data: { ...base, key: 'deposit', kind: 'deposit', label: 'Deposit', sortOrder: 0, originalCents: deposit, amountCents: deposit, dueOn: 'signing', dueDate: ocalaDay(q?.acceptedAt ?? q?.soldAt ?? new Date()) } })
-    others.push(deposit)
+    // The deposit the proposal and the contract show (lib/paymentMath.ts customerDepositCents; before Oct 29 2026, depositOf
+    // to the cent). None when the proposal asks none (D2): no deposit invoice, the Final is the whole contract.
+    const deposit = depositPct <= 0 ? 0 : shown ? customerDepositCents(pricedCents, depositPct, pricedWholeDollar(q)) : depositOf(signedCents, depositPct, pricedWholeDollar(q))
+    if (depositPct > 0) {
+      await tx.contractInvoice.create({ data: { ...base, key: 'deposit', kind: 'deposit', label: 'Deposit', sortOrder: 0, originalCents: deposit, amountCents: deposit, dueOn: 'signing', dueDate: ocalaDay(q?.acceptedAt ?? q?.soldAt ?? new Date()) } })
+      others.push(deposit)
+    }
     let i = 0
     for (const p of progressOf(q)) {
       i++
@@ -172,7 +220,7 @@ export async function makeScheduleIn(tx: any, accountId: string, jobId: string, 
   })
   await log(tx, accountId, jobId, {
     kind: 'made', by,
-    text: `Payment schedule made from the contract (${moneyText(contractCents)}${handMade.length ? `, around ${handMade.length} invoice${handMade.length === 1 ? '' : 's'} typed in Billing` : `, ${depositPct}% deposit`}).`,
+    text: `Payment schedule made from the contract (${moneyText(contractCents)}${handMade.length ? `, around ${handMade.length} invoice${handMade.length === 1 ? '' : 's'} typed in Billing` : depositPct > 0 ? `, ${depositPct}% deposit` : ', no deposit: the proposal asks none'}).`,
   })
   // The job's payment status follows the schedule from the moment it is made: invoiced (the deposit is due), not "Not invoiced yet".
   await settleIn(tx, accountId, jobId, 'payment schedule made', by)
@@ -288,10 +336,14 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   // The job's paid figures, for the boards that read them (dollars there).
   const paid = payments.filter((p: any) => !p.voidedAt).reduce((s: number, p: any) => s + p.amountCents, 0)
   const last = payments.filter((p: any) => !p.voidedAt).sort((x: any, y: any) => y.paidOn.localeCompare(x.paidOn))[0]
+  // Signed from Oct 29 2026 on (D1): the job's price is the amount signed, the whole dollar the customer saw and is
+  // billed, so the job page never shows the quote's cents. A sale signed before keeps its job price as it is.
+  const sq = schedule.quoteId ? await tx.savedQuote.findFirst({ where: { id: schedule.quoteId, accountId }, select: { status: true, acceptedAt: true, soldAt: true } }) : null
+  const shownSale = !!sq && !!signedAtOf(sq) && onCustomerDollars(sq, await customerDollarsFrom(accountId))
   await tx.savedJob.update({
     where: { id: jobId },
     // contractValue: the contract with its change orders and adjustments, as the schedule has it (lib/changeOrders.ts adds the same).
-    data: { amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
+    data: { ...(shownSale ? { quotePrice: schedule.signedCents / 100 } : {}), amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
   })
 }
 
