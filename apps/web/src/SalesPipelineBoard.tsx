@@ -53,6 +53,7 @@ import { businessDate } from './businessDate'
 import { useFollowUpBoard, badgeOf, needsFollowUpNow, startTouch, openedOf } from './followUpStore'
 import { openedBadgeText } from './proposalOpened'
 import { readPref, writePref } from './browserStorage'
+import WaitingLeadsBanner from './WaitingLeadsBanner'
 
 const fmtUSD = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -600,6 +601,9 @@ export default function SalesPipelineBoard({ onNewQuote, onOpenQuote }: {
   /* ── render ── */
   return (
     <div ref={rootRef} className="flex flex-col h-full">
+      {/* Leads waiting to be assigned, on top: inside the board's column so the board takes the height left and the
+          page itself never scrolls (it pushed the board 236 px below a desktop screen). */}
+      <div className="shrink-0"><WaitingLeadsBanner /></div>
       <ControlsBar
         title="Sales Pipeline"
         totalLabel={`Pipeline: ${fmtUSD(analytics.totalValue)}`}

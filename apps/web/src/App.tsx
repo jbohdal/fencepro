@@ -1258,8 +1258,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           <ScreenErrorBoundary name={active} resetKey={nav.path}>
           <Suspense fallback={<PageLoading />}>
           {!pageBlocked && <Fragment key={dataEpoch}>
-          {/* Website and phone leads nobody has assigned yet: on top until each is assigned (WaitingLeadsBanner.tsx). */}
-          {(active === 'Dashboard' || active === 'Today' || active === 'Sales Pipeline') && <WaitingLeadsBanner />}
+          {/* Website and phone leads nobody has assigned yet: on top until each is assigned (WaitingLeadsBanner.tsx).
+              The Sales Pipeline shows it inside its own column, so the board still fits the screen. */}
+          {(active === 'Dashboard' || active === 'Today') && <WaitingLeadsBanner />}
           {active === 'Team' && <TeamManagementPage />}
           {active === 'EZ Budget' && <EZBudgetPage />}
           {active === 'Automations' && <AutomationsPage />}

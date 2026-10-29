@@ -200,7 +200,9 @@ async function run(browser, phone) {
     check('phone: a swipe moves between columns', left1 !== left0, `${left0} to ${Math.round(left1)}`)
     await showCard(s, long)
     const r2 = await rect(s, `${col(long)} [data-kanban-scroll]`)
-    await p.down(r2.left + 150, r2.top + 400, { hold: false }); await p.move(r2.left + 150, r2.top + 100, 10); await p.up(); await sleep(500)
+    // Within the column as tall as it is (the leads waiting banner can sit above the board): from low in it, up 300 px.
+    const fromY = r2.top + Math.min(400, r2.height - 40)
+    await p.down(r2.left + 150, fromY, { hold: false }); await p.move(r2.left + 150, Math.max(r2.top + 10, fromY - 300), 10); await p.up(); await sleep(500)
     check('phone: a swipe up scrolls the column, no card picked up', (await colTop(s, long)) > 0 && (await cardIds(s, long)).join() === longIds.join())
   }
 
