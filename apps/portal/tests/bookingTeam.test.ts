@@ -9,7 +9,7 @@
 import { describe, test, expect } from 'vitest'
 import { bookingTeamOf, type StaffLogin } from '../src/server/lib/appointmentRep'
 import {
-  normalizeTeam, defaultMemberOf, newBookingMemberOf, memberOf, formerNamesOf, matchesPerson, memberKey, formerKey, isWith, homeOf, visitsStartPerson, withSomeoneElse, type TeamMember,
+  normalizeTeam, defaultMemberOf, newBookingMemberOf, bookingMemberFor, memberNamed, memberOf, formerNamesOf, matchesPerson, memberKey, formerKey, isWith, homeOf, visitsStartPerson, withSomeoneElse, type TeamMember,
 } from '../../web/src/bookingTeamModel'
 import { withDefaults } from '../../web/src/appointmentLogic'
 
@@ -70,6 +70,20 @@ describe('reading the team on the screens (web)', () => {
     expect(newBookingMemberOf(team, 'installer-not-on-team')?.userId).toBe('owner')
     expect(newBookingMemberOf(team, null)?.userId).toBe('owner')
     expect(newBookingMemberOf([], 'christa')).toBeNull()
+  })
+  test("New Customer's Book estimate now starts on the customer's chosen Salesman, whoever is booking (the Salesman giving the customer to the owner books it with the owner)", () => {
+    expect(bookingMemberFor(team, 'christa', 'Jonathan Bohdal')?.userId).toBe('owner')
+    expect(bookingMemberFor(team, 'owner', 'Christa Feagin')?.userId).toBe('christa')
+    expect(bookingMemberFor(team, 'office-not-on-team', 'christa  FEAGIN')?.userId).toBe('christa')
+    expect(bookingMemberFor(team, 'owner', 'Christa')?.userId).toBe('christa')
+    // No Salesman named, or one not on the team: as any new booking (the dialog says the name is not on the team).
+    expect(bookingMemberFor(team, 'christa', '')?.userId).toBe('christa')
+    expect(bookingMemberFor(team, 'christa', 'Stacy Mcgovern')?.userId).toBe('christa')
+    expect(memberNamed(team, 'Stacy Mcgovern')).toBeNull()
+    // A first name two members share names nobody.
+    const twins = normalizeTeam([...team, { userId: 'c2', name: 'Christa Other', firstName: 'Christa', lastName: 'Other', role: 'sales_rep' }])
+    expect(memberNamed(twins, 'Christa')).toBeNull()
+    expect(memberNamed(twins, 'Christa Other')?.userId).toBe('c2')
   })
   test('the member an appointment is with: by the login kept on it, else by exact name', () => {
     expect(appts.map(a => memberOf(team, a)?.userId ?? null)).toEqual(['christa', 'owner', null, null, null, null])
