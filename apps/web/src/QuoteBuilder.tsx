@@ -53,7 +53,7 @@ import { isQuotable } from './styleAvailability'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
-  REPAIR_ITEMS, repairLines, oldPostsMethod, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
+  REPAIR_ITEMS, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
@@ -915,7 +915,9 @@ export default function QuoteBuilder({
   // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
   const jobLot = style?.jobLot
   const jobLotOld = !!jobLot && !jobLot.kit && !jobLot.tall && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
-  const quoteWarnings = work ? [
+  // A hand picked old posts' method that differs from the style: said here too, not only on the Style step.
+  const oldPostsWarning = oldPostsCheck(jobType, moveOldPosts, repairOldPosts, repairIn.items)
+  const quoteWarnings = [...(oldPostsWarning ? [oldPostsWarning] : []), ...(work ? [
     ...(style && jobType === 'move' ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout && jobType === 'move' ? gateChecks(yard) : []),
     ...work.warnings,
@@ -930,7 +932,7 @@ export default function QuoteBuilder({
     ...(style ? priced.notes : []),
     ...[internal && style && sections > 0 ? marginCheck(showCommission ? priced.gmPct : (priced.price > 0 ? (priced.grossMargin + priced.commissionAmt) / priced.price : 0), cfg.margins?.good ?? 0.34, priced.price) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
-  ]
+  ])]
 
   function addRun() { setRuns(r => [...r, { ft: '', rail: 'auto' }]) }
   function removeRun(i: number) { setRuns(r => r.filter((_, idx) => idx !== i)) }

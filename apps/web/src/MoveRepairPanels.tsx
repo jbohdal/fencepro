@@ -9,7 +9,7 @@ import { useState } from 'react'
 import SitePlan from './SitePlan'
 import type { LayoutResult, YardLayout } from './yardLayout'
 import {
-  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices, repairHint,
+  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices, oldPostCostLine, OLD_POSTS_BUTTON, OLD_POSTS_QUESTION,
   type JobType, type MoveInputs, type RepairInputs, type MoveDraft, type RepairDraft, type MoveRepairSettings, type PostRateKey, type RepairItemKey, type WorkResult, type PostType,
 } from './moveRepair'
 import type { QuoteStyle } from './quoteCalc'
@@ -54,17 +54,18 @@ function Toggle({ on, onChange, label, hint, data }: { on: boolean; onChange: (v
  * How the OLD posts come out (what pulling and hauling them is priced at). It follows the style until a
  * button is tapped; after that the tap stays, and `note` says when it differs from the style.
  */
-function PostTypePick({ value, onChange, label, note }: { value: PostType; onChange: (v: PostType) => void; label: string; note?: string | null }) {
+function PostTypePick({ value, onChange, label, note, cost }: { value: PostType; onChange: (v: PostType) => void; label: string; note?: string | null; cost?: string | null }) {
   return (
     <div data-old-posts-method>
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
+      <p className="text-xs font-semibold text-gray-600 mb-1">{label}</p>
       {note && <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mb-1" data-old-posts-note>{note}</p>}
       <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-xl p-1">
-        {([['nd', 'No dig'], ['ds', 'Dig set (concrete)']] as const).map(([k, l]) => (
+        {(['nd', 'ds'] as const).map(k => [k, OLD_POSTS_BUTTON[k]] as const).map(([k, l]) => (
           <button key={k} type="button" onClick={() => onChange(k)} aria-pressed={value === k} data-post-type={k}
             className={`min-h-[44px] rounded-lg text-sm font-medium ${value === k ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600'}`}>{l}</button>
         ))}
       </div>
+      {cost && <p className="text-xs text-gray-500 mt-1" data-old-posts-cost>{cost}</p>}
     </div>
   )
 }
@@ -120,7 +121,7 @@ export function MovePanel({ style, move, setMove, oldPostsNote, defaultPostType,
           <input type="number" inputMode="decimal" min={0} max={100} className={numIn} value={move.damagePct ?? ''} placeholder={`${defaultDamagePct}% (Settings)`} onChange={e => set({ damagePct: e.target.value.trim() === '' ? null : Math.min(100, Math.max(0, Number(e.target.value) || 0)) })} data-move-damage />
         </label>
       </div>
-      <PostTypePick label={`The old posts come out of (the style is ${defaultPostType === 'nd' ? 'no dig' : 'dig set'})`} note={oldPostsNote} value={move.oldPostType} onChange={v => set({ oldPostType: v })} />
+      <PostTypePick label={oldPostsNote ? OLD_POSTS_QUESTION : `${OLD_POSTS_QUESTION} (the new fence is ${defaultPostType === 'nd' ? 'no dig' : 'dig set'})`} note={oldPostsNote} value={move.oldPostType} onChange={v => set({ oldPostType: v })} />
       <Toggle label="New post caps" hint="Off: the old caps are reused" on={move.newPostCaps} onChange={v => set({ newPostCaps: v })} data="new-caps" />
       {gates > 0 && (
         <div data-move-gates>
@@ -164,7 +165,7 @@ export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates,
   /** The saved inputs: the old posts' method is blank until picked by hand. */
   setRepair: (fn: (r: RepairDraft) => RepairDraft) => void
   oldPostsNote?: string | null
-  /** Settings' per post rates, for people who see costs (null: the hints say no prices). */
+  /** Settings' per post rates, for people who see costs: our cost per old post shows once, under the old posts' pick (null: no prices). */
   postRates?: Pick<MoveRepairSettings, PostRateKey> | null
   yard: YardLayout | null
   layoutResult: LayoutResult | null
@@ -227,7 +228,7 @@ export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates,
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900">{REPAIR_LABEL[k]}</p>
               {isStarterItem(repair.what, k) && qty(k) > 0 && <p className="text-xs font-semibold text-orange-700">Added by "{WHAT_HAPPENED[repair.what].label}"</p>}
-              <p className="text-xs text-gray-500" data-repair-hint={k}>{postRates ? repairHint(k, postRates) : REPAIR_HINT[k]}</p>
+              <p className="text-xs text-gray-500" data-repair-hint={k}>{REPAIR_HINT[k]}</p>
             </div>
             <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} />
           </div>
@@ -260,7 +261,7 @@ export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates,
       )}
       {(qty('resetPost') > 0 || qty('replacePost') > 0) && (
         <>
-          <PostTypePick label="The old posts come out of" note={oldPostsNote} value={repair.postType} onChange={v => set({ postType: v })} />
+          <PostTypePick label={OLD_POSTS_QUESTION} note={oldPostsNote} cost={postRates ? oldPostCostLine(postRates) : null} value={repair.postType} onChange={v => set({ postType: v })} />
           <Toggle label="New post caps" hint="Off: the old caps are reused" on={repair.newPostCaps} onChange={v => set({ newPostCaps: v })} data="new-caps" />
         </>
       )}

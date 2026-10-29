@@ -12,10 +12,10 @@ import { renderToStaticMarkup } from '../../web/node_modules/react-dom/server'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { setSavedKitSets, builtInKitSet, KIT_KINDS } from '../../web/src/materialKits'
 import {
-  priceRepair, priceMove, moveRepairSettings, postTypeOf, oldPostsMethod, repairHint, toSavedWork, REPAIR_HINT,
+  priceRepair, priceMove, moveRepairSettings, postTypeOf, oldPostsMethod, oldPostsCheck, oldPostCostLine, toSavedWork, REPAIR_HINT,
   type WorkCommon, type RepairDraft, type MoveDraft, type RepairInputs, type MoveInputs, type PostType,
 } from '../../web/src/moveRepair'
-import { RepairPanel } from '../../web/src/MoveRepairPanels'
+import { RepairPanel, MovePanel } from '../../web/src/MoveRepairPanels'
 import type { QuoteStyle } from '../../web/src/quoteCalc'
 import type { PricingSettings } from '../../web/src/pricingEngine'
 
@@ -77,12 +77,12 @@ describe('the old posts follow the style until picked by hand', () => {
     expect(draft.postType).toBe('nd')
     // Style switched to Dig set: the pick is not overridden; the note shows.
     const m = oldPostsMethod(draft.postType, postTypeOf(style(WVDS)))
-    expect(m).toEqual({ type: 'nd', byHand: true, note: 'Old posts: No dig. New fence: Dig set. Check the old posts.' })
+    expect(m).toEqual({ type: 'nd', byHand: true, note: 'Old posts are No dig, new fence is Dig set. Is that right?' })
     const r = priceRepair(common(style(WVDS)), repairInputs(draft, style(WVDS)))
     expect(pullAndHaul(r)).toBe(3 * 2000)
     expect(cents(r, 'replacePost:pull')!.label).toBe('Pull old posts (no dig)')
     // The other way round.
-    expect(oldPostsMethod('ds', 'nd').note).toBe('Old posts: Dig set. New fence: No dig. Check the old posts.')
+    expect(oldPostsMethod('ds', 'nd').note).toBe('Old posts are Dig set, new fence is No dig. Is that right?')
   })
 
   test('a move follows the same way', () => {
@@ -119,31 +119,65 @@ describe('a saved quote keeps its choice and its prices', () => {
 })
 
 describe('the wording', () => {
-  test('the post hints read the rates from Settings; the crew wording has no prices', () => {
-    expect(repairHint('replacePost', SETTINGS)).toBe('New post and setting material; the old post is pulled and hauled away. Pull and haul the old post: no dig $10.00 + $10.00, dig set $12.00 + $24.00 (Settings > Moves and Repairs)')
-    expect(repairHint('resetPost', SETTINGS)).toContain('no dig $10.00 + $10.00, dig set $12.00 + $24.00')
-    const changed = moveRepairSettings({ moveRepair: { pullNdLaborCents: 1100, pullNdDisposalCents: null, pullDsLaborCents: 1300, pullDsDisposalCents: 2500 } })
-    expect(repairHint('replacePost', changed)).toContain('no dig $11.00 + not set, dig set $13.00 + $25.00')
-    expect(repairHint('rehangGate', SETTINGS)).toBe(REPAIR_HINT.rehangGate)
-    expect(REPAIR_HINT.replacePost).not.toMatch(/\$|dig set adds/)
+  test('our cost per old post is pull + haul from Settings, labeled as our cost; the item hints have no prices', () => {
+    expect(oldPostCostLine(SETTINGS)).toBe('Our cost per old post (pull + haul): no dig $20, dig set $36')
+    const changed = moveRepairSettings({ moveRepair: { pullNdLaborCents: 1100, pullNdDisposalCents: null, pullDsLaborCents: 1325, pullDsDisposalCents: 2500 } })
+    expect(oldPostCostLine(changed)).toBe('Our cost per old post (pull + haul): no dig not set, dig set $38.25')
+    for (const k of Object.keys(REPAIR_HINT) as Array<keyof typeof REPAIR_HINT>) expect(REPAIR_HINT[k]).not.toMatch(/\$|Settings/)
   })
 
-  test('the panel says the choice is about the old posts, with the note and the rates', () => {
-    const repair: RepairInputs = { what: 'other', items: { replacePost: 1 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' }
+  test('the repair panel asks how the old posts are set, with the note and our cost once', () => {
+    const repair: RepairInputs = { what: 'other', items: { replacePost: 1, resetPost: 1 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' }
     const html = renderToStaticMarkup(createElement(RepairPanel, {
       style: style(WVDS), repair, setRepair: () => {}, oldPostsNote: oldPostsMethod('nd', 'ds').note, postRates: SETTINGS,
       yard: null, layoutResult: null, runSections: [], widthFt: 6,
     }))
-    expect(html).toContain('The old posts come out of')
-    expect(html).not.toContain('The posts are')
-    expect(html).toContain('Old posts: No dig. New fence: Dig set. Check the old posts.')
-    expect(html).toContain('no dig $10.00 + $10.00, dig set $12.00 + $24.00')
-    // No rates handed in (someone who does not see costs): no prices in the hints.
+    expect(html).toContain('How are the old posts set?')
+    expect(html).not.toContain('come out of')
+    expect(html).toContain('No dig (pipe and donut)')
+    expect(html).toContain('Dig set (concrete)')
+    expect(html).toContain('Old posts are No dig, new fence is Dig set. Is that right?')
+    // Two post items on the list, the cost line once.
+    expect(html.split('Our cost per old post (pull + haul): no dig $20, dig set $36').length - 1).toBe(1)
+    expect(html).not.toContain('$10.00')
+    // No rates handed in (someone who does not see costs): no prices at all.
     const plain = renderToStaticMarkup(createElement(RepairPanel, {
       style: style(WVDS), repair, setRepair: () => {}, oldPostsNote: null, postRates: null,
       yard: null, layoutResult: null, runSections: [], widthFt: 6,
     }))
     expect(plain).not.toContain('$')
+    expect(plain).not.toContain('Our cost')
     expect(plain).not.toContain('data-old-posts-note')
+  })
+
+  test("a move names the new fence's method only when no note says it", () => {
+    const move: MoveInputs = { oldFt: 60, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false, oldPostType: 'ds' }
+    const props = { style: style(WVND), move, setMove: () => {}, defaultPostType: 'nd' as PostType, defaultDamagePct: 10,
+      newLine: { walkGates: 0, dblGates: 0, footage: 60, sections: 10 }, yard: null, layoutResult: null, runSections: [], widthFt: 6 }
+    const withNote = renderToStaticMarkup(createElement(MovePanel, { ...props, oldPostsNote: oldPostsMethod('ds', 'nd').note }))
+    expect(withNote).toContain('Old posts are Dig set, new fence is No dig. Is that right?')
+    expect(withNote).not.toContain('the new fence is')
+    expect(withNote).not.toContain('the style is')
+    const noNote = renderToStaticMarkup(createElement(MovePanel, { ...props, move: { ...move, oldPostType: 'nd' }, oldPostsNote: null }))
+    expect(noNote).toContain('How are the old posts set? (the new fence is no dig)')
+  })
+})
+
+describe('the Price step check box repeats a mismatch', () => {
+  const differ = oldPostsMethod('nd', 'ds')
+  const same = oldPostsMethod('ds', 'ds')
+  const line = 'Old posts are No dig, new fence is Dig set. Is that right? Change it on the Style step, under "How are the old posts set?"'
+  test('a repair with a post item on it', () => {
+    expect(oldPostsCheck('repair', same, differ, { replacePost: 1 })).toBe(line)
+    expect(oldPostsCheck('repair', same, differ, { resetPost: 2 })).toBe(line)
+    // No post on the list: the old posts are not priced, nothing to check.
+    expect(oldPostsCheck('repair', same, differ, { rehangGate: 1, replacePost: 0 })).toBeNull()
+    expect(oldPostsCheck('repair', same, same, { replacePost: 1 })).toBeNull()
+    expect(oldPostsCheck('repair', same, oldPostsMethod(undefined, 'ds'), { replacePost: 1 })).toBeNull()
+  })
+  test('a move, and never a new fence', () => {
+    expect(oldPostsCheck('move', differ, same, {})).toBe(line)
+    expect(oldPostsCheck('move', same, differ, { replacePost: 1 })).toBeNull()
+    expect(oldPostsCheck('new', differ, differ, { replacePost: 1 })).toBeNull()
   })
 })
