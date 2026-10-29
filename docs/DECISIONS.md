@@ -3,6 +3,22 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-29: customers pay the whole dollar they saw; deposit as the proposal asks; we get the permits
+
+- **D1, Jonathan** (Oct 29): "Customers pay what they saw. On the 13 sent proposals, invoice the whole dollar amount shown, not the cents behind it. Going forward every price and deposit is whole dollars, so this can't happen again."
+  - **One rule for the amount:** lib/paymentMath.ts `shownDollarCents`, the whole dollar, half a dollar up ($7,113.83 shows and is billed $7,114; $7,113.49 is $7,113). The proposal page prints every price with it; a quote signed from the moment this went live is billed with it (the schedule's signed amount, so the deposit plus the Final equal the total shown) and its contract PDF prints it ("Price $7,114.00").
+  - **One rule for the deposit:** `customerDepositCents`. A quote priced to the whole dollar (Oct 21 on): rounded down to the dollar, as before. A proposal priced with cents (sent before Oct 21): the deposit its page showed, to the dollar ($7,113.83 at 50%: $3,557). The page, the option taps, the contract and the deposit invoice all use it; the page no longer works the deposit out in the browser.
+  - **On screen the lines add up:** with "Show as discount", the Discount is the list price shown less the price shown (each rounded alone, $9,414.67 − $500.40 read $9,415 − $500 = $8,914); "Save $X" is the difference of the prices shown. No live sent proposal with cents shows a discount.
+  - **The quote is not repriced:** its price stays as priced ($5,532.39); only what is billed and printed is the shown $5,532. The job's contract value follows the schedule.
+  - **Going forward:** new quotes and any sent quote that is changed were already priced to the whole dollar (Oct 21 rule, keepsCents); unchanged.
+- **D2, Jonathan** (Oct 29): "0% or blank deposit means no deposit invoice at signing. Honor what the proposal says."
+  - Signing a proposal with 0% or blank deposit makes no deposit invoice; the Final is the whole contract (the schedule's log says "no deposit: the proposal asks none"). A quote with no proposal at all (sold in the app, nothing sent) keeps the standard 50%.
+  - The contract's Payment Terms say the proposal's own deposit: the stock sentence "A 50% deposit is required to schedule the project." reads the proposal's percent ("A 30% deposit ..."), and with none "No deposit is required to schedule the project." with "The full price is due upon completion." Words typed in place of the stock sentence stay as typed. Settings → Proposal's label now says "blank or 0 = no deposit".
+- **#32, Jonathan** (Oct 29): "Getter Done Fence obtains all required permits. Permit fees are billed separately at cost." It replaces the stock sentence "Unless noted otherwise, the customer is responsible for obtaining any required permits." in Settings → Contract Templates (the default, and the stock words as saved on live) and on every proposal not yet signed; the sentence after it (a denied permit's non-refundable costs) stays.
+- **Signed contracts open as signed:** the moment these rules began is recorded once per company at server start (AccountKeyValue `contracts:customer-dollars-from`, lib/customerDollars.ts). A quote first signed before it (soldAt, else acceptedAt) keeps its price and deposit to the cent and its terms as frozen, on the contract PDF and if its schedule is ever made by hand. Stored signed copies are files and never change.
+- **Live, read only (Oct 29):** two signed contracts hold cents behind a whole dollar shown: Manuel Cotrich (quote 6cac252d, $7,113.83, shown $7,114; invoices $3,500.00 + $3,613.83, paid in full) and Kristi Murphy (quote 7e051109, $8,914.27, already rounded to $8,914 by Jonathan's −$0.27 adjustment). No signed proposal with 0% or blank deposit got a 50% deposit invoice (Shawn Hart, 0%, sold Oct 20, has no schedule). Left as they are.
+- In lib/paymentMath.ts, lib/customerDollars.ts, lib/contractBilling.ts, lib/contractPdf.ts, routes/proposal.ts and web contractTerms.ts; pinned in portal tests/depositBalancePenny.test.ts, contractRulesOct29.test.ts, contractRulesOct29.db.test.ts and contractBilling.db.test.ts.
+
 ## 2026-10-28: draft purchase orders show in Pending Orders, marked Draft
 
 - **Jonathan** (Oct 28): "Draft purchase orders from a hand move show in Pending Orders, marked Draft."
