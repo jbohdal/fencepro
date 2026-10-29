@@ -544,7 +544,7 @@ if (!isVercel) {
       await ensureCostReviewAll().catch(err => console.error('[cost review] check failed:', err))
       // Invoices and payments typed in Billing for a sold job, into its payment schedule; nothing sent, no receipt made: once per company (lib/billingAdoption.ts).
       await adoptHandMadeBillingAll().catch(err => console.error('[billing] hand-made Billing check failed:', err))
-      // Repair per post rates Jonathan typed Oct 29 2026 (pull $10, haul away $10, concrete footer $15), effective dated: once per company (lib/repairPostRates.ts).
+      // Repair per post rates Jonathan typed Oct 29 2026 (no dig pull $10 and haul away $10, concrete footer $15; dig set unchanged), effective dated: once per company (lib/repairPostRates.ts).
       await ensureRepairPostRatesAll().catch(err => console.error('[repair rates] check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).

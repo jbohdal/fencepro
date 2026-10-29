@@ -205,12 +205,16 @@ describe('repair (spec 3)', () => {
     expect(blank.lines.find(x => x.key === 'footerDisposal')).toMatchObject({ cents: 0, missing: true })
     expect(blank.warnings.some(w => w.includes('concrete footer disposal per post'))).toBe(true)
   })
-  test('Jonathan\'s Oct 29 2026 rates: pull $10 + haul away $10 a post; a dig set post with its footer $35', () => {
-    const s = moveRepairSettings({ moveRepair: { pullNdLaborCents: 1000, pullNdDisposalCents: 1000, pullDsLaborCents: 1000, pullDsDisposalCents: 1000, footerDisposalCents: 1500 } })
+  test('Jonathan\'s Oct 29 2026 rates (#31, corrected): no dig pull $10 + haul away $10 a post; dig set keeps $12 + $24; footer $15 its own pick', () => {
+    const s = moveRepairSettings({ moveRepair: { pullNdLaborCents: 1000, pullNdDisposalCents: 1000, pullDsLaborCents: 1200, pullDsDisposalCents: 2400, footerDisposalCents: 1500 } })
     const nd = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 3 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' })
     expect([cents(nd, 'replacePost:pull'), cents(nd, 'replacePost:disposal')]).toEqual([3000, 3000])
-    const ds = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1, footerDisposal: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
-    expect(cents(ds, 'replacePost:pull') + cents(ds, 'replacePost:disposal') + cents(ds, 'footerDisposal')).toBe(3500)
+    const ds = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    expect([cents(ds, 'replacePost:pull'), cents(ds, 'replacePost:disposal')]).toEqual([1200, 2400])
+    expect(ds.lines.some(x => x.key === 'footerDisposal')).toBe(false)
+    // The footer is added only when the salesman picks it: $12 + $24 + $15.
+    const dsFooter = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1, footerDisposal: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    expect(cents(dsFooter, 'replacePost:pull') + cents(dsFooter, 'replacePost:disposal') + cents(dsFooter, 'footerDisposal')).toBe(5100)
   })
   test('the rate history is kept through Settings (effective dated)', () => {
     const h = { effectiveFrom: '2026-10-29', rates: { footerDisposalCents: 1500 }, by: 'Jonathan' }
