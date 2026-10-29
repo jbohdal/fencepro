@@ -1,4 +1,5 @@
 import type { SavedQuote } from './QuotesPage'
+import { jobPriceOfQuote } from './jobPrice'
 import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, pendingFor, REFUSED_EVENT, type Op } from './outbox'
 import { sendJson } from './syncHttp'
@@ -312,9 +313,9 @@ export function createJobFromQuote(quote: SavedQuote): Job {
     tearOutSections: quote.tearOutSections,
     hasSalesman: quote.hasSalesman,
 
-    quotePrice: quote.finalPrice,
+    quotePrice: jobPriceOfQuote(quote),
     changeOrderTotal: 0,
-    contractValue: quote.finalPrice,
+    contractValue: jobPriceOfQuote(quote),
     gmPct: quote.gmPct,
 
     materialsStatus: 'not_ordered',

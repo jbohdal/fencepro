@@ -696,13 +696,14 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       // Auto-create a Job + pending order when quote is first saved as SOLD
       if (q.status === 'SOLD' && !wasSold && !getJobByQuoteId(q.id)) {
-        createJobFromQuote(q)
-        fireQuoteSold(q.id, q.customerId, Math.round(q.finalPrice * 100), {
+        // The job's price is what the customer saw, to the whole dollar (jobStore.ts jobPriceOfQuote).
+        const soldJob = createJobFromQuote(q)
+        fireQuoteSold(q.id, q.customerId, Math.round(soldJob.contractValue * 100), {
           jobName: q.customerName, customerName: q.customerName,
           customerEmail: q.customerEmail, customerPhone: q.customerPhone,
           jobAddress: q.customerAddress, fenceType: q.fenceStyle,
-          assignedRep: q.salesRep, quotePrice: q.finalPrice,
-          contractValue: q.finalPrice,
+          assignedRep: q.salesRep, quotePrice: soldJob.quotePrice,
+          contractValue: soldJob.contractValue,
         })
         // Its order (Inventory > Sales Orders) is made on the server with the job, from the job's pull sheet.
         const warnings = stockWarningsForSheet(q.pullSheet)
