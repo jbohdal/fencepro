@@ -39,7 +39,8 @@ import MapView, { type MapPoint } from './MapView'
 import { useBackLayer } from './nav'
 import { SaveStatus } from './SaveStatus'
 import { useBookingTeam } from './bookingTeamStore'
-import { newBookingMemberOf, memberOf, isWith, homeOf } from './bookingTeamModel'
+import { bookingMemberFor, memberNamed, memberOf, isWith, homeOf } from './bookingTeamModel'
+import type { Customer } from './customerStore'
 import { signedInUserId } from './crmAuth'
 import { loadSchedule, isScheduleHydrated } from './scheduleStore'
 import { fetchWeekendJobs } from './installScheduleApi'
@@ -54,6 +55,17 @@ export interface BookingRequest {
   appointmentId?: string
   /** Prefill a day (YYYY-MM-DD) or a moment (ISO). */
   date?: string
+  /**
+   * Who the visit is with to start: the customer's chosen Salesman (New Customer's "Book estimate now").
+   * The person signed in when blank; the dialog says so when this name is not on the team.
+   */
+  withName?: string
+  /**
+   * The customer as saved on this screen. A Salesman who gave the customer to someone else books the
+   * estimate as the customer leaves the Salesman's list (portal lib/salesScope.ts): the dialog keeps
+   * showing them from this copy once the list no longer has them.
+   */
+  customer?: Customer
   onBooked?: (a: Appointment) => void
   onCancel?: () => void
 }
@@ -98,17 +110,21 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const all = useAppointments()
 
   const [customerId, setCustomerId] = useState(existing?.crmContactId || req.customerId || '')
-  const customer = customerId ? getCustomerById(customerId) : null
+  const customer = customerId ? getCustomerById(customerId) ?? (req.customer?.id === customerId ? req.customer : null) : null
   const [type, setType] = useState<AppointmentType>(existing?.type || req.type || 'estimate')
-  // With: a login from the team (Settings > Team, bookingTeamStore.ts). A new booking starts on whoever is
-  // signed in when they are on the team, else the owner; a change keeps the appointment's own person.
-  // An appointment whose person has left the team keeps that name until another person is picked.
+  // With: a login from the team (Settings > Team, bookingTeamStore.ts). A new booking starts on the Salesman
+  // asked for (withName), else whoever is signed in when they are on the team, else the owner; a change keeps
+  // the appointment's own person. An appointment whose person has left the team keeps that name until another
+  // person is picked.
   const team = useBookingTeam()
-  const [personId, setPersonId] = useState(() => (existing ? memberOf(team, existing) : newBookingMemberOf(team, signedInUserId()))?.userId ?? '')
+  const startMember = () => (existing ? memberOf(team, existing) : bookingMemberFor(team, signedInUserId(), req.withName))
+  const [personId, setPersonId] = useState(() => startMember()?.userId ?? '')
   // The team read arrived after the dialog opened: a new booking still starts on the right person.
   useEffect(() => {
-    if (!existing && !personId && team.length) setPersonId(newBookingMemberOf(team, signedInUserId())?.userId ?? '')
+    if (!existing && !personId && team.length) setPersonId(startMember()?.userId ?? '')
   }, [team])  // eslint-disable-line react-hooks/exhaustive-deps
+  // The Salesman asked for is not on the team: said under With, so nobody books it with the wrong person unseen.
+  const withMissing = !existing && !!req.withName?.trim() && team.length > 0 && !memberNamed(team, req.withName)
   const member = team.find(m => m.userId === personId) ?? null
   const formerName = existing && !memberOf(team, existing) ? existing.assignedTo : ''
   const person = member?.name ?? (personId ? '' : formerName)
@@ -390,6 +406,11 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                   <span className="block mt-0.5 text-[11px] font-normal text-gray-500" data-person-phone={member?.phone || ''}>
                     {member ? (member.phone ? `Direct ${formatPhone(member.phone)}` : 'No Direct phone: On my way gives the company phone') : formerName ? 'No longer on the team' : ''}
                   </span>
+                  {withMissing && (
+                    <span className="block mt-0.5 text-[11px] font-normal text-amber-800" data-with-missing>
+                      {req.withName!.trim()} (the Salesman) is not on the team (Settings, Team): pick who goes.
+                    </span>
+                  )}
                 </label>
                 <label className="text-xs font-semibold text-gray-500">Day
                   <input type="date" value={date} data-field="date" onChange={e => setDate(e.target.value)} className="mt-1 w-full border border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-900" />

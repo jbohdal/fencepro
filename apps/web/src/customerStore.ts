@@ -17,7 +17,9 @@ import { newId } from './recordSync'
 import { registerKind, enqueue, hasPending, reapply, type Op } from './outbox'
 import { sendJson } from './syncHttp'
 import { asTable } from './listTable'
-import { addCardWithCustomer, pipelineSavedElsewhere } from './pipelineStore'
+import { addCardWithCustomer, pipelineSavedElsewhere, refreshPipelineNow } from './pipelineStore'
+import { signedInRole } from './permissions'
+import { isMyRep } from './salesmanChoice'
 import {
   listContacts,
   type CrmContactRecord,
@@ -236,7 +238,7 @@ export function findDuplicate(data: { phone?: string; email?: string }): Custome
  * new one, to merge with one tap (portal lib/customerMerge.ts; the quote
  * builder's Save, web customerPick.ts).
  */
-export function upsertCustomer(partial: Partial<Customer> & { firstName: string }, opts: { stage?: string; recordMatches?: boolean } = {}): { customer: Customer; created: boolean } {
+export function upsertCustomer(partial: Partial<Customer> & { firstName: string }, opts: { stage?: string; recordMatches?: boolean; keepRepBlank?: boolean } = {}): { customer: Customer; created: boolean } {
   const existing = partial.id ? cache.find(c => c.id === partial.id) : null
 
   if (existing) {
@@ -304,7 +306,7 @@ export function upsertCustomer(partial: Partial<Customer> & { firstName: string 
   const leadBefore = lead ? addCardWithCustomer(lead) : null
   void enqueue<CreatePayload>({
     key: `customer:${tempId}`, kind: 'customer.create',
-    payload: { customer: fresh, lead, leadBefore, ...(opts.recordMatches ? { recordMatches: true } : {}) },
+    payload: { customer: fresh, lead, leadBefore, ...(opts.recordMatches ? { recordMatches: true } : {}), ...(opts.keepRepBlank ? { keepRepBlank: true } : {}) },
     label: `${nameOf(fresh)}, new customer`,
   })
 
@@ -326,7 +328,8 @@ function partsAfter(prev: Customer, next: Partial<Customer>): Pick<Customer, 'ci
 
 const nameOf = (c: Pick<Customer, 'firstName' | 'lastName'>) => `${c.firstName} ${c.lastName}`.trim() || 'Customer'
 
-interface CreatePayload { customer: Customer; lead: Record<string, unknown> | null; leadBefore: string | null; recordMatches?: boolean }
+/** keepRepBlank: the CSV import, whose rows keep the file's Sales rep (blank stays blank; otherwise the server makes it whoever saves it). */
+interface CreatePayload { customer: Customer; lead: Record<string, unknown> | null; leadBefore: string | null; recordMatches?: boolean; keepRepBlank?: boolean }
 
 /** Send the newest copy of a customer. Goes after its create and earlier edits. */
 function pushCustomerUpdate(id: string): void {
@@ -339,8 +342,8 @@ registerKind<CreatePayload>('customer.create', {
   refused: () => reloadCustomers(),
   what: () => 'This customer',
   send: async (op: Op<CreatePayload>) => {
-    const { customer, lead, leadBefore, recordMatches } = op.payload
-    const r = await sendJson('POST', '/api/crm-contacts', { ...toApiPayload(customer), id: customer.id, ...(lead ? { lead, leadBefore } : {}), ...(recordMatches ? { recordMatches: true } : {}) })
+    const { customer, lead, leadBefore, recordMatches, keepRepBlank } = op.payload
+    const r = await sendJson('POST', '/api/crm-contacts', { ...toApiPayload(customer), id: customer.id, ...(lead ? { lead, leadBefore } : {}), ...(recordMatches ? { recordMatches: true } : {}), ...(keepRepBlank ? { keepRepBlank: true } : {}) })
     if (r.result.ok) pipelineSavedElsewhere(r.json?.pipelineVersion)
     // The Salesman's phone lists only the Salesman's customers: the server found this phone or email on
     // someone else's, kept this one as new and marked it for the office to check (portal routes/crm-contacts.ts).
@@ -358,6 +361,12 @@ registerKind<CreatePayload>('customer.create', {
     const fromServer = fromApi(data as CrmContactRecord)
     cache = cache.map(c => c.id === id ? { ...fromServer, id } : c)
     emit()
+    // The Salesman gave this customer to another Salesman: it is theirs now and leaves this phone's lists
+    // (portal lib/salesScope.ts): read the customers and the board again.
+    if (signedInRole() === 'sales_rep' && fromServer.salesRep && !isMyRep(fromServer.salesRep)) {
+      reloadCustomers()
+      void refreshPipelineNow()
+    }
     try {
       fireCustomerCreated(id, {
         customerName: nameOf(fromServer), customerEmail: fromServer.email, customerPhone: fromServer.phone,
@@ -419,7 +428,7 @@ export async function bulkImportCustomers(records: Customer[]): Promise<{ create
   for (const r of records) {
     const dup = findDuplicate({ phone: r.phone, email: r.email })
     if (dup) continue
-    upsertCustomer(r)
+    upsertCustomer(r, { keepRepBlank: true })
     created++
   }
   return { created, updated: 0, total: records.length }

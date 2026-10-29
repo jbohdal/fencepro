@@ -37,9 +37,11 @@ import { onCardMoves } from '../lib/followUps.js'
 import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
 import { findPossibleMatches } from '../lib/customerMerge.js'
-import { salesScopeOf } from '../lib/salesScope.js'
+import { salesScopeOf, forgetAllScopes } from '../lib/salesScope.js'
 import { repForSave, sameName } from '../lib/salesRep.js'
 import { loginForRep, moveCallbacks } from '../lib/leadCallback.js'
+import { staffRoleOf } from '../lib/costRedact.js'
+import { enteringName, isSalesmanRole, repChanges, salesmanChoices, SALESMAN_CHANGE_REFUSED } from '../lib/salesmanChoice.js'
 
 const router = Router()
 
@@ -133,6 +135,19 @@ function partsFor(data: { serviceAddress?: string; city?: string; state?: string
   return { city: pick('city'), state: pick('state'), zip: pick('zip') }
 }
 
+// ── The Salesman choice (lib/salesmanChoice.ts) ──
+// Who a new customer or lead can go to, with the person entering marked `me` (preselected), and whether this
+// login may change a saved customer's Salesman (the owner and office: yes; the Salesman: no).
+router.get('/salesmen', requireAccount, async (req: any, res) => {
+  try {
+    const role = staffRoleOf(req) ?? req.user.role ?? null
+    res.json({ success: true, data: await salesmanChoices(req.user.crmAccountId, String(req.user.id), role) })
+  } catch (err) {
+    console.error('[crm-contacts] salesmen error:', err)
+    res.status(500).json({ success: false, error: 'Could not load the Salesman list' })
+  }
+})
+
 // ── List ──
 // Visibility model: any authenticated CrmUser sees every contact in their
 // CrmAccount. ownerId is preserved on the row as an audit trail of the
@@ -199,9 +214,11 @@ router.post('/', requireAccount, async (req: any, res) => {
     // owner and office to merge (lib/salesScope.ts; docs/DECISIONS.md). The Salesman is told only how many.
     const scope = await salesScopeOf(req)
     let onFileElsewhere = 0
-    // A new customer the Salesman saves with no Sales rep is the Salesman's, the same as the Salesman's quote
-    // (lib/salesRep.ts repForSave; review Oct 28 2026: the quote had the Salesman as rep, the new customer none).
-    data.salesRep = (await repForSave(req, data.salesRep)) || undefined
+    // The Salesman choice (lib/salesmanChoice.ts): a new customer saved with no Sales rep is whoever is entering
+    // it (owner, office or Salesman); the screens send the one picked. The CSV import keeps a row's rep blank.
+    if (!data.salesRep?.trim() && req.body?.keepRepBlank !== true) data.salesRep = (await enteringName(req.user.id)) || undefined
+    // The card made with the customer carries the same rep (what the board and the Salesman's scope read).
+    if (card && data.salesRep && !(typeof (card as any).assignedRep === 'string' && (card as any).assignedRep.trim())) (card as any).assignedRep = data.salesRep
 
     let result: { contact: any; isNew: boolean; pipelineVersion: number | null } | null = null
     for (let attempt = 0; attempt < 5 && !result; attempt++) {
@@ -273,6 +290,8 @@ router.post('/', requireAccount, async (req: any, res) => {
     }
     if (!result) { res.status(503).json({ success: false, error: 'The server is busy. It will be sent again by itself.' }); return }
     const { contact, isNew, pipelineVersion } = result
+    // The chosen Salesman sees the customer on the next request (and a Salesman who gave it away no longer does).
+    if (isNew && contact.salesRep) forgetAllScopes()
     if (isNew) {
       console.log(`[crm-contacts] created ${contact.id} (${contact.firstName} ${contact.lastName})${card ? ` with pipeline card ${card.id}` : ''} for user ${req.user.id}`)
       await audit(req, 'create', 'CrmContact', contact.id, { newValues: { ...contact, pipelineCard: card?.id ?? null } })
@@ -298,6 +317,12 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
     if (!existing || existing.deletedAt) { res.status(404).json({ success: false, error: 'Contact not found' }); return }
     if (existing.accountId !== req.user.crmAccountId) {
       res.status(404).json({ success: false, error: 'Contact not found' }); return
+    }
+    // Once saved, a customer's Salesman is changed by the owner or the office (the customer page). The Salesman's
+    // change is refused, never saved in part: the screen puts the customer back and shows these words.
+    const salesRepChanged = repChanges(existing.salesRep, data.salesRep)
+    if (salesRepChanged && isSalesmanRole(staffRoleOf(req) ?? req.user.role)) {
+      res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: SALESMAN_CHANGE_REFUSED }); return
     }
     const updated = await prisma.crmContact.update({
       where: { id: req.params.id },
@@ -325,6 +350,7 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
       if (to) await moveCallbacks(req.user.crmAccountId, updated.id, to)
     }
     await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: updated })
+    if (salesRepChanged) forgetAllScopes()
     res.json({ success: true, data: updated })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

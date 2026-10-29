@@ -62,6 +62,21 @@ describe('the Salesman\'s scope', () => {
     expect(inSalesScope('quotes', scope, { id: 'q-other', ownerId: 'u-owner', salesRep: 'Jonathan Bohdal', crmContactId: 'c-other' })).toBe(false)
   })
 
+  test('a customer the Salesman entered and gave to someone else is theirs (the Salesman choice, Oct 28 2026)', () => {
+    const given = buildSalesScope({
+      ...base,
+      contacts: [
+        { id: 'c-entered-blank', ownerId: me, salesRep: '' },
+        { id: 'c-entered-mine', ownerId: me, salesRep: 'christa' },
+        { id: 'c-entered-given', ownerId: me, salesRep: 'Sam Other' },
+      ],
+      quotes: [], jobs: [], cards: [], appointments: [],
+    })
+    expect([...given.contactIds].sort()).toEqual(['c-entered-blank', 'c-entered-mine'])
+    expect(inSalesScope('contacts', given, { id: 'x', ownerId: me, salesRep: 'Sam Other' })).toBe(false)
+    expect(inSalesScope('contacts', given, { id: 'y', ownerId: me, salesRep: null })).toBe(true)
+  })
+
   test('names: full or first, any case or spacing; never someone else\'s', () => {
     expect(isMine(scope, 'CHRISTA')).toBe(true)
     expect(isMine(scope, 'Christa  Feagin')).toBe(true)

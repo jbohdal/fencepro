@@ -6,7 +6,10 @@
  * scope"):
  *
  *   The Salesman's own customers ("direct"): customers the Salesman entered
- *   (ownerId), customers whose Sales rep is the Salesman, the customer on a
+ *   (ownerId) while their Sales rep is blank or the Salesman (a customer the
+ *   Salesman gave to someone else, or that the owner or office moved to
+ *   someone else, is that person's: Oct 28 2026, the Salesman choice),
+ *   customers whose Sales rep is the Salesman, the customer on a
  *   pipeline card whose rep is the Salesman, and the customer of an
  *   appointment booked with the Salesman.
  *
@@ -59,6 +62,14 @@ export function isMine(s: Pick<SalesScope, 'names'>, rep: unknown): boolean {
 }
 
 /**
+ * A customer the Salesman entered is the Salesman's while the customer's Sales rep is blank or the Salesman;
+ * once the rep names someone else (the Salesman gave it away, or the owner or office changed it) it is theirs.
+ */
+export function enteredAndKept(s: Pick<SalesScope, 'names' | 'userId'>, c: { ownerId?: string | null; salesRep?: string | null }): boolean {
+  return c.ownerId === s.userId && (!c.salesRep || !c.salesRep.trim() || isMine(s, c.salesRep))
+}
+
+/**
  * Work out the scope from the records. Pure: the database reads are in
  * salesScope(); the tests call this directly too.
  */
@@ -72,9 +83,9 @@ export function buildSalesScope(input: {
   cards: Array<{ customerId?: string | null; assignedRep?: string | null }>
   appointments: Array<{ crmContactId: string; assignedToUserId: string | null; assignedTo: string | null }>
 }): SalesScope {
-  const s = { names: input.names }
+  const s = { names: input.names, userId: input.userId }
   const direct = new Set<string>()
-  for (const c of input.contacts) if (c.ownerId === input.userId || isMine(s, c.salesRep)) direct.add(c.id)
+  for (const c of input.contacts) if (enteredAndKept(s, c) || isMine(s, c.salesRep)) direct.add(c.id)
   for (const k of input.cards) if (k.customerId && isMine(s, k.assignedRep)) direct.add(k.customerId)
   for (const a of input.appointments) if (a.assignedToUserId === input.userId || isMine(s, a.assignedTo)) direct.add(a.crmContactId)
 
@@ -159,6 +170,11 @@ export function forgetScope(userId: string | null | undefined): void {
   if (userId) for (const k of [...memory.keys()]) if (k.startsWith(`${userId}|`)) memory.delete(k)
 }
 
+/** A customer's Salesman was chosen or changed: every Salesman reads the scope again (the new one has it, the old one not). */
+export function forgetAllScopes(): void {
+  memory.clear()
+}
+
 /** The Salesman's scope for this request, or null for every other login (and for a request with no staff login). */
 export async function salesScopeOf(req: any): Promise<SalesScope | null> {
   if (!isSalesman(staffRoleOf(req) ?? req?.user?.role)) return null
@@ -178,7 +194,7 @@ export type SalesKind = 'contacts' | 'quotes' | 'jobs' | 'appointments' | 'pipel
 export function inSalesScope(kind: SalesKind, s: SalesScope, item: any): boolean {
   if (!item || typeof item !== 'object') return false
   switch (kind) {
-    case 'contacts': return s.contactIds.has(item.id) || item.ownerId === s.userId || isMine(s, item.salesRep)
+    case 'contacts': return s.contactIds.has(item.id) || enteredAndKept(s, item) || isMine(s, item.salesRep)
     case 'quotes': return s.quoteIds.has(item.id) || item.ownerId === s.userId || isMine(s, item.salesRep) || (!!item.crmContactId && s.directContactIds.has(item.crmContactId))
     case 'jobs': return s.jobIds.has(item.id) || isMine(s, item.salesRep) || (!!item.quoteId && s.quoteIds.has(item.quoteId)) || (!!item.crmContactId && s.directContactIds.has(item.crmContactId))
     case 'appointments': return item.assignedToUserId === s.userId || isMine(s, item.assignedTo) || (!!item.crmContactId && s.contactIds.has(item.crmContactId))
@@ -193,7 +209,7 @@ export function cardInScope(s: SalesScope, leads: any[], cardId: string): boolea
 }
 
 /** Words in a path that are routes, not record ids. */
-const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'board', 'column', 'search', 'pages', 'words', 'archived', 'milestones', 'sold-quote'])
+const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'board', 'column', 'search', 'pages', 'words', 'archived', 'milestones', 'sold-quote', 'salesmen'])
 
 const notFound = (res: any) => res.status(404).json({ success: false, error: 'Not found' })
 

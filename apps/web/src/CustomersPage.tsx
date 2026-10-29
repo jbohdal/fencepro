@@ -53,7 +53,7 @@ import {
   listContactNotes, createContactNote, updateContactNote, deleteContactNote,
   type CrmContactNoteRecord, noteChangeFor, noteAuthor } from './crmContactsApi'
 import { cloudStorage } from './cloudStorage'
-import { navigate, goBack, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer, replaceUrl } from './nav'
+import { navigate, goBack, goBackThen, useNav, useScreenMemory, takeOpenedParam, openedFrom, BackClose, useBackLayer, replaceUrl } from './nav'
 import { CUSTOMER_FILTERS, asCustomerFilter, type CustomerFilter } from './customerFilters'
 import { SaveStatus } from './SaveStatus'
 import { newId } from './recordSync'
@@ -68,6 +68,9 @@ import PossibleMatch from './PossibleMatch'
 import { CustomerChangeOrderButtons } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import { lowTarget } from './moneyLoad'
+import SalesmanPicker from './SalesmanPicker'
+import { isMyRep } from './salesmanChoice'
+import SalesmanOnCustomer, { canChangeSalesman } from './SalesmanOnCustomer'
 
 /** Open a customer's page (a possible match, or the one this customer was merged into). */
 const openCustomerPage = (id: string) => navigate(`/customers/${encodeURIComponent(id)}`)
@@ -377,14 +380,20 @@ function CustomerForm({
         <div>
           <h3 className="text-xs font-semibold text-gray-500 mb-4">Sales Info</h3>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Sales Rep</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="e.g. jb" value={form.salesRep} onChange={e => setForm(f => ({ ...f, salesRep: e.target.value }))} />
-            </div>
+            {!initial?.id ? (
+              <SalesmanPicker value={form.salesRep} onChange={v => setForm(f => ({ ...f, salesRep: v }))} />
+            ) : (
+              // Once saved, the Salesman is changed on the customer page (Details), which also moves their cards.
+              <div data-salesman-on-file>
+                <span className="text-xs text-gray-500 mb-1 block">Salesman</span>
+                <span className="text-sm text-gray-800 block">{form.salesRep || 'None'}</span>
+                <span className="text-xs text-gray-500 block mt-0.5">{canChangeSalesman() ? 'Change it on the customer page, under Salesman.' : 'Only the owner or the office can change it.'}</span>
+              </div>
+            )}
             {!initial?.id ? (
               <label className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 cursor-pointer" data-book-estimate-now>
                 <input type="checkbox" className="mt-0.5" checked={bookNow} onChange={e => setBookNow(e.target.checked)} />
-                <span className="text-sm text-gray-800"><b>Book estimate now</b><span className="block text-xs text-gray-500">Opens the booking dialog after saving.</span></span>
+                <span className="text-sm text-gray-800"><b>Book estimate now</b><span className="block text-xs text-gray-500">Opens the booking dialog after saving, with the Salesman chosen here.</span></span>
               </label>
             ) : (
               <div className="text-xs text-gray-500 self-end pb-2">Appointments are booked from the customer page (Book appointment).</div>
@@ -1046,7 +1055,6 @@ function CustomerDetailsPanel({ customer, showStage }: { customer: Customer; sho
     { label: 'Phone', value: customer.phone, node: customer.phone ? <PhoneLink phone={customer.phone} customerId={customer.id} name={name} data-customer-phone /> : null },
     { label: 'Email', value: customer.email, node: customer.email ? <a href={`mailto:${customer.email}`} className="text-blue-700 hover:underline">{customer.email}</a> : null },
     { label: 'Lead Source', value: sourceLabel(customer.leadSource) },
-    { label: 'Sales Rep', value: customer.salesRep },
     { label: 'First Appt', value: customer.firstApptDate },
     // Where the customer really is: their newest job's Operations stage, else their pipeline card's stage; the typed or imported status only when there is neither.
     { label: 'Job Status', value: customerStatusWords(customer) },
@@ -1064,6 +1072,7 @@ function CustomerDetailsPanel({ customer, showStage }: { customer: Customer; sho
             </div>
           ))}
         </div>
+        <SalesmanOnCustomer customerId={customer.id} salesRep={customer.salesRep} />
         {showStage && <div className="flex flex-wrap items-center gap-2"><PipelineStageSelect customerId={customer.id} /><NextAppointmentBadge customerId={customer.id} /></div>}
         <TextConsent customerId={customer.id} />
         {customer.tags.length > 0 && (
@@ -1323,7 +1332,7 @@ function CustomerDetail({
   const contact = [
     customer.phone ? <PhoneLink key="phone" phone={customer.phone} customerId={customer.id} name={name} data-customer-header-phone /> : null,
     customer.email ? <a key="email" href={`mailto:${customer.email}`} className="text-blue-700 hover:underline" data-customer-email>{customer.email}</a> : null,
-    customer.salesRep ? <span key="rep" className="whitespace-nowrap" data-customer-rep>Rep: {customer.salesRep}</span> : null,
+    customer.salesRep ? <span key="rep" className="whitespace-nowrap" data-customer-rep>Salesman: {customer.salesRep}</span> : null,
     customer.leadSource ? <span key="source" className="whitespace-nowrap text-orange-700" data-customer-source={customer.leadSource}>via {sourceLabel(customer.leadSource)}</span> : null,
   ].filter(Boolean).map((part, i) => <Fragment key={i}>{i > 0 && <span className="text-gray-300" aria-hidden="true"> · </span>}{part}</Fragment>)
   const stagePill = <span className="inline-block mr-1.5 align-[1px] text-[11px] font-semibold bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full whitespace-nowrap" data-customer-status>{status}</span>
@@ -1825,13 +1834,36 @@ export default function CustomersPage({ onNewQuote }: {
       // For new customers the store also seeds the pipeline + fires the
       // customer_created automation, so we skip those here on the new path.
       const { customer } = upsertCustomer(c)
+      // The Salesman gave the new customer to another Salesman: it leaves the Salesman's list once saved
+      // (portal lib/salesScope.ts), so the screen goes back to the list rather than to a page that will close.
+      const givenAway = isNew && signedInRole() === 'sales_rep' && !!c.salesRep.trim() && !isMyRep(c.salesRep)
+      // "Book estimate now": the visit is with the customer's chosen Salesman to start ("With" can change it).
+      const book = () => openBooking({ customerId: customer.id, type: 'estimate', withName: customer.salesRep || c.salesRep, customer })
+      if (givenAway) {
+        const rep = c.salesRep.trim()
+        if (bookEstimate) {
+          // Booked before they leave: the booking opens on the list (a window opened before the Back arrived
+          // would close with it) and keeps the customer from this save once the list drops them. The Salesman
+          // can book with anyone on the team (portal routes/appointments.ts); after closing, they are gone
+          // from this phone, so closing without booking says so.
+          goBackThen('/customers', () => openBooking({
+            customerId: customer.id, type: 'estimate', withName: rep, customer,
+            onCancel: () => toast.info('Estimate not booked', `${`${customer.firstName} ${customer.lastName}`.trim() || 'This customer'} is ${rep}'s customer now and is off your list, so you cannot book it later. Ask ${rep} or the office to book the estimate.`),
+          }))
+          toast.info('Customer added', `${rep} is the Salesman and sees them as soon as they are saved. Book the estimate now: once you close the booking, they leave your list.`)
+          return
+        }
+        goBack('/customers')
+        toast.info('Customer added', `${rep} is the Salesman and sees them as soon as they are saved. They leave your list.`)
+        return
+      }
       // A new customer takes the place of the "new customer" screen in the history.
       if (isNew) navigate(`/customers/${encodeURIComponent(customer.id)}`, { replace: true })
       setEditing(false)
-      if (isNew && bookEstimate) openBooking({ customerId: customer.id, type: 'estimate' })
+      if (isNew && bookEstimate) book()
 
       // Not "saved" yet: the status by their name says Saved once the server has it.
-      if (isNew) toast.info('Customer added', `They are on the pipeline under ${pipelineStageName(roleId('first'))}. The status by their name says Saved once the office has it.`)
+      if (isNew) toast.info('Customer added', `They are on the pipeline under ${pipelineStageName(roleId('first'))}.${c.salesRep.trim() && !isMyRep(c.salesRep) ? ` ${c.salesRep.trim()} is the Salesman and sees them as soon as they are saved.` : ''} The status by their name says Saved once the office has it.`)
     } catch (err: any) {
       toast.error('Could not save customer', err?.message || 'Unknown error.')
     }
