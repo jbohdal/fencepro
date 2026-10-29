@@ -92,3 +92,17 @@ export function contactToAdd(to: Pick<PickCustomer, 'phone' | 'email'>, typed: {
   }
   return out
 }
+
+/**
+ * The address a quote's Save starts with (audit #52, review Oct 28 2026): the address the quote is drawn on (the
+ * Yard step's aerial photo), else the saved draft's, else none. Both New Customer's Service Address and the
+ * quote's Property address start with it.
+ */
+export function quoteDraftAddress(aerialAddress: string | null | undefined, savedAddress: string | null | undefined): string {
+  return (aerialAddress ?? '').trim() || (savedAddress ?? '').trim()
+}
+
+/** New Customer's Service Address: what was typed in it, else (until something is typed) the Property address. */
+export function serviceAddressShown(typed: string | null, propertyAddress: string): string {
+  return typed ?? propertyAddress
+}

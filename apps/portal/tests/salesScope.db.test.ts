@@ -141,6 +141,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope and the sl
     expect(r.status).toBe(201)
     expect(r.json.onFileElsewhere).toBe(1)
     expect(r.json.data.phone).toBe('(352) 555-0202')
+    // Saved with no Sales rep: the Salesman's, as the Salesman's quote is (review Oct 28 2026).
+    expect(r.json.data.salesRep).toBe(`Sally ${tag}`)
     const m = await prisma.customerPossibleMatch.findMany({ where: { accountId, contactId: id } })
     expect(m.map(x => x.matchId)).toEqual([ids.cOther])
     // The Salesman's new customer is the Salesman's; its match with the other customer is not shown to the Salesman.
@@ -184,5 +186,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope and the sl
     expect(again.proposal.planSvg).toBe(proposal.planSvg)
     expect(again.finalPrice).toBe(8409)
     void ownerId; void salesId
+  })
+
+  test('a new customer\'s Sales rep: the one sent stays; with none, the Salesman\'s name for the Salesman, none for the owner', async () => {
+    const sent = await call('POST', '/api/crm-contacts', sales, { id: crypto.randomUUID(), firstName: 'Rae', lastName: tag, salesRep: `Olive ${tag}` })
+    expect(sent.json.data.salesRep).toBe(`Olive ${tag}`)
+    const byOwner = await call('POST', '/api/crm-contacts', owner, { id: crypto.randomUUID(), firstName: 'Ola', lastName: tag })
+    expect(byOwner.status).toBe(201)
+    expect(byOwner.json.data.salesRep ?? null).toBeNull()
   })
 })

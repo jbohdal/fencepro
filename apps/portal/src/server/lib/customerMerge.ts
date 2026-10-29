@@ -280,9 +280,12 @@ export interface MatchView {
 }
 
 export async function matchView(accountId: string, contactId: string): Promise<MatchView> {
-  const c = await prisma.crmContact.findFirst({ where: { id: contactId, accountId }, select: { id: true, mergedIntoId: true, deletedAt: true, textConsent: true } })
+  const c = await prisma.crmContact.findFirst({ where: { id: contactId, accountId }, select: { id: true, mergedIntoId: true, deletedAt: true, archivedAt: true, textConsent: true } })
   if (!c) throw new MergeError(404, 'Customer not found')
-  const open = c.mergedIntoId || c.deletedAt ? [] : await prisma.customerPossibleMatch.findMany({ where: { accountId, contactId, status: 'open' }, orderBy: { createdAt: 'asc' } })
+  // A possible match is open only while both customers are on file: deleted, archived or merged on either side, it is
+  // not offered (review Oct 28 2026: it stayed open after the customer was archived). Nothing is changed on it, so
+  // putting the customer back (Unarchive, Restore) offers it again.
+  const open = c.mergedIntoId || c.deletedAt || c.archivedAt ? [] : await prisma.customerPossibleMatch.findMany({ where: { accountId, contactId, status: 'open' }, orderBy: { createdAt: 'asc' } })
   const others = open.length ? await prisma.crmContact.findMany({ where: { id: { in: open.map(m => m.matchId) }, accountId, deletedAt: null, archivedAt: null, mergedIntoId: null }, select: { id: true, firstName: true, lastName: true, phone: true, email: true, serviceAddress: true, textConsent: true } }) : []
   const matches = open.flatMap(m => {
     const o = others.find(x => x.id === m.matchId)

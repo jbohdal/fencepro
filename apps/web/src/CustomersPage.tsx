@@ -16,7 +16,7 @@ import { nextFor, shortWhen, TYPE_LABELS } from './appointmentLogic'
 import { useAppointmentList } from './TodayScreen'
 import { loadCustomer as loadPaymentsOf, scheduleOf, subscribe as subscribePayments, paymentsVersion, money } from './paymentsStore'
 import { HistoryList, useCustomerHistory, lastContactOf, type HistoryItem } from './CustomerHistory'
-import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, balanceTile, nextCompact, jobRowTarget, type CustomerTab } from './customerPage'
+import { CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, balanceTile, nextCompact, jobRowTarget, backLinkWords, type CustomerTab } from './customerPage'
 import { startTouch } from './followUpStore'
 import { openBooking } from './BookingDialog'
 import { NextAppointmentBadge, CustomerAppointmentsTab } from './AppointmentWidgets'
@@ -2119,7 +2119,7 @@ export default function CustomersPage({ onNewQuote }: {
             data-back-to={openedFrom()}
           >
             <span aria-hidden>←</span>
-            <span>Back to {openedFrom() === 'Sales Pipeline' ? 'pipeline' : openedFrom()!.toLowerCase()}</span>
+            <span>{backLinkWords(openedFrom())}</span>
           </button>
         )}
         {detailVisible && !openedFrom() && (

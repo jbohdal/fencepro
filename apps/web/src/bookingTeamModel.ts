@@ -92,6 +92,22 @@ export function matchesPerson(team: TeamMember[], a: Assigned, key: string): boo
   return false
 }
 
+/**
+ * Who the Visits page (AppointmentsPage) starts on. The Salesman: everyone, which is every appointment the server
+ * sends the Salesman (those with the Salesman, and those with the Salesman's own customers booked with someone
+ * else; review Oct 28 2026: only the Salesman's own showed). The crew: their own. The office and owner: everyone.
+ */
+export function visitsStartPerson(role: string | null | undefined, myKey: string): string {
+  return role === 'field_crew' ? myKey : ''
+}
+
+/** "With Jonathan Bohdal": an appointment the signed in person is not on, or null when it is theirs (or nobody's key is known). */
+export function withSomeoneElse(team: TeamMember[], a: Assigned, myKey: string): string | null {
+  if (!myKey || matchesPerson(team, a, myKey) || (myKey.startsWith('u:') && a.assignedToUserId === myKey.slice(2))) return null
+  const name = memberOf(team, a)?.name ?? String(a.assignedTo ?? '').trim()
+  return name ? `With ${name}` : 'With nobody yet'
+}
+
 /** Is this appointment with this member (by login, or the same name before logins were kept)? */
 export const isWith = (team: TeamMember[], a: Assigned, m: TeamMember | null | undefined) =>
   !!m && memberOf(team, a)?.userId === m.userId

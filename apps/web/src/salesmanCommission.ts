@@ -100,10 +100,33 @@ export function withShownMargin<T extends SavedMargin>(q: T, showCommission: boo
   return gmPct === q.gmPct ? q : { ...q, gmPct }
 }
 
-/** Is this quote one of hers (its sales rep is this name, compared without case or extra spaces)? */
-export function isRepsQuote(salesRep: string | null | undefined, name: string | null | undefined): boolean {
-  const n = norm(name)
-  return !!n && norm(salesRep) === n
+type Login = { firstName?: string | null; lastName?: string | null } | null | undefined
+
+/** A login's names as a rep is written: "christa feagin" and "christa" (the server's lib/salesScope.ts names). */
+export function repNamesOf(me: Login): string[] {
+  const full = norm(`${me?.firstName ?? ''} ${me?.lastName ?? ''}`)
+  return [...new Set([full, norm(me?.firstName)].filter(Boolean))]
+}
+
+/**
+ * Is the Salesman the Sales rep on this quote: the login's first and last name, or the first name alone,
+ * without case or extra spaces ("Christa", "Christa ", "christa  feagin"). The same match as the server's
+ * (lib/salesScope.ts isMine, lib/salesRep.ts sameName). Review Oct 28 2026: an exact match on
+ * "Christa Feagin" showed the Salesman none of the Salesman's quotes.
+ */
+export function isRepsQuote(salesRep: string | null | undefined, me: Login): boolean {
+  const rep = norm(salesRep)
+  return !!rep && repNamesOf(me).includes(rep)
+}
+
+/**
+ * The Salesman's Quotes screen: the server already sends only the quotes the Salesman may see
+ * (lib/salesScope.ts), so the list is every quote sent. `mine` is the part with the Salesman as Sales rep
+ * (the commission is on those). Every other login: the whole list, `mine` empty.
+ */
+export function salesmanQuoteView<T extends { salesRep?: string | null }>(quotes: readonly T[], role: string | null | undefined, me: Login): { listed: readonly T[]; mine: T[] } {
+  if (role !== SALESMAN_ROLE) return { listed: quotes, mine: [] }
+  return { listed: quotes, mine: quotes.filter(q => isRepsQuote(q.salesRep, me)) }
 }
 
 /**

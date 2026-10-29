@@ -22,7 +22,7 @@ import { averageMargin } from './quoteStats'
 import { quoteMarginTone } from './moneyLoad'
 import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
-import { seesCommission, withShownMargin, isRepsQuote, SALESMAN_ROLE } from './salesmanCommission'
+import { seesCommission, withShownMargin, salesmanQuoteView, SALESMAN_ROLE } from './salesmanCommission'
 import { can, signedInRole } from './permissions'
 import { currentUser } from './crmAuth'
 
@@ -181,7 +181,7 @@ function MiniBarChart({ opp, closed, labels }: { opp: number[], closed: number[]
   )
 }
 
-function PipelineAnalytics({ quotes, rep }: { quotes: SavedQuote[]; rep?: string }) {
+function PipelineAnalytics({ quotes, rep, repQuotes }: { quotes: SavedQuote[]; rep?: string; repQuotes?: SavedQuote[] }) {
   const year = new Date().getFullYear()
 
   const monthlyData = useMemo(() => {
@@ -233,7 +233,11 @@ function PipelineAnalytics({ quotes, rep }: { quotes: SavedQuote[]; rep?: string
 
   return (
     <div className="space-y-4 mb-4">
-      {rep && <p className="text-sm text-gray-600" data-quote-stats-yours>Your quotes only (Sales Rep: {rep})</p>}
+      {rep && repQuotes && (
+        <p className="text-sm text-gray-600" data-quote-stats-yours>
+          Your quotes and your customers' quotes. With you as Sales Rep ({rep}): {repQuotes.length} quoted, {repQuotes.filter(q => q.status === 'SOLD').length} sold, {fmt(repQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0))} closed.
+        </p>
+      )}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'Total Quoted',   value: String(totalOpp),  sub: 'all time' },
@@ -559,11 +563,15 @@ export default function QuotesPage({
     if (selectedQuote?.id === id) setSelectedQuote({ ...selectedQuote, leadTemp })
   }
 
-  // A Salesman sees the margin before the commission (Oct 27 2026), and her own quotes (Sales Rep: her name),
-  // in the totals and in the list (review Oct 27 2026: the totals were hers, the list everyone's).
+  // The Salesman sees the margin before the commission (Oct 27 2026). The server sends the Salesman only the
+  // quotes in the Salesman's scope (lib/salesScope.ts), so the list and the totals are every quote sent, the
+  // same quotes the Dashboard counts (review Oct 28 2026: an exact name match showed none). The part with the
+  // Salesman as Sales rep (full name or first name, as the server matches) is shown under the totals.
   const showCommission = seesCommission(signedInRole(), can('costs.view'))
-  const myName = signedInRole() === SALESMAN_ROLE ? `${currentUser()?.firstName ?? ''} ${currentUser()?.lastName ?? ''}`.replace(/\s+/g, ' ').trim() : ''
-  const myQuotes = useMemo(() => (myName ? localQuotes.filter(q => isRepsQuote(q.salesRep, myName)) : localQuotes), [localQuotes, myName])
+  const me = currentUser()
+  const isSalesman = signedInRole() === SALESMAN_ROLE
+  const myName = isSalesman ? `${me?.firstName ?? ''} ${me?.lastName ?? ''}`.replace(/\s+/g, ' ').trim() : ''
+  const { listed: myQuotes, mine: repQuotes } = useMemo(() => salesmanQuoteView(localQuotes, signedInRole(), me), [localQuotes, me?.firstName, me?.lastName])
   const filtered = myQuotes.filter(q => {
     const s = search.toLowerCase()
     const matchSearch = !s ||
@@ -580,9 +588,10 @@ export default function QuotesPage({
 
   return (
     <div>
-      {/* Phone: the page's primary action (the header buttons are for the computer). */}
+      {/* One "+ New quote" on every screen size: this one on the phone, the header's from a tablet up
+          (review Oct 28 2026: the filter bar had a second one). */}
       <button onClick={onNewQuote} className="btn btn-primary w-full md:hidden mb-4">+ New quote</button>
-      <PipelineAnalytics quotes={statsQuotes} rep={myName || undefined} />
+      <PipelineAnalytics quotes={statsQuotes} rep={myName || undefined} repQuotes={isSalesman ? repQuotes : undefined} />
 
       <div className="bg-white rounded-2xl border border-gray-200 p-3 lg:p-4 mb-4 flex flex-col lg:flex-row lg:items-center gap-3 lg:flex-wrap">
         <input
@@ -613,16 +622,13 @@ export default function QuotesPage({
             >{c}</button>
           ))}
         </div>
-        <button onClick={onNewQuote} className="btn btn-primary w-full lg:w-auto lg:ml-auto">
-          + New Quote
-        </button>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-4xl mb-3">📋</p>
-            <p className="text-gray-500 font-medium">{myQuotes.length === 0 ? (myName ? 'No quotes with you as Sales Rep yet' : 'No quotes yet') : 'No quotes match your filters'}</p>
+            <p className="text-gray-500 font-medium">{myQuotes.length === 0 ? 'No quotes yet' : 'No quotes match your filters'}</p>
             {myQuotes.length === 0 && (
               <button onClick={onNewQuote} className="mt-4 text-orange-500 text-sm hover:underline">Create the first quote</button>
             )}

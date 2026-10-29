@@ -30,6 +30,7 @@ import { jobInstallWord } from './jobWork'
 import { hasDrawing } from './jobDrawing'
 import { CustomerContact, JobMilestones, OpenCustomerProfile } from './JobTruth'
 import { JobTimeline } from './ChangeOrders'
+import { backLinkWords } from './customerPage'
 
 const MATERIALS_WORDS: Record<string, string> = { not_ordered: 'Not ordered yet', ordered: 'Ordered', received: 'Received', loaded: 'Loaded on the truck' }
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0)
@@ -71,7 +72,7 @@ export default function JobPage() {
   const backButton = (
     <button type="button" onClick={() => goBack('/customers')} data-job-page-back
       className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-orange-600">
-      <span aria-hidden>←</span><span>{back ? `Back to ${back === 'Sales Pipeline' ? 'pipeline' : back.toLowerCase()}` : 'Back'}</span>
+      <span aria-hidden>←</span><span>{backLinkWords(back)}</span>
     </button>
   )
 

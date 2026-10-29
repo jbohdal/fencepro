@@ -16,6 +16,16 @@ export function shownToast<T extends QueuedToast>(msgs: T[]): { shown: T | null;
 export const TOAST_MS = { success: 3000, info: 3000, warning: 5000, error: 7000 } as const
 
 /**
+ * How long this toast stays: its kind's time, or longer for a long one, so its words can be read now that they
+ * wrap in full (review Oct 28 2026: the duplicate phone notice on Save was cut off with "…" on a phone):
+ * about a quarter second a word, at most 12 seconds. The × closes it sooner.
+ */
+export function toastMs(kind: QueuedToast['kind'], title: string, body?: string): number {
+  const words = `${title} ${body ?? ''}`.trim().split(/\s+/).filter(Boolean).length
+  return Math.max(TOAST_MS[kind], Math.min(12_000, 1500 + words * 250))
+}
+
+/**
  * Where the toast sits: just above a bar at the bottom of the screen (the
  * quote's step and price bar), so it never covers the Next / Back buttons;
  * null when there is no such bar on screen (the default place is used).

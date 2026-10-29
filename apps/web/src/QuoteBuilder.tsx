@@ -15,7 +15,7 @@ import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer, findPossibleMatches } from './customerStore'
-import { customersMatching, decideNewCustomer, contactToAdd } from './customerPick'
+import { customersMatching, decideNewCustomer, contactToAdd, quoteDraftAddress, serviceAddressShown } from './customerPick'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { getRailOptimizerConfig } from './configStore'
@@ -158,8 +158,9 @@ function SaveModal({
   const [lastName, setLastName]   = useState(() => splitOnLastSpace(initialCustomerName).lastName)
   const [phone, setPhone]         = useState('')
   const [email, setEmail]         = useState('')
-  // A new customer's address starts as the draft's (audit #52: an empty box looked as if the address was lost).
-  const [address, setAddress]     = useState(initialAddress || '')
+  // A new customer's address follows Property address (the address the quote is drawn on) until something is
+  // typed in it (audit #52; review Oct 28 2026: both boxes were empty after the Yard step's aerial address).
+  const [typedAddress, setAddress] = useState<string | null>(null)
   const [leadSource, setLeadSource] = useState('')
   const [salesRep, setSalesRep]   = useState('')
   const [status, setStatus]       = useState<SavedQuote['status']>(initialStatus)
@@ -167,6 +168,7 @@ function SaveModal({
   const [leadTemp, setLeadTemp]   = useState(0)
   // The quote's property. It is the quote's own: clearing or changing the customer never changes it.
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || selectedCustomer?.serviceAddress || '')
+  const address = serviceAddressShown(typedAddress, propertyAddress)
   // Settings > Lead Sources (shown ones), and the quote's own word when it is not among them.
   const LEAD_SOURCES = sourcePicker(leadSource)
 
@@ -228,7 +230,9 @@ function SaveModal({
         email,
         serviceAddress: address.trim() || propertyAddress.trim(),
         leadSource,
-        salesRep,
+        // The quote's Sales rep: the one typed, else the Salesman saving it (review Oct 28 2026: the quote had
+        // the Salesman as rep, the new customer none). The quote takes the customer's below.
+        salesRep: salesRep.trim() || mySalesRepName(),
       }, { recordMatches: onFile.kind === 'new_possible' })
       onSave({
         customerId: customer.id,
@@ -2187,7 +2191,7 @@ export default function QuoteBuilder({
         <SaveModal
           initialCustomerName={customerName}
           initialCustomerId={quoteCustomerId || undefined}
-          initialAddress={init?.customerAddress}
+          initialAddress={quoteDraftAddress(entry === 'layout' ? yard?.plan?.aerial?.address : null, init?.customerAddress)}
           initialStatus={init?.status ?? 'DRAFT'}
           initialNotes={[init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
           onCancel={() => setShowSaveModal(false)}

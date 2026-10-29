@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { customersMatching, decideNewCustomer, sameName, contactToAdd } from '../../web/src/customerPick'
+import { customersMatching, decideNewCustomer, sameName, contactToAdd, quoteDraftAddress, serviceAddressShown } from '../../web/src/customerPick'
 import { sameName as serverSameName } from '../src/server/lib/customerImport'
 
 const c = (id: string, firstName: string, lastName: string, phone = '', email = '', serviceAddress = '') => ({ id, firstName, lastName, phone, email, serviceAddress })
@@ -82,5 +82,21 @@ describe('Put on the customer on file: the phone or email typed (audit #48)', ()
   test('another one where they have theirs: kept, never overwritten', () => {
     expect(contactToAdd(ON_FILE[0], { phone: '(352) 555-0100', email: 'ann.new@example.invalid' })).toEqual({ add: {}, kept: [{ what: 'email', typed: 'ann.new@example.invalid', theirs: 'ann@example.invalid' }] })
     expect(contactToAdd(ON_FILE[0], { phone: '352-555-0777', email: 'ann@example.invalid' })).toEqual({ add: {}, kept: [{ what: 'phone', typed: '352-555-0777', theirs: '(352) 555-0100' }] })
+  })
+})
+
+describe('Save of a new quote starts with the address it is drawn on (audit #52, review Oct 28 2026)', () => {
+  test('the Yard step\'s aerial address, else the saved draft\'s, else none', () => {
+    expect(quoteDraftAddress('  7 Pine Ln, Ocala, FL ', '')).toBe('7 Pine Ln, Ocala, FL')
+    expect(quoteDraftAddress('7 Pine Ln, Ocala, FL', '12 Oak Rd')).toBe('7 Pine Ln, Ocala, FL')
+    expect(quoteDraftAddress(undefined, '12 Oak Rd')).toBe('12 Oak Rd')
+    expect(quoteDraftAddress('', null)).toBe('')
+  })
+  test('Service Address follows Property address until something is typed in it', () => {
+    expect(serviceAddressShown(null, '7 Pine Ln')).toBe('7 Pine Ln')
+    expect(serviceAddressShown(null, '7 Pine Lane, Ocala')).toBe('7 Pine Lane, Ocala')
+    expect(serviceAddressShown('PO Box 4', '7 Pine Ln')).toBe('PO Box 4')
+    // Typed and cleared: stays cleared (emptied on purpose).
+    expect(serviceAddressShown('', '7 Pine Ln')).toBe('')
   })
 })

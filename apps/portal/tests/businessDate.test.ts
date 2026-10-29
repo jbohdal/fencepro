@@ -2,7 +2,19 @@
  * "Customer Since" shows the Florida calendar date of the stored moment.
  */
 import { describe, test, expect } from 'vitest'
-import { businessDate, dayWords } from '../../web/src/businessDate'
+import { businessDate, dayWords, floridaWhen } from '../../web/src/businessDate'
+
+describe('floridaWhen: the job history\'s time, the same in every browser (review Oct 28 2026)', () => {
+  test('"Oct 25, 2026, 8:36 AM" in Florida, never "at"', () => {
+    expect(floridaWhen('2026-10-25T12:36:00.000Z')).toBe('Oct 25, 2026, 8:36 AM')
+    expect(floridaWhen(new Date('2026-12-01T01:05:00.000Z'))).toBe('Nov 30, 2026, 8:05 PM')
+    expect(floridaWhen('2026-10-25T12:36:00.000Z')).not.toContain(' at ')
+  })
+  test('nothing for no date or an unreadable one', () => {
+    expect(floridaWhen('')).toBe('')
+    expect(floridaWhen('soon')).toBe('')
+  })
+})
 
 describe('businessDate', () => {
   test('an afternoon entry keeps its date', () => {

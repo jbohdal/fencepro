@@ -35,3 +35,20 @@ export function dayWords(value: string | Date | null | undefined, now = new Date
   const sameYear = Number(m[1]) === Number(businessDate(now).slice(0, 4))
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) })
 }
+
+const whenFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+})
+
+/**
+ * "Oct 25, 2026, 8:36 AM", Florida time, the same in every browser: built from the parts, because WebKit
+ * joins them as "Oct 25, 2026 at 8:36 AM" (review Oct 28 2026). Empty for no date or an unreadable one.
+ */
+export function floridaWhen(value: string | Date | null | undefined): string {
+  if (!value) return ''
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const p: Record<string, string> = {}
+  for (const x of whenFormat.formatToParts(d)) if (x.type !== 'literal') p[x.type] = x.value
+  return `${p.month} ${p.day}, ${p.year}, ${p.hour}:${p.minute} ${(p.dayPeriod ?? '').toUpperCase()}`.trim()
+}

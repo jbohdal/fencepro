@@ -31,6 +31,7 @@ import { refreshJobs } from './jobStore'
 import { getQuotes } from './quoteStore'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
+import { floridaWhen } from './businessDate'
 import { wholeDollarCents } from './pricingEngine'
 import { SignaturePad } from './SignaturePad'
 import { LIVE_REFRESH_EVENT } from './liveRefresh'
@@ -1067,11 +1068,9 @@ function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }:
 
 interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
 
-/**
- * Every line in one style, Florida time ("Oct 28, 2026, 9:14 AM"), so lines of the same day read in the order
- * they are listed (audit #51: stage lines had a time, contract lines only a date).
- */
-const floridaWhen = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+// Every line in one style, Florida time ("Oct 28, 2026, 9:14 AM"), so lines of the same day read in the order
+// they are listed (audit #51: stage lines had a time, contract lines only a date). businessDate.ts floridaWhen
+// builds it from its parts: the phone's WebKit read "Oct 25, 2026 at 8:36 AM" (review Oct 28 2026).
 
 /**
  * The job's timeline: the contract as signed, change orders, the payment schedule following, pull sheet revisions, who moved it between

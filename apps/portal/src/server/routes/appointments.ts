@@ -36,6 +36,13 @@ import { plainZod } from '../lib/plainZod.js'
 import { forCrew, hidesPrices, staffRoleOf } from '../lib/costRedact.js'
 import { suggest } from '../lib/addressIndex.js'
 import { withReps, assignedUserIdFor, bookingTeam, bookableMember } from '../lib/appointmentRep.js'
+import { randomUUID } from 'node:crypto'
+import { can, roleOf, REFUSAL } from '../lib/permissions.js'
+import { isSalesman, salesmanLogin, salesmanOwnsJob } from '../lib/salesmanJobs.js'
+import { ScheduleError } from '../lib/installScheduling.js'
+import { setsInstallDate, bookInstallFromAppointment, undoInstallBooking, cancelPreview, type ApptLike } from '../lib/installBooking.js'
+import { cardFollowsJob } from '../lib/jobTruth.js'
+import { afterJobSaved } from '../lib/contractBilling.js'
 
 const router = Router()
 
@@ -132,6 +139,40 @@ async function withPosition(accountId: string, data: any) {
   return data
 }
 
+/* ── An install appointment is its job's install date (lib/installBooking.ts) ── */
+
+/**
+ * May this login change the job's install date by booking or cancelling its
+ * install appointment? Those who change the crew Schedule (owner, admin,
+ * manager, office), and the Salesman on the Salesman's own job only (the job's
+ * days, crew and stage as the Schedule books them; nothing else on the job).
+ */
+async function installRefusal(req: any, jobId: string): Promise<{ status: number; code: string; error: string } | null> {
+  const role = staffRoleOf(req) ?? roleOf(req)
+  if (can(role, 'schedule.change')) return null
+  if (isSalesman(role)) {
+    const me = await salesmanLogin(String(req.user.id), req.user.crmAccountId)
+    if (me && await salesmanOwnsJob(me, jobId)) return null
+    return { status: 404, code: 'NOT_FOUND', error: 'Job not found' }
+  }
+  return { status: 403, code: 'NOT_ALLOWED', error: REFUSAL['schedule.change'] }
+}
+
+const installActor = (req: any) => ({ accountId: req.user.crmAccountId, userId: req.user.id ?? null, name: req.user.name || undefined })
+
+/** After the job's install date changed here: its card, its payment schedule and the audit (the job's history reads stage moves from it). */
+async function afterInstallChange(req: any, before: any, after: any) {
+  const accountId = req.user.crmAccountId
+  await cardFollowsJob(accountId, after.id).catch(e => console.error('[appointments] card follows job:', e))
+  await audit(req, 'update', 'SavedJob', after.id, {
+    oldValues: { scheduledDate: before?.scheduledDate, scheduledEndDate: before?.scheduledEndDate, crewAssigned: before?.crewAssigned, opsStage: before?.opsStage, status: before?.status },
+    newValues: { scheduledDate: after.scheduledDate, scheduledEndDate: after.scheduledEndDate, crewAssigned: after.crewAssigned, opsStage: after.opsStage, status: after.status },
+  })
+  await afterJobSaved(accountId, after.id, { userId: req.user.id ?? null, name: req.user.email ?? '' }).catch(e => console.error('[appointments] after job saved:', e))
+}
+
+const scheduleRefused = (res: any, err: ScheduleError) => res.status(err.status).json({ success: false, error: err.message, ...err.extra })
+
 /* ── Map ─────────────────────────────────────────────────────────────────── */
 
 router.get('/geo/lookup', requireUser, async (req: any, res) => {
@@ -202,6 +243,19 @@ router.get('/:id', requireUser, async (req: any, res) => {
   res.json({ success: true, data: await one(req.user.crmAccountId, a), version: a.version })
 })
 
+/** What cancelling this install appointment does to its job, in words for the cancel confirmation (lib/installBooking.ts). */
+router.get('/:id/cancel-preview', requireUser, async (req: any, res) => {
+  try {
+    const a = await prisma.appointment.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, deletedAt: null }, select: { id: true } })
+    if (!a) { res.status(404).json({ success: false, error: 'Appointment not found' }); return }
+    const plan = await cancelPreview(req.user.crmAccountId, a.id)
+    res.json({ success: true, data: { kind: plan.kind, words: plan.kind === 'none' ? '' : plan.words } })
+  } catch (err) {
+    console.error('[appointments] cancel preview error:', err)
+    res.status(500).json({ success: false, error: 'Could not check the job' })
+  }
+})
+
 async function bookByStaff(req: any, res: any) {
   try {
     const d = createSchema.parse(req.body)
@@ -228,9 +282,28 @@ async function bookByStaff(req: any, res: any) {
       source: 'manual', createdBy: actor(req),
       history: [{ at: new Date().toISOString(), by: actor(req), kind: 'booked', to: { startAt: start?.toISOString() ?? null, endAt: end?.toISOString() ?? null } }],
     })
-    const a = await prisma.appointment.create({ data, include: { contact: { select: contactSelect } } })
+    // An install on a job: the job is scheduled first (its days, crew, stage and Schedule board entries), as the
+    // Schedule screen does it; a day that is not a crew day, or a stage rule that refuses, books nothing.
+    data.id = data.id ?? randomUUID()
+    let install: any = null
+    let jobBefore: any = null
+    if (setsInstallDate(data)) {
+      const no = await installRefusal(req, data.jobId)
+      if (no) { res.status(no.status).json({ success: false, code: no.code, error: no.error }); return }
+      jobBefore = await prisma.savedJob.findFirst({ where: { id: data.jobId, accountId } })
+      try { install = await bookInstallFromAppointment(accountId, installActor(req), data as ApptLike) }
+      catch (e) { if (e instanceof ScheduleError) { scheduleRefused(res, e); return } throw e }
+    }
+    let a
+    try { a = await prisma.appointment.create({ data, include: { contact: { select: contactSelect } } }) }
+    catch (e) {
+      // Not booked after all: the job goes back. (The same booking arriving twice at once is booked: it stays.)
+      if (install && (e as any)?.code !== 'P2002') await undoInstallBooking(accountId, installActor(req), data.id).catch(() => {})
+      throw e
+    }
     await audit(req, 'create', 'Appointment', a.id, { newValues: { type: a.type, startAt: a.startAt, assignedTo: a.assignedTo } })
-    res.status(201).json({ success: true, data: await one(accountId, a), version: a.version })
+    if (install) await afterInstallChange(req, jobBefore, install.job)
+    res.status(201).json({ success: true, data: await one(accountId, a), version: a.version, ...(install ? { install: { days: install.days, crew: install.crew, jobId: install.job.id } } : {}) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     if ((err as any)?.code === 'P2002') {
@@ -287,14 +360,43 @@ router.patch('/:id', requireUser, async (req: any, res) => {
     if ('address' in d && d.address !== cur.address && !('lat' in d)) { data.lat = null; data.lng = null; await withPosition(accountId, data) }
     data.history = history
 
+    // The install date (lib/installBooking.ts): an install on a job booked, moved or brought back schedules the
+    // job first; one cancelled (or no longer an install on that job) puts the job back after the save.
+    const next = { ...cur, ...data } as ApptLike
+    const wasInstall = setsInstallDate(cur as ApptLike)
+    const isInstall = setsInstallDate(next)
+    const books = isInstall && (!wasInstall || moved || cur.jobId !== next.jobId)
+    const undoes = wasInstall && (!isInstall || cur.jobId !== next.jobId)
+    for (const jobId of new Set([...(books ? [next.jobId!] : []), ...(undoes ? [cur.jobId!] : [])])) {
+      const no = await installRefusal(req, jobId)
+      if (no) { res.status(no.status).json({ success: false, code: no.code, error: no.error }); return }
+    }
+    let install: any = null
+    let jobBefore: any = null
+    if (books) {
+      jobBefore = await prisma.savedJob.findFirst({ where: { id: next.jobId!, accountId } })
+      try { install = await bookInstallFromAppointment(accountId, installActor(req), next) }
+      catch (e) { if (e instanceof ScheduleError) { scheduleRefused(res, e); return } throw e }
+    }
+
     const done = await prisma.appointment.updateMany({ where: { id: cur.id, version: baseVersion }, data: { ...data, version: { increment: 1 } } })
     if (done.count === 0) {
+      // Not saved: a booking made for it is taken back.
+      if (install) await undoInstallBooking(accountId, installActor(req), cur.id).catch(() => {})
       const now2 = await prisma.appointment.findUnique({ where: { id: cur.id }, include: { contact: { select: contactSelect } } })
       refuseStale(res, now2 ? await one(accountId, now2) : null, now2?.version ?? 0); return
     }
     const a = (await prisma.appointment.findUnique({ where: { id: cur.id }, include: { contact: { select: contactSelect } } }))!
     await audit(req, 'update', 'Appointment', a.id, { newValues: { ...d, reason } })
-    res.json({ success: true, data: await one(accountId, a), version: a.version })
+    if (install) await afterInstallChange(req, jobBefore, install.job)
+    // Cancelled: the job goes back to how it was before the booking, unless its schedule changed since.
+    let installUndo: { kind: string; words?: string } | null = null
+    if (undoes && !install) {
+      const u = await undoInstallBooking(accountId, installActor(req), cur.id)
+      installUndo = { kind: u.kind, ...(u.kind !== 'none' ? { words: u.words } : {}) }
+      if (u.kind === 'restore' && u.job) await afterInstallChange(req, u.oldJob, u.job)
+    }
+    res.json({ success: true, data: await one(accountId, a), version: a.version, ...(install ? { install: { days: install.days, crew: install.crew, jobId: install.job.id } } : {}), ...(installUndo ? { installUndo } : {}) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[appointments] update error:', err)

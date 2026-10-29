@@ -52,7 +52,7 @@ import { disconnectGmail, gmailConsentUrl, gmailStatus } from '../lib/automation
 import { ensurePermit, lookupParcel, packetInputFor, PERMIT_PORTALS, PERMIT_STATUSES, portalFor, renderPacket } from '../lib/automations/permits.js'
 import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
-import { myTasksWhere, seesCompanyTasks } from '../lib/taskScope.js'
+import { myTasksWhere, seesCompanyTasks, taskLinkFacts, taskSubjectGone } from '../lib/taskScope.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
 
 const router = Router()
@@ -531,8 +531,14 @@ router.get('/tasks', async (req: any, res) => {
     const days = Math.min(Math.max(Number(req.query.days) || 14, 1), 90)
     const tasks = done
       ? await prisma.task.findMany({ where: { status: 'completed', completedAt: { gte: new Date(Date.now() - days * 86_400_000) }, ...mine }, orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }], take })
-      // Open: overdue first, then today's, then later ones, then those with no due day.
-      : await prisma.task.findMany({ where: { status: { in: status as any }, ...mine }, orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }], take })
+      // Open: overdue first, then today's, then later ones, then those with no due day. A task whose customer is
+      // deleted or archived (or whose job is deleted) is left off (lib/taskScope.ts; review Oct 28 2026), so a few
+      // more are read to fill the list.
+      : await (async () => {
+        const rows = await prisma.task.findMany({ where: { status: { in: status as any }, ...mine }, orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }], take: take + 200 })
+        const facts = await taskLinkFacts(prisma, req.user.crmAccountId, rows.map(t => t.jobId ?? '').filter(Boolean))
+        return rows.filter(t => !taskSubjectGone(t.jobId, facts)).slice(0, take)
+      })()
     res.json({ success: true, data: tasks })
   } catch (err) { fail(res, err, 'load tasks') }
 })
