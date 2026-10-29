@@ -29,6 +29,7 @@ import path from 'path'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { salesScopedRoute } from '../lib/salesScope.js'
 import { isUniqueViolation } from '../lib/once.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { esc, safeSvg, CSS } from './proposal.js'
@@ -222,6 +223,19 @@ const snapSchema = z.object({
 }).strip()
 
 packetStaff.use(requireUser, requireAccount)
+// The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026): the packets of the Salesman's own and assigned jobs only;
+// another job's packet, link or work is a 404. (/visits is the signed in login's own visits.)
+packetStaff.use(salesScopedRoute({
+  refs: async (req, first) => {
+    const seg = String(req.path || '/').split('/').filter(Boolean)
+    if (first === 'crew' && seg[1]) return { jobs: seg[1] }
+    if (first && !['work', 'visits', 'crew'].includes(first)) {
+      const p = await prisma.installPacket.findFirst({ where: { id: first, accountId: req.user.crmAccountId }, select: { jobId: true } })
+      return p ? { jobs: p.jobId } : null
+    }
+    return null
+  },
+}))
 
 packetStaff.get('/', async (req: any, res) => {
   const p = await prisma.installPacket.findFirst({ where: { accountId: req.user.crmAccountId, jobId: String(req.query.jobId || '') } })

@@ -54,6 +54,7 @@ import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { myTasksWhere, seesCompanyTasks } from '../lib/taskScope.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
+import { salesScopeOf, salesScopedRoute, inSalesScope, type SalesScope } from '../lib/salesScope.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -87,6 +88,60 @@ function requireOwnerOrAdmin(req: any, res: any, next: any) {
   next()
 }
 router.use(requireUser)
+
+// ── The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026) ──
+// A job's permit, a rule tested or a stage checked on a card or job, the run log and its files, and the cards
+// and jobs offered to test a rule with: the Salesman's own and assigned only; another one is a 404.
+
+/** Is this id (a job, quote or customer, or a pipeline card) one of the Salesman's? */
+async function entityInScope(s: SalesScope, accountId: string, id: string, leads?: any[]): Promise<boolean> {
+  if (s.jobIds.has(id) || s.quoteIds.has(id) || s.contactIds.has(id)) return true
+  const cards = leads ?? (await loadLeads(accountId)).leads
+  const card = cards.find((l: any) => l?.id === id)
+  return !!card && inSalesScope('pipeline', s, card)
+}
+
+router.use(salesScopedRoute({
+  refs: (req, first) => {
+    const seg = String(req.path || '/').split('/').filter(Boolean)
+    return first === 'permits' && seg[1] ? { jobs: seg[1] } : null
+  },
+}))
+router.use(async (req: any, res, next) => {
+  try {
+    const s = await salesScopeOf(req)
+    if (!s) { next(); return }
+    const accountId = req.user.crmAccountId
+    const seg = String(req.path || '/').split('/').filter(Boolean)
+    const notFound = () => res.status(404).json({ success: false, error: 'Not found' })
+    // A rule tested, or a stage checked, on another person's card or job.
+    if ((req.path === '/rules/test' || req.path === '/stage-check') && typeof req.body?.entityId === 'string' && !(await entityInScope(s, accountId, req.body.entityId))) { notFound(); return }
+    // A run's file: the run must be on one of the Salesman's.
+    if (seg[0] === 'runs' && seg[1] && seg[2] === 'files') {
+      const run = await prisma.automationRun.findFirst({ where: { id: seg[1], accountId }, select: { entityId: true } })
+      if (run && !(await entityInScope(s, accountId, run.entityId))) { notFound(); return }
+    }
+    // A task changed: only one on the Salesman's own list.
+    if (seg[0] === 'tasks' && seg[1] && req.method === 'PATCH') {
+      const me = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true, email: true } }).catch(() => null)
+      const names = [req.user.email, me?.email, me ? `${me.firstName} ${me.lastName}`.trim() : '', me?.firstName].filter((x): x is string => !!x)
+      if (!(await prisma.task.findFirst({ where: { id: seg[1], ...myTasksWhere(roleOf(req), names) }, select: { id: true } }))) { notFound(); return }
+    }
+    // The run log and the cards and jobs to test with: the Salesman's only.
+    if (req.method === 'GET' && (req.path === '/runs' || req.path === '/samples')) {
+      const { leads } = await loadLeads(accountId)
+      const json = res.json.bind(res)
+      res.json = (body: any) => {
+        if (!Array.isArray(body?.data)) return json(body)
+        void Promise.all(body.data.map((r: any) => entityInScope(s, accountId, String(req.path === '/runs' ? r.entityId : r.id), leads)))
+          .then(keep => json({ ...body, data: body.data.filter((_: unknown, i: number) => keep[i]) }))
+          .catch(next)
+        return res
+      }
+    }
+    next()
+  } catch (e) { next(e) }
+})
 
 const fail = (res: any, err: unknown, what: string) => {
   if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }

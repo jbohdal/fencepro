@@ -43,7 +43,7 @@ import { safeSvg } from './proposal.js'
 import { changeOrderPhonesFor } from '../lib/signedDocuments.js'
 import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
 import { askForOk, okGiven } from '../lib/changeOrderNotices.js'
-import { salesScopeOf, refusedOutsideSalesScope } from '../lib/salesScope.js'
+import { salesScopeOf, refusedOutsideSalesScope, forgetScope, scopeFor } from '../lib/salesScope.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -73,8 +73,11 @@ router.use(async (req: any, res, next) => {
       if (co && await refusedOutsideSalesScope(req, res, { quotes: co.quoteId })) return
     }
     if (!first && req.method === 'GET') {
+      // Read fresh for the list: the scope is kept a few seconds, and a quote made since then would be left out.
+      forgetScope(scope.userId)
+      const fresh = (await scopeFor(scope.userId, scope.accountId)) ?? scope
       const json = res.json.bind(res)
-      res.json = (body: any) => (Array.isArray(body?.data) ? json({ ...body, data: body.data.filter((c: any) => scope.quoteIds.has(c?.quoteId)) }) : json(body))
+      res.json = (body: any) => (Array.isArray(body?.data) ? json({ ...body, data: body.data.filter((c: any) => fresh.quoteIds.has(c?.quoteId)) }) : json(body))
     }
     next()
   } catch (e) { next(e) }

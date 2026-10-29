@@ -25,6 +25,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
   const { default: pullSheets } = await import('../src/server/routes/pull-sheets.js')
   const { default: changeOrders } = await import('../src/server/routes/change-orders.js')
   const { default: warranties } = await import('../src/server/routes/warranties.js')
+  const { default: jobCosting } = await import('../src/server/routes/job-costing.js')
+  const { walkthroughStaff } = await import('../src/server/routes/walkthroughs.js')
+  const { packetStaff } = await import('../src/server/routes/installPacket.js')
+  const { default: contracts } = await import('../src/server/routes/contracts.js')
+  const { default: documents } = await import('../src/server/routes/documents.js')
+  const { default: invoices } = await import('../src/server/routes/invoices.js')
+  const { default: oldTickets } = await import('../src/server/routes/tickets.js')
+  const { default: dashboard } = await import('../src/server/routes/dashboard.js')
+  const { default: automations } = await import('../src/server/routes/automations.js')
+  const { default: voice } = await import('../src/server/routes/voice.js')
+  const { default: leads } = await import('../src/server/routes/leads.js')
+  const { salesmanHasNone, refuseSalesman } = await import('../src/server/lib/salesScope.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
   const tag = `ssr-${crypto.randomUUID().slice(0, 8)}`
@@ -94,10 +106,28 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
       { accountId, key: 'duplicateCheckAlerted', value: ['phone:3525550302:2'] as any },
     ] })
 
+    ids.coMine = (await prisma.contract.create({ data: { accountId, externalCrmId: ids.qMine, name: `Mina ${tag}`, startDate: new Date() } })).id
+    ids.coOther = (await prisma.contract.create({ data: { accountId, externalCrmId: ids.qOther, name: `Otto ${tag}`, startDate: new Date() } })).id
+    ids.wOther = (await prisma.walkthrough.create({ data: { accountId, jobId: ids.jOther } as any })).id
+    ids.pOther = (await prisma.installPacket.create({ data: { accountId, jobId: ids.jOther, token: `${tag}-tok`, snapshot: {} } as any })).id
+    for (const [k, e] of [['runMine', ids.jMine], ['runOther', ids.jOther]] as const) {
+      ids[k] = (await prisma.automationRun.create({ data: { accountId, ruleId: `${tag}-rule`, eventId: `${tag}-${k}`, entityKind: 'job', entityId: e } })).id
+    }
+    for (const [k, q, u] of [['clipMine', ids.qMine, null], ['clipOther', ids.qOther, o.id]] as const) {
+      ids[k] = (await prisma.voiceClip.create({ data: { accountId, userId: u, quoteKey: q, mime: 'audio/webm', path: `/nonexistent/${tag}-${k}`, transcript: k } })).id
+    }
     const app = express(); app.use(express.json({ limit: '10mb' }))
     app.use('/api/service-tickets', tickets); app.use('/api/portal', portal); app.use('/api/business-state', business); app.use('/api/kv', kv)
     app.use('/api/signed-documents', signedDocs); app.use('/api/pull-sheets', pullSheets)
     app.use('/api/change-orders', changeOrders); app.use('/api/warranties', warranties)
+    app.use('/api/job-costing', jobCosting); app.use('/api/walkthroughs', walkthroughStaff); app.use('/api/install-packets', packetStaff)
+    app.use('/api/automations', automations); app.use('/api/voice', voice)
+    // As index.ts mounts them: the old customer portal routes, and the website leads.
+    app.use('/api/leads', refuseSalesman('Website and phone leads are the office\'s until one is assigned to you.'))
+    app.use('/api/documents', salesmanHasNone({ list: true })); app.use('/api/invoices', salesmanHasNone({ list: true }))
+    app.use('/api/tickets', salesmanHasNone({ list: true })); app.use('/api/dashboard', salesmanHasNone())
+    app.use('/api/contracts', contracts); app.use('/api/documents', documents); app.use('/api/invoices', invoices)
+    app.use('/api/tickets', oldTickets); app.use('/api/dashboard', dashboard); app.use('/api/leads', leads)
     server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
   afterAll(async () => {
@@ -107,6 +137,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     await prisma.portalMessage.deleteMany({ where: { crmCustomerId: { in: [ids.cMine, ids.cOther] } } })
     await prisma.portalFile.deleteMany({ where: { id: { in: portalFileIds } } })
     await prisma.serviceTicket.deleteMany({ where: { accountId } })
+    await prisma.contract.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.walkthrough.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.installPacket.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.automationRun.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.voiceClip.deleteMany({ where: { accountId } }).catch(() => {})
     await prisma.accountKeyValue.deleteMany({ where: { accountId } })
     await prisma.businessState.deleteMany({ where: { accountId } })
     await prisma.savedJob.deleteMany({ where: { accountId } })
@@ -287,5 +322,50 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const o = await call('GET', '/api/kv', owner)
     expect(idsOf(o.json.data.fencepro_customer_activity)).toEqual([`${tag}-a-other1`, `${tag}-a-new`, `${tag}-a-mine`, `${tag}-a-other2`])
     expect(o.json.data.duplicateCheckAlerted).toEqual(['phone:3525550302:2'])
+  })
+
+  test('job costing, walkthroughs, install packets, permits, the run log, voice clips: another job is a 404, lists are the Salesman\'s', async () => {
+    expect((await call('GET', `/api/job-costing/takeoff?jobId=${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/job-costing/takeoff?jobId=${ids.jMine}`, sales)).status).toBe(200)
+    expect((await call('GET', `/api/job-costing/job/${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('POST', '/api/job-costing/takeoff', sales, { id: crypto.randomUUID(), jobId: ids.jOther })).status).toBe(404)
+    const report = await call('GET', '/api/job-costing/report', sales)
+    expect(report.status).toBe(200)
+    expect(JSON.stringify(report.json)).not.toContain(ids.jOther)
+    expect((await call('GET', `/api/walkthroughs?jobId=${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/walkthroughs/${ids.wOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/walkthroughs?jobId=${ids.jMine}`, sales)).status).toBe(200)
+    expect((await call('GET', `/api/walkthroughs/${ids.wOther}`, owner)).status).toBe(200)
+    expect((await call('GET', `/api/install-packets?jobId=${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/install-packets/work?jobId=${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/install-packets/crew/${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/install-packets?jobId=${ids.jMine}`, sales)).status).toBe(200)
+    const op = await call('GET', `/api/install-packets?jobId=${ids.jOther}`, owner)
+    expect(op.json.data.token).toBe(`${tag}-tok`)
+    expect((await call('GET', `/api/automations/permits/${ids.jOther}`, sales)).status).toBe(404)
+    expect((await call('GET', `/api/automations/permits/${ids.jMine}`, sales)).status).toBe(200)
+    const runs = await call('GET', '/api/automations/runs', sales)
+    expect(runs.json.data.map((r: any) => r.id)).toEqual([ids.runMine])
+    const oruns = await call('GET', '/api/automations/runs', owner)
+    expect(oruns.json.data.map((r: any) => r.id).sort()).toEqual([ids.runMine, ids.runOther].sort())
+    const samples = await call('GET', '/api/automations/samples?board=ops', sales)
+    expect(samples.json.data.map((j: any) => j.id)).toEqual([ids.jMine])
+    expect((await call('POST', '/api/automations/stage-check', sales, { board: 'ops', entityId: ids.jOther, stage: 'x' })).status).toBe(404)
+    const clips = await call('GET', '/api/voice/clips', sales)
+    expect(clips.json.data.map((c: any) => c.id)).toEqual([ids.clipMine])
+    expect((await call('DELETE', `/api/voice/clips/${ids.clipOther}`, sales)).json.data.deleted).toBe(0)
+    expect((await call('GET', '/api/voice/clips', owner)).json.data).toHaveLength(2)
+  })
+
+  test('the old customer portal routes: none is the Salesman\'s; contracts follow the quotes; website leads are the office\'s', async () => {
+    const c = await call('GET', '/api/contracts', sales)
+    expect(c.json.data.map((x: any) => x.id)).toEqual([ids.coMine])
+    const oc = await call('GET', '/api/contracts', owner)
+    expect(oc.json.data.map((x: any) => x.id)).toEqual(expect.arrayContaining([ids.coMine, ids.coOther]))
+    for (const p of ['/api/documents', '/api/invoices', '/api/tickets']) expect((await call('GET', p, sales)).json.data).toEqual([])
+    expect((await call('GET', '/api/tickets/anything', sales)).status).toBe(404)
+    expect((await call('GET', '/api/invoices/statement/pdf', sales)).status).toBe(404)
+    expect((await call('GET', '/api/dashboard', sales)).status).toBe(404)
+    expect((await call('GET', '/api/leads', sales)).status).toBe(403)
   })
 })

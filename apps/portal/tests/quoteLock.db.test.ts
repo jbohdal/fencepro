@@ -33,7 +33,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
   const ids = { quotes: [] as string[], jobs: [] as string[], token: crypto.randomBytes(24).toString('base64url') }
-  let owner = '', salesman = '', accountId = '', base = ''
+  let owner = '', salesman = '', accountId = '', base = '', userId = ''
   let server: ReturnType<express.Express['listen']>
   const call = (who: string, method: string, p: string, body?: unknown) => fetch(base + p, { method, headers: { ...(who ? { Authorization: `Bearer ${who}` } : {}), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
     .then(async r => ({ status: r.status, json: await r.json().catch(() => null) as any }))
@@ -46,7 +46,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
 
   const yard = { shape: 'straight', closed: false, sides: [{ id: 's1', name: 'Back', on: true, lengthIn: 960, startFinish: 'free', endFinish: 'free', heading: 0 }], plan: { aerial: { lat: 29.18, lng: -82.13, halfM: 40, address: '1 Lock Test Way', rotDeg: 0, shown: true } } }
   const quoteData = (status: string, extra: Record<string, unknown> = {}) => ({
-    accountId, customerName: 'E2E Quote Lock Test', customerPhone: '3525550177', fenceStyle: "WV-ND 6'x8' Privacy", runs: [80], sections: 10,
+    // Made by the login the tokens name: the Salesman's own quote (lib/salesScope.ts).
+    accountId, ownerId: userId, customerName: 'E2E Quote Lock Test', customerPhone: '3525550177', fenceStyle: "WV-ND 6'x8' Privacy", runs: [80], sections: 10,
     corners: 0, ends: 2, walkGates: 1, materialCost: 265, laborCost: 240, tearOutCost: 0, totalCOGS: 505, finalPrice: 1000, gmPct: 0.495,
     pullSheet: [{ item: 'E2E Lock Post', qty: 11, unitCost: 13.5, total: 148.5 }], pricing: { laborMode: 'subcontractor' },
     layout: { yard, runSections: [10] }, status, salesRep: 'E2E Rep',
@@ -60,6 +61,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
   beforeAll(async () => {
     const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
     accountId = user.crmAccountId!
+    userId = user.id
     const sign = (role: string) => jwt.sign({ sub: user.id, email: user.email, role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, secret, { expiresIn: '10m' })
     owner = sign('super_admin')
     salesman = sign('sales_rep')

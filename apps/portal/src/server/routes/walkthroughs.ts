@@ -20,6 +20,7 @@ import fs from 'fs'
 import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { salesScopedRoute } from '../lib/salesScope.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { esc, CSS } from './proposal.js'
 import { serveSignedMedia } from './media.js'
@@ -83,6 +84,15 @@ async function settle(req: any, id: string) {
 // ── Staff ─────────────────────────────────────────────────────────────────────
 
 walkthroughStaff.use(requireUser, requireAccount)
+// The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026): the walkthroughs of the Salesman's own and assigned
+// jobs only; another job's, read or changed, is a 404.
+walkthroughStaff.use(salesScopedRoute({
+  refs: async (req, first) => {
+    if (!first) return null
+    const w = await prisma.walkthrough.findFirst({ where: { id: first, accountId: req.user.crmAccountId }, select: { jobId: true } })
+    return w ? { jobs: w.jobId } : null
+  },
+}))
 
 walkthroughStaff.get('/', async (req: any, res) => {
   const jobId = String(req.query.jobId || '')
