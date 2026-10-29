@@ -187,6 +187,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
     const owner = await call('owner', 'PATCH', '/api/business-state', { config: { fenceStyles: [{ name: 'Test style' }], voice: { onFor: [] } }, baseVersion: cur.version })
     expect(owner.status).toBe(200)
     let v = owner.json.data.version
+    // The Salesman's phone reads the record first: a save may build only on a copy the server handed out (lib/salesServed.ts).
+    expect((await call('sales', 'GET', '/api/business-state')).json.data.version).toBe(v)
     const cfg = refused
     cfg(await call('sales', 'PATCH', '/api/business-state', { config: { fenceStyles: [{ name: 'Cheaper style' }], voice: { onFor: [] } }, baseVersion: v }), /cannot change settings/)
     cfg(await call('sales', 'PATCH', '/api/business-state', { emailTemplates: { welcome: 'hi' }, baseVersion: v }), /cannot change settings/)

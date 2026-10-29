@@ -47,7 +47,8 @@ describe('business state: parts left out when asked', () => {
     expect(r).toMatch(/res\.json\(\{ success: true, data: leanState\(s, omittedParts\(req\.query\)\) \}\)/)
     expect(r).toMatch(/res\.json\(\{ success: true, data: leanState\(s, omit\) \}\)/)
     expect(r).toMatch(/refuse\(res, refused, \{ data: leanState\(saved, omit\)/)
-    expect((r.match(/refuseStale\(res, leanState\(/g) || []).length).toBe(2)
+    // Stale twice, and the Salesman's save built on a copy the server did not hand out (lib/salesServed.ts).
+    expect((r.match(/refuseStale\(res, leanState\(/g) || []).length).toBe(3)
   })
 
   test('the web app never holds or sends every job\'s milestone list', () => {
