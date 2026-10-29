@@ -193,6 +193,20 @@ export function getCustomerById(id: string): Customer | null {
 }
 
 /**
+ * A customer by id, read again from the server when this device does not have it yet. A Salesman's list holds only
+ * the Salesman's own and assigned customers (portal lib/salesScope.ts), so a customer the office just booked her a
+ * visit with comes into it on the server without changing, and the "since" read leaves it out: the whole list is read
+ * once more (review Oct 28 2026: "Ready to quote" at the next house opened nothing).
+ */
+export async function findCustomerFresh(id: string): Promise<Customer | null> {
+  const have = getCustomerById(id)
+  if (have || !hydrated) return have
+  lastSync = null
+  await refreshCustomers()
+  return getCustomerById(id)
+}
+
+/**
  * Customers on file with this phone or email. Only ever shown as a suggestion
  * ("Use <name>"): a customer is linked by an explicit pick, never by a match.
  */

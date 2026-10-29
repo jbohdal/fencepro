@@ -57,7 +57,7 @@ import { checkSession, logout as crmLogout, canAccess, setSessionExpiredHandler,
 import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
 import { clearOldBrowserData } from './browserStorage'
-import { initCustomers, getCustomers, isCustomersHydrated } from './customerStore'
+import { initCustomers, getCustomers, isCustomersHydrated, findCustomerFresh } from './customerStore'
 import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes, isSlimQuote, loadFullQuote } from './quoteStore'
 import { sizeText } from './moveRepair'
 import { sendJson } from './syncHttp'
@@ -836,8 +836,14 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   useEffect(() => {
     const h = (e: Event) => {
       const d = (e as CustomEvent<{ customerId: string; address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean; fromVisit?: boolean }>).detail
-      const c = d?.customerId ? getCustomers().find(x => x.id === d.customerId) : null
-      if (c) { openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft }); sendAfterSave.current = !!d.fromVisit }
+      if (!d?.customerId) return
+      const go = (c: ReturnType<typeof getCustomers>[number] | null | undefined) => {
+        if (c) { openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft }); sendAfterSave.current = !!d.fromVisit }
+        else toast.error('Quote not opened', 'This customer did not load on this device. Reload the app, then start the quote from the customer page.')
+      }
+      const c = getCustomers().find(x => x.id === d.customerId)
+      // Not on this device yet (a Salesman's visit booked after her list was read): read the list again first.
+      if (c) go(c); else void findCustomerFresh(d.customerId).then(go)
     }
     const open = (e: Event) => {
       const d = (e as CustomEvent<{ id: string; quote?: SavedQuote; changeOrder?: boolean }>).detail
