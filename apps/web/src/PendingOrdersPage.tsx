@@ -88,6 +88,8 @@ export default function PendingOrdersPage() {
   }
 
   function markDraftOrdered(po: PurchaseOrder) {
+    // Which Sales Order it goes with is known only once the Sales Orders have loaded.
+    if (load !== 'ready') { toast.error('The Sales Orders have not loaded yet', 'Check the signal, then try again.'); return }
     const so = orderOf(po)
     const step = orderedStep(so)
     const cmp = so ? compareToSalesOrder(po, so) : null
@@ -210,7 +212,7 @@ export default function PendingOrdersPage() {
         {/* detail */}
         <div className="lg:col-span-2 min-w-0 scroll-mt-4" ref={detailRef}>
           {selectedDraft ? (
-            <DraftDetail po={selectedDraft} order={orderOf(selectedDraft)} onOrdered={markDraftOrdered} onDiscard={discardDraft}
+            <DraftDetail po={selectedDraft} order={orderOf(selectedDraft)} ordersReady={load === 'ready'} onOrdered={markDraftOrdered} onDiscard={discardDraft}
               onShowOrder={id => { setFilter('all'); setSelectedId(id) }} />
           ) : selected ? (
             <OrderDetail order={selected} onAdvance={advance} onRemove={remove} />
@@ -331,9 +333,11 @@ function OrderDetail({ order, onAdvance, onRemove }: {
  * out as stacked lines, so it reads in a phone's narrow column without
  * scrolling sideways.
  */
-function DraftDetail({ po, order, onOrdered, onDiscard, onShowOrder }: {
+function DraftDetail({ po, order, ordersReady, onOrdered, onDiscard, onShowOrder }: {
   po: PurchaseOrder
   order: PendingOrder | null
+  /** The Sales Orders have loaded: until then the draft cannot say which one it goes with (it said "no Sales Order"). */
+  ordersReady: boolean
   onOrdered: (po: PurchaseOrder) => void
   onDiscard: (po: PurchaseOrder) => void
   onShowOrder: (orderId: string) => void
@@ -363,8 +367,8 @@ function DraftDetail({ po, order, onOrdered, onDiscard, onShowOrder }: {
         </dl>
       </div>
 
-      <div className={`mx-4 sm:mx-6 mt-4 rounded-lg border p-3 text-xs ${!order || cmp?.same ? 'bg-gray-50 border-gray-200 text-gray-700' : 'bg-yellow-50 border-yellow-200 text-yellow-900'}`} data-draft-relation={!order ? 'none' : cmp?.same ? 'same' : 'differs'}>
-        <p>{relationText(order, cmp)}</p>
+      <div className={`mx-4 sm:mx-6 mt-4 rounded-lg border p-3 text-xs ${!order || cmp?.same ? 'bg-gray-50 border-gray-200 text-gray-700' : 'bg-yellow-50 border-yellow-200 text-yellow-900'}`} data-draft-relation={!ordersReady ? 'loading' : !order ? 'none' : cmp?.same ? 'same' : 'differs'}>
+        <p>{ordersReady ? relationText(order, cmp) : "Loading the job's Sales Order…"}</p>
         {cmp && !cmp.same && (
           <ul className="mt-2 space-y-0.5">
             {cmp.qtyDiffers.map(d => <li key={`q-${d.itemName}`} className="break-words">{partWithPair(d.itemName)}: {d.draft} here, {d.order} on the Sales Order</li>)}
@@ -399,7 +403,7 @@ function DraftDetail({ po, order, onOrdered, onDiscard, onShowOrder }: {
         {job
           ? <button type="button" onClick={() => navigate(jobPagePath(po.jobId), { from: 'Inventory' })} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg min-h-[44px]" data-draft-open-job>Open job</button>
           : <span className="text-xs text-gray-500 self-center">The job is no longer on the board.</span>}
-        <button type="button" onClick={() => onOrdered(po)} className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg min-h-[44px]" data-draft-ordered
+        <button type="button" onClick={() => onOrdered(po)} disabled={!ordersReady} className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg min-h-[44px]" data-draft-ordered
           title={step === 'mark_sales_order' ? "Marks the job's Sales Order Ordered and closes this draft" : 'Closes this draft as ordered'}>
           Mark ordered
         </button>
