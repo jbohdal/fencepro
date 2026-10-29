@@ -119,6 +119,11 @@ try {
   const office = await invite('office_staff', `Office ${stamp}`)
   const crew = await invite('field_crew', `Installer ${stamp}`)
   check('logins: Salesman, Office Staff and Installer', !!sales.token && !!office.token && !!crew.token)
+  // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the owner
+  // assigns this lead to the Salesman (the Assign screen's call), as he does with a new lead.
+  const salesId = (await call(sales.token, 'GET', '/api/crm-auth/me')).json.data?.id
+  const assigned = await owner('POST', `/api/lead-assign/${made.contactId}`, { to: salesId })
+  check('setup: the owner assigns the lead to the Salesman', assigned.status === 200, `${assigned.status} ${assigned.text?.slice(0, 160) ?? ''}`)
 
   // ── Salesman ──
   for (const phone of [false, true]) {
