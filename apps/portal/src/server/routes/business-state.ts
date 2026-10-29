@@ -12,9 +12,11 @@
  * The Salesman (lib/salesScopeRecords.ts; Jonathan, Oct 28 2026): every answer
  * leaves out the invoices, payments, statements, pull sheets, Sales Orders,
  * purchase orders and job milestones of other people's customers, jobs and
- * quotes; a save from the Salesman has each of those put back exactly as
- * stored first, and one that adds or changes an entry outside the Salesman's
- * scope is refused (404).
+ * quotes; a save from the Salesman may remove or change only an entry that was
+ * on the copy the phone was handed (lib/salesServed.ts): every other entry,
+ * hidden or given to the Salesman since, is put back exactly as stored first,
+ * and one that adds or changes an entry outside the Salesman's scope is
+ * refused (404).
  */
 
 import { Router } from 'express'
@@ -33,7 +35,8 @@ import { auditSettingChange } from '../lib/settingsAudit.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
 import { materialsFollowOrders } from '../lib/materialsFromOrders.js'
 import { salesScopeOf, salesScope, forgetScope, type SalesScope } from '../lib/salesScope.js'
-import { salesBusinessView, salesBusinessPatch, OutsideScopeError } from '../lib/salesScopeRecords.js'
+import { salesBusinessView, salesBusinessPatch, businessHanded, OutsideScopeError } from '../lib/salesScopeRecords.js'
+import { handedOut, handedOutHad, handedAt, afterOwnSave, NOTHING, type Had } from '../lib/salesServed.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -62,13 +65,28 @@ function requireAccount(req: any, res: any, next: any) {
 
 router.use(requireUser, requireAccount)
 
-/** For the Salesman: every answer's record (the saved one, a 409's newer one, a refusal's) as the Salesman reads it. */
+/**
+ * For the Salesman: every answer's record (the saved one, a 409's newer one, a
+ * refusal's) as the Salesman reads it. A copy the phone takes as its own (a
+ * read, a 409's, a refusal's) is remembered with its version (lib/salesServed.ts):
+ * a later save may remove only what was on it. The answer to the Salesman's own
+ * save is not taken by the phone (it keeps what it sent; web versionedDoc.ts):
+ * the save itself remembers that.
+ */
 async function salesmanAnswers(req: any, res: any): Promise<{ scope: SalesScope } | null> {
   const scope = await salesScopeOf(req)
   if (!scope) return null
   const held = { scope }
   const json = res.json.bind(res)
-  res.json = (body: any) => json(body && typeof body === 'object' && body.data && typeof body.data === 'object' ? { ...body, data: salesBusinessView(held.scope, body.data) } : body)
+  res.json = (body: any) => {
+    if (!(body && typeof body === 'object' && body.data && typeof body.data === 'object')) return json(body)
+    const data = salesBusinessView(held.scope, body.data)
+    const version = typeof body.version === 'number' ? body.version : typeof body.data.version === 'number' ? body.data.version : null
+    if (version !== null && (req.method === 'GET' || body.success !== true)) {
+      handedOut(held.scope.userId, held.scope.accountId, 'business', version, businessHanded(data))
+    }
+    return json({ ...body, data })
+  }
   return held
 }
 
@@ -136,15 +154,31 @@ router.patch('/', async (req: any, res) => {
     const omit = omittedParts(req.query)
     // Settings, prices and the books are for the owner, admin and manager; each key is checked on its own.
     const saved = await prisma.businessState.findUnique({ where: { accountId } })
+    // The Salesman: what the phone held at the version this save is built on (lib/salesServed.ts).
+    let had: Had | null = null
+    let sentByPhone = new Map<string, Set<string>>()
     if (salesman) {
-      // The Salesman's copy left out other people's entries: they are put back as stored before anything else.
-      try { Object.assign(updateData, salesBusinessPatch(salesman.scope, saved as any, updateData)) } catch (e) {
+      had = (!saved && base === 0) ? NOTHING : handedAt(salesman.scope.userId, salesman.scope.accountId, 'business', base)
+      // Not known (the server restarted, or a copy this login was never handed): never guessed. The 409 hands
+      // the phone the current copy; it puts its change on that and saves again (web syncGuard.ts).
+      if (!had) { refuseStale(res, leanState(saved, omit), saved?.version ?? 0); return }
+      // The Salesman's copy left out other people's entries, and lacks any given to the Salesman since:
+      // every entry the phone did not have is put back as stored before anything else.
+      const original = { ...updateData }
+      try {
+        const m = salesBusinessPatch(salesman.scope, saved as any, original, had)
+        Object.assign(updateData, m.patch); sentByPhone = m.accepted
+      } catch (e) {
         if (!(e instanceof OutsideScopeError)) throw e
         // Maybe a customer, quote or job made a moment ago: read the scope again once before refusing.
         forgetScope(salesman.scope.userId)
         const again = await salesScope(salesman.scope.userId, salesman.scope.accountId)
         if (again) salesman.scope = again
-        try { if (!again) throw e; Object.assign(updateData, salesBusinessPatch(again, saved as any, updateData)) } catch (e2) {
+        try {
+          if (!again) throw e
+          const m = salesBusinessPatch(again, saved as any, original, had)
+          Object.assign(updateData, m.patch); sentByPhone = m.accepted
+        } catch (e2) {
           if (!(e2 instanceof OutsideScopeError)) throw e2
           res.status(404).json({ success: false, error: 'Not found' }); return
         }
@@ -166,16 +200,19 @@ router.patch('/', async (req: any, res) => {
       if (d.count && prev) await recordNewPayments(accountId, prev.payments, updateData.payments, updateData.invoices ?? prev.invoices, tx)
       return d
     })
+    let newVersion = base + 1
     if (done.count === 0) {
       const current = await prisma.businessState.findUnique({ where: { accountId } })
       if (current || base !== 0) { refuseStale(res, leanState(current, omit), current?.version ?? 0); return }
-      try { await prisma.businessState.create({ data: { accountId, ...updateData } }) } catch (e) {
+      try { newVersion = (await prisma.businessState.create({ data: { accountId, ...updateData } })).version } catch (e) {
         if (!isUniqueViolation(e)) throw e
         const now = await prisma.businessState.findUnique({ where: { accountId } })
         refuseStale(res, leanState(now, omit), now?.version ?? 0); return
       }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
+    // The phone keeps what it sent as its copy of the new version: remembered for its next save.
+    if (salesman && had) handedOutHad(salesman.scope.userId, salesman.scope.accountId, 'business', newVersion, afterOwnSave(had, sentByPhone))
     if (updateData.pendingOrders !== undefined) {
       // A Sales Order marked Ordered or Received: its job's materials follow, never backward (lib/materialsFromOrders.ts),
       // saved before the answer so this browser's next read of the jobs has it.

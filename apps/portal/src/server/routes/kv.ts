@@ -13,8 +13,10 @@
  * The Salesman (lib/salesScopeRecords.ts; Jonathan, Oct 28 2026): in the keys
  * kept per customer (the customer activity log, quote share links, job costing
  * lines, the old change orders, imported quotes) the entries of other people's
- * customers, jobs and quotes are left out of every answer and put back exactly
- * as stored on every save; one sent for someone else's is refused (404). The
+ * customers, jobs and quotes are left out of every answer; a save may remove
+ * or change only an entry on the copy the phone was handed (lib/salesServed.ts),
+ * every other one is put back exactly as stored; one sent for someone else's
+ * is refused (404). The
  * duplicate check's lists (customers' phones) are not sent to the Salesman.
  * Site plans and their files stay company wide (Jonathan's word).
  */
@@ -33,7 +35,8 @@ import { PIPELINE_STAGES_KEY } from '../lib/pipelineStages.js'
 import { OPTION_LIST_KEY } from '../lib/optionLists.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
 import { salesScopeOf, salesScope, forgetScope } from '../lib/salesScope.js'
-import { salesKvView, salesKvValue, KV_NOT_FOR_SALESMAN, OutsideScopeError } from '../lib/salesScopeRecords.js'
+import { salesKvView, salesKvValue, KV_NOT_FOR_SALESMAN, KV_PER_CUSTOMER, KV_LIST, OutsideScopeError } from '../lib/salesScopeRecords.js'
+import { handedOut, handedOutHad, handedAt, afterOwnSave, keysOfList, NOTHING, type Had } from '../lib/salesServed.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -85,6 +88,8 @@ router.get('/', async (req: any, res) => {
       if (hide.has(r.key) || isServerOnlyKey(r.key) || (scope && KV_NOT_FOR_SALESMAN(r.key))) continue
       out[r.key] = scope ? salesKvView(scope, r.key, r.value) : r.value
       versions[r.key] = r.version
+      // What the Salesman's phone now holds of a per customer key: a later save may remove only that (lib/salesServed.ts).
+      if (scope && KV_PER_CUSTOMER.has(r.key)) handedOut(scope.userId, scope.accountId, `kv:${r.key}`, r.version, new Map([[KV_LIST, keysOfList(out[r.key])]]))
     }
     res.json({ success: true, data: out, versions })
   } catch (err) {
@@ -109,20 +114,43 @@ router.put('/:key', async (req: any, res) => {
     // The Salesman: every answer (a refusal's or a 409's value) as the Salesman reads it; what the Salesman's
     // copy left out is put back exactly as stored before the save.
     let scope = await salesScopeOf(req)
+    const salesUser = scope ? { userId: scope.userId, accountId: scope.accountId } : null
+    // What the Salesman's phone held at the version this save is built on, and what it holds after (lib/salesServed.ts).
+    let had: Had | null = null
+    let sentByPhone: Set<string> | null = null
     if (scope) {
       const json = res.json.bind(res)
-      res.json = (body: any) => json(scope && body && typeof body === 'object' && 'data' in body ? { ...body, data: salesKvView(scope, key, body.data) } : body)
+      res.json = (body: any) => {
+        if (!(scope && body && typeof body === 'object' && 'data' in body)) return json(body)
+        const data = salesKvView(scope, key, body.data)
+        // A 409's or a refusal's copy is the phone's copy from now on (the answer to a save is only `true`).
+        if (body.success !== true && typeof body.version === 'number' && KV_PER_CUSTOMER.has(key)) {
+          handedOut(scope.userId, scope.accountId, `kv:${key}`, body.version, new Map([[KV_LIST, keysOfList(data)]]))
+        }
+        return json({ ...body, data })
+      }
       if (KV_NOT_FOR_SALESMAN(key)) { res.status(404).json({ success: false, error: 'Not found' }); return }
-      try { value = salesKvValue(scope, key, saved ? saved.value : null, value ?? null) } catch (e) {
+      if (KV_PER_CUSTOMER.has(key)) {
+        had = (!saved && base === 0) ? NOTHING : handedAt(scope.userId, scope.accountId, `kv:${key}`, base)
+        // Not known (the server restarted, or a copy this login was never handed): never guessed. The 409 hands the
+        // phone the current copy; it puts its change on that and saves again (web syncGuard.ts).
+        if (!had) { refuseStale(res, saved ? saved.value : null, saved?.version ?? 0); return }
+      }
+      const sent = value ?? null
+      try { ({ value, accepted: sentByPhone } = salesKvValue(scope, key, saved ? saved.value : null, sent, had ?? NOTHING)) } catch (e) {
         if (!(e instanceof OutsideScopeError)) throw e
         // Maybe a customer, quote or job made a moment ago: read the scope again once before refusing.
         forgetScope(scope.userId)
         scope = await salesScope(scope.userId, scope.accountId)
-        try { if (!scope) throw e; value = salesKvValue(scope, key, saved ? saved.value : null, value ?? null) } catch (e2) {
+        try { if (!scope) throw e; ({ value, accepted: sentByPhone } = salesKvValue(scope, key, saved ? saved.value : null, sent, had ?? NOTHING)) } catch (e2) {
           if (!(e2 instanceof OutsideScopeError)) throw e2
           res.status(404).json({ success: false, error: 'Not found' }); return
         }
       }
+    }
+    // The phone keeps what it sent as its copy of the new version: remembered for its next save.
+    const remember = (version: number) => {
+      if (salesUser && had && sentByPhone) handedOutHad(salesUser.userId, salesUser.accountId, `kv:${key}`, version, afterOwnSave(had, new Map([[KV_LIST, sentByPhone]])))
     }
     const refused = kvChangeRefusal(roleOf(req), key, saved ? saved.value : null, value ?? null)
     if (refused) { refuse(res, refused, { data: saved ? saved.value : null, version: saved?.version ?? 0 }); return }
@@ -151,14 +179,16 @@ router.put('/:key', async (req: any, res) => {
     const parsed = JSON.parse(json)
     const clean = (Array.isArray(parsed) ? oneById(parsed) : parsed) as Prisma.InputJsonValue
     const done = await prisma.accountKeyValue.updateMany({ where: { accountId, key, version: base }, data: { value: clean, updatedBy: req.user.id, version: { increment: 1 } } })
+    let newVersion = base + 1
     if (done.count === 0) {
       if (base !== 0) { await stale(); return }
       try {
-        await prisma.accountKeyValue.create({ data: { accountId, key, value: clean, updatedBy: req.user.id } })
+        newVersion = (await prisma.accountKeyValue.create({ data: { accountId, key, value: clean, updatedBy: req.user.id } })).version
       } catch {
         await stale(); return           // another tab created the key first
       }
     }
+    remember(newVersion)
     const row = await prisma.accountKeyValue.findUnique({ where })
     // Who changed which saved setting, from which device (Settings > Change log).
     await auditSettingChange(req, `kv/${key}`, saved ? saved.value : null, clean, { version: row?.version ?? 1 })
