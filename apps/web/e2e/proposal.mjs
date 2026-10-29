@@ -152,7 +152,10 @@ try {
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/3-customer-proposal-top.png` })
   await c.page.locator('.opt').nth(sixIndex).click(); await sleep(200)
   const dep = (await c.page.locator('#deposit b').textContent()).trim()
-  check('choosing an option updates the deposit', dep === '$' + Math.round(sixOpt.finalPrice / 2).toLocaleString('en-US'), dep)
+  // The deposit as the app works it out (portal lib/paymentMath.ts depositOf): a whole dollar quote's deposit is rounded down to the dollar.
+  const depCents = Math.round(Math.round(sixOpt.finalPrice * 100) * 50 / 100)
+  const depWant = q.proposal.wholeDollar === true ? '$' + Math.floor(depCents / 100).toLocaleString('en-US') : '$' + (depCents / 100).toLocaleString('en-US', { minimumFractionDigits: depCents % 100 ? 2 : 0, maximumFractionDigits: 2 })
+  check('choosing an option updates the deposit', dep === depWant, `${dep} (want ${depWant})`)
   await c.page.locator('#name').fill('Shawn Collins')
   // A finger signature: pointer events as a phone sends them.
   const signOn = async pg => {
