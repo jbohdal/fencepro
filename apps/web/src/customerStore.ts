@@ -384,6 +384,14 @@ registerKind<Customer>('customer.update', {
   refused: () => reloadCustomers(),
   what: () => 'This change to the customer',
   send: op => sendJson('PATCH', `/api/crm-contacts/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
+  // The owner changed the Salesman after this copy was read: the server kept it (portal routes/crm-contacts.ts), so
+  // this phone shows the Salesman on file, not its older copy's.
+  confirmed: (op, data) => {
+    const id = op.payload.id
+    const rep = (data as CrmContactRecord | undefined)?.salesRep ?? null
+    if (rep === null || hasPending(`customer:${id}`)) return
+    if (cache.some(c => c.id === id && c.salesRep !== rep)) { cache = cache.map(c => c.id === id ? { ...c, salesRep: rep } : c); emit() }
+  },
   apply: op => { cache = cache.map(c => c.id === op.payload.id ? op.payload : c) },
 })
 

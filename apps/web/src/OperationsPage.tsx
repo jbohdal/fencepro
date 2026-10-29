@@ -37,6 +37,7 @@ import { archiveRecord, deleteRecord } from './recordArchive'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
 import { loadSchedule, crewName } from './scheduleStore'
 import { CustomerContact, LocatePanel, JobMilestones, JobFinancial, OpenCustomerProfile } from './JobTruth'
+import SalesmanOnQuote from './SalesmanOnQuote'
 
 // Unified job type for display
 export interface UnifiedJob {
@@ -230,7 +231,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               {/* One way to schedule: the Schedule install window (start day, crew, crew days on work days, the stage, the text). */}
               <Field label={W} value={job.scheduledDate ? bookedWords(job.scheduledDate, job.rawJob?.scheduledEndDate, loadSchedule().settings.workDays) : 'Not scheduled'} />
               <Field label="Crew" value={crewName(job.crewAssigned) || 'Not assigned'} />
-              <Field label="Sales Rep" value={job.salesRep} />
+              {/* The job's Salesman (with its quote's): the owner changes it after asking; everyone else reads it (SalesmanOnQuote.tsx). */}
+              <div className="my-2"><SalesmanOnQuote quoteId={job.rawJob?.quoteId || undefined} jobId={job.id} salesRep={job.salesRep} label="Sales Rep" /></div>
               {can('schedule.change') && !inSideLane && !closed && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} word={W} /></div>}
             </div>
           ) : (

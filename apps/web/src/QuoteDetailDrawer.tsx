@@ -41,6 +41,7 @@ import { SaveStatus } from './SaveStatus'
 import SignedDocuments from './SignedDocuments'
 import { lowTarget } from './moneyLoad'
 import { quoteNumber } from './quoteNumber'
+import SalesmanOnQuote from './SalesmanOnQuote'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -216,6 +217,8 @@ export default function QuoteDetailDrawer({
               <p className="text-gray-500">{quote.customerAddress || '—'}</p>
               <p className="text-gray-500">{[formatPhone(quote.customerPhone), quote.customerEmail].filter(Boolean).join(' · ')}</p>
             </div>
+            {/* The Salesman on this quote (and its job): the owner changes it, a signed one after asking (SalesmanOnQuote.tsx). */}
+            <div className="mt-2"><SalesmanOnQuote quoteId={quote.id} salesRep={quote.salesRep} /></div>
           </section>
 
 

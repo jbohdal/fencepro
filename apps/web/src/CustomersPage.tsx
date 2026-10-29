@@ -69,8 +69,8 @@ import { CustomerChangeOrderButtons } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
 import { lowTarget } from './moneyLoad'
 import SalesmanPicker from './SalesmanPicker'
-import { isMyRep } from './salesmanChoice'
-import SalesmanOnCustomer, { canChangeSalesman } from './SalesmanOnCustomer'
+import { isMyRep, useOwnerChangesSalesman } from './salesmanChoice'
+import SalesmanOnCustomer, { OWNER_ONLY_WORDS } from './SalesmanOnCustomer'
 
 /** Open a customer's page (a possible match, or the one this customer was merged into). */
 const openCustomerPage = (id: string) => navigate(`/customers/${encodeURIComponent(id)}`)
@@ -255,6 +255,7 @@ function CustomerForm({
   onSave: (c: Customer, bookEstimate?: boolean) => void
   onCancel: () => void
 }) {
+  const ownerChangesSalesman = useOwnerChangesSalesman()
   const [form, setForm] = useState<Customer>({
     id: initial?.id ?? newId(),
     firstName: initial?.firstName ?? '',
@@ -387,7 +388,7 @@ function CustomerForm({
               <div data-salesman-on-file>
                 <span className="text-xs text-gray-500 mb-1 block">Salesman</span>
                 <span className="text-sm text-gray-800 block">{form.salesRep || 'None'}</span>
-                <span className="text-xs text-gray-500 block mt-0.5">{canChangeSalesman() ? 'Change it on the customer page, under Salesman.' : 'Only the owner or the office can change it.'}</span>
+                <span className="text-xs text-gray-500 block mt-0.5">{ownerChangesSalesman ? 'Change it on the customer page, under Salesman.' : OWNER_ONLY_WORDS}</span>
               </div>
             )}
             {!initial?.id ? (

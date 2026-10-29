@@ -41,7 +41,8 @@ export function isMyRep(rep: string | null | undefined): boolean {
 export function onlyMe(): SalesmanList {
   const id = signedInUserId() ?? 'me'
   const role = signedInRole() ?? ''
-  const canChange = role !== 'sales_rep' && role !== 'field_crew'
+  // Once entered, only the owner changes a Salesman (Oct 29 2026); the server's list says so for an admin too.
+  const canChange = role === 'super_admin'
   if (!startsOnSelf(role)) return { choices: [], mine: myRepName(), canChange, preselect: '' }
   return { choices: [{ id, name: myRepName(), role, me: true, preselected: true }], mine: myRepName(), canChange, preselect: myRepName() }
 }
@@ -65,6 +66,17 @@ export function loadSalesmen(): Promise<SalesmanList | null> {
   // No answer (no signal): ask again next time.
   void list.then(l => { if (!l && loaded?.list === list) loaded = null; if (l) known = { userId, list: l } })
   return list
+}
+
+/**
+ * May this login change a Salesman once entered (the customer's, one quote's, one job's)? The owner only
+ * (Jonathan, Oct 29 2026: "owner only [...] Christa can't change it"): the server's word (portal
+ * lib/salesmanChoice.ts isOwnerLogin), and until it answers, a super_admin login. The server refuses everyone
+ * else whatever this says.
+ */
+export function useOwnerChangesSalesman(): boolean {
+  const { list } = useSalesmen()
+  return list ? !!list.canChange : signedInRole() === 'super_admin'
 }
 
 /** The list, or null while it loads; `failed` when the server could not be reached. */
@@ -93,7 +105,7 @@ export function choiceWords(picked: string, opts: { onQuote?: boolean; role?: st
   if (role === 'sales_rep') {
     return opts.onQuote
       ? `${name} becomes this customer's Salesman and the quote's Sales rep. You still see this quote and customer, because you made the quote.`
-      : `${name} becomes the Salesman. Once saved, this customer leaves your list, and only the owner or the office can change it back.`
+      : `${name} becomes the Salesman. Once saved, this customer leaves your list, and only the owner can change it back.`
   }
   return `${name} sees this customer as soon as it is saved.`
 }

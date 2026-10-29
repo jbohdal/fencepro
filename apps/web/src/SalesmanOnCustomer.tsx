@@ -1,18 +1,21 @@
 /**
  * A customer's Salesman on the customer page (Jonathan, Oct 28 2026: "I can
- * change a customer's salesman anytime from the customer page"). The owner,
- * admin, manager and office change it here: the same save as a lead's Assign
- * (portal lib/leadAssign.ts), so the customer, their open cards and their
- * open quotes (with their commission; portal lib/quotesFollowCustomer.ts) move,
- * the History says who changed it, and the new Salesman has the customer on
- * the next screen load while the old one no longer does. The Salesman sees
- * who it is and that only the owner or the office change it.
+ * change a customer's salesman anytime from the customer page"). Only the
+ * owner changes it here (Oct 29 2026: "owner only [...] Christa can't change
+ * it"; the server refuses everyone else): the same save as a lead's Assign
+ * (portal lib/leadAssign.ts), so the customer, their open cards, their open
+ * call backs and their open quotes (with their commission; portal
+ * lib/quotesFollowCustomer.ts) move, the History says who changed it, and the
+ * new Salesman has the customer on the next screen load while the old one no
+ * longer does. Everyone else sees who it is and that only the owner changes it.
  */
 
 import { useState } from 'react'
-import { assignLead, canAssignLeads, loadLead, type AssignChoice } from './leadAssign'
+import { assignLead, loadLead, type AssignChoice } from './leadAssign'
+import { useOwnerChangesSalesman } from './salesmanChoice'
 
-export const canChangeSalesman = (): boolean => canAssignLeads()
+/** The words under a Salesman that this login cannot change. */
+export const OWNER_ONLY_WORDS = 'Only the owner can change the Salesman.'
 
 export default function SalesmanOnCustomer({ customerId, salesRep }: { customerId: string; salesRep: string }) {
   const [open, setOpen] = useState(false)
@@ -21,7 +24,7 @@ export default function SalesmanOnCustomer({ customerId, salesRep }: { customerI
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
-  const canChange = canChangeSalesman()
+  const canChange = useOwnerChangesSalesman()
   const current = salesRep.trim()
 
   const start = async () => {
@@ -58,7 +61,7 @@ export default function SalesmanOnCustomer({ customerId, salesRep }: { customerI
         </div>
         {canChange && !open && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => void start()} data-customer-salesman-change>Change</button>}
       </div>
-      {!canChange && <p className="text-xs text-gray-500 mt-1" data-customer-salesman-locked>Only the owner or the office can change the Salesman.</p>}
+      {!canChange && <p className="text-xs text-gray-500 mt-1" data-customer-salesman-locked>{OWNER_ONLY_WORDS}</p>}
       {open && (
         <div className="mt-2 space-y-2">
           {!choices && !error && <p className="text-xs text-gray-500">Loading the Salesmen…</p>}

@@ -8,12 +8,13 @@
 //   salesman iPhone: New Customer starts on Christa (me); saved, it is Christa's. Picking the owner says it leaves
 //            Christa's list; saved that way, it does
 //   salesman iPhone: a quote's Save, New Customer: starts on Christa (me); the customer and quote are Christa's
-//   salesman computer: the customer page shows the Salesman and says only the owner or office change it; the
+//   salesman computer: the customer page shows the Salesman and says only the owner changes it; the
 //            server refuses a change in those words
 //   owner    computer: New Customer starts on the owner (me); the customer page's Salesman, Change, picks a second
 //            Salesman: that Salesman has the customer, Christa no longer
-//   office   iPhone: New Customer starts on the owner (D4, Oct 29 2026: "Office entries default to me"); the customer page's Change gives it back to
-//            Christa: Christa has it again, the second Salesman no longer
+//   office   iPhone: New Customer starts on the owner (D4, Oct 29 2026: "Office entries default to me"); the customer page shows no Change (owner
+//            only, Oct 29 2026) and the server refuses the office's change; the owner gives it back to Christa:
+//            Christa has it again, the second Salesman no longer
 //
 // Run (dev copy only; a server serving the built app):
 //   cd apps/web && pnpm -s build
@@ -177,7 +178,7 @@ try {
     // Picking someone else says, before saving, that it leaves Christa's list.
     await sel.selectOption({ label: OWNER })
     const words = await page.locator('[data-salesman-words]').innerText()
-    check(/leaves your list, and only the owner or the office can change it back/.test(words), 'picking the owner says it leaves Christa\'s list', words)
+    check(/leaves your list, and only the owner can change it back/.test(words), 'picking the owner says it leaves Christa\'s list', words)
     await page.locator('[data-salesman-choice]').scrollIntoViewIfNeeded(); await shot(page, '3-christa-new-customer-other')
     await sel.selectOption({ label: `${CHRISTA} (me)` })
     check(!(await page.locator('[data-salesman-words]').count()), 'back on Christa: no warning')
@@ -247,11 +248,11 @@ try {
     const { ctx } = christaPc
     const { box, page } = await salesmanBox(christaPc, gina.id)
     const t = await box.innerText()
-    check(t.includes(CHRISTA) && /Only the owner or the office can change the Salesman\./.test(t) && !(await box.locator('[data-customer-salesman-change]').count()), 'Christa\'s customer page: shows Christa, no Change, says only the owner or office change it', t.replace(/\n/g, ' / '))
+    check(t.includes(CHRISTA) && /Only the owner can change the Salesman\./.test(t) && !(await box.locator('[data-customer-salesman-change]').count()), 'Christa\'s customer page: shows Christa, no Change, says only the owner changes it', t.replace(/\n/g, ' / '))
     await shot(page, '6-christa-customer-page')
     const r = await ctx.request.patch(`${API}/api/crm-contacts/${gina.id}`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { firstName: 'Gina', salesRep: OWNER } })
     const j = await r.json().catch(() => ({}))
-    check(r.status() === 403 && /Only the owner or the office can change a customer's Salesman/.test(j.error ?? ''), 'a change sent from Christa\'s login anyway is refused, in those words, nothing saved', `${r.status()} ${j.error}`)
+    check(r.status() === 403 && /Only the owner can change a customer's Salesman/.test(j.error ?? ''), 'a change sent from Christa\'s login anyway is refused, in those words, nothing saved', `${r.status()} ${j.error}`)
     check(JSON.parse(byName('Gina'))[0]?.salesRep === CHRISTA, 'Gina is still Christa\'s')
   }
 
@@ -320,23 +321,27 @@ try {
   await putAway(officePhone)
   const officePhone2 = await open('office', 'phone')
   {
+    // Owner only (Oct 29 2026): the office sees the Salesman, no Change, and the server refuses its change.
     const { box, page } = await salesmanBox(officePhone2, gina.id)
-    await box.locator('[data-customer-salesman-change]').tap()
-    const pick = box.locator('[data-customer-salesman-select]')
-    await pick.waitFor({ timeout: 15000 })
-    await pick.selectOption({ label: CHRISTA })
-    await box.locator('[data-customer-salesman-save]').tap()
-    await box.locator('[data-customer-salesman-done]').waitFor({ timeout: 15000 })
+    await box.locator('[data-customer-salesman-locked]').waitFor({ timeout: 15000 })
+    const t = await box.innerText()
+    check(/Only the owner can change the Salesman\./.test(t) && !(await box.locator('[data-customer-salesman-change]').count()), 'the office\'s customer page: no Change, says only the owner changes it', t.replace(/\n/g, ' / '))
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     check(fits, 'the office\'s iPhone: the Salesman box fits the screen')
-    await box.scrollIntoViewIfNeeded(); await shot(page, '8-office-gave-back')
+    await box.scrollIntoViewIfNeeded(); await shot(page, '8-office-no-change')
+    const christaId = ((await call(T.owner, 'GET', '/api/crm-contacts/salesmen')).json.data?.choices ?? []).find(c => c.name === CHRISTA)?.id
+    const no = await call(T.office, 'POST', `/api/lead-assign/${gina.id}`, { to: christaId, replace: true })
+    check(no.status === 403, 'the office\'s change sent anyway is refused (403)', `${no.status} ${no.json?.error}`)
+    // The owner gives Gina back to Christa.
+    const back = await call(T.owner, 'POST', `/api/lead-assign/${gina.id}`, { to: christaId, replace: true })
+    check(back.status === 200, 'the owner gives Gina back to Christa', `${back.status}`)
   }
   check(JSON.parse(byName('Gina'))[0]?.salesRep === CHRISTA, 'Gina is Christa\'s again on the server')
   check(await sees(T.sales, gina.id), 'Christa has Gina again')
   check(!(await sees(second.token, gina.id)), 'the second Salesman no longer has Gina')
   const hist = await call(T.owner, 'GET', `/api/follow-ups/history?customerId=${gina.id}`)
   const lines = (hist.json.data ?? []).filter(h => h.title === 'Lead assigned').map(h => h.detail)
-  check(lines.some(l => l === `Lead assigned to ${second.name} by ${OWNER}. It was ${CHRISTA}'s.`) && lines.some(l => l === `Lead assigned to ${CHRISTA} by ${OFFICE}. It was ${second.name}'s.`), 'Gina\'s History says who moved it, to whom, from whom', lines.join(' / '))
+  check(lines.some(l => l === `Lead assigned to ${second.name} by ${OWNER}. It was ${CHRISTA}'s.`) && lines.some(l => l === `Lead assigned to ${CHRISTA} by ${OWNER}. It was ${second.name}'s.`), 'Gina\'s History says who moved it, to whom, from whom', lines.join(' / '))
 
   for (const [n, s] of Object.entries({ ownerPhone, christaPc, christaPhone, ownerPc, secondPhone, officePhone, officePhone2 })) check(!s.errors.length, `${n}: no page errors`, s.errors.join(' | '))
 } catch (err) {

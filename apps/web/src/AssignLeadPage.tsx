@@ -8,12 +8,14 @@
  * Assigning writes the rep on the customer and the lead's card, so the
  * Salesman has it on the next screen load, and a "Lead assigned" line on the
  * customer's History says who assigned it, to whom and when. A lead someone
- * else already has is never changed without asking first.
+ * else already has is never changed without asking first, and only by the
+ * owner (Oct 29 2026): the office assigns a lead nobody has yet.
  */
 
 import { useEffect, useState } from 'react'
 import { navigate, useNav } from './nav'
 import { tapDecision } from './leadAssignTap'
+import { useOwnerChangesSalesman } from './salesmanChoice'
 import { assignLead, loadLead, arrivedWords, useWaitingLeads, type AssignChoice, type LeadRep, type WaitingLead } from './leadAssign'
 
 const whoWords = (c: AssignChoice) => (c.me ? `${c.name} (me)` : c.name)
@@ -40,6 +42,7 @@ function AssignButtons({ lead, choices, rep: startRep, onDone }: { lead: Waiting
   const [error, setError] = useState('')
   const [rep, setRep] = useState<LeadRep | null>(startRep ?? null)
   useEffect(() => { setRep(startRep ?? null) }, [startRep])
+  const owner = useOwnerChangesSalesman()
 
   const go = async (c: AssignChoice, replace = false) => {
     if (busy) return
@@ -72,13 +75,15 @@ function AssignButtons({ lead, choices, rep: startRep, onDone }: { lead: Waiting
     setAsking(null)
     if (d === 'theirs') { setTheirs(c.name); return }
     setTheirs(null)
+    // A lead that has a Salesman goes to someone else only by the owner (Oct 29 2026; the server refuses the rest).
+    if (!owner) { setError(`Already assigned to ${rep!.name}. Only the owner can give it to someone else. Nothing was changed.`); return }
     setAsking({ rep: rep!, want: c })
   }
   return (
     <div className="mt-3">
       {already && (
         <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900" data-lead-has-rep>
-          Already assigned to <b>{rep!.name}</b>{rep!.by ? <> by {rep!.by}</> : null}{rep!.at ? <>, {arrivedWords(rep!.at)}</> : null}. Tap someone else to give it to them instead.
+          Already assigned to <b>{rep!.name}</b>{rep!.by ? <> by {rep!.by}</> : null}{rep!.at ? <>, {arrivedWords(rep!.at)}</> : null}. {owner ? 'Tap someone else to give it to them instead.' : 'Only the owner can give it to someone else.'}
         </div>
       )}
       {asking && (
