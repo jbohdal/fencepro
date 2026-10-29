@@ -121,7 +121,9 @@ try {
   // ── Set up (owner, through the API) ──
   const A = await soldJob('Maria', [today, day2], { notes: WEB_NOTE })
   await owner('PUT', `/api/saved-jobs/${A.jobId}/locate`, { ticket: '294610232', calledDate: today, goodDate: today, expDate: plus(today, 28) })
-  const B = await soldJob('Robert', [plus(day2, 7)])
+  // The Salesman's own sale (Sales rep: the Salesman invited below): the Salesman sees only the Salesman's own and
+  // assigned quotes (lib/salesScope.ts, Oct 28 2026).
+  const B = await soldJob('Robert', [plus(day2, 7)], { quote: { salesRep: `E2E Salesman ${stamp}` } })
   const R = await soldJob('Linda', [today], { quote: { fenceStyle: "WV-ND 6'x8' Privacy", runs: [], sections: 0, work: { version: 1, type: 'repair', repair: { what: 'other', items: { replacePost: 2, rehangGate: 1 }, gateKind: 'walk', postType: 'nd', newPostCaps: false }, crew: ['Replace 2 posts', 'Rehang the walk gate with new hardware'], description: 'Replace 2 posts and rehang a gate', needs811: true, warnings: [], priced: {} } } })
   const sales = await invite('sales_rep', `Salesman ${stamp}`)
   const office = await invite('office_staff', `Office ${stamp}`)
