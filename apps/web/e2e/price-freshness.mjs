@@ -91,11 +91,16 @@ try {
   // Filter to the prices to check, then confirm them all at once.
   await page.locator('[data-price-filter]').selectOption('check'); await sleep(400)
   const toCheck = await page.locator('[data-price-item]').count()
+  // A green price borrowed from Black ("From Black" badge) is never confirmed as it is: it waits for its own green
+  // price (src/priceAge.ts borrowedPrice, Jonathan's green chain link rule). Those stay; every other shown one is confirmed.
+  const borrowedShown = await page.locator('[data-from-black-badge]').count()
+  const borrowed = i => !!i.priceFrom && typeof i.priceFrom.cents === 'number' && Math.round(Number(i.unitCost) * 100) === i.priceFrom.cents && !(i.priceUpdatedAt && !i.priceImported)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/3-inventory-prices-to-check.png` })
   await page.locator('[data-confirm-shown]').click(); await sleep(2500)
   const left = await page.locator('[data-price-item]').count()
   const all = (await api('/api/inventory-state')).items
-  check('Bulk "Confirm these prices": every shown item confirmed', toCheck > 1 && left === 0 && all.every(i => i.priceUpdatedAt && !i.priceImported), `${toCheck} confirmed, ${left} left`)
+  const notConfirmed = all.filter(i => !(i.priceUpdatedAt && !i.priceImported))
+  check('Bulk "Confirm these prices": every shown item confirmed but the From Black ones', toCheck - borrowedShown > 1 && left === borrowedShown && notConfirmed.every(borrowed) && notConfirmed.length === borrowedShown, `${toCheck - borrowedShown} confirmed, ${left} left, ${borrowedShown} From Black`)
   await page.locator('[data-price-filter]').selectOption('all'); await sleep(300)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/4-inventory-after-confirm.png` })
 
