@@ -42,7 +42,7 @@ export default function MyProfileDialog({ onClose }: { onClose: () => void }) {
           <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} onBlur={() => setPhone(formatPhone(phone))} placeholder="(352) 555 0100"
             data-my-direct-phone className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-normal text-gray-900" />
         </label>
-        <p className="text-xs text-gray-500">Your own cell. When an appointment is booked with you, the On my way text gives customers this number (empty: the company number). Booking confirmations, calendar invites and install texts give the office line from Settings > Company.</p>
+        <p className="text-xs text-gray-500">Your own cell. When an appointment is booked with you, the On my way text gives customers this number (empty: the company number). Booking confirmations, calendar invites and install texts give the office line from Settings {'>'} Company.</p>
         {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl">Cancel</button>
