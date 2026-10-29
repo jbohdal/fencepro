@@ -118,8 +118,8 @@ export interface ReadyFacts {
   locatesExpDate: Ymd | null
   locateTicket?: string | null
   locateCalledDate?: Ymd | null
-  /** none: no payment schedule yet. */
-  deposit: 'paid' | 'part' | 'unpaid' | 'none'
+  /** none: no payment schedule yet. Left out for the Salesman on an install that is not hers (lib/salesSchedule.ts): no warning. */
+  deposit?: 'paid' | 'part' | 'unpaid' | 'none'
   materialsStatus: string
 }
 

@@ -30,6 +30,9 @@ import { plainZod } from '../lib/plainZod.js'
 import { can, refuse, requireCan, roleOf, sameJson } from '../lib/permissions.js'
 import { readyToSchedule, jobScheduleFacts, scheduleInstall, unscheduleInstall, rainDayPreview, applyRainDay, ScheduleError, weekendJobIds } from '../lib/installScheduling.js'
 import { afterJobSaved } from '../lib/contractBilling.js'
+import { staffRoleOf } from '../lib/costRedact.js'
+import { isSalesman, salesScopeOf } from '../lib/salesScope.js'
+import { salesScheduleView, savesSchedule } from '../lib/salesSchedule.js'
 
 const router = Router()
 
@@ -60,6 +63,26 @@ function requireAccount(req: any, res: any, next: any) {
 }
 
 router.use(requireUser, requireAccount)
+
+/**
+ * The Salesman (lib/salesSchedule.ts; Jonathan, Oct 29 2026, D5): the Schedule
+ * is read with every install that is not the Salesman's carrying no money, no
+ * notes and no customer phone or email. A save of any kind is refused before
+ * the body is read: her phone never sends the Schedule back, so what it lacks
+ * can never replace what the office saved.
+ */
+async function salesmanSchedule(req: any, res: any, next: any) {
+  try {
+    if (!isSalesman(staffRoleOf(req) ?? req.user?.role)) { next(); return }
+    if (savesSchedule(req.method, req.path)) { refuse(res, 'schedule.change'); return }
+    const scope = await salesScopeOf(req)
+    if (!scope) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your login is not linked to a company.' }); return }
+    const json = res.json.bind(res)
+    res.json = (body: any) => json(salesScheduleView(scope, body))
+    next()
+  } catch (err) { next(err) }
+}
+router.use(salesmanSchedule)
 
 // ── Schedule Settings (singleton per account) ──
 
