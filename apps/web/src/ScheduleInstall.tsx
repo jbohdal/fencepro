@@ -53,7 +53,8 @@ export const READY_DRAG_TYPE = 'application/x-ezbiz-ready-job'
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const shortDay = (d: string) => { const [y, m, dd] = d.split('-').map(Number); return `${WEEKDAY[new Date(Date.UTC(y, m - 1, dd)).getUTCDay()]} ${m}/${dd}` }
-const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cents / 100)
+// Whole dollars, or to the cent when there are cents (a contract priced before Oct 21 2026): the deposit invoice's own amount.
+const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 }).format(cents / 100)
 
 /** The first crew day after today, and not before the job's 811 good to dig date: where a new booking starts unless a day is picked. */
 export function firstOpenDay(goodDate?: string | null): string {
