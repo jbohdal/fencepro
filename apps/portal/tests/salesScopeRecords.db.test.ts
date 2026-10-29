@@ -11,7 +11,7 @@ import crypto from 'crypto'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
-import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+import { describe, test, expect, beforeAll, afterAll, afterEach } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
 
@@ -36,11 +36,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
   const { default: automations } = await import('../src/server/routes/automations.js')
   const { default: voice } = await import('../src/server/routes/voice.js')
   const { default: leads } = await import('../src/server/routes/leads.js')
-  const { salesmanHasNone, refuseSalesman } = await import('../src/server/lib/salesScope.js')
+  const { salesmanHasNone, refuseSalesman, forgetScope } = await import('../src/server/lib/salesScope.js')
+  const { forgetHandedOut } = await import('../src/server/lib/salesServed.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
   const tag = `ssr-${crypto.randomUUID().slice(0, 8)}`
-  let accountId = '', base = '', owner = '', sales = ''
+  let accountId = '', base = '', owner = '', sales = '', salesId = '', sales2 = ''
   let server: ReturnType<express.Express['listen']>
   const ids: Record<string, string> = {}
   const portalFileIds: string[] = []
@@ -55,6 +56,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const s = await prisma.crmUser.create({ data: { email: `${tag}-sales@example.invalid`, firstName: 'Sally', lastName: tag, role: 'sales_rep', status: 'active', crmAccountId: accountId, passwordHash: 'x' } as any })
     owner = jwt.sign({ sub: o.id, email: o.email, role: 'super_admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     sales = jwt.sign({ sub: s.id, email: s.email, role: 'sales_rep', crmAccountId: accountId }, secret, { expiresIn: '10m' })
+    // The same Salesman's second phone (another sign in of the same login).
+    sales2 = jwt.sign({ sub: s.id, email: s.email, role: 'sales_rep', crmAccountId: accountId, phone: 2 }, secret, { expiresIn: '10m' })
+    salesId = s.id
     ids.cMine = (await prisma.crmContact.create({ data: { accountId, firstName: 'Mina', lastName: tag, ownerId: s.id, phone: '3525550301' } })).id
     ids.cOther = (await prisma.crmContact.create({ data: { accountId, firstName: 'Otto', lastName: tag, ownerId: o.id, salesRep: `Olive ${tag}`, phone: '3525550302', serviceAddress: '9 Other Rd' } })).id
     ids.qMine = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', ownerId: s.id, salesRep: `Sally ${tag}`, crmContactId: ids.cMine, customerName: `Mina ${tag}`, finalPrice: 5000 } })).id
@@ -322,6 +326,249 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const o = await call('GET', '/api/kv', owner)
     expect(idsOf(o.json.data.fencepro_customer_activity)).toEqual([`${tag}-a-other1`, `${tag}-a-new`, `${tag}-a-mine`, `${tag}-a-other2`])
     expect(o.json.data.duplicateCheckAlerted).toEqual(['phone:3525550302:2'])
+  })
+
+  // ── The phone's copy, not the scope at save time (reviewer, Oct 29 2026) ──────────────────────────────────
+  // The Salesman's phone holds the record as it was handed; a customer given to the Salesman (or taken away)
+  // after that must not make the Salesman's save remove or change an entry the phone never had.
+
+  /** Each entry of a list as Postgres stores it (text), by id: the byte for byte check. */
+  const businessRows = async (col: 'pullSheets' | 'pendingOrders' | 'purchaseOrders' | 'invoices') => {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string; t: string }>>(`SELECT e->>'id' AS id, e::text AS t FROM "BusinessState" b, jsonb_array_elements(b."${col}") e WHERE b."accountId" = $1`, accountId)
+    return new Map(rows.map(r => [r.id, r.t]))
+  }
+  const kvRows = async (key: string) => {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string; t: string }>>(`SELECT e->>'id' AS id, e::text AS t FROM "AccountKeyValue" k, jsonb_array_elements(k.value) e WHERE k."accountId" = $1 AND k.key = $2`, accountId, key)
+    return new Map(rows.map(r => [r.id, r.t]))
+  }
+  /** The office gives Otto (the other customer) to the Salesman, or takes him back. */
+  const giveOtto = async (toSalesman: boolean) => {
+    await prisma.crmContact.update({ where: { id: ids.cOther }, data: { salesRep: toSalesman ? `Sally ${tag}` : `Olive ${tag}` } })
+    forgetScope(salesId)   // the scope is read again at the save (as after its few seconds of memory)
+  }
+  /** A fresh record: two pull sheets and a Sales Order of Otto's, one of each of Mina's; job costing and activity for both. */
+  const fixture = async (ottoIsTheSalesmans: boolean) => {
+    await giveOtto(ottoIsTheSalesmans)
+    const ps = (id: string, c: 'Other' | 'Mine', v: number) => ({ id: `${tag}-${id}`, customerId: ids[`c${c}`], quoteId: ids[`q${c}`], customerName: `${c === 'Other' ? 'Otto' : 'Mina'} ${tag}`, versionNumber: v, versionSnapshot: [{ sku: 'WV6', qty: 12 + v }] })
+    await prisma.businessState.update({ where: { accountId }, data: {
+      pullSheets: [ps('ps-o1', 'Other', 1), ps('ps-m1', 'Mine', 1), ps('ps-o2', 'Other', 2)],
+      pendingOrders: [
+        { id: `${tag}-so-o`, customerId: ids.cOther, quoteId: ids.qOther, customerName: `Otto ${tag}`, status: 'pending', items: [{ itemName: 'Post', qty: 9 }], notes: 'otto' },
+        { id: `${tag}-so-m`, customerId: ids.cMine, quoteId: ids.qMine, customerName: `Mina ${tag}`, status: 'pending', items: [], notes: 'mina' },
+      ],
+      purchaseOrders: [{ id: `${tag}-po-o`, jobId: ids.jOther, status: 'draft', lineItems: [], subtotalCents: 99900 }],
+      version: { increment: 1 },
+    } as any })
+    for (const [key, value] of [
+      ['fencepro_jobcosting', [
+        { id: `${tag}-jc-o`, quoteId: ids.qOther, laborCents: 120000, materialCents: 340000 },
+        { id: `${tag}-jc-m`, quoteId: ids.qMine, laborCents: 50000, materialCents: 90000 },
+      ]],
+      ['fencepro_customer_activity', [
+        { id: `${tag}-ac-o`, customerId: ids.cOther, body: 'Called Otto', at: '2026-10-29T10:00:00Z', kind: 'note', actor: 'Olive' },
+        { id: `${tag}-ac-m`, customerId: ids.cMine, body: 'Called Mina', at: '2026-10-29T09:00:00Z', kind: 'note', actor: 'Sally' },
+      ]],
+    ] as const) {
+      await prisma.accountKeyValue.upsert({ where: { accountId_key: { accountId, key } }, create: { accountId, key, value: value as any }, update: { value: value as any, version: { increment: 1 } } })
+    }
+  }
+  // Otto is the owner's again after each test (the tests below expect him outside the Salesman's scope).
+  afterEach(async () => { if (accountId && ids.cOther) await giveOtto(false) })
+  const ottoIds = (m: Map<string, string>) =>[...m.keys()].filter(k => /-(ps-o|so-o|po-o|jc-o|ac-o)/.test(k))
+
+  test('reviewer\'s case, business record: Otto given to the Salesman after the phone read it; the phone\'s save leaves Otto\'s pull sheets, Sales Order and PO byte for byte', async () => {
+    await fixture(false)
+    const read = await call('GET', '/api/business-state', sales)
+    expect(idsOf(read.json.data.pullSheets)).toEqual([`${tag}-ps-m1`])
+    const before = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders'), po: await businessRows('purchaseOrders') }
+    // The office gives Otto to the Salesman. The phone does not read again.
+    await giveOtto(true)
+    // The phone saves its quote: a new pull sheet version for Mina, its Sales Order changed, its POs as read.
+    const d = read.json.data
+    const newPs = { id: `${tag}-ps-m2`, customerId: ids.cMine, quoteId: ids.qMine, customerName: `Mina ${tag}`, versionNumber: 2, versionSnapshot: [] }
+    const saved = await call('PATCH', '/api/business-state', sales, {
+      pullSheets: [newPs, ...d.pullSheets],
+      pendingOrders: d.pendingOrders.map((o: any) => ({ ...o, notes: 'mina, called' })),
+      purchaseOrders: d.purchaseOrders,
+      baseVersion: d.version,
+    })
+    expect(saved.status).toBe(200)
+    const after = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders'), po: await businessRows('purchaseOrders') }
+    for (const [k, m] of [['ps', after.ps], ['so', after.so], ['po', after.po]] as const) {
+      for (const id of ottoIds(before[k])) expect(m.get(id), id).toBe(before[k].get(id))
+    }
+    expect(ottoIds(after.ps)).toHaveLength(2)
+    expect([...after.ps.keys()]).toEqual([`${tag}-ps-o1`, `${tag}-ps-m2`, `${tag}-ps-m1`, `${tag}-ps-o2`])
+    expect(JSON.parse(after.so.get(`${tag}-so-m`)!).notes).toBe('mina, called')
+
+    // The phone reads again at the same version and now has Otto's entries too. It is not the only copy of this
+    // version the login was handed (its own save's had no Otto), so a removal of Otto's is not taken yet: kept.
+    const again = await call('GET', '/api/business-state', sales)
+    expect(idsOf(again.json.data.pendingOrders)).toEqual([`${tag}-so-o`, `${tag}-so-m`])
+    const early = await call('PATCH', '/api/business-state', sales, { pendingOrders: again.json.data.pendingOrders.filter((o: any) => o.id !== `${tag}-so-o`), baseVersion: again.json.data.version })
+    expect(early.status).toBe(200)
+    expect((await businessRows('pendingOrders')).get(`${tag}-so-o`)).toBe(before.so.get(`${tag}-so-o`))
+    // Once the phone holds a copy of a version every copy of which had Otto's, the Salesman may remove it.
+    const o = await call('GET', '/api/business-state', owner)
+    expect((await call('PATCH', '/api/business-state', owner, { config: { company: { name: tag }, n: 1 }, baseVersion: o.json.data.version })).status).toBe(200)
+    const third = await call('GET', '/api/business-state', sales)
+    const removed = await call('PATCH', '/api/business-state', sales, { pendingOrders: third.json.data.pendingOrders.filter((x: any) => x.id !== `${tag}-so-o`), baseVersion: third.json.data.version })
+    expect(removed.status).toBe(200)
+    expect([...(await businessRows('pendingOrders')).keys()]).toEqual([`${tag}-so-m`])
+  })
+
+  test('reviewer\'s case, kv: Otto given to the Salesman after the phone read job costing and activity; Otto\'s entries stay byte for byte', async () => {
+    await fixture(false)
+    const read = await call('GET', '/api/kv', sales)
+    expect(idsOf(read.json.data.fencepro_jobcosting)).toEqual([`${tag}-jc-m`])
+    const jc0 = await kvRows('fencepro_jobcosting'), ac0 = await kvRows('fencepro_customer_activity')
+    await giveOtto(true)
+    // Job costing: the phone changes Mina's line.
+    const jc = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: read.json.data.fencepro_jobcosting.map((x: any) => ({ ...x, laborCents: 51000 })), baseVersion: read.json.versions.fencepro_jobcosting })
+    expect(jc.status).toBe(200)
+    const jc1 = await kvRows('fencepro_jobcosting')
+    expect(jc1.get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
+    expect(JSON.parse(jc1.get(`${tag}-jc-m`)!).laborCents).toBe(51000)
+    // Activity: the phone logs a call for Mina.
+    const note = { id: `${tag}-ac-m2`, customerId: ids.cMine, body: 'Sent the quote', at: '2026-10-29T12:00:00Z', kind: 'quote', actor: 'Sally' }
+    const ac = await call('PUT', '/api/kv/fencepro_customer_activity', sales, { value: [note, ...read.json.data.fencepro_customer_activity], baseVersion: read.json.versions.fencepro_customer_activity })
+    expect(ac.status).toBe(200)
+    const ac1 = await kvRows('fencepro_customer_activity')
+    expect(ac1.get(`${tag}-ac-o`)).toBe(ac0.get(`${tag}-ac-o`))
+    expect([...ac1.keys()]).toEqual([`${tag}-ac-o`, `${tag}-ac-m2`, `${tag}-ac-m`])
+  })
+
+  test('kv: an empty list from the Salesman removes no activity (the app only adds to it); job costing removes only the line the phone had', async () => {
+    await fixture(true)
+    const read = await call('GET', '/api/kv', sales)
+    expect(idsOf(read.json.data.fencepro_customer_activity)).toEqual([`${tag}-ac-o`, `${tag}-ac-m`])
+    const ac0 = await kvRows('fencepro_customer_activity')
+    const wiped = await call('PUT', '/api/kv/fencepro_customer_activity', sales, { value: [], baseVersion: read.json.versions.fencepro_customer_activity })
+    expect(wiped.status).toBe(200)
+    expect(await kvRows('fencepro_customer_activity')).toEqual(ac0)
+    // Job costing lines can be removed in the app (JobCostingTab): the Salesman's own, which the phone had.
+    await giveOtto(false)
+    const jc0 = await kvRows('fencepro_jobcosting')
+    const cleared = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: [], baseVersion: read.json.versions.fencepro_jobcosting })
+    expect(cleared.status).toBe(200)
+    const jc1 = await kvRows('fencepro_jobcosting')
+    expect([...jc1.keys()]).toEqual([`${tag}-jc-o`])
+    expect(jc1.get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
+  })
+
+  test('scope shrinks between read and save: Otto taken back from the Salesman; the phone\'s change and removal of Otto\'s entries are not saved', async () => {
+    await fixture(true)
+    const read = await call('GET', '/api/business-state', sales)
+    const d = read.json.data
+    expect(idsOf(d.pendingOrders)).toEqual([`${tag}-so-o`, `${tag}-so-m`])
+    const before = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders'), po: await businessRows('purchaseOrders') }
+    await giveOtto(false)
+    // The phone changes Otto's Sales Order and leaves out one of Otto's pull sheets and his PO.
+    const saved = await call('PATCH', '/api/business-state', sales, {
+      pendingOrders: d.pendingOrders.map((o: any) => ({ ...o, notes: 'changed on the phone' })),
+      pullSheets: d.pullSheets.filter((x: any) => x.id !== `${tag}-ps-o1`),
+      purchaseOrders: [],
+      baseVersion: d.version,
+    })
+    expect(saved.status).toBe(200)
+    const after = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders'), po: await businessRows('purchaseOrders') }
+    for (const [k, m] of [['ps', after.ps], ['so', after.so], ['po', after.po]] as const) {
+      for (const id of ottoIds(before[k])) expect(m.get(id), id).toBe(before[k].get(id))
+    }
+    expect(JSON.parse(after.so.get(`${tag}-so-m`)!).notes).toBe('changed on the phone')
+    // kv the same way: job costing read with Otto in, saved after he was taken back, his line left out.
+    await giveOtto(true)
+    const kvRead = await call('GET', '/api/kv', sales)
+    expect(idsOf(kvRead.json.data.fencepro_jobcosting)).toEqual([`${tag}-jc-o`, `${tag}-jc-m`])
+    const jc0 = await kvRows('fencepro_jobcosting')
+    await giveOtto(false)
+    const put = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: kvRead.json.data.fencepro_jobcosting.filter((x: any) => x.id !== `${tag}-jc-o`), baseVersion: kvRead.json.versions.fencepro_jobcosting })
+    expect(put.status).toBe(200)
+    expect((await kvRows('fencepro_jobcosting')).get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
+  })
+
+  test('a stale or unknown base: refused with the 409 the app merges, nothing changed; the retry on the 409\'s copy keeps Otto\'s entries', async () => {
+    await fixture(false)
+    const read = await call('GET', '/api/business-state', sales)
+    const before = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders') }
+    // The owner saves in between: the phone's copy is one version old.
+    const o = await call('GET', '/api/business-state', owner)
+    expect((await call('PATCH', '/api/business-state', owner, { config: { company: { name: tag, phone: '3528442677' } }, baseVersion: o.json.data.version })).status).toBe(200)
+    await giveOtto(true)
+    const stale = await call('PATCH', '/api/business-state', sales, { pullSheets: [], pendingOrders: [], baseVersion: read.json.data.version })
+    expect(stale.status).toBe(409)
+    expect(stale.json.code).toBe('STALE_VERSION')
+    expect(await businessRows('pullSheets')).toEqual(before.ps)
+    expect(await businessRows('pendingOrders')).toEqual(before.so)
+    // The 409 hands over Otto's entries too (now the Salesman's): that copy is the phone's from now on.
+    expect(idsOf(stale.json.data.pullSheets)).toEqual([`${tag}-ps-o1`, `${tag}-ps-m1`, `${tag}-ps-o2`])
+
+    // The server forgot what it handed out (a restart): the save is refused, never guessed.
+    forgetHandedOut()
+    const unknown = await call('PATCH', '/api/business-state', sales, { pendingOrders: [], baseVersion: stale.json.version })
+    expect(unknown.status).toBe(409)
+    expect(unknown.json.version).toBe(stale.json.version)
+    expect(await businessRows('pendingOrders')).toEqual(before.so)
+    // The app puts its change on the 409's copy and saves again: only Mina's Sales Order is changed.
+    const retry = await call('PATCH', '/api/business-state', sales, { pendingOrders: unknown.json.data.pendingOrders.map((x: any) => x.id === `${tag}-so-m` ? { ...x, notes: 'retry' } : x), baseVersion: unknown.json.version })
+    expect(retry.status).toBe(200)
+    const so = await businessRows('pendingOrders')
+    expect(so.get(`${tag}-so-o`)).toBe(before.so.get(`${tag}-so-o`))
+    expect(JSON.parse(so.get(`${tag}-so-m`)!).notes).toBe('retry')
+
+    // kv: an unknown base is a 409 too, with nothing saved.
+    forgetHandedOut()
+    const jc0 = await kvRows('fencepro_jobcosting')
+    const v = (await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'fencepro_jobcosting' } } }))!.version
+    const kvUnknown = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: [], baseVersion: v })
+    expect(kvUnknown.status).toBe(409)
+    expect(idsOf(kvUnknown.json.data)).toEqual([`${tag}-jc-o`, `${tag}-jc-m`])
+    expect(await kvRows('fencepro_jobcosting')).toEqual(jc0)
+  })
+
+  test('both sides save at once: the office\'s change to Otto and the Salesman\'s pull sheet both land; Otto\'s other entries byte for byte', async () => {
+    await fixture(false)
+    const sRead = await call('GET', '/api/business-state', sales)
+    const oRead = await call('GET', '/api/business-state', owner)
+    expect(sRead.json.data.version).toBe(oRead.json.data.version)
+    const before = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders') }
+    await giveOtto(true)
+    const newPs = { id: `${tag}-ps-m2`, customerId: ids.cMine, quoteId: ids.qMine, customerName: `Mina ${tag}`, versionNumber: 2, versionSnapshot: [] }
+    const officeOrders = oRead.json.data.pendingOrders.map((x: any) => x.id === `${tag}-so-o` ? { ...x, status: 'ordered' } : x)
+    const [a, b] = await Promise.all([
+      call('PATCH', '/api/business-state', sales, { pullSheets: [newPs, ...sRead.json.data.pullSheets], pendingOrders: sRead.json.data.pendingOrders, baseVersion: sRead.json.data.version }),
+      call('PATCH', '/api/business-state', owner, { pendingOrders: officeOrders, baseVersion: oRead.json.data.version }),
+    ])
+    expect([a.status, b.status].sort()).toEqual([200, 409])
+    // The one refused puts its change on the 409's copy and saves again (web versionedDoc.ts).
+    if (a.status === 409) {
+      const r = await call('PATCH', '/api/business-state', sales, { pullSheets: [newPs, ...a.json.data.pullSheets], baseVersion: a.json.version })
+      expect(r.status).toBe(200)
+    } else {
+      const r = await call('PATCH', '/api/business-state', owner, { pendingOrders: b.json.data.pendingOrders.map((x: any) => x.id === `${tag}-so-o` ? { ...x, status: 'ordered' } : x), baseVersion: b.json.version })
+      expect(r.status).toBe(200)
+    }
+    const ps = await businessRows('pullSheets'), so = await businessRows('pendingOrders')
+    for (const id of ottoIds(before.ps)) expect(ps.get(id), id).toBe(before.ps.get(id))
+    expect(ps.has(`${tag}-ps-m2`)).toBe(true)
+    expect(JSON.parse(so.get(`${tag}-so-o`)!).status).toBe('ordered')
+    expect(so.get(`${tag}-so-m`)).toBe(before.so.get(`${tag}-so-m`))
+  })
+
+  test('two phones of the same Salesman read one version under different scopes: the one that never had Otto\'s entry cannot remove it', async () => {
+    await fixture(false)
+    const phoneA = await call('GET', '/api/business-state', sales)
+    await giveOtto(true)
+    const phoneB = await call('GET', '/api/business-state', sales2)
+    expect(phoneB.json.data.version).toBe(phoneA.json.data.version)
+    expect(idsOf(phoneB.json.data.pendingOrders)).toEqual([`${tag}-so-o`, `${tag}-so-m`])
+    const before = await businessRows('pendingOrders')
+    // Phone A (no Otto) sends its list: Otto's Sales Order is not its to remove.
+    const a = await call('PATCH', '/api/business-state', sales, { pendingOrders: phoneA.json.data.pendingOrders.map((x: any) => ({ ...x, notes: 'from A' })), baseVersion: phoneA.json.data.version })
+    expect(a.status).toBe(200)
+    const after = await businessRows('pendingOrders')
+    expect(after.get(`${tag}-so-o`)).toBe(before.get(`${tag}-so-o`))
+    expect(JSON.parse(after.get(`${tag}-so-m`)!).notes).toBe('from A')
   })
 
   test('job costing, walkthroughs, install packets, permits, the run log, voice clips: another job is a 404, lists are the Salesman\'s', async () => {
