@@ -367,8 +367,13 @@ async function repairQuoteOf(t: TicketRow): Promise<{ id: string; status: string
 export type TicketView = Awaited<ReturnType<typeof ticketView>>
 
 /** Tickets for a list: a customer's, a job's, or the whole company's (open only unless `all`). */
-export async function listTickets(accountId: string, f: { customerId?: string; jobId?: string; all?: boolean }, costs: boolean): Promise<TicketView[]> {
+/**
+ * `only`: the Salesman's customers and jobs (lib/salesScope.ts); a request is
+ * listed when its customer or its job is one of them.
+ */
+export async function listTickets(accountId: string, f: { customerId?: string; jobId?: string; all?: boolean }, costs: boolean, only: { contactIds: string[]; jobIds: string[] } | null = null): Promise<TicketView[]> {
   const where: any = { accountId, deletedAt: null }
+  if (only) where.AND = [{ OR: [{ crmContactId: { in: only.contactIds } }, { jobId: { in: only.jobIds } }] }]
   if (f.jobId) where.jobId = f.jobId
   if (f.customerId) {
     const jobs = await prisma.savedJob.findMany({ where: { accountId, crmContactId: f.customerId, deletedAt: null }, select: { id: true } })

@@ -198,9 +198,9 @@ const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'boar
 const notFound = (res: any) => res.status(404).json({ success: false, error: 'Not found' })
 
 const MODEL: Record<Exclude<SalesKind, 'pipeline'>, (id: string, accountId: string) => Promise<any>> = {
-  contacts: (id, accountId) => prisma.crmContact.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true } }),
-  quotes: (id, accountId) => prisma.savedQuote.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }),
-  jobs: (id, accountId) => prisma.savedJob.findFirst({ where: { id, accountId }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } }),
+  contacts: (id, accountId) => prisma.crmContact.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, deletedAt: true } }),
+  quotes: (id, accountId) => prisma.savedQuote.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true, deletedAt: true } }),
+  jobs: (id, accountId) => prisma.savedJob.findFirst({ where: { id, accountId }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true, deletedAt: true } }),
   appointments: (id, accountId) => prisma.appointment.findFirst({ where: { id, accountId }, select: { id: true, crmContactId: true, assignedToUserId: true, assignedTo: true } }),
 }
 
@@ -246,6 +246,51 @@ export function salesScoped(kind: SalesKind) {
     }
     next()
   }
+}
+
+// ── A customer, job or quote a route names ──────────────────────────────────
+
+export type SalesRefKind = 'contacts' | 'jobs' | 'quotes'
+
+/** Is this customer, job or quote id within the scope? The scope as read, else the record itself says it is the Salesman's (made a moment ago). */
+export async function idInSalesScope(kind: SalesRefKind, s: SalesScope, id: string): Promise<boolean> {
+  if (!id) return false
+  const known = kind === 'contacts' ? s.contactIds : kind === 'jobs' ? s.jobIds : s.quoteIds
+  if (known.has(id)) return true
+  const row = await MODEL[kind](id, s.accountId).catch(() => null)
+  return !!row && !row.deletedAt && inSalesScope(kind, s, row)
+}
+
+type Refs = Partial<Record<SalesRefKind, string | null | undefined | Array<string | null | undefined>>>
+
+/**
+ * For a route keyed by a customer, job or quote id (in its path, query or
+ * body): when the login is the Salesman and any id named is outside the
+ * Salesman's scope, answers 404 (as for a record that is not there) and
+ * returns true. Every other login, and ids in scope: false, nothing sent.
+ */
+export async function refusedOutsideSalesScope(req: any, res: any, refs: Refs): Promise<boolean> {
+  const scope = await salesScopeOf(req)
+  if (!scope) {
+    if (!isSalesman(staffRoleOf(req) ?? req?.user?.role)) return false
+    res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your login is not linked to a company.' })
+    return true
+  }
+  const named = (Object.keys(refs) as SalesRefKind[]).flatMap(kind => {
+    const v = refs[kind]
+    return (Array.isArray(v) ? v : [v]).filter((x): x is string => typeof x === 'string' && x.length > 0).map(id => ({ kind, id }))
+  })
+  const allIn = async (s: SalesScope) => {
+    for (const { kind, id } of named) if (!(await idInSalesScope(kind, s, id))) return false
+    return true
+  }
+  if (await allIn(scope)) return false
+  // The scope is kept a few seconds: a quote or job made since then (by the office too) is read again once before refusing.
+  forgetScope(scope.userId)
+  const fresh = await scopeFor(scope.userId, scope.accountId)
+  if (fresh && await allIn(fresh)) return false
+  notFound(res)
+  return true
 }
 
 /**

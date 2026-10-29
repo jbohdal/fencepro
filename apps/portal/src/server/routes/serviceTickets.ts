@@ -16,9 +16,16 @@
  *   DELETE /:id                      remove it (records.delete); its photos stay on the job
  *
  * Nothing is sent to a customer from here: the office's phone sends the text.
+ *
+ * The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026): only the requests of
+ * the Salesman's own and assigned customers and jobs. The lists and badges leave
+ * the rest out; one opened, changed or made on a job outside them is a 404.
+ * The monthly report (owner and office figures by style and installer, no
+ * customer named) stays company wide.
  */
 
 import { refuseCrewWith } from '../lib/crewScope.js'
+import { salesScopeOf, refusedOutsideSalesScope, type SalesScope } from '../lib/salesScope.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
@@ -50,16 +57,28 @@ function fail(res: any, e: unknown, what: string) {
 
 const view = (req: any, t: Parameters<typeof ticketView>[0]) => ticketView(t, { costs: can(roleOf(req), 'costs.view') })
 
+/** Is this request one of the Salesman's: its customer or its job in the scope? */
+const ticketInScope = (s: SalesScope, t: { crmContactId: string | null; jobId: string }) =>
+  (!!t.crmContactId && s.contactIds.has(t.crmContactId)) || s.jobIds.has(t.jobId)
+
 router.get('/badges', async (req: any, res) => {
-  try { res.json({ success: true, data: await pastCustomerBadges(req.user.crmAccountId) }) } catch (e) { fail(res, e, 'read the past customers') }
+  try {
+    const all = await pastCustomerBadges(req.user.crmAccountId)
+    const scope = await salesScopeOf(req)
+    res.json({ success: true, data: scope ? all.filter(b => scope.contactIds.has(b.customerId)) : all })
+  } catch (e) { fail(res, e, 'read the past customers') }
 })
 
 router.get('/badge/:customerId', async (req: any, res) => {
-  try { res.json({ success: true, data: await pastCustomerBadge(req.user.crmAccountId, String(req.params.customerId)) }) } catch (e) { fail(res, e, 'read the past customer badge') }
+  try {
+    if (await refusedOutsideSalesScope(req, res, { contacts: String(req.params.customerId) })) return
+    res.json({ success: true, data: await pastCustomerBadge(req.user.crmAccountId, String(req.params.customerId)) })
+  } catch (e) { fail(res, e, 'read the past customer badge') }
 })
 
 router.get('/context', async (req: any, res) => {
   try {
+    if (await refusedOutsideSalesScope(req, res, { jobs: String(req.query.jobId || '') })) return
     const c = await jobContext(req.user.crmAccountId, String(req.query.jobId || ''))
     if (!c) { res.status(404).json({ success: false, error: 'Job not found' }); return }
     res.json({ success: true, data: c })
@@ -82,14 +101,14 @@ router.get('/report', requireCan('costs.view'), async (req: any, res) => {
 router.get('/', async (req: any, res) => {
   try {
     const f = { customerId: req.query.customerId ? String(req.query.customerId) : undefined, jobId: req.query.jobId ? String(req.query.jobId) : undefined, all: req.query.all === '1' }
-    res.json({ success: true, data: await listTickets(req.user.crmAccountId, f, can(roleOf(req), 'costs.view')) })
+    const scope = await salesScopeOf(req)
+    res.json({ success: true, data: await listTickets(req.user.crmAccountId, f, can(roleOf(req), 'costs.view'), scope ? { contactIds: [...scope.contactIds], jobIds: [...scope.jobIds] } : null) })
   } catch (e) { fail(res, e, 'read the service requests') }
 })
 
 router.get('/:id', async (req: any, res) => {
   try {
-    const t = await ticketOf(req.user.crmAccountId, String(req.params.id))
-    if (!t) { res.status(404).json({ success: false, error: 'Service request not found' }); return }
+    const t = await load(req, res); if (!t) return
     res.json({ success: true, data: await view(req, t) })
   } catch (e) { fail(res, e, 'read the service request') }
 })
@@ -105,16 +124,22 @@ const createSchema = z.object({
 router.post('/', refuseCrewWith('Service calls are booked by the office. Tell the office what you saw.'), async (req: any, res) => {
   try {
     const b = createSchema.parse(req.body)
+    if (await refusedOutsideSalesScope(req, res, { jobs: b.jobId })) return
+    // A retried make that names someone else's request answers as if it were not there.
+    const again = b.id ? await ticketOf(req.user.crmAccountId, b.id) : null
+    const scope = again ? await salesScopeOf(req) : null
+    if (again && scope && !ticketInScope(scope, again)) { res.status(404).json({ success: false, error: 'Service request not found' }); return }
     const t = await createTicket(req.user.crmAccountId, await actorOf(req), b)
     await audit(req, 'create', 'ServiceTicket', t.id, { newValues: { jobId: t.jobId, issue: t.issue, hint: t.hint } })
     res.status(201).json({ success: true, data: await view(req, t) })
   } catch (e) { fail(res, e, 'make the service request') }
 })
 
-/** Load the ticket or answer 404. */
+/** Load the ticket or answer 404 (for the Salesman, also one outside the Salesman's scope). */
 async function load(req: any, res: any) {
   const t = await ticketOf(req.user.crmAccountId, String(req.params.id))
-  if (!t) res.status(404).json({ success: false, error: 'Service request not found' })
+  const scope = t ? await salesScopeOf(req) : null
+  if (!t || (scope && !ticketInScope(scope, t))) { res.status(404).json({ success: false, error: 'Service request not found' }); return null }
   return t
 }
 
