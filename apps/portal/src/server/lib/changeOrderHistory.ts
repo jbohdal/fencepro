@@ -16,6 +16,7 @@ import { scheduleFit } from './changeOrderWork.js'
 import { moneyText } from './paymentMath.js'
 import { AUTO_MOVE_KIND, HELD_FOR_DRAWING_KIND } from './waitingStageMove.js'
 import { moveHistoryItems } from './jobMoveHistory.js'
+import { SCHEDULE_KIND } from './jobActivity.js'
 import { loadOpsStages } from './opsStages.js'
 
 export interface TimelineItem { at: string; kind: string; title: string; detail: string; by: string }
@@ -92,6 +93,10 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
   const used = new Set<number>()
   items.push(...moveHistoryItems(stages, audits.map(a => ({ ...a, userName: fullName(users.find(u => u.id === a.userId)) ?? (a.userEmail ? byEmail(a.userEmail) : null) })), notes, byEmail, used))
   notes.forEach((m, i) => { if (!used.has(i)) items.push({ at: m.createdAt.toISOString(), kind: 'stage', title: m.body, detail: '', by: '' }) })
+  // Install dates: booked, moved, taken off, a rain day, an install appointment cancelled (lib/jobActivity.ts
+  // logScheduleChange; review Oct 28 2026: booking an install moved the job and the history had no line).
+  const scheduleLogs = await prisma.activityLog.findMany({ where: { entityType: 'job', entityId: jobId, metadata: { path: ['kind'], equals: SCHEDULE_KIND } }, orderBy: { createdAt: 'desc' }, take: 50 })
+  for (const l of scheduleLogs) items.push({ at: l.createdAt.toISOString(), kind: 'schedule', title: l.body, detail: '', by: l.actor === 'system' ? '' : l.actor })
   for (const it of items) if (it.by.includes('@')) it.by = byEmail(it.by) ?? it.by
   return { items: items.sort((a, b) => b.at.localeCompare(a.at)), scheduleWarning: await scheduleFit(accountId, jobId), contractRev }
 }

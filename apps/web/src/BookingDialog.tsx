@@ -17,10 +17,12 @@ import { formatPhone } from './phoneFormat'
 import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getCustomers, getCustomerById } from './customerStore'
-import { getJobs, updateJob } from './jobStore'
+import { getJobs, refreshJobs } from './jobStore'
+import { refreshSchedule } from './scheduleStore'
+import { toast } from './toast'
 import { getConfig, getAppointmentSettings } from './configStore'
 import {
-  getAppointments, getAppointment, createAppointment, updateAppointment, lookupPosition, pinPosition, suggestAddresses, APPOINTMENTS_UPDATED,
+  getAppointments, getAppointment, createAppointment, updateAppointment, lookupPosition, pinPosition, suggestAddresses, APPOINTMENTS_UPDATED, installCancelWords,
 } from './appointmentsStore'
 import {
   APPOINTMENT_TYPES, TYPE_LABELS, TYPE_COLORS, TYPE_SHORT, floridaDate, floridaHM, floridaTime, minutesOf,
@@ -253,10 +255,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     inFlight.current = false
     setSaving(false)
     if (!saved) return
-    // An install linked to a job: the job carries the dates (one record of the install).
-    if (saved.type === 'install' && saved.jobId && startAt && endAt) {
-      updateJob(saved.jobId, { scheduledDate: floridaDate(startAt), scheduledEndDate: floridaDate(new Date(endAt.getTime() - 1)), status: 'scheduled' })
-    }
+    // An install linked to a job: the server scheduled the job when it saved the appointment (its days, crew,
+    // stage and the crew Schedule, as the Schedule screen does; portal lib/installBooking.ts). Read them again.
+    if (saved.type === 'install' && saved.jobId && !saved.pending) { void refreshJobs(); void refreshSchedule() }
     if (!existing) applyBooking(saved)
     req.onBooked?.(saved)
     setBooked(saved)
@@ -542,9 +543,17 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
               {!allDay && !time && <p className="text-[11px] text-gray-400 text-center">Pick a time, or one of the best open times.</p>}
               {existing && isOpen(existing) && (
                 <button data-cancel-appointment onClick={async () => {
-                  const why = window.prompt(`Cancel this ${TYPE_SHORT[existing.type].toLowerCase()} with ${existing.customerName}? Why?`, 'Customer cancelled')
+                  // An install on a job: say what happens to the job (put back as it was, or left because its schedule changed since).
+                  const jobWords = existing.type === 'install' && existing.jobId ? await installCancelWords(existing.id) : ''
+                  const why = window.prompt(`Cancel this ${TYPE_SHORT[existing.type].toLowerCase()} with ${existing.customerName}?${jobWords ? `\n\n${jobWords}\n` : ''}\nWhy?`, 'Customer cancelled')
                   if (why === null) return
-                  if (await updateAppointment(existing.id, { status: 'cancelled' }, why || 'Cancelled')) onClose()
+                  const done = await updateAppointment(existing.id, { status: 'cancelled' }, why || 'Cancelled')
+                  if (!done) return
+                  if (existing.type === 'install' && existing.jobId && !done.pending) {
+                    void refreshJobs(); void refreshSchedule()
+                    if (jobWords) toast.success('Install appointment cancelled', jobWords)
+                  }
+                  onClose()
                 }} className="w-full py-2 rounded-xl border border-red-200 text-red-600 text-sm font-semibold">Cancel appointment</button>
               )}
             </div>

@@ -9,10 +9,12 @@
  * job answers 404, the same as a job that is not there.
  *
  * Read only: the Salesman reads jobs and makes the job when a quote is sold
- * (POST /api/saved-jobs, the signed contract flow). One more write stays, as
- * before: booking an install appointment linked to the Salesman's own job
- * (BookingDialog.tsx) gives the job that appointment's dates and "scheduled"
- * (installBookingSave below). Every other job write (stage moves, Advance,
+ * (POST /api/saved-jobs, the signed contract flow). Booking an install
+ * appointment linked to the Salesman's own job schedules the job on the server
+ * when the appointment is saved (routes/appointments.ts, lib/installBooking.ts:
+ * own job only, the job's days, crew and stage as the Schedule books them).
+ * installBookingSave below still takes the job save an older phone sends after
+ * such a booking (its days and "scheduled"). Every other job write (stage moves, Advance,
  * hold, notes, materials, the locate, milestone ticks, archive, delete,
  * import) is refused with a plain sentence.
  *

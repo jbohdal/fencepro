@@ -234,6 +234,16 @@ registerKind<ApptChange>('appointment.update', {
   apply: op => { const a = getAppointment(op.payload.id); if (a) put({ ...a, ...op.payload.changes } as Appointment) },
 })
 
+/**
+ * What cancelling this install appointment does to its job, in words for the cancel confirmation
+ * ("The job goes back to how it was before this booking: …", or that the job's schedule changed since and
+ * stays). Empty when it changes no job, or with no signal (the server decides either way when it saves).
+ */
+export async function installCancelWords(id: string): Promise<string> {
+  const r = await call<{ kind: string; words: string }>('GET', `/${encodeURIComponent(id)}/cancel-preview`)
+  return r.ok && r.data?.kind !== 'none' ? r.data?.words ?? '' : ''
+}
+
 /** Where an address is on the map (looked up once, then kept). */
 export async function lookupPosition(address: string): Promise<{ lat: number; lng: number; source: string } | null> {
   if (!address.trim()) return null

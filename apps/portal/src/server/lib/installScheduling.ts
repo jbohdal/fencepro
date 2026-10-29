@@ -48,7 +48,7 @@ export class ScheduleError extends Error {
 
 const LIVE = { deletedAt: null, archivedAt: null }
 
-async function settingsOf(accountId: string, db: any = prisma) {
+export async function settingsOf(accountId: string, db: any = prisma) {
   const s = await db.scheduleSettings.findUnique({ where: { accountId } })
   const crews = (Array.isArray(s?.crews) ? s!.crews : [{ id: 'crew1', name: 'Crew 1', color: 'bg-blue-500' }]) as Array<{ id: string; name: string; color: string }>
   return { workDays: (Array.isArray(s?.workDays) ? s!.workDays : [1, 2, 3, 4]) as number[], crews }
@@ -219,6 +219,8 @@ export interface ScheduleRequest {
   days?: number | null
   /** Book Saturday and Sunday too for this job. */
   allowWeekend?: boolean
+  /** Added to the job's history line ("Booked as an install appointment."). */
+  logNote?: string
 }
 
 export interface ScheduleResult {
@@ -291,7 +293,8 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
   const rescheduled = isYmd(existing.scheduledDate)
   // Kept on the job's activity (the customer page's Activity; lib/jobActivity.ts), unless nothing changed.
   if (existing.scheduledDate !== start || (existing.scheduledEndDate ?? start) !== end || existing.crewAssigned !== crew.name) {
-    await logScheduleChange(existing.id, scheduleWords(rescheduled ? 'moved' : 'scheduled', { start, end, crew: crew.name, was: rescheduled ? existing.scheduledDate : undefined }), { userId: actor.userId, name: actor.name })
+    const words = scheduleWords(rescheduled ? 'moved' : 'scheduled', { start, end, crew: crew.name, was: rescheduled ? existing.scheduledDate : undefined })
+    await logScheduleChange(existing.id, r.logNote ? `${words}. ${r.logNote}` : words, { userId: actor.userId, name: actor.name })
   }
   return {
     calendar: await calendarWords(accountId),
@@ -303,7 +306,7 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
 }
 
 /** The board changed: its version goes up, so an open Schedule reads it again (lib/versioned.ts). */
-async function bumpBoard(tx: Json, accountId: string, settings: { workDays: number[]; crews: Json[] }) {
+export async function bumpBoard(tx: Json, accountId: string, settings: { workDays: number[]; crews: Json[] }) {
   const n = await tx.scheduleSettings.updateMany({ where: { accountId }, data: { version: { increment: 1 } } })
   if (n.count === 0) await tx.scheduleSettings.create({ data: { accountId, workDays: settings.workDays, crews: settings.crews, version: 2 } })
 }
@@ -327,7 +330,7 @@ export async function installMetaOf(accountId: string, jobId: string, db: Json =
   if (!v || typeof v !== 'object') return null
   return { prevStage: typeof v.prevStage === 'string' ? v.prevStage : null, prevEstimatedDays: Number.isFinite(v.prevEstimatedDays) ? v.prevEstimatedDays : 0, allowWeekend: v.allowWeekend === true }
 }
-async function saveInstallMeta(tx: Json, accountId: string, jobId: string, m: InstallMeta) {
+export async function saveInstallMeta(tx: Json, accountId: string, jobId: string, m: InstallMeta) {
   await tx.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: metaKey(jobId) } }, create: { accountId, key: metaKey(jobId), value: m as Json }, update: { value: m as Json, version: { increment: 1 } } })
 }
 /** Jobs booked "weekends too", for the Schedule page and the rain day. */
