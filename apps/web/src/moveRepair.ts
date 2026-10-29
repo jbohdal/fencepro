@@ -64,6 +64,8 @@ export interface MoveRepairSettings {
   pullNdDisposalCents: number | null
   pullDsLaborCents: number | null
   pullDsDisposalCents: number | null
+  /** Concrete footer disposal per post (the repair item footerDisposal), integer cents; null = not set yet. */
+  footerDisposalCents: number | null
   /** % of reused sections that need new panel parts on a move. */
   damagePctDefault: number
   /** Per style (internal name): its own damage %. */
@@ -77,9 +79,28 @@ export interface MoveRepairSettings {
   /** Wood is priced at the matching white vinyl × this % (115). */
   woodFactorPct: number
   /** Labor multiplier per repair item (× the install rate per section, post or gate). */
-  itemMultipliers: Record<Exclude<RepairItemKey, 'haulDebris'>, number>
+  itemMultipliers: Record<Exclude<RepairItemKey, 'haulDebris' | 'footerDisposal'>, number>
   /** Photos needed before a move or repair proposal can be sent. */
   photosRequired: number
+  /**
+   * The per post rates, each set with the day it took effect, newest last
+   * (rule 7: rates are effective dated). A saved quote keeps the cost lines
+   * it was priced with (SavedWork.priced), so a new entry never changes one.
+   */
+  rateHistory: RateChange[]
+}
+
+/** The per post rates that carry an effective date. */
+export const POST_RATE_KEYS = ['pullNdLaborCents', 'pullNdDisposalCents', 'pullDsLaborCents', 'pullDsDisposalCents', 'footerDisposalCents'] as const
+export type PostRateKey = typeof POST_RATE_KEYS[number]
+export interface RateChange {
+  /** YYYY-MM-DD, Ocala. */
+  effectiveFrom: string
+  rates: Partial<Record<PostRateKey, number | null>>
+  /** The rates they replaced. */
+  previous?: Partial<Record<PostRateKey, number | null>>
+  by: string
+  note?: string
 }
 
 export const DEFAULT_MOVE_REPAIR: MoveRepairSettings = {
@@ -89,6 +110,7 @@ export const DEFAULT_MOVE_REPAIR: MoveRepairSettings = {
   pullNdDisposalCents: null,
   pullDsLaborCents: null,
   pullDsDisposalCents: null,
+  footerDisposalCents: null,
   damagePctDefault: 15,
   damagePctByStyle: {},
   repairProfitPct: null,
@@ -97,6 +119,7 @@ export const DEFAULT_MOVE_REPAIR: MoveRepairSettings = {
   woodFactorPct: 115,
   itemMultipliers: { resetPost: 1.5, replacePost: 1.5, repairSection: 1, replaceSection: 1.5, rehangGate: 1, replaceGate: 1.5 },
   photosRequired: 2,
+  rateHistory: [],
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -115,6 +138,7 @@ export function moveRepairSettings(cfg: { moveRepair?: Partial<MoveRepairSetting
     pullNdDisposalCents: cents(s.pullNdDisposalCents),
     pullDsLaborCents: cents(s.pullDsLaborCents),
     pullDsDisposalCents: cents(s.pullDsDisposalCents),
+    footerDisposalCents: cents(s.footerDisposalCents),
     damagePctDefault: Math.min(100, nonNeg(s.damagePctDefault, d.damagePctDefault)),
     damagePctByStyle: s.damagePctByStyle && typeof s.damagePctByStyle === 'object' ? { ...s.damagePctByStyle } : {},
     repairProfitPct: num(s.repairProfitPct),
@@ -123,7 +147,13 @@ export function moveRepairSettings(cfg: { moveRepair?: Partial<MoveRepairSetting
     woodFactorPct: num(s.woodFactorPct) !== null && (s.woodFactorPct as number) > 0 ? (s.woodFactorPct as number) : d.woodFactorPct,
     itemMultipliers: Object.fromEntries(Object.entries(d.itemMultipliers).map(([k, v]) => [k, nonNeg(im[k as keyof typeof im], v)])) as MoveRepairSettings['itemMultipliers'],
     photosRequired: Math.round(nonNeg(s.photosRequired, d.photosRequired)),
+    rateHistory: Array.isArray(s.rateHistory) ? s.rateHistory.filter(h => h && typeof h === 'object' && typeof h.effectiveFrom === 'string').map(h => ({ ...h })) : [],
   }
+}
+
+/** The newest rate change, or null (Settings shows it with its date). */
+export function latestRateChange(s: Pick<MoveRepairSettings, 'rateHistory'>): RateChange | null {
+  return s.rateHistory.length ? [...s.rateHistory].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))[s.rateHistory.length - 1] : null
 }
 
 /** The settings still blank (shown on the Settings page and in reports). */
@@ -133,6 +163,7 @@ export function blankSettings(s: MoveRepairSettings): string[] {
   if (s.pullNdDisposalCents === null) out.push('Disposal per post, no dig')
   if (s.pullDsLaborCents === null) out.push('Pull labor per post, dig set (concrete)')
   if (s.pullDsDisposalCents === null) out.push('Disposal per post, dig set (concrete)')
+  if (s.footerDisposalCents === null) out.push('Concrete footer disposal per post')
   if (s.repairProfitPct === null) out.push('Repair Profit % (blank uses each style\'s Target Profit %)')
   return out
 }
@@ -589,6 +620,7 @@ export const REPAIR_HINT: Record<RepairItemKey, string> = {
   rehangGate: 'New hinges and latch',
   replaceGate: 'The whole gate kit',
   haulDebris: 'At the tear out rate per section',
+  footerDisposal: 'Per post: haul off the concrete footer',
 }
 
 /** What each "What happened?" answer starts the list with. */
@@ -690,6 +722,13 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
   }
   const hd = q('haulDebris')
   if (hd) line(acc, { key: 'haulDebris', label: REPAIR_LABEL.haulDebris, kind: 'disposal', cents: Math.round(hd * rates.tearOutSection * 100), math: `${hd} sections × ${usd(rates.tearOutSection)} tear out rate (${rates.tearOutText})` })
+  // Concrete footers hauled off, per post, at Settings' rate (#31, Oct 29 2026).
+  const fd = q('footerDisposal')
+  if (fd) {
+    const rate = s.footerDisposalCents
+    if (rate === null) acc.missingRates.push('concrete footer disposal per post')
+    line(acc, { key: 'footerDisposal', label: REPAIR_LABEL.footerDisposal, kind: 'disposal', cents: fd * (rate ?? 0), math: `${fd} posts × ${usd((rate ?? 0) / 100)}`, ...(rate === null ? { missing: true } : {}) })
+  }
   if (!kit && (q('resetPost') + q('replacePost') + rs + rp + rh + rg) > 0) acc.warnings.push(`"${style.label || style.name}" has no material kit in use, so no parts are priced. Check Inventory > Material Kits.`)
   if (r.what === 'storm' && !r.debrisCleared && !hd) acc.warnings.push('Tree or storm damage: tick "Tree and debris cleared before we start" or add Haul away debris.')
 
@@ -702,6 +741,7 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
   say(rh, `rehang the ${gateWord} with new hinges and latch`, `rehang # ${gateWord}s with new hinges and latch`)
   say(rg, `replace the ${gateWord}`, `replace # ${gateWord}s`)
   say(hd, 'haul away the debris', 'haul away the debris (# sections)')
+  say(fd, 'haul away a concrete footer', 'haul away # concrete footers')
   const posts = q('resetPost') + q('replacePost')
   if (posts) words.push('haul away the old post' + (posts === 1 ? '' : 's'))
   const description = words.length ? `${words.join(', ').replace(/^./, ch => ch.toUpperCase())}.` : 'Repair as described.'

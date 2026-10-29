@@ -126,6 +126,7 @@ import { servicePhotosPublic } from './routes/servicePhotosPublic.js'
 import serviceTicketRoutes from './routes/serviceTickets.js'
 import { portalPublicApi, portalPublicPage } from './routes/portalPublic.js'
 import { adoptHandMadeBillingAll } from './lib/billingAdoption.js'
+import { ensureRepairPostRatesAll } from './lib/repairPostRates.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000')
@@ -540,6 +541,8 @@ if (!isVercel) {
       await ensureCostReviewAll().catch(err => console.error('[cost review] check failed:', err))
       // Invoices and payments typed in Billing for a sold job, into its payment schedule; nothing sent, no receipt made: once per company (lib/billingAdoption.ts).
       await adoptHandMadeBillingAll().catch(err => console.error('[billing] hand-made Billing check failed:', err))
+      // Repair per post rates Jonathan typed Oct 29 2026 (pull $10, haul away $10, concrete footer $15), effective dated: once per company (lib/repairPostRates.ts).
+      await ensureRepairPostRatesAll().catch(err => console.error('[repair rates] check failed:', err))
     })()
     // Aluminum and chain link tier sets as two options: once per company (lib/tierSets.ts).
     ensureTwoOptionTiersAll().catch(err => console.error('[tiers] two option check failed:', err))

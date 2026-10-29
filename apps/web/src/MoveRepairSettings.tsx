@@ -7,7 +7,7 @@
 
 import { useState } from 'react'
 import type { AppConfig } from './configStore'
-import { moveRepairSettings, blankSettings, REPAIR_LABEL, DEFAULT_MOVE_REPAIR, type MoveRepairSettings } from './moveRepair'
+import { moveRepairSettings, blankSettings, latestRateChange, REPAIR_LABEL, DEFAULT_MOVE_REPAIR, type MoveRepairSettings } from './moveRepair'
 import { isQuotable } from './styleAvailability'
 
 const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400'
@@ -77,7 +77,9 @@ export default function MoveRepairSettings({ config, onChange }: { config: AppCo
           <Money data="pullNdDisposalCents" label="Disposal per post, no dig" cents={s.pullNdDisposalCents} onChange={c => set({ pullNdDisposalCents: c })} />
           <Money data="pullDsLaborCents" label="Pull labor per post, dig set (concrete)" cents={s.pullDsLaborCents} onChange={c => set({ pullDsLaborCents: c })} />
           <Money data="pullDsDisposalCents" label="Disposal per post, dig set (concrete)" cents={s.pullDsDisposalCents} onChange={c => set({ pullDsDisposalCents: c })} />
+          <Money data="footerDisposalCents" label="Concrete footer disposal per post" hint={`The repair item "${REPAIR_LABEL.footerDisposal}": the salesman picks how many`} cents={s.footerDisposalCents} onChange={c => set({ footerDisposalCents: c })} />
         </div>
+        {(() => { const h = latestRateChange(s); return h ? <p className="text-xs text-gray-500" data-mr-rates-since>Rates set {h.effectiveFrom} by {h.by}{h.note ? ` (${h.note})` : ''}. Quotes saved before keep the prices they were priced with.</p> : null })()}
       </section>
 
       <section className="space-y-3">
