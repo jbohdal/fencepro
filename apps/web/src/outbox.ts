@@ -29,7 +29,7 @@
  * change can wait for another record (a note waits for its new customer).
  */
 
-import { plainError, plainThrown, type PlainError } from './plainError'
+import { plainError, plainThrown, plainText, type PlainError } from './plainError'
 import { sealJson, openJson, vaultAvailable } from './vault'
 
 export interface Op<P = any> {
@@ -71,6 +71,32 @@ export interface KindHandler<P = any> {
    * put the screen back to what the server has. Called after it left the outbox.
    */
   refused?: (op: Op<P>, message: string) => void
+  /**
+   * The server turned it down and said why (refusalReason: a 4xx with its own
+   * sentence, such as an install booked on a Friday). Only kinds that give
+   * this are handled so: the change leaves the phone at once (never "Couldn't
+   * save", never sent again; it was not a save that failed for want of signal)
+   * and the kind shows the reason where the change was made. Called after it
+   * left the outbox.
+   */
+  refusedWithReason?: (op: Op<P>, reason: string) => void
+}
+
+/**
+ * Answers that are a refusal with a reason, not a failed save: 400, 403, 404
+ * or 422 with the server's own sentence. Never a send that did not reach the
+ * server, a sign in, a timeout, a busy server, or a change made on another
+ * device first (409): those keep their way (sent again, or "Couldn't save").
+ * A booking for a customer not on the server yet (CUSTOMER_NOT_SAVED) is kept
+ * too: it goes once the customer does.
+ */
+const REFUSAL_STATUSES = new Set([400, 403, 404, 422])
+const KEPT_CODES = new Set(['CUSTOMER_NOT_SAVED'])
+export function refusalReason(r: SendResult): string | null {
+  if (r.ok || !REFUSAL_STATUSES.has(r.status)) return null
+  if (r.code && KEPT_CODES.has(r.code)) return null
+  const why = typeof r.error === 'string' ? r.error.trim() : ''
+  return why || null
 }
 
 /** A window event, sent when a change was refused for the login's role: { message, label }. */
@@ -300,6 +326,15 @@ async function pump() {
         try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }
         try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ }
         try { window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data')) } catch { /* no window (tests) */ }
+        emit()
+        continue
+      }
+      // Turned down with a reason (a kind that shows it, as an install on a day the crew does not work): it
+      // leaves the phone, and the kind says why where the change was made.
+      const why = handler.refusedWithReason ? refusalReason(r) : null
+      if (why) {
+        await drop(op)
+        try { handler.refusedWithReason!(op, plainText(why, handler.what?.(op))) } catch { /* the next load shows the server's copy */ }
         emit()
         continue
       }

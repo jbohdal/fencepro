@@ -24,7 +24,7 @@
 
 import prisma from './prisma.js'
 import { scheduleInstall, installMetaOf, saveInstallMeta, bumpBoard, settingsOf, ScheduleError, INSTALL_META_PREFIX, type InstallMeta, type ScheduleResult } from './installScheduling.js'
-import { crewDaysOfWeek, isCrewDay, isYmd, plusDays, weekWords, shortDayWords } from './installDays.js'
+import { crewDaysOfWeek, crewDayProblem, isCrewDay, isYmd, plusDays, shortDayWords } from './installDays.js'
 import { floridaDay } from './automations/context.js'
 import { recordJobChanges } from './automations/hooks.js'
 import { softDeleteLogged, type Actor } from './deletion.js'
@@ -91,10 +91,7 @@ async function weekOf(accountId: string, jobId: string): Promise<number[]> {
 
 /** Why an install cannot start on this day (not a crew day), or null. */
 export async function installDayProblem(accountId: string, jobId: string, startAt: Date): Promise<string | null> {
-  const week = await weekOf(accountId, jobId)
-  const day = floridaDay(startAt)
-  if (isCrewDay(day, week)) return null
-  return `Installs go on crew days (${weekWords(week)}). ${dayWords(day)} is not one. Pick a crew day, or book it on the Schedule with "The crew works weekends on this job" ticked.`
+  return crewDayProblem(floridaDay(startAt), await weekOf(accountId, jobId))
 }
 
 async function readRecord(accountId: string, appointmentId: string, db: Json = prisma): Promise<BookingRecord | null> {

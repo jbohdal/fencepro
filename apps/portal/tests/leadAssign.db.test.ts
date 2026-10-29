@@ -23,7 +23,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
   const { default: contacts } = await import('../src/server/routes/crm-contacts.js')
   const { default: leadAssign } = await import('../src/server/routes/lead-assign.js')
   const { recordIntake } = await import('../src/server/lib/intake.js')
-  const { pushNewLead, leadPushesSettled, waitingLeads } = await import('../src/server/lib/leadAssign.js')
+  const { pushNewLead, leadPushesSettled, waitingLeads, newLeadLink } = await import('../src/server/lib/leadAssign.js')
   const { devOutboxFile } = await import('../src/server/lib/outboundGate.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -87,6 +87,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     expect(mine[0].channel).toBe('push')
     expect(mine[0].to).toBe(`Olive ${tag}`)
     expect(mine[0].body).toBe(`Website quote · Ocala · Vinyl, Privacy, 6', White, 152 ft. Tap to assign. (/assign-lead?customer=${leadId})`)
+    // The bell entry for the lead opens the same Assign screen (review, Oct 28 2026: it opened the customer page).
+    const bell = await prisma.notification.findFirst({ where: { title: `Website quote: Dana ${tag}` } })
+    expect(bell!.link).toBe(`/assign-lead?customer=${leadId}`)
     // The same delivery again: no second customer, no second push.
     const again = outbox().length
     await recordIntake(accountId, { source: 'ez_quote', sourceRef: `${tag}-web`, name: `Dana ${tag}`, phone: `35255${n}01`, summary: 'x', leadSource: 'Website Quote', payload: {} })
@@ -117,6 +120,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     const sent: any[] = []
     const spy = { allowed: true, send: async (...a: any[]) => { sent.push(a); return { sent: 1, failed: 0, removed: 0, held: 0, subscribers: 1, errors: [] } } }
     expect((await pushNewLead(accountId, c.id, { name: 'Ann', source: 'ez_quote' }, spy)).pushed).toBe(false)
+    // Its bell entry opens the customer, not the Assign screen.
+    expect(await newLeadLink(accountId, c.id, `/customers?customer=${c.id}`)).toBe(`/customers?customer=${c.id}`)
     // A card's rep or an appointment booked with someone counts too.
     const k = await prisma.crmContact.create({ data: { accountId, firstName: 'Kim', lastName: tag } })
     await prisma.pipelineState.update({ where: { accountId }, data: { leads: [{ id: `${tag}-k-kim`, stage: 'new', customerId: k.id, assignedRep: 'Sam', firstName: 'Kim' }] as any } })

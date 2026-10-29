@@ -6,7 +6,7 @@
 
 import { describe, test, expect, beforeEach } from 'vitest'
 import {
-  _resetForTests, startOutbox, registerKind, enqueue, allOps, statusOf, retry, kick, whenSaved,
+  _resetForTests, startOutbox, registerKind, enqueue, allOps, statusOf, retry, kick, whenSaved, refusalReason,
   type Op, type OutboxStorage, type SendResult,
 } from '../../web/src/outbox'
 
@@ -135,5 +135,73 @@ describe('outbox', () => {
     const p = whenSaved('customer:a', 2000)
     await retry(); kick()
     expect(await p).toBe(true)
+  })
+
+  // Review Oct 28 2026: an install booked on a Friday was refused by the server in plain words, but the phone
+  // said "The server did not accept this appointment" and kept it as "Couldn't save" (red count, ghost entries).
+  const FRIDAY = 'Installs go on crew days (Monday to Thursday). Fri, Oct 30 is not one. Pick a crew day, or book it on the Schedule with "The crew works weekends on this job" ticked.'
+
+  test('refusalReason: a 4xx with the server\'s sentence is a refusal; no signal, sign in, busy and conflicts are not', () => {
+    expect(refusalReason({ ok: false, status: 400, error: FRIDAY, code: 'NOT_A_CREW_DAY' })).toBe(FRIDAY)
+    expect(refusalReason({ ok: false, status: 404, error: 'That job is not there any more (archived or deleted). Reload and try again.' })).toMatch(/^That job/)
+    expect(refusalReason({ ok: false, status: 403, error: 'Your role cannot change the schedule.' })).toMatch(/^Your role/)
+    expect(refusalReason({ ok: false, status: 422, error: 'Pick a day.' })).toBe('Pick a day.')
+    // Kept as they are now: sent again, or "Couldn't save" with Try again.
+    expect(refusalReason({ ok: false, status: 0, error: 'Failed to fetch' })).toBeNull()
+    expect(refusalReason({ ok: false, status: 401, error: 'Not authenticated' })).toBeNull()
+    expect(refusalReason({ ok: false, status: 408, error: 'Timed out' })).toBeNull()
+    expect(refusalReason({ ok: false, status: 409, error: 'Changed on another device' })).toBeNull()
+    expect(refusalReason({ ok: false, status: 429, error: 'Slow down' })).toBeNull()
+    expect(refusalReason({ ok: false, status: 500, error: 'Could not book the appointment' })).toBeNull()
+    expect(refusalReason({ ok: false, status: 503 })).toBeNull()
+    expect(refusalReason({ ok: false, status: 400 })).toBeNull()
+    expect(refusalReason({ ok: false, status: 400, error: '  ' })).toBeNull()
+    // A booking for a customer not on the server yet goes once the customer does.
+    expect(refusalReason({ ok: false, status: 400, code: 'CUSTOMER_NOT_SAVED', error: 'That customer is not saved on the server yet. It will be booked once the customer is.' })).toBeNull()
+    expect(refusalReason({ ok: true })).toBeNull()
+  })
+
+  test('refused with a reason, for a kind that shows it: off the phone at once, never sent again, the reason handed back', async () => {
+    const told: string[] = []
+    registerKind('appointment.create', { send: op => srv.send(op), refusedWithReason: (_op, why) => { told.push(why) } })
+    srv.answer(() => ({ ok: false, status: 400, error: FRIDAY, code: 'NOT_A_CREW_DAY' }))
+    await startOutbox('u1', { storage: store })
+    await enqueue({ key: 'appointment:x', kind: 'appointment.create', payload: { day: '2026-10-30' }, label: 'Dave, install booked' })
+    await settle()
+    expect(told).toEqual([FRIDAY])
+    expect(statusOf(['appointment:x']).status).toBe('saved')
+    expect(allOps()).toEqual([])
+    expect(store.map.size).toBe(0)
+    expect(srv.got).toHaveLength(1)
+    await retry(); await settle()
+    expect(srv.got).toHaveLength(1)
+  })
+
+  test('the same kind with no signal or a busy server: kept and sent again, as before', async () => {
+    const told: string[] = []
+    registerKind('appointment.create', { send: op => srv.send(op), refusedWithReason: (_op, why) => { told.push(why) } })
+    srv.answer(() => ({ ok: false, status: 0, error: 'Failed to fetch' }))
+    await startOutbox('u1', { storage: store })
+    await enqueue({ key: 'appointment:y', kind: 'appointment.create', payload: {}, label: 'Dave, install booked' })
+    await settle()
+    expect(statusOf(['appointment:y']).status).toBe('waiting')
+    expect(store.map.size).toBe(1)
+    srv.answer(() => ({ ok: false, status: 503, error: 'Service Unavailable' }))
+    await retry(); await settle()
+    expect(statusOf(['appointment:y']).status).toBe('waiting')
+    expect(store.map.size).toBe(1)
+    srv.answer(() => ({ ok: true }))
+    await retry(); await settle()
+    expect(statusOf(['appointment:y']).status).toBe('saved')
+    expect(told).toEqual([])
+  })
+
+  test('a kind that does not show reasons keeps the old way: "Couldn\'t save", kept for Try again', async () => {
+    srv.answer(() => ({ ok: false, status: 400, error: FRIDAY }))
+    await startOutbox('u1', { storage: store })
+    await enqueue({ key: 'customer:z', kind: 'customer.create', payload: {}, label: 'Zed' })
+    await settle()
+    expect(statusOf(['customer:z']).status).toBe('failed')
+    expect(store.map.size).toBe(1)
   })
 })

@@ -55,7 +55,8 @@ export default function NotificationBell() {
   function openLink(link?: string | null) {
     if (!link) return
     const u = new URL(link, window.location.origin)
-    const customer = u.searchParams.get('customer')
+    // The Assign screen (a new lead nobody has yet) reads its own ?customer=; other ?customer= links open that customer.
+    const customer = u.pathname === '/assign-lead' ? null : u.searchParams.get('customer')
     setOpen(false)
     navigate(customer ? `/customers/${encodeURIComponent(customer)}` : u.pathname + u.search)
   }

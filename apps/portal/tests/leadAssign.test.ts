@@ -43,3 +43,22 @@ test('only the owner, admin, manager and office assign', () => {
   expect(['super_admin', 'admin', 'manager', 'office_staff'].every(canAssignLeads)).toBe(true)
   expect(['sales_rep', 'field_crew', 'customer', '', null].some(r => canAssignLeads(r as string | null))).toBe(false)
 })
+
+// Review Oct 28 2026: on the Assign screen, a lead someone already had moved to another person at one tap.
+describe('the Assign screen: a tap on a person when the lead already has someone', async () => {
+  const { tapDecision } = await import('../../web/src/leadAssignTap')
+  const christa = { id: 'u-c', name: 'Christa Feagin', role: 'sales_rep', me: false }
+  const jonathan = { id: 'u-j', name: 'Jonathan Bohdal', role: 'super_admin', me: true }
+  const rep = (name: string) => ({ name, from: 'customer' as const, by: null, at: null })
+  test('nobody has it: assigned at once', () => {
+    expect(tapDecision(jonathan, null)).toBe('assign')
+  })
+  test('someone else has it: asks first', () => {
+    expect(tapDecision(jonathan, rep('Christa Feagin'))).toBe('ask')
+  })
+  test('the person who has it, by full name or first name: nothing changes', () => {
+    expect(tapDecision(christa, rep('Christa Feagin'))).toBe('theirs')
+    expect(tapDecision(christa, rep('christa'))).toBe('theirs')
+    expect(tapDecision(christa, rep(' Christa  Feagin '))).toBe('theirs')
+  })
+})
