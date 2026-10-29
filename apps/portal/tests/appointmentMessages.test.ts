@@ -7,7 +7,7 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
-  fillTemplate, messageTemplates, toSaved, unknownPlaceholders, confirmKindOf, repContact, repWarning, messageValues,
+  fillTemplate, messageTemplates, toSaved, unknownPlaceholders, confirmKindOf, repContact, repWarning, bookingUsesRepPhone, messageValues,
   confirmationSms, confirmationBody, confirmationSubject, onMyWaySms, icsDescription, asText, DEFAULT_MESSAGE_TEMPLATES,
   type RepInfo,
 } from '../../web/src/appointmentMessages'
@@ -54,20 +54,27 @@ describe('the template filler', () => {
 })
 
 describe('the booking confirmation', () => {
-  test('the default estimate text, with the person\'s name and Direct phone', () => {
+  test('the default estimate text: the person\'s name, and the office line, never their own phone (#30, Oct 29 2026)', () => {
     expect(confirmationBody(appt(), { company })).toBe(
-      "Hi Kristi, this is Testrep with Getter Done Fence. You're all set for your fence estimate on Tuesday, October 20 at 10:00 AM at 1 Main St, Belleview, FL. If anything changes, call or text me directly at (352) 555 0142.")
+      "Hi Kristi, this is Testrep with Getter Done Fence. You're all set for your fence estimate on Tuesday, October 20 at 10:00 AM at 1 Main St, Belleview, FL. If anything changes, call or text our office at (352) 789 4314.")
+    expect(confirmationBody(appt(), { company })).not.toContain('555 0142')
+  })
+  test('the Booked window warns about a missing Direct phone only when what it offers gives the person\'s own number', () => {
+    expect(bookingUsesRepPhone(appt(), {})).toBe(false)
+    expect(bookingUsesRepPhone(appt(), { templates: { confirm: { estimate: 'Text {rep_phone}' } } })).toBe(true)
+    expect(bookingUsesRepPhone(appt({ type: 'install' }), { templates: { confirm: { estimate: 'Text {rep_phone}' } } })).toBe(false)
+    expect(bookingUsesRepPhone(appt(), { templates: { icsDescription: 'Call {rep_phone}' } })).toBe(true)
   })
   test('the text starts with the company name and ends with the STOP line (the registered wording)', () => {
     const t = confirmationSms(appt(), { company })
     expect(t.startsWith('Getter Done Fence: Hi Kristi, this is Testrep with Getter Done Fence.')).toBe(true)
-    expect(t.endsWith('(352) 555 0142. Reply STOP to opt out.')).toBe(true)
+    expect(t.endsWith('call or text our office at (352) 789 4314. Reply STOP to opt out.')).toBe(true)
     expect(asText(t, company)).toBe(t)   // never twice
   })
   test('a person with no Direct phone: the company number, and why', () => {
     const a = appt({ assignedTo: 'Testrep Nophone', rep: rep({ firstName: 'Testrep', lastName: 'Nophone', phone: null }) })
     expect(repContact(a, company)).toEqual({ firstName: 'Testrep', phone: '(352) 789 4314', fallback: 'no_phone' })
-    expect(confirmationBody(a, { company })).toContain('call or text me directly at (352) 789 4314.')
+    expect(confirmationBody(a, { company })).toContain('call or text our office at (352) 789 4314.')
     expect(repWarning(a, company)).toMatch(/Testrep Nophone has no Direct phone saved in Settings > Team, so the text gives the company number, \(352\) 789 4314/)
   })
   test('a name no login has, nobody, and not yet checked: the company number, each with its reason', () => {
@@ -83,7 +90,7 @@ describe('the booking confirmation', () => {
     expect(confirmKindOf('warranty')).toBe('service')
     expect(confirmKindOf('call_back')).toBe('other')
     const install = confirmationBody(appt({ type: 'install', allDay: true }), { company })
-    expect(install).toBe('Hi Kristi, this is Testrep with Getter Done Fence. Your fence install is set for Tuesday, October 20 at 1 Main St, Belleview, FL. If anything changes, call or text me directly at (352) 555 0142.')
+    expect(install).toBe('Hi Kristi, this is Testrep with Getter Done Fence. Your fence install is set for Tuesday, October 20 at 1 Main St, Belleview, FL. If anything changes, call or text our office at (352) 789 4314.')
     expect(confirmationBody(appt({ type: 'service' }), { company })).toContain('your service visit on Tuesday')
     expect(confirmationBody(appt({ type: 'follow_up' }), { company })).toContain('your follow up visit on Tuesday')
   })
@@ -103,9 +110,8 @@ describe('the On my way text and the calendar invite', () => {
     expect(onMyWaySms(appt(), 17.4, { company })).toBe(
       "Getter Done Fence: Hi Kristi, this is Testrep with Getter Done Fence. I'm on my way and should be there in about 17 minutes. If you need me, call or text (352) 555 0142. Reply STOP to opt out.")
   })
-  test('the invite description follows the same rule', () => {
-    expect(icsDescription(appt(), { company })).toBe('Your fence estimate with Getter Done Fence at 1 Main St, Belleview, FL. Questions or changes: call or text Testrep at (352) 555 0142.')
-    expect(icsDescription(appt({ rep: rep({ phone: null }) }), { company })).toContain('call or text Testrep at (352) 789 4314.')
+  test('the invite description gives the office line too (#30)', () => {
+    expect(icsDescription(appt(), { company })).toBe('Your fence estimate with Getter Done Fence at 1 Main St, Belleview, FL. Questions or changes: call or text our office at (352) 789 4314.')
   })
   test('every placeholder has a value', () => {
     const v = messageValues(appt(), { company })
@@ -124,7 +130,7 @@ describe('saving templates', () => {
     expect(toSaved({ ...edited, onMyWay: DEFAULT_MESSAGE_TEMPLATES.onMyWay })).toEqual({ confirm: { install: 'Install day {date_time}.' } })
   })
   test('the default estimate text is Jonathan\'s wording', () => {
-    expect(DEFAULT_MESSAGE_TEMPLATES.confirm.estimate).toBe("Hi {customer_first_name}, this is {rep_first_name} with {company_name}. You're all set for your fence estimate on {date_time} at {address}. If anything changes, call or text me directly at {rep_phone}.")
+    expect(DEFAULT_MESSAGE_TEMPLATES.confirm.estimate).toBe("Hi {customer_first_name}, this is {rep_first_name} with {company_name}. You're all set for your fence estimate on {date_time} at {address}. If anything changes, call or text our office at {company_phone}.")
   })
 })
 

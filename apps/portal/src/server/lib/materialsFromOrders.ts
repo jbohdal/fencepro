@@ -141,9 +141,10 @@ export async function materialsFollowOrders(accountId: string, before: unknown, 
  * offered only Mark Ordered and the job and its order disagreed. Now a hand
  * move that raises the job's materials (to Ordered, Received or further) marks
  * the job's pending orders Ordered (orderedAt), as Mark Ordered does (web
- * pendingOrderStore updatePendingOrderStatus). Never Received: Mark Received
- * in Inventory also changes the stock counts, which a status change here
- * would skip, and Mark Received would then never be offered again. So the
+ * pendingOrderStore updatePendingOrderStatus). Never Received: the office
+ * marks it Received in Inventory when the materials really come in (it
+ * changes no stock count: a job's materials go to the job, D6 Oct 29 2026),
+ * and Mark Received would then never be offered again. So the
  * order waits at Ordered and the office marks it Received in Inventory when it
  * comes in (that does not move a job already Received: materialsFollowOrders
  * only raises). An ordered, received or cancelled order stays as it is. The

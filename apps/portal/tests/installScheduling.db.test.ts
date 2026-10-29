@@ -34,9 +34,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     accountId = account.id
     await prisma.businessState.create({ data: { accountId, config: { company: { name: 'Getter Done Fence', phone: '3527894314' } } as any } })
     await prisma.scheduleSettings.create({ data: { accountId, workDays: [1, 2, 3, 4], crews: [{ id: 'c1', name: 'Crew One', color: 'bg-blue-500' }, { id: 'c2', name: 'Crew Two', color: 'bg-green-500' }] } })
+    // The job's salesman has a Direct phone of her own: the texts still give the office line (#30, Oct 29 2026).
+    await prisma.crmUser.create({ data: { email: `christa-${tag}@example.invalid`, firstName: 'Christa', lastName: tag, role: 'sales_rep', status: 'active', phone: '3525551867', crmAccountId: accountId, passwordHash: 'x' } as any })
     const contact = await prisma.crmContact.create({ data: { accountId, firstName: 'Kristi', lastName: tag, phone: '3525550142' } as any })
     ids.contact = contact.id
-    const mk = (k: string, f: Record<string, unknown>) => prisma.savedJob.create({ data: { accountId, crmContactId: contact.id, customerName: `Kristi ${tag}`, customerPhone: '3525550142', customerAddress: '12 Oak Rd, Ocala, FL 34470', fenceStyle: "WV-ND 6'x8' Privacy", sections: 40, totalFeet: 320, contractValue: 9000, ...f } as any }).then(j => { ids[k] = j.id })
+    const mk = (k: string, f: Record<string, unknown>) => prisma.savedJob.create({ data: { accountId, crmContactId: contact.id, customerName: `Kristi ${tag}`, customerPhone: '3525550142', customerAddress: '12 Oak Rd, Ocala, FL 34470', salesRep: `Christa ${tag}`, fenceStyle: "WV-ND 6'x8' Privacy", sections: 40, totalFeet: 320, contractValue: 9000, ...f } as any }).then(j => { ids[k] = j.id })
     await mk('ready', { status: 'staging', opsStage: 'permit_pending', materialsStatus: 'received', locatesDate: '2026-10-20', locatesExpDate: '2026-11-03', estimatedDays: 4 })
     await mk('next', { status: 'scheduled', opsStage: 'scheduled', scheduledDate: '2026-11-05', scheduledEndDate: '2026-11-05', crewAssigned: 'Crew One' })
     await mk('hold', { status: 'on_hold', opsStage: 'customer_delay', previousStatus: 'staging' })
@@ -57,6 +59,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     await prisma.crmAuditLog.deleteMany({ where: { entityId: { in: jobIds } } })
     await prisma.savedJob.deleteMany({ where: { accountId } })
     await prisma.crmContact.deleteMany({ where: { accountId } })
+    await prisma.crmUser.deleteMany({ where: { crmAccountId: accountId } })
     await prisma.businessState.deleteMany({ where: { accountId } })
     await prisma.crmAccount.delete({ where: { id: accountId } })
   })
@@ -88,6 +91,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Scheduling installs (dev databas
     const r = await S.scheduleInstall(accountId, actor(), { jobId: ids.ready, start: '2026-10-29', crew: 'c2', days: 3 })
     expect(r.text.body).toBe('Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on Thursday, 10/29/2026. Our crew will arrive in the morning. Questions? Call (352) 789 4314. Reply STOP to opt out.')
     expect([r.text.allowed, r.text.reason]).toEqual([true, null])
+    // The office line, never the salesman's own phone (#30).
+    expect(r.text.officePhone).toBe('(352) 789 4314')
+    expect(r.text.body).not.toContain('555 1867')
     // Said no: still offered (a text they send themselves, not one the app sends).
     await prisma.crmContact.update({ where: { id: ids.contact }, data: { textConsent: 'no' } })
     expect((await S.scheduleInstall(accountId, actor(), { jobId: ids.ready, start: '2026-10-29', crew: 'c2' })).text.allowed).toBe(true)

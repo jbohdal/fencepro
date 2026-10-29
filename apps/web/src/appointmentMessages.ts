@@ -17,6 +17,12 @@
  * portal lib/appointmentRep.ts). No login, or no phone saved: the company
  * phone, and the Booked window says so (repContact().fallback).
  *
+ * The booking confirmations and the calendar invite give the office line
+ * ({company_phone}), never the person's own number (Jonathan, Oct 29 2026,
+ * #30: "Booking and install texts use the office line (352) 789 4314, never
+ * Christa's cell."). Only the On my way text, sent by the person on the way,
+ * keeps {rep_phone}. A template edited in Settings > Messages is used as typed.
+ *
  * Every phone number is written (352) 789 4314 (phoneFormat.ts).
  *
  * A text starts with the company name and ends "Reply STOP to opt out.", the
@@ -48,7 +54,7 @@ export interface AppointmentMessageTemplates {
 /** As saved: only what was changed from the default. */
 export type SavedMessageTemplates = Partial<Omit<AppointmentMessageTemplates, 'confirm'>> & { confirm?: Partial<Record<ConfirmKind, string>> }
 
-const SIGN_OFF = 'If anything changes, call or text me directly at {rep_phone}.'
+const SIGN_OFF = 'If anything changes, call or text our office at {company_phone}.'
 export const DEFAULT_MESSAGE_TEMPLATES: AppointmentMessageTemplates = {
   confirm: {
     estimate: `Hi {customer_first_name}, this is {rep_first_name} with {company_name}. You're all set for your fence estimate on {date_time} at {address}. ${SIGN_OFF}`,
@@ -58,7 +64,7 @@ export const DEFAULT_MESSAGE_TEMPLATES: AppointmentMessageTemplates = {
   },
   emailSubject: 'Your {appointment_type} with {company_name}',
   onMyWay: "Hi {customer_first_name}, this is {rep_first_name} with {company_name}. I'm on my way and should be there in about {minutes} minutes. If you need me, call or text {rep_phone}.",
-  icsDescription: 'Your {appointment_type} with {company_name} at {address}. Questions or changes: call or text {rep_first_name} at {rep_phone}.',
+  icsDescription: 'Your {appointment_type} with {company_name} at {address}. Questions or changes: call or text our office at {company_phone}.',
 }
 
 /** Which confirmation an appointment type uses. */
@@ -187,6 +193,16 @@ export function repWarning(a: Pick<Appointment, 'assignedTo'> & { rep?: RepInfo 
     case 'no_login': return `${a.assignedTo} is not matched to a login in Settings > Team (the full name has to be the same), so the text gives the company number, ${num}.`
     case 'not_checked': return `Who this is with is checked once it reaches the server; until then the text gives the company number, ${num}.`
   }
+}
+
+/**
+ * Does what the Booked window offers (this kind's confirmation, the invite)
+ * give the person's own number? Only then does repWarning matter there: the
+ * default booking texts give the office line (#30).
+ */
+export function bookingUsesRepPhone(a: Pick<Appointment, 'type'>, ctx: Pick<MessageContext, 'templates'>): boolean {
+  const t = messageTemplates(ctx.templates)
+  return [t.confirm[confirmKindOf(a.type)], t.icsDescription].some(x => /\{\s*rep_phone\s*\}/.test(x))
 }
 
 type MessageAppointment = Pick<Appointment, 'customerName' | 'startAt' | 'allDay' | 'address' | 'type' | 'assignedTo'> & { rep?: RepInfo | null }

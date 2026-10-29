@@ -9,7 +9,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { setSavedKitSets, builtInKitSet, KIT_KINDS } from '../../web/src/materialKits'
 import {
-  priceMove, priceRepair, moveRepairSettings, blankSettings, seesCosts, newFenceBetter, styleRates, oldLine, postTypeOf,
+  priceMove, priceRepair, moveRepairSettings, latestRateChange, blankSettings, seesCosts, newFenceBetter, styleRates, oldLine, postTypeOf,
   DEFAULT_MOVE_REPAIR, toSavedWork, matchRisk, type WorkCommon, type MoveInputs,
 } from '../../web/src/moveRepair'
 import { calculateQuote, type QuoteStyle } from '../../web/src/quoteCalc'
@@ -57,6 +57,7 @@ describe('settings', () => {
     expect(s.pullNdLaborCents).toBeNull()
     expect(blankSettings(s)).toEqual([
       'Pull labor per post, no dig', 'Disposal per post, no dig', 'Pull labor per post, dig set (concrete)', 'Disposal per post, dig set (concrete)',
+      'Concrete footer disposal per post',
       "Repair Profit % (blank uses each style's Target Profit %)",
     ])
   })
@@ -189,6 +190,34 @@ describe('repair (spec 3)', () => {
     expect(cents(r, 'replaceGate:labor')).toBe(1500)
     expect(cents(r, 'haulDebris')).toBe(2 * 2700)
     expect(r.needs811).toBe(false)
+  })
+  test('concrete footer disposal (#31, Oct 29 2026): a count the salesman picks, per post at the Settings rate', () => {
+    const s = { ...SETTINGS, footerDisposalCents: 1500 }
+    const r = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { resetPost: 2, footerDisposal: 2 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    const l = r.lines.find(x => x.key === 'footerDisposal')!
+    expect(l).toMatchObject({ kind: 'disposal', cents: 3000, label: 'Concrete footer disposal (per post)', math: '2 posts × $15.00' })
+    expect(r.description).toContain('haul away 2 concrete footers')
+    expect(r.crew.some(c => c.startsWith('Concrete footer disposal (per post): 2.'))).toBe(true)
+    // Not picked: no line.
+    expect(priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { resetPost: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' }).lines.some(x => x.key === 'footerDisposal')).toBe(false)
+    // Rate blank: $0 and the missing rate warning, as the other per post rates.
+    const blank = priceRepair(common(style(WV)), { what: 'other', items: { footerDisposal: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    expect(blank.lines.find(x => x.key === 'footerDisposal')).toMatchObject({ cents: 0, missing: true })
+    expect(blank.warnings.some(w => w.includes('concrete footer disposal per post'))).toBe(true)
+  })
+  test('Jonathan\'s Oct 29 2026 rates: pull $10 + haul away $10 a post; a dig set post with its footer $35', () => {
+    const s = moveRepairSettings({ moveRepair: { pullNdLaborCents: 1000, pullNdDisposalCents: 1000, pullDsLaborCents: 1000, pullDsDisposalCents: 1000, footerDisposalCents: 1500 } })
+    const nd = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 3 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' })
+    expect([cents(nd, 'replacePost:pull'), cents(nd, 'replacePost:disposal')]).toEqual([3000, 3000])
+    const ds = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1, footerDisposal: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    expect(cents(ds, 'replacePost:pull') + cents(ds, 'replacePost:disposal') + cents(ds, 'footerDisposal')).toBe(3500)
+  })
+  test('the rate history is kept through Settings (effective dated)', () => {
+    const h = { effectiveFrom: '2026-10-29', rates: { footerDisposalCents: 1500 }, by: 'Jonathan' }
+    const s = moveRepairSettings({ moveRepair: { rateHistory: [h] } as any })
+    expect(s.rateHistory).toEqual([h])
+    expect(latestRateChange(s)).toEqual(h)
+    expect(latestRateChange(moveRepairSettings(null))).toBeNull()
   })
   test('the minimum does not apply over it, and a typed price under it stays but warns', () => {
     const big = priceRepair(common(style(WV)), { what: 'storm', items: { replaceSection: 6 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' })
