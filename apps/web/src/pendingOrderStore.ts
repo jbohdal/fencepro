@@ -166,7 +166,7 @@ export function updatePendingOrderItem(orderId: string, itemId: string, updates:
 // Routes through inventoryStore (Phase 6) so reservations sync to the cloud
 // instead of being local to one browser.
 
-import { getInventory as storeGetInventory, saveInventory as storeSaveInventory } from './inventoryStore'
+import { getInventory as storeGetInventory, saveInventory as storeSaveInventory, isInventoryHydrated } from './inventoryStore'
 
 interface InventoryItem { id: string; name: string; quantity?: number; reservedQty?: number }
 
@@ -198,6 +198,26 @@ function deductInventoryForOrder(order: PendingOrder) {
     }
   }
   saveInventory(inv)
+}
+
+const sameName = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
+
+/**
+ * What Mark Received does to the stock counts, in plain words, for its toast
+ * (review Oct 28 2026: it said "Inventory deducted."). deductInventoryForOrder
+ * lowers the count on hand of each Inventory part with the same name as a
+ * line, by that line's quantity (never below 0), and frees what the line held
+ * reserved. A line with no such part changes nothing; neither does Inventory
+ * not loaded yet (nothing is saved before it loads). Read before the order is
+ * marked.
+ */
+export function receivedStockWords(order: PendingOrder): string {
+  if (!isInventoryHydrated()) return 'Inventory has not loaded on this screen, so no stock count changed.'
+  const inv = getInventory()
+  const lines = order.items.length
+  const n = order.items.filter(oi => inv.some(i => sameName(i.name, oi.itemName))).length
+  if (!n) return `None of its ${lines === 1 ? 'part is' : `${lines} parts are`} in Inventory, so no stock count changed.`
+  return `In Inventory, the count on hand of ${n === lines ? (n === 1 ? 'its part' : `all ${n} of its parts`) : `${n} of its ${lines} parts`} went down by the quantity on this order.`
 }
 
 /** For a given order, list items that lack sufficient inventory. */

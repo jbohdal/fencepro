@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   usePendingOrders,
   getPendingOrders, updatePendingOrderStatus, deletePendingOrder,
-  updatePendingOrderItem, checkStockForOrder,
+  updatePendingOrderItem, checkStockForOrder, receivedStockWords,
   type PendingOrder, type PendingOrderStatus,
 } from './pendingOrderStore'
 import { toast } from './toast'
@@ -30,6 +30,11 @@ const STATUS_COLORS: Record<PendingOrderStatus, string> = {
   received: 'bg-green-100 text-green-700',
   cancelled: 'bg-gray-100 text-gray-500',
 }
+/** A status as the page says it: "Pending", "Ordered" (the filter buttons' words). */
+const STATUS_WORDS: Record<PendingOrderStatus, string> = { pending: 'Pending', ordered: 'Ordered', received: 'Received', cancelled: 'Cancelled' }
+
+/** The Sales Order's buttons: the size and shape of the draft's (44 px tall, for a phone), each in its color. */
+const BTN = 'text-sm px-3 py-2 rounded-lg min-h-[44px]'
 
 export default function PendingOrdersPage() {
   const [bump, setBump] = useState(0)
@@ -60,8 +65,10 @@ export default function PendingOrdersPage() {
 
   function advance(order: PendingOrder, to: PendingOrderStatus) {
     try {
+      // What Mark Received does to the stock counts, read before it does it.
+      const stock = to === 'received' ? receivedStockWords(order) : undefined
       updatePendingOrderStatus(order.id, to)
-      toast.success(`Order marked ${to}`, to === 'received' ? 'Inventory deducted.' : undefined)
+      toast.success(`Order marked ${STATUS_WORDS[to]}`, stock)
       reload()
     } catch (err: any) {
       toast.error('Could not update order', err?.message || 'Unknown error.')
@@ -188,7 +195,7 @@ export default function PendingOrdersPage() {
                       <p className="text-[10px] text-gray-400 mt-0.5">{new Date(o.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="text-right">
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[o.status]}`}>{o.status}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[o.status]}`} data-order-status={o.status}>{STATUS_WORDS[o.status] ?? o.status}</span>
                       <p className="text-sm font-bold text-gray-900 mt-1">{costText(o.totalCostCents)}</p>
                     </div>
                   </div>
@@ -208,8 +215,10 @@ export default function PendingOrdersPage() {
           ) : selected ? (
             <OrderDetail order={selected} onAdvance={advance} onRemove={remove} />
           ) : (
-            <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-gray-400 text-sm">
-              Select a pending order on the left to view line items and advance its status.
+            <div className="bg-white rounded-2xl border border-gray-200 p-8 lg:p-12 text-center text-gray-400 text-sm" data-orders-pick>
+              {/* On a phone the list is above; on a computer, to the left. */}
+              <span className="lg:hidden">Tap an order above to see its parts and mark it Ordered or Received.</span>
+              <span className="hidden lg:inline">Select an order on the left to see its parts and mark it Ordered or Received.</span>
             </div>
           )}
         </div>
@@ -249,7 +258,7 @@ function OrderDetail({ order, onAdvance, onRemove }: {
             {/* Why it was cancelled, when a deletion cancelled it (portal lib/deletion.ts), and any other note. */}
             {order.notes?.trim() && <p className="text-xs text-gray-700 mt-2 whitespace-pre-line break-words" data-order-notes>{order.notes}</p>}
           </div>
-          <span className={`text-[10px] font-bold px-3 py-1 rounded-full ${STATUS_COLORS[order.status]}`}>{order.status}</span>
+          <span className={`shrink-0 text-[10px] font-bold px-3 py-1 rounded-full ${STATUS_COLORS[order.status]}`} data-order-detail-status={order.status}>{STATUS_WORDS[order.status] ?? order.status}</span>
         </div>
       </div>
 
@@ -299,18 +308,18 @@ function OrderDetail({ order, onAdvance, onRemove }: {
         </table>
       </div>
 
-      <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap gap-2 justify-end">
-        <button onClick={printPullSheet} className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg">Print Pull Sheet</button>
+      <div className="px-4 sm:px-6 py-4 border-t border-gray-100 flex flex-wrap gap-2 justify-end" data-order-actions>
+        <button type="button" onClick={printPullSheet} className={`${BTN} bg-gray-100 hover:bg-gray-200 text-gray-700`}>Print Pull Sheet</button>
         {order.status === 'pending' && (
-          <button onClick={() => onAdvance(order, 'ordered')} className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg">Mark Ordered</button>
+          <button type="button" onClick={() => onAdvance(order, 'ordered')} className={`${BTN} bg-blue-600 hover:bg-blue-700 text-white`}>Mark Ordered</button>
         )}
         {order.status === 'ordered' && (
-          <button onClick={() => onAdvance(order, 'received')} className="text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg">Mark Received</button>
+          <button type="button" onClick={() => onAdvance(order, 'received')} className={`${BTN} bg-green-600 hover:bg-green-700 text-white`}>Mark Received</button>
         )}
         {order.status !== 'cancelled' && order.status !== 'received' && (
-          <button onClick={() => onAdvance(order, 'cancelled')} className="btn btn-secondary">Cancel order</button>
+          <button type="button" onClick={() => onAdvance(order, 'cancelled')} className={`${BTN} bg-gray-100 hover:bg-gray-200 text-gray-700`}>Cancel order</button>
         )}
-        {can('records.delete') && <button onClick={() => onRemove(order)} className="text-sm text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg">Delete</button>}
+        {can('records.delete') && <button type="button" onClick={() => onRemove(order)} className={`${BTN} text-red-600 hover:bg-red-50`}>Delete</button>}
       </div>
     </div>
   )
