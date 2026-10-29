@@ -164,3 +164,23 @@ export function jobRowTarget(o: { jobId: string; canOpenOperations: boolean }): 
   if (o.canOpenOperations) return { kind: 'operations', path: `/operations?job=${encodeURIComponent(o.jobId)}` }
   return { kind: 'job', path: `/job?id=${encodeURIComponent(o.jobId)}` }
 }
+
+/** The app's screens (App.tsx), as a back link names them: "Back to quotes". */
+const SCREEN_NAMES = new Set(['accounts payable', 'appointments', 'audit log', 'automations', 'balance sheet', 'billing', 'budget', 'customer', 'customers',
+  'dashboard', 'dispatch', 'ez budget', 'feedback', 'follow ups', 'integrations', 'inventory', 'jobs', 'my installs', 'operations', 'p&l statement', 'portal',
+  'quotes', 'reports', 'schedule', 'service', 'settings', 'site plans', 'staging', 'team', 'today', 'vendors', 'visits'])
+
+/**
+ * The words of a back link: "Back to quotes" for a screen, "Back to pipeline" for the Sales Pipeline; a customer
+ * by name as stored ("Back to Manuel Cotrich"; a name stored all in small letters gets capitals), and
+ * "Back to Quote #aaa8eb" (review Oct 28 2026: "Back to manuel cotrich", "Back to quote #aaa8eb").
+ */
+export function backLinkWords(from: string | null | undefined): string {
+  const f = (from ?? '').replace(/\s+/g, ' ').trim()
+  if (!f) return 'Back'
+  if (f === 'Sales Pipeline') return 'Back to pipeline'
+  if (SCREEN_NAMES.has(f.toLowerCase())) return `Back to ${f.toLowerCase()}`
+  if (/^quote #/i.test(f)) return `Back to Quote #${f.slice(7)}`
+  const named = f === f.toLowerCase() ? f.replace(/(^|[\s'-])(\p{L})/gu, (_m, sep: string, ch: string) => sep + ch.toUpperCase()) : f
+  return `Back to ${named}`
+}

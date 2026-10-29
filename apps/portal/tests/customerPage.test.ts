@@ -6,8 +6,25 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
-  CUSTOMER_TABS, CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents,
+  CUSTOMER_TABS, CUSTOMER_TAB_LABEL, asCustomerTab, customerTabsFor, shownCustomerTab, withTab, openQuotesOf, balanceDueCents, backLinkWords,
 } from '../../web/src/customerPage'
+
+describe('back links (review Oct 28 2026: "Back to manuel cotrich", "Back to quote #aaa8eb")', () => {
+  test('a screen in small letters; the pipeline by its short name', () => {
+    expect(backLinkWords('Quotes')).toBe('Back to quotes')
+    expect(backLinkWords('Follow ups')).toBe('Back to follow ups')
+    expect(backLinkWords('Sales Pipeline')).toBe('Back to pipeline')
+    expect(backLinkWords('Inventory')).toBe('Back to inventory')
+    expect(backLinkWords(undefined)).toBe('Back')
+  })
+  test('a customer by name as stored, capitals added to a name stored in small letters; a quote as Quote #', () => {
+    expect(backLinkWords('Manuel Cotrich')).toBe('Back to Manuel Cotrich')
+    expect(backLinkWords('manuel cotrich')).toBe('Back to Manuel Cotrich')
+    expect(backLinkWords("mary-jo o'neil")).toBe("Back to Mary-Jo O'Neil")
+    expect(backLinkWords('DeShawn McRae')).toBe('Back to DeShawn McRae')
+    expect(backLinkWords('Quote #aaa8eb')).toBe('Back to Quote #aaa8eb')
+  })
+})
 
 describe('customer page tabs', () => {
   test('most used first: Activity, Quotes, Jobs, then the rest, Portal and Details last', () => {
