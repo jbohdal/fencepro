@@ -9,6 +9,14 @@
  *   PUT  /api/kv/:key     → { value, baseVersion } upsert; value null deletes the key.
  *                           Refused with the current value when baseVersion is not
  *                           the key's current version (0 for a key that is not there).
+ *
+ * The Salesman (lib/salesScopeRecords.ts; Jonathan, Oct 28 2026): in the keys
+ * kept per customer (the customer activity log, quote share links, job costing
+ * lines, the old change orders, imported quotes) the entries of other people's
+ * customers, jobs and quotes are left out of every answer and put back exactly
+ * as stored on every save; one sent for someone else's is refused (404). The
+ * duplicate check's lists (customers' phones) are not sent to the Salesman.
+ * Site plans and their files stay company wide (Jonathan's word).
  */
 
 import { Router } from 'express'
@@ -24,6 +32,8 @@ import { OPS_STAGES_KEY } from '../lib/opsStages.js'
 import { PIPELINE_STAGES_KEY } from '../lib/pipelineStages.js'
 import { OPTION_LIST_KEY } from '../lib/optionLists.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
+import { salesScopeOf, salesScope, forgetScope } from '../lib/salesScope.js'
+import { salesKvView, salesKvValue, KV_NOT_FOR_SALESMAN, OutsideScopeError } from '../lib/salesScopeRecords.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -70,7 +80,12 @@ router.get('/', async (req: any, res) => {
     const versions: Record<string, number> = {}
     // Job costing (actual costs) and supplier prices are costs: not for a Salesman or Installer (lib/costRedact.ts).
     const hide = hidesCosts(roleOf(req)) ? KV_COST_KEYS : new Set<string>()
-    for (const r of rows) { if (hide.has(r.key) || isServerOnlyKey(r.key)) continue; out[r.key] = r.value; versions[r.key] = r.version }
+    const scope = await salesScopeOf(req)
+    for (const r of rows) {
+      if (hide.has(r.key) || isServerOnlyKey(r.key) || (scope && KV_NOT_FOR_SALESMAN(r.key))) continue
+      out[r.key] = scope ? salesKvView(scope, r.key, r.value) : r.value
+      versions[r.key] = r.version
+    }
     res.json({ success: true, data: out, versions })
   } catch (err) {
     console.error('[kv] list error:', err)
@@ -83,7 +98,7 @@ router.put('/:key', async (req: any, res) => {
   if (!KEY_PATTERN.test(key)) { res.status(400).json({ success: false, error: 'Invalid key' }); return }
   if (isServerOnlyKey(key)) { res.status(403).json({ success: false, error: 'This setting is kept on the server.' }); return }
   if (!req.body || !('value' in req.body)) { res.status(400).json({ success: false, error: 'value is required' }); return }
-  const value = req.body.value
+  let value = req.body.value
   const base = baseVersionOf(req.body)
   if (base === null) { refuseUnversioned(res); return }
   const accountId = req.user.crmAccountId
@@ -91,6 +106,24 @@ router.put('/:key', async (req: any, res) => {
     const where = { accountId_key: { accountId, key } }
     // Settings and price lists are for the owner, admin and manager; removing files or site plans is deleting them.
     const saved = await prisma.accountKeyValue.findUnique({ where })
+    // The Salesman: every answer (a refusal's or a 409's value) as the Salesman reads it; what the Salesman's
+    // copy left out is put back exactly as stored before the save.
+    let scope = await salesScopeOf(req)
+    if (scope) {
+      const json = res.json.bind(res)
+      res.json = (body: any) => json(scope && body && typeof body === 'object' && 'data' in body ? { ...body, data: salesKvView(scope, key, body.data) } : body)
+      if (KV_NOT_FOR_SALESMAN(key)) { res.status(404).json({ success: false, error: 'Not found' }); return }
+      try { value = salesKvValue(scope, key, saved ? saved.value : null, value ?? null) } catch (e) {
+        if (!(e instanceof OutsideScopeError)) throw e
+        // Maybe a customer, quote or job made a moment ago: read the scope again once before refusing.
+        forgetScope(scope.userId)
+        scope = await salesScope(scope.userId, scope.accountId)
+        try { if (!scope) throw e; value = salesKvValue(scope, key, saved ? saved.value : null, value ?? null) } catch (e2) {
+          if (!(e2 instanceof OutsideScopeError)) throw e2
+          res.status(404).json({ success: false, error: 'Not found' }); return
+        }
+      }
+    }
     const refused = kvChangeRefusal(roleOf(req), key, saved ? saved.value : null, value ?? null)
     if (refused) { refuse(res, refused, { data: saved ? saved.value : null, version: saved?.version ?? 0 }); return }
     // Operations stages change only through /api/ops-stages, which makes sure no stage in use disappears.
