@@ -75,18 +75,24 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman choice (dev databas
     return call('POST', '/api/crm-contacts', token, { id: cid, firstName, lastName: tag, ...extra, lead: { id: `${tag}-k-${firstName}`, stage: 'new_lead', firstName, lastName: tag, assignedRep: (extra as any).salesRep ?? '' } })
   }
 
-  test('the choices: the owner, then each Salesman by name; the person entering marked; the office added as itself; who may change it', async () => {
+  test('the choices: the owner, then each Salesman by name; the person entering marked; where it starts (D4: the office on the owner); who may change it', async () => {
     const o = (await call('GET', '/api/crm-contacts/salesmen', owner)).json.data
     expect(o.choices.map((c: any) => c.name)).toEqual([`Olive ${tag}`, `Sally ${tag}`, `Sam ${tag}`])
     expect(o.choices.filter((c: any) => c.me).map((c: any) => c.name)).toEqual([`Olive ${tag}`])
+    expect(o.preselect).toBe(`Olive ${tag}`)
+    expect(o.choices.filter((c: any) => c.preselected).map((c: any) => c.name)).toEqual([`Olive ${tag}`])
     expect(o.canChange).toBe(true)
+    // D4 (Oct 29 2026): "Office entries default to me, and the Salesman choice lets the office pick someone else."
     const f = (await call('GET', '/api/crm-contacts/salesmen', office)).json.data
-    expect(f.choices.map((c: any) => c.name)).toEqual([`Olive ${tag}`, `Sally ${tag}`, `Sam ${tag}`, `Opal ${tag}`])
-    expect(f.choices.find((c: any) => c.me).name).toBe(`Opal ${tag}`)
+    expect(f.choices.map((c: any) => c.name)).toEqual([`Olive ${tag}`, `Sally ${tag}`, `Sam ${tag}`])
+    expect(f.choices.some((c: any) => c.me)).toBe(false)
+    expect(f.preselect).toBe(`Olive ${tag}`)
+    expect(f.choices.filter((c: any) => c.preselected).map((c: any) => c.name)).toEqual([`Olive ${tag}`])
     expect(f.canChange).toBe(true)
     const s = (await call('GET', '/api/crm-contacts/salesmen', sally))
     expect(s.status).toBe(200)
     expect(s.json.data.choices.find((c: any) => c.me).name).toBe(`Sally ${tag}`)
+    expect(s.json.data.preselect).toBe(`Sally ${tag}`)
     expect(s.json.data.canChange).toBe(false)
   })
 
@@ -102,13 +108,20 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman choice (dev databas
     expect(board.leads.find((l: any) => l.customerId === id.gina).assignedRep).toBe(`Sally ${tag}`)
   })
 
-  test('no Salesman sent: whoever enters it (the owner, the office); the CSV import keeps it blank', async () => {
+  test('no Salesman sent: the owner\'s own and the office\'s go to the owner (D4), the Salesman\'s to the Salesman; the CSV import keeps it blank', async () => {
     const byOwner = await newLead(owner, 'Hal')
     expect(byOwner.json.data.salesRep).toBe(`Olive ${tag}`)
     const board = await prisma.pipelineState.findUnique({ where: { accountId } }) as any
     expect(board.leads.find((l: any) => l.customerId === byOwner.json.data.id).assignedRep).toBe(`Olive ${tag}`)
     const byOffice = await newLead(office, 'Ike')
-    expect(byOffice.json.data.salesRep).toBe(`Opal ${tag}`)
+    expect(byOffice.json.data.salesRep).toBe(`Olive ${tag}`)
+    const board2 = await prisma.pipelineState.findUnique({ where: { accountId } }) as any
+    expect(board2.leads.find((l: any) => l.customerId === byOffice.json.data.id).assignedRep).toBe(`Olive ${tag}`)
+    // The office picks someone else: that one is kept.
+    const picked = await newLead(office, 'Ivy', { salesRep: `Sam ${tag}` })
+    expect(picked.json.data.salesRep).toBe(`Sam ${tag}`)
+    const bySally = await newLead(sally, 'Iris')
+    expect(bySally.json.data.salesRep).toBe(`Sally ${tag}`)
     const imported = await call('POST', '/api/crm-contacts', owner, { id: crypto.randomUUID(), firstName: 'Jo', lastName: tag, keepRepBlank: true })
     expect(imported.json.data.salesRep ?? null).toBeNull()
   })

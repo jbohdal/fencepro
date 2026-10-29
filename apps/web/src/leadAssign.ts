@@ -12,6 +12,7 @@ import { sendJson } from './syncHttp'
 import { signedInRole } from './permissions'
 import { refreshPipeline } from './pipelineStore'
 import { refreshCustomers } from './customerStore'
+import { refreshQuotes } from './quoteStore'
 
 export interface WaitingLead {
   customerId: string
@@ -46,7 +47,8 @@ export async function loadLead(customerId: string): Promise<{ ok: true; lead: Wa
 }
 
 export type AssignResult =
-  | { ok: true; assignedTo: string; already: boolean }
+  /** quotesMoved: how many of the customer's open quotes went with them (portal lib/quotesFollowCustomer.ts). */
+  | { ok: true; assignedTo: string; already: boolean; quotesMoved: number }
   | { ok: false; taken?: LeadRep; error: string }
 
 /** Assign one lead. `replace`: the answer yes to "Already assigned to X". */
@@ -54,10 +56,11 @@ export async function assignLead(customerId: string, to: string, replace = false
   const r = await sendJson('POST', `/api/lead-assign/${encodeURIComponent(customerId)}`, { to, ...(replace ? { replace: true } : {}) })
   if (r.result.ok) {
     window.dispatchEvent(new Event(LEADS_ASSIGNED_EVENT))
-    // The card and the customer now carry the rep: read them again so this phone shows it.
+    // The card, the customer and the customer's open quotes now carry the rep: read them again so this phone shows it.
     void refreshPipeline()
     void refreshCustomers()
-    return { ok: true, assignedTo: r.json.data.assignedTo, already: !!r.json.data.already }
+    void refreshQuotes()
+    return { ok: true, assignedTo: r.json.data.assignedTo, already: !!r.json.data.already, quotesMoved: Number(r.json.data.quotesMoved) || 0 }
   }
   if (r.status === 409 && r.json?.code === 'ALREADY_ASSIGNED') return { ok: false, taken: r.json.rep, error: r.json.error }
   return { ok: false, error: r.status === 0 ? 'No signal right now. Nothing was assigned; try again.' : (r.json?.error || 'Could not assign the lead.') }

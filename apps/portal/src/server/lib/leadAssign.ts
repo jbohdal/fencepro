@@ -20,6 +20,8 @@
  *     load. A note on the customer's History says who assigned it, to whom
  *     and when. A lead already assigned to someone else is not changed
  *     without saying so first (409 ALREADY_ASSIGNED; the screen asks).
+ *     The customer's open quotes (and their commission) move with it; sold
+ *     ones stay with whoever sold them (lib/quotesFollowCustomer.ts).
  *   - Only the owner, admin, manager and office assign. Not the Salesman.
  *   - Until assigned, the lead is on the waiting list the owner's Dashboard,
  *     Today and Sales Pipeline show at the top, whether or not the push
@@ -35,6 +37,7 @@ import { applyPipelineDelta } from './pipelineDelta.js'
 import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
 import { moveCallbacks } from './leadCallback.js'
 import type { PushMessage, PushResult } from './automations/push.js'
+import { moveOpenQuotes, type MovedQuote } from './quotesFollowCustomer.js'
 
 /** Roles that may assign a lead: the owner, admin, manager and office. Never the Salesman or the Installer. */
 export const ASSIGNER_ROLES = new Set(['super_admin', 'admin', 'manager', 'office_staff'])
@@ -302,7 +305,7 @@ export async function leadForAssign(accountId: string, contactId: string): Promi
 // ── Assign ──────────────────────────────────────────────────────────────────
 
 export type AssignAnswer =
-  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null; callbackIds: string[] }
+  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null; callbackIds: string[]; quotesMoved: MovedQuote[] }
   | { ok: false; status: number; code: string; error: string; rep?: LeadRep }
 
 /**
@@ -326,9 +329,11 @@ export async function assignLead(input: { accountId: string; contactId: string; 
     await prisma.crmContact.updateMany({ where: { id: contactId, accountId, OR: [{ salesRep: null }, { salesRep: '' }] }, data: { salesRep: target.name } })
     // Its open call back too (D7, lib/leadCallback.ts), in case it was booked with someone else.
     const callbackIds = await moveCallbacks(accountId, contactId, target)
-    for (const p of callbackIds.length ? people : [target]) forgetScope(p.id)
+    // Open quotes left with someone else (before quotes moved with the customer) come along too (lib/quotesFollowCustomer.ts).
+    const quotesMoved = await moveOpenQuotes({ accountId, contactId, toRep: target.name, by: input.by })
+    for (const p of callbackIds.length || quotesMoved.length ? people : [target]) forgetScope(p.id)
     const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-    return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds }
+    return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved }
   }
   if (current && !input.replace) {
     const who = current.by ? ` by ${current.by}` : ''
@@ -350,10 +355,12 @@ export async function assignLead(input: { accountId: string; contactId: string; 
       createdBy: input.by.name, createdById: input.by.id,
     },
   })
+  // The customer's open quotes and their commission go with the customer; sold ones stay (lib/quotesFollowCustomer.ts).
+  const quotesMoved = await moveOpenQuotes({ accountId, contactId, toRep: target.name, by: input.by })
   // The Salesman's next request reads the scope again: this lead is in it (and out of the one it left).
   for (const p of people) forgetScope(p.id)
   const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds }
+  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved }
 }
 
 /**
@@ -361,7 +368,7 @@ export async function assignLead(input: { accountId: string; contactId: string; 
  * lost card keeps who had it). A versioned save like any other, tried again
  * when a browser saved in between. Null when the board stayed busy.
  */
-async function setCardsRep(accountId: string, contactId: string, rep: string): Promise<string[] | null> {
+export async function setCardsRep(accountId: string, contactId: string, rep: string): Promise<string[] | null> {
   const stages = await loadPipelineStages(accountId).then(s => s.stages).catch(() => [])
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await prisma.pipelineState.findUnique({ where: { accountId } })

@@ -2,7 +2,8 @@
  * A customer's Salesman on the customer page (Jonathan, Oct 28 2026: "I can
  * change a customer's salesman anytime from the customer page"). The owner,
  * admin, manager and office change it here: the same save as a lead's Assign
- * (portal lib/leadAssign.ts), so the customer and their open cards both move,
+ * (portal lib/leadAssign.ts), so the customer, their open cards and their
+ * open quotes (with their commission; portal lib/quotesFollowCustomer.ts) move,
  * the History says who changed it, and the new Salesman has the customer on
  * the next screen load while the old one no longer does. The Salesman sees
  * who it is and that only the owner or the office change it.
@@ -40,9 +41,12 @@ export default function SalesmanOnCustomer({ customerId, salesRep }: { customerI
     if (!r.ok) { setError(r.error); return }
     setOpen(false)
     const was = current && !sameName(current, r.assignedTo) ? current : ''
+    const n = r.quotesMoved
+    // Open quotes (and their commission) go with the customer; sold ones stay with whoever sold them (portal lib/quotesFollowCustomer.ts).
+    const quotes = n ? ` ${n === 1 ? 'Their open quote is' : `Their ${n} open quotes are`} ${r.assignedTo}'s now too; sold jobs stay with whoever sold them.` : ''
     setDone(was
-      ? `${r.assignedTo} is the Salesman now and sees this customer. ${was} no longer does, unless ${was} made one of their quotes or has a visit booked with them.`
-      : `${r.assignedTo} is the Salesman.`)
+      ? `${r.assignedTo} is the Salesman now and sees this customer.${quotes} ${was} no longer does, unless ${was} made one of their quotes or has a visit booked with them.`
+      : `${r.assignedTo} is the Salesman.${quotes}`)
   }
 
   return (

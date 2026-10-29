@@ -32,6 +32,7 @@ import {
 } from './followUpRules.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { ASSIGN_NOTE_PREFIX } from './salesRep.js'
+import { QUOTES_MOVED_NOTE_PREFIX } from './quotesFollowCustomer.js'
 import { followUpStagesOf } from './pipelineStageModel.js'
 import { openedForCard, longestOption, optionWords, viewHistoryItem, type Opened } from './proposalViewRules.js'
 
@@ -604,7 +605,7 @@ export async function customerHistory(accountId: string, opts: { customerId?: st
     const users = notes.length ? await prisma.crmUser.findMany({ where: { crmAccountId: accountId }, select: { id: true, email: true, firstName: true, lastName: true } }) : []
     for (const n of notes) {
       const author = noteAuthorName(n, users)
-      items.push({ at: n.createdAt.toISOString(), kind: 'note', title: n.body.startsWith(ASSIGN_NOTE_PREFIX) ? 'Lead assigned' : 'Note', detail: plainSideWords(n.body), by: author })
+      items.push({ at: n.createdAt.toISOString(), kind: 'note', title: n.body.startsWith(ASSIGN_NOTE_PREFIX) ? 'Lead assigned' : n.body.startsWith(QUOTES_MOVED_NOTE_PREFIX) ? 'Quotes moved' : 'Note', detail: plainSideWords(n.body), by: author })
     }
     for (const a of appts) {
       const when = a.startAt ? a.startAt.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'no date yet'
