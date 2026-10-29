@@ -588,7 +588,8 @@ export default function QuotesPage({
 
   return (
     <div>
-      {/* Phone: the page's primary action (the header buttons are for the computer). */}
+      {/* One "+ New quote" on every screen size: this one on the phone, the header's from a tablet up
+          (review Oct 28 2026: the filter bar had a second one). */}
       <button onClick={onNewQuote} className="btn btn-primary w-full md:hidden mb-4">+ New quote</button>
       <PipelineAnalytics quotes={statsQuotes} rep={myName || undefined} repQuotes={isSalesman ? repQuotes : undefined} />
 
@@ -621,9 +622,6 @@ export default function QuotesPage({
             >{c}</button>
           ))}
         </div>
-        <button onClick={onNewQuote} className="btn btn-primary w-full lg:w-auto lg:ml-auto">
-          + New Quote
-        </button>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
