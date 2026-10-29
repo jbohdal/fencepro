@@ -35,6 +35,7 @@ import { followUpMorningPush } from '../followUps.js'
 import { proposalOpenedSweep } from '../proposalViews.js'
 import { closeFinishedTasks } from '../taskAutoClose.js'
 import { locatesClearSweep } from '../waitingStageMove.js'
+import { leadRepushSweep } from '../leadRepush.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
 import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../notificationService.js'
 import type { AutomationEvent, AutomationRule, AutomationRun } from '@prisma/client'
@@ -593,6 +594,12 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
         // A job waiting on its 811 locate moves on the day the locate becomes Clear to dig, once (lib/waitingStageMove.ts).
         try { await locatesClearSweep(now) } catch (err) { console.error('[automations] locate clear sweep:', err) }
       }
+    }
+    // A lead still not assigned: one push again 2 hours after it came in, one at 8 am the next day (lib/leadRepush.ts).
+    // Every pass (30 seconds), not only every 5 minutes, so the push is on time; each is written down, so never twice.
+    // Not on a test's pass (scan: false or sweeps: false): it would push about the dev copy's real leads.
+    if (opts.sweeps !== false && opts.scan !== false) {
+      try { await leadRepushSweep(now) } catch (err) { console.error('[automations] lead repeat push:', err) }
     }
     for (let guard = 0; guard < 20; guard++) {
       const events = await prisma.automationEvent.findMany({ where: { processedAt: null }, orderBy: { occurredAt: 'asc' }, take: 100 })

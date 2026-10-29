@@ -46,6 +46,8 @@ self.addEventListener('push', e => {
     body: d.body || '', tag: d.tag || undefined, data: { url: d.url || '/', assign: d.assign || null },
     icon: '/icon-192.png', badge: '/icon-192.png',
     ...(actions.length ? { actions } : {}),
+    // A lead's repeat push (portal lib/leadRepush.ts) sounds again though its first push is still showing.
+    ...(d.renotify && d.tag ? { renotify: true } : {}),
   }))
 })
 
