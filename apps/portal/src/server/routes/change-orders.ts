@@ -43,9 +43,45 @@ import { safeSvg } from './proposal.js'
 import { changeOrderPhonesFor } from '../lib/signedDocuments.js'
 import { pickListFor, pickPriceFor } from '../lib/changeOrderPicks.js'
 import { askForOk, okGiven } from '../lib/changeOrderNotices.js'
+import { salesScopeOf, refusedOutsideSalesScope, forgetScope, scopeFor } from '../lib/salesScope.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
+
+/**
+ * The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026): only the change
+ * orders of the Salesman's own and assigned quotes. The list leaves the rest
+ * out; a quote or job named outside the scope, or a change order on one, is a
+ * 404. (The job history below checks its job itself.)
+ */
+router.use(async (req: any, res, next) => {
+  try {
+    const scope = await salesScopeOf(req)
+    if (!scope) { next(); return }
+    const first = String(req.path || '/').split('/').filter(Boolean)[0]
+    if (first === 'timeline') { next(); return }
+    const q = (k: string) => (typeof req.query[k] === 'string' && req.query[k] ? String(req.query[k]) : null)
+    const b = (k: string) => (typeof req.body?.[k] === 'string' && req.body[k] ? String(req.body[k]) : null)
+    if (await refusedOutsideSalesScope(req, res, { quotes: [q('quoteId'), b('quoteId')], jobs: [q('jobId'), b('jobId')] })) return
+    if (first && !['start', 'pick-list', 'pick-price'].includes(first)) {
+      const co = await prisma.changeOrder.findFirst({ where: { id: first, accountId: req.user.crmAccountId }, select: { quoteId: true } })
+      if (co && await refusedOutsideSalesScope(req, res, { quotes: co.quoteId })) return
+    }
+    if (!first && req.method === 'POST' && b('id')) {
+      // A retried make that names someone else's change order answers as if it were not there.
+      const co = await prisma.changeOrder.findFirst({ where: { id: b('id')!, accountId: req.user.crmAccountId }, select: { quoteId: true } })
+      if (co && await refusedOutsideSalesScope(req, res, { quotes: co.quoteId })) return
+    }
+    if (!first && req.method === 'GET') {
+      // Read fresh for the list: the scope is kept a few seconds, and a quote made since then would be left out.
+      forgetScope(scope.userId)
+      const fresh = (await scopeFor(scope.userId, scope.accountId)) ?? scope
+      const json = res.json.bind(res)
+      res.json = (body: any) => (Array.isArray(body?.data) ? json({ ...body, data: body.data.filter((c: any) => fresh.quoteIds.has(c?.quoteId)) }) : json(body))
+    }
+    next()
+  } catch (e) { next(e) }
+})
 
 const lineSchema = z.object({
   id: z.string().min(1).max(64),

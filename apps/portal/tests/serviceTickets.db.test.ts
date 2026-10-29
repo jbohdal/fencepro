@@ -68,9 +68,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty and service requests (d
     // The owner of this throwaway company is told when photos arrive.
     const u = await prisma.crmUser.create({ data: { email: `e2e-service-owner-${stamp}@example.com`, firstName: 'E2E', lastName: 'Owner', role: 'super_admin', status: 'active', crmAccountId: accountId, passwordHash: 'x' } as any })
     ownerEmail = u.email
-    const sign = (role: string) => jwt.sign({ sub: role === 'super_admin' ? u.id : owner.id, email: role === 'super_admin' ? u.email : owner.email, role, firstName: 'E2E', lastName: role, crmAccountId: accountId }, secret, { expiresIn: '15m' })
+    // The Salesman is a login of this company, and Pat is the Salesman's customer: the Salesman sees only the
+    // Salesman's own customers' requests (lib/salesScope.ts; Jonathan, Oct 28 2026).
+    const salesman = await prisma.crmUser.create({ data: { email: `e2e-service-salesman-${stamp}@example.com`, firstName: 'Sue', lastName: `Sells ${stamp}`, role: 'sales_rep', status: 'active', crmAccountId: accountId, passwordHash: 'x' } as any })
+    const who = (role: string) => (role === 'super_admin' ? u : role === 'sales_rep' ? salesman : owner)
+    const sign = (role: string) => jwt.sign({ sub: who(role).id, email: who(role).email, role, firstName: 'E2E', lastName: role, crmAccountId: accountId }, secret, { expiresIn: '15m' })
     for (const r of ['super_admin', 'office_staff', 'sales_rep', 'field_crew']) tokens[r] = sign(r)
-    const c = await prisma.crmContact.create({ data: { accountId, firstName: 'Pat', lastName: `Service ${stamp}`, phone: '3525550166', serviceAddress: '12 Service Way, Ocala, FL', textConsent: 'no' } })
+    const c = await prisma.crmContact.create({ data: { accountId, firstName: 'Pat', lastName: `Service ${stamp}`, phone: '3525550166', serviceAddress: '12 Service Way, Ocala, FL', textConsent: 'no', ownerId: salesman.id } })
     contactId = c.id
     const job = await prisma.savedJob.create({ data: { accountId, crmContactId: c.id, customerName: `Pat Service ${stamp}`, customerAddress: '12 Service Way, Ocala, FL', fenceStyle: "WV-ND 6'x8' Privacy", status: 'paid', completedDate: '2026-03-10', crewAssigned: 'Crew A', notes: 'SECRET JOB NOTE' } as any })
     jobId = job.id

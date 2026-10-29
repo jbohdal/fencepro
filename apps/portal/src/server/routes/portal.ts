@@ -87,6 +87,7 @@ import { plainStyleName } from '../lib/estimates.js'
 import { installDateOf, nyDay } from '../lib/warranties.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
 import { inboxFrom } from '../lib/portalInbox.js'
+import { salesScopeOf, refusedOutsideSalesScope } from '../lib/salesScope.js'
 import { permitStatusesOf } from '../lib/permitStatus.js'
 
 // File storage helpers
@@ -212,6 +213,7 @@ const inviteSchema = z.object({
 router.post('/invite', requireStaffSyncKey, async (req, res) => {
   try {
     const data = inviteSchema.parse(req.body)
+    if (await refusedOutsideSalesScope(req, res, { contacts: data.crmCustomerId })) return
     const now = new Date()
     const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
     const rawToken = generateRawToken()
@@ -793,9 +795,12 @@ router.post('/change-orders/:id/sign', requirePortalAuth, async (req: PortalAuth
 
 // ── Admin-list endpoint (requires CRM sync key) ──
 
-router.get('/accounts', requireStaffSyncKey, async (_req, res) => {
+router.get('/accounts', requireStaffSyncKey, async (req, res) => {
   try {
+    // The Salesman: the portal accounts of the Salesman's own and assigned customers only (lib/salesScope.ts).
+    const scope = await salesScopeOf(req)
     const accounts = await prisma.portalAccount.findMany({
+      where: scope ? { crmCustomerId: { in: [...scope.contactIds] } } : undefined,
       orderBy: { createdAt: 'desc' },
       take: 500,
     })
@@ -1153,6 +1158,7 @@ router.get('/documents', requirePortalAuth, async (req: PortalAuthRequest, res) 
 router.get('/customer/:customerId/documents', requireStaffSyncKey, async (req, res) => {
   try {
     const customerId = String(req.params.customerId)
+    if (await refusedOutsideSalesScope(req, res, { contacts: customerId })) return
     const files = await prisma.portalFile.findMany({
       where: { crmCustomerId: customerId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
@@ -1170,6 +1176,7 @@ router.post('/customer/:customerId/documents', requireStaffSyncKey, docUpload.si
     const file = (req as any).file as Express.Multer.File | undefined
     if (!file) { res.status(400).json({ success: false, error: 'NO_FILE' }); return }
     const customerId = String(req.params.customerId)
+    if (await refusedOutsideSalesScope(req, res, { contacts: customerId })) return
     // The screen's own id for this doc: sent twice, it is saved once.
     const rid = requestIdOf(req)
     const again = rid ? await prisma.portalFile.findUnique({ where: { id: rid } }) : null
@@ -1345,6 +1352,7 @@ router.get('/messages', requirePortalAuth, async (req: PortalAuthRequest, res) =
 router.get('/customer/:customerId/messages', requireStaffSyncKey, async (req, res) => {
   try {
     const customerId = String(req.params.customerId)
+    if (await refusedOutsideSalesScope(req, res, { contacts: customerId })) return
     const messages = await prisma.portalMessage.findMany({
       where: { crmCustomerId: customerId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
@@ -1367,6 +1375,7 @@ router.get('/customer/:customerId/messages', requireStaffSyncKey, async (req, re
 router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, res) => {
   try {
     const customerId = String(req.params.customerId)
+    if (await refusedOutsideSalesScope(req, res, { contacts: customerId })) return
     const { body, sender } = z.object({
       body: z.string().min(1).max(5000),
       sender: z.string().optional(),
@@ -1422,11 +1431,13 @@ router.post('/customer/:customerId/messages', requireStaffSyncKey, async (req, r
 })
 
 // Staff inbox — all customers with messages, sorted by most recent
-router.get('/messages/inbox', requireStaffSyncKey, async (_req, res) => {
+router.get('/messages/inbox', requireStaffSyncKey, async (req, res) => {
   try {
+    // The Salesman: the conversations of the Salesman's own and assigned customers only (lib/salesScope.ts).
+    const scope = await salesScopeOf(req)
     // Group by customer using two queries (simple + portable)
     const allMessages = await prisma.portalMessage.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(scope ? { crmCustomerId: { in: [...scope.contactIds] } } : {}) },
       orderBy: { createdAt: 'desc' },
       take: 1000,
     })

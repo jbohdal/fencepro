@@ -14,6 +14,7 @@ import prisma from '../lib/prisma.js'
 import { isStaffRequest, verifyStaffBearer } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireStaffCan } from '../lib/permissions.js'
+import { refusedOutsideSalesScope } from '../lib/salesScope.js'
 
 const router = Router()
 
@@ -138,6 +139,8 @@ const quoteSchema = z.object({
 router.post('/quotes', async (req, res) => {
   try {
     const data = quoteSchema.parse(req.body)
+    // The Salesman: only the Salesman's own and assigned quotes (lib/salesScope.ts).
+    if (await refusedOutsideSalesScope(req, res, { quotes: data.externalId })) return
     const account = await resolveSyncAccount(req, data.accountExternalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' })
@@ -183,6 +186,7 @@ const jobSchema = z.object({
 router.post('/jobs', async (req, res) => {
   try {
     const data = jobSchema.parse(req.body)
+    if (await refusedOutsideSalesScope(req, res, { quotes: data.externalId })) return
     const account = await resolveSyncAccount(req, data.accountExternalId)
     if (!account) {
       res.status(404).json({ success: false, error: 'Account not found' })

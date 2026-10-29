@@ -11,6 +11,7 @@ import crypto from 'crypto'
 import multer from 'multer'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
+import { salesScopeOf } from '../lib/salesScope.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { isUniqueViolation } from '../lib/once.js'
 import { requireUser, requireAccount } from './saved-quotes.js'
@@ -21,6 +22,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 
 const AUDIO = /^(audio|video)\/(webm|mp4|mpeg|ogg|wav|x-wav|aac|x-m4a|m4a|3gpp)/
 
 router.use(requireUser, requireAccount)
+
+/** The Salesman (lib/salesScope.ts): the clips the Salesman recorded, or on the Salesman's own and assigned quotes; null for every other login. */
+async function salesmanClips(req: any): Promise<any | null> {
+  const s = await salesScopeOf(req)
+  return s ? { OR: [{ userId: s.userId }, { quoteKey: { in: [...s.quoteIds] } }] } : null
+}
 
 router.get('/status', (_req, res) => { res.json({ success: true, data: transcriberReady() }) })
 
@@ -58,8 +65,9 @@ router.post('/clips', upload.single('audio'), async (req: any, res) => {
 
 router.get('/clips', async (req: any, res) => {
   const quoteKey = String(req.query.quoteKey || '')
+  const only = await salesmanClips(req)
   const list = await prisma.voiceClip.findMany({
-    where: { accountId: req.user.crmAccountId, ...(quoteKey ? { quoteKey } : {}) },
+    where: { accountId: req.user.crmAccountId, ...(quoteKey ? { quoteKey } : {}), ...(only ? { AND: [only] } : {}) },
     orderBy: { createdAt: 'asc' },
     select: { id: true, quoteKey: true, hint: true, status: true, transcript: true, error: true, appliedAt: true, createdAt: true, bytes: true },
   })
@@ -67,12 +75,14 @@ router.get('/clips', async (req: any, res) => {
 })
 
 router.post('/clips/:id/applied', async (req: any, res) => {
-  const n = await prisma.voiceClip.updateMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId }, data: { appliedAt: new Date() } })
+  const only = await salesmanClips(req)
+  const n = await prisma.voiceClip.updateMany({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, ...(only ? { AND: [only] } : {}) }, data: { appliedAt: new Date() } })
   res.json({ success: true, data: { updated: n.count } })
 })
 
 router.delete('/clips/:id', async (req: any, res) => {
-  const clip = await prisma.voiceClip.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId } })
+  const only = await salesmanClips(req)
+  const clip = await prisma.voiceClip.findFirst({ where: { id: String(req.params.id), accountId: req.user.crmAccountId, ...(only ? { AND: [only] } : {}) } })
   if (clip) { fs.rm(clip.path, { force: true }, () => {}); await prisma.voiceClip.delete({ where: { id: clip.id } }) }
   res.json({ success: true, data: { deleted: clip ? 1 : 0 } })
 })

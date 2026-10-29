@@ -74,13 +74,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('draft purchase orders in Pending
     await prisma.crmAccount.delete({ where: { id: accountId } }).catch((e: unknown) => console.error('[draftPOs test] account cleanup:', e))
   })
 
-  test('the Installer reads no drafts and cannot change them; the Salesman reads them with costs', async () => {
+  test('the Installer reads no drafts and cannot change them; the Salesman reads none of other people\'s jobs', async () => {
     const crew = await call('crew', 'GET', '/api/business-state')
     expect(crew.status).toBe(200)
     expect(crew.json.data.purchaseOrders).toBeUndefined()
     const sales = await call('sales', 'GET', '/api/business-state')
-    expect(shownDrafts(sales.json.data.purchaseOrders).map((p: any) => p.id).sort()).toEqual(['a', 'b'])
-    expect(sales.json.data.purchaseOrders[0].subtotalCents).toBe(131296)
+    // Jobs that are not the Salesman's: their drafts are left out (lib/salesScopeRecords.ts; Jonathan, Oct 28 2026).
+    expect(shownDrafts(sales.json.data.purchaseOrders)).toEqual([])
     const v = crew.json.data.version
     const r = await call('crew', 'PATCH', '/api/business-state', { purchaseOrders: [], baseVersion: v })
     expect(r.status).toBe(403)

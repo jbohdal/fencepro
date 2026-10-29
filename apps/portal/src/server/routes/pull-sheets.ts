@@ -9,6 +9,8 @@
  * Installer's login gets quantities only: taken out here (quantitiesOnly), on
  * top of the cost filter every /api answer to such a login goes through
  * (lib/costRedact.ts, index.ts), and the PDF is made without them.
+ *
+ * The Salesman (lib/salesScope.ts): another person's customer is a 404.
  */
 
 import { Router } from 'express'
@@ -18,12 +20,14 @@ import { roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { customerPullSheets, quantitiesOnly } from '../lib/customerPullSheets.js'
 import { pullSheetPdf } from '../lib/pullSheetPdf.js'
+import { refusedOutsideSalesScope } from '../lib/salesScope.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
 
 router.get('/customer/:contactId', async (req: any, res) => {
   try {
+    if (await refusedOutsideSalesScope(req, res, { contacts: String(req.params.contactId) })) return
     const list = await customerPullSheets(req.user.crmAccountId, String(req.params.contactId))
     if (!list) { res.status(404).json({ success: false, error: 'Customer not found' }); return }
     const costs = !hidesCosts(roleOf(req))
@@ -39,6 +43,7 @@ router.get('/customer/:contactId/:entry.pdf', async (req: any, res) => {
   try {
     const accountId = req.user.crmAccountId
     const contactId = String(req.params.contactId)
+    if (await refusedOutsideSalesScope(req, res, { contacts: contactId })) return
     const list = await customerPullSheets(accountId, contactId)
     const entry = list?.find(e => e.id === String(req.params.entry))
     if (!entry) { res.status(404).json({ success: false, error: 'Pull sheet not found' }); return }

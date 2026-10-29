@@ -198,9 +198,9 @@ const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'boar
 const notFound = (res: any) => res.status(404).json({ success: false, error: 'Not found' })
 
 const MODEL: Record<Exclude<SalesKind, 'pipeline'>, (id: string, accountId: string) => Promise<any>> = {
-  contacts: (id, accountId) => prisma.crmContact.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true } }),
-  quotes: (id, accountId) => prisma.savedQuote.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }),
-  jobs: (id, accountId) => prisma.savedJob.findFirst({ where: { id, accountId }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true } }),
+  contacts: (id, accountId) => prisma.crmContact.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, deletedAt: true } }),
+  quotes: (id, accountId) => prisma.savedQuote.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true, deletedAt: true } }),
+  jobs: (id, accountId) => prisma.savedJob.findFirst({ where: { id, accountId }, select: { id: true, quoteId: true, crmContactId: true, salesRep: true, deletedAt: true } }),
   appointments: (id, accountId) => prisma.appointment.findFirst({ where: { id, accountId }, select: { id: true, crmContactId: true, assignedToUserId: true, assignedTo: true } }),
 }
 
@@ -245,6 +245,111 @@ export function salesScoped(kind: SalesKind) {
       return json(body)
     }
     next()
+  }
+}
+
+// ── A customer, job or quote a route names ──────────────────────────────────
+
+export type SalesRefKind = 'contacts' | 'jobs' | 'quotes'
+
+/** Is this customer, job or quote id within the scope? The scope as read, else the record itself says it is the Salesman's (made a moment ago). */
+export async function idInSalesScope(kind: SalesRefKind, s: SalesScope, id: string): Promise<boolean> {
+  if (!id) return false
+  const known = kind === 'contacts' ? s.contactIds : kind === 'jobs' ? s.jobIds : s.quoteIds
+  if (known.has(id)) return true
+  const row = await MODEL[kind](id, s.accountId).catch(() => null)
+  return !!row && !row.deletedAt && inSalesScope(kind, s, row)
+}
+
+type Refs = Partial<Record<SalesRefKind, string | null | undefined | Array<string | null | undefined>>>
+
+/**
+ * For a route keyed by a customer, job or quote id (in its path, query or
+ * body): when the login is the Salesman and any id named is outside the
+ * Salesman's scope, answers 404 (as for a record that is not there) and
+ * returns true. Every other login, and ids in scope: false, nothing sent.
+ */
+export async function refusedOutsideSalesScope(req: any, res: any, refs: Refs): Promise<boolean> {
+  const anyNamed = Object.values(refs).some(v => (Array.isArray(v) ? v : [v]).some(x => typeof x === 'string' && x.length > 0))
+  if (!anyNamed) return false
+  const scope = await salesScopeOf(req)
+  if (!scope) {
+    if (!isSalesman(staffRoleOf(req) ?? req?.user?.role)) return false
+    res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your login is not linked to a company.' })
+    return true
+  }
+  const named = (Object.keys(refs) as SalesRefKind[]).flatMap(kind => {
+    const v = refs[kind]
+    return (Array.isArray(v) ? v : [v]).filter((x): x is string => typeof x === 'string' && x.length > 0).map(id => ({ kind, id }))
+  })
+  const allIn = async (s: SalesScope) => {
+    for (const { kind, id } of named) if (!(await idInSalesScope(kind, s, id))) return false
+    return true
+  }
+  if (await allIn(scope)) return false
+  // The scope is kept a few seconds: a quote or job made since then (by the office too) is read again once before refusing.
+  forgetScope(scope.userId)
+  const fresh = await scopeFor(scope.userId, scope.accountId)
+  if (fresh && await allIn(fresh)) return false
+  notFound(res)
+  return true
+}
+
+/** The customer, job and quote ids a request names in its query or body (jobId, quoteId, customerId, crmContactId, contactId). */
+export function refsInRequest(req: any): Refs {
+  const pick = (k: string) => [req?.query?.[k], req?.body?.[k]].filter((x): x is string => typeof x === 'string' && x.length > 0)
+  return { jobs: pick('jobId'), quotes: pick('quoteId'), contacts: [...pick('customerId'), ...pick('crmContactId'), ...pick('contactId')] }
+}
+
+/**
+ * Middleware for a router keyed by customers, jobs or quotes. For the
+ * Salesman: the ids the request names in its query or body, and those `refs`
+ * finds for the record in its path (null: none), must be in the scope, else
+ * 404; `list` may filter an answer. Every other login passes untouched.
+ */
+export function salesScopedRoute(opts: {
+  refs?: (req: any, first: string | undefined) => Promise<Refs | null> | Refs | null
+  list?: (body: any, s: SalesScope, req: any) => any
+}) {
+  return async (req: any, res: any, next: any) => {
+    try {
+      if (!isSalesman(staffRoleOf(req) ?? req?.user?.role)) { next(); return }
+      const first = String(req.path || '/').split('/').filter(Boolean)[0]
+      if (await refusedOutsideSalesScope(req, res, refsInRequest(req))) return
+      const more = opts.refs ? await opts.refs(req, first) : null
+      if (more && await refusedOutsideSalesScope(req, res, more)) return
+      if (opts.list) {
+        const scope = await salesScopeOf(req)
+        if (scope) {
+          const json = res.json.bind(res)
+          res.json = (body: any) => json(body && typeof body === 'object' ? opts.list!(body, scope, req) : body)
+        }
+      }
+      next()
+    } catch (e) { next(e) }
+  }
+}
+
+/** A list answer ({ data: [...] } or { data: { [key]: [...] } }) with only the rows whose job is in the scope. */
+export function onlyScopedJobs(key?: string) {
+  return (body: any, s: SalesScope) => {
+    const keep = (rows: unknown) => (Array.isArray(rows) ? rows.filter((r: any) => !!r?.jobId && s.jobIds.has(r.jobId)) : rows)
+    if (!key) return Array.isArray(body.data) ? { ...body, data: keep(body.data) } : body
+    return body.data && typeof body.data === 'object' && Array.isArray(body.data[key]) ? { ...body, data: { ...body.data, [key]: keep(body.data[key]) } } : body
+  }
+}
+
+/**
+ * Middleware for the old customer portal routes (documents, invoices, tickets,
+ * contracts' dashboard, chat): their records are tied to no customer, job or
+ * quote of the app, so none is the Salesman's. With `list`, the list itself
+ * (GET /) answers empty; everything else is a 404.
+ */
+export function salesmanHasNone(opts: { list?: boolean } = {}) {
+  return (req: any, res: any, next: any): void => {
+    if (!isSalesman(staffRoleOf(req))) { next(); return }
+    if (opts.list && req.method === 'GET' && (req.path === '/' || req.path === '')) { res.json({ success: true, data: [] }); return }
+    notFound(res)
   }
 }
 

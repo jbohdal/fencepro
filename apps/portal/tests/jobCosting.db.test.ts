@@ -31,7 +31,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
   const ids = { quotes: [] as string[], jobs: [] as string[], token: crypto.randomBytes(24).toString('base64url') }
-  let owner = '', installer = '', office = '', salesRep = '', accountId = '', base = ''
+  let owner = '', installer = '', office = '', salesRep = '', accountId = '', base = '', userId = ''
   let server: ReturnType<express.Express['listen']>
   const call = (who: string, method: string, p: string, body?: unknown) => fetch(base + p, { method, headers: { ...(who ? { Authorization: `Bearer ${who}` } : {}), 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
     .then(async r => ({ status: r.status, json: await r.json().catch(() => null) as any }))
@@ -43,7 +43,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
   const quoteData = (status: 'DRAFT' | 'SOLD', extra: Record<string, unknown> = {}) => ({
     accountId, customerName: 'E2E Job Costing Test', fenceStyle: "WV-ND 6'x8' Privacy", runs: [40, 40], sections: 10,
     materialCost: 265, laborCost: 240, tearOutCost: 0, totalCOGS: 505, finalPrice: 1000, gmPct: 0.495, pullSheet: sheet,
-    pricing: { laborMode: 'subcontractor', subUnit: 'section' }, status, salesRep: 'E2E Rep', ...extra,
+    // Made by the login every token here names: the Salesman's own quote and job (lib/salesScope.ts).
+    pricing: { laborMode: 'subcontractor', subUnit: 'section' }, status, salesRep: 'E2E Rep', ownerId: userId, ...extra,
   })
   const quotedRows = (quoteId: string) => prisma.jobQuotedCost.findMany({ where: { quoteId } })
   /** Every key in a JSON answer, at any depth. */
@@ -56,6 +57,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
   beforeAll(async () => {
     const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
     accountId = user.crmAccountId!
+    userId = user.id
     const sign = (role: string) => jwt.sign({ sub: user.id, email: user.email, role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, secret, { expiresIn: '10m' })
     owner = sign('super_admin')
     installer = sign('field_crew')

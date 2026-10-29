@@ -30,6 +30,7 @@ import { requireCan, roleOf, can } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { clientIdSchema } from '../lib/clientId.js'
+import { salesScopedRoute, onlyScopedJobs } from '../lib/salesScope.js'
 import {
   startTakeoff, mutateTakeoff, takeoffView, linesOf, laborOf, quotedNow, actualNow, jobComparison, reportJobs, financeLabor,
 } from '../lib/jobCosting.js'
@@ -37,6 +38,20 @@ import { qty, type TakeoffLine } from '../lib/jobCostingMath.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
+// The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026): the takeoff, job cost, report and labor of the Salesman's
+// own and assigned jobs only (costs and all: the Salesman sees costs); another job, or a takeoff on one, is a 404.
+router.use(salesScopedRoute({
+  refs: async (req, first) => {
+    const seg = String(req.path || '/').split('/').filter(Boolean)
+    if (first === 'job' && seg[1]) return { jobs: seg[1] }
+    if (first === 'takeoff' && seg[1]) {
+      const t = await prisma.jobTakeoff.findFirst({ where: { id: seg[1], accountId: req.user.crmAccountId }, select: { jobId: true } })
+      return t ? { jobs: t.jobId } : null
+    }
+    return null
+  },
+  list: (body, s, req) => (req.path === '/report' ? onlyScopedJobs('jobs')(body, s) : req.path === '/finance' ? onlyScopedJobs()(body, s) : body),
+}))
 
 async function who(req: any): Promise<string> {
   const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)

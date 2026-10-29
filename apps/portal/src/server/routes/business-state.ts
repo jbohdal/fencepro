@@ -8,6 +8,13 @@
  *
  * Each sub field is a JSON document. The client patches by sending the
  * partial fields it wants to update; the server merges shallow.
+ *
+ * The Salesman (lib/salesScopeRecords.ts; Jonathan, Oct 28 2026): every answer
+ * leaves out the invoices, payments, statements, pull sheets, Sales Orders,
+ * purchase orders and job milestones of other people's customers, jobs and
+ * quotes; a save from the Salesman has each of those put back exactly as
+ * stored first, and one that adds or changes an entry outside the Salesman's
+ * scope is refused (404).
  */
 
 import { Router } from 'express'
@@ -25,6 +32,8 @@ import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedac
 import { auditSettingChange } from '../lib/settingsAudit.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
 import { materialsFollowOrders } from '../lib/materialsFromOrders.js'
+import { salesScopeOf, salesScope, forgetScope, type SalesScope } from '../lib/salesScope.js'
+import { salesBusinessView, salesBusinessPatch, OutsideScopeError } from '../lib/salesScopeRecords.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -52,6 +61,16 @@ function requireAccount(req: any, res: any, next: any) {
 }
 
 router.use(requireUser, requireAccount)
+
+/** For the Salesman: every answer's record (the saved one, a 409's newer one, a refusal's) as the Salesman reads it. */
+async function salesmanAnswers(req: any, res: any): Promise<{ scope: SalesScope } | null> {
+  const scope = await salesScopeOf(req)
+  if (!scope) return null
+  const held = { scope }
+  const json = res.json.bind(res)
+  res.json = (body: any) => json(body && typeof body === 'object' && body.data && typeof body.data === 'object' ? { ...body, data: salesBusinessView(held.scope, body.data) } : body)
+  return held
+}
 
 const fields = [
   'bundles', 'quoteOptions', 'contractSections', 'jobChecklists', 'defaultMilestones',
@@ -89,6 +108,7 @@ export function leanState<T>(s: T, omit: Set<string>): T {
 
 router.get('/', async (req: any, res) => {
   try {
+    await salesmanAnswers(req, res)
     const accountId = req.user.crmAccountId
     const s = await findOrCreate(
       () => prisma.businessState.findUnique({ where: { accountId } }),
@@ -103,6 +123,7 @@ router.get('/', async (req: any, res) => {
 
 router.patch('/', async (req: any, res) => {
   try {
+    const salesman = await salesmanAnswers(req, res)
     const data = patchSchema.parse(req.body)
     const updateData: any = {}
     for (const f of fields) {
@@ -115,6 +136,20 @@ router.patch('/', async (req: any, res) => {
     const omit = omittedParts(req.query)
     // Settings, prices and the books are for the owner, admin and manager; each key is checked on its own.
     const saved = await prisma.businessState.findUnique({ where: { accountId } })
+    if (salesman) {
+      // The Salesman's copy left out other people's entries: they are put back as stored before anything else.
+      try { Object.assign(updateData, salesBusinessPatch(salesman.scope, saved as any, updateData)) } catch (e) {
+        if (!(e instanceof OutsideScopeError)) throw e
+        // Maybe a customer, quote or job made a moment ago: read the scope again once before refusing.
+        forgetScope(salesman.scope.userId)
+        const again = await salesScope(salesman.scope.userId, salesman.scope.accountId)
+        if (again) salesman.scope = again
+        try { if (!again) throw e; Object.assign(updateData, salesBusinessPatch(again, saved as any, updateData)) } catch (e2) {
+          if (!(e2 instanceof OutsideScopeError)) throw e2
+          res.status(404).json({ success: false, error: 'Not found' }); return
+        }
+      }
+    }
     // A Salesman or Installer never had the costs (lib/costRedact.ts): the ones their
     // phone left out are put back as saved; a cost or the books sent is refused below.
     if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req))) {

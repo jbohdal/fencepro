@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import { crewScoped, refuseScopedCrew, refuseCrewWith } from './lib/crewScope.js'
-import { salesScoped, refuseSalesman } from './lib/salesScope.js'
+import { salesScoped, refuseSalesman, salesmanHasNone } from './lib/salesScope.js'
 import express from 'express'
 import compression from 'compression'
 import { requestTiming, startTimingSummaryLog } from './lib/requestTiming.js'
@@ -227,6 +227,14 @@ app.use('/api/saved-quotes', salesScoped('quotes'))
 app.use('/api/appointments', salesScoped('appointments'))
 app.use('/api/pipeline', salesScoped('pipeline'))
 app.use('/api/intake', refuseSalesman('Website and phone leads are the office\'s until one is assigned to you.'))
+app.use('/api/leads', refuseSalesman('Website and phone leads are the office\'s until one is assigned to you.'))
+app.use('/api/lead-chat/session', refuseSalesman('Website and phone leads are the office\'s until one is assigned to you.'))
+// The old customer portal's records (tied to no customer, job or quote of the app): none is the Salesman's.
+app.use('/api/documents', salesmanHasNone({ list: true }))
+app.use('/api/invoices', salesmanHasNone({ list: true }))
+app.use('/api/tickets', salesmanHasNone({ list: true }))
+app.use('/api/dashboard', salesmanHasNone())
+app.use('/api/chat', salesmanHasNone())
 app.use('/api/portal/messages', refuseScopedCrew)
 app.use('/api/portal/customer', refuseScopedCrew)
 app.use('/api/portal/accounts', refuseScopedCrew)
