@@ -35,22 +35,55 @@ self.addEventListener('fetch', e => {
 
 // Push notifications from automations (free web push). Shows the message; a
 // tap opens the app at the screen it is about (or focuses the open app there).
+// A new lead's push (portal lib/leadAssign.ts) also carries Assign buttons
+// where the phone shows them (Android Chrome, a computer); an iPhone home
+// screen app shows none, and its tap opens the Assign screen instead.
 self.addEventListener('push', e => {
   let d = {}
   try { d = e.data ? e.data.json() : {} } catch { d = { title: 'EZ Biz', body: e.data ? e.data.text() : '' } }
+  const actions = Array.isArray(d.actions) ? d.actions.filter(a => a && a.action && a.title).slice(0, 2) : []
   e.waitUntil(self.registration.showNotification(d.title || 'EZ Biz', {
-    body: d.body || '', tag: d.tag || undefined, data: { url: d.url || '/' },
+    body: d.body || '', tag: d.tag || undefined, data: { url: d.url || '/', assign: d.assign || null },
     icon: '/icon-192.png', badge: '/icon-192.png',
+    ...(actions.length ? { actions } : {}),
   }))
 })
 
+async function openApp(url) {
+  const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+  const here = open.find(c => new URL(c.url).origin === self.location.origin)
+  if (here) { await here.focus(); try { await here.navigate(url) } catch { /* an iPhone home screen app may refuse: it is open and focused anyway */ } return }
+  await self.clients.openWindow(url)
+}
+
+// An Assign button on a lead's push: assign it right here with the app's sign in, and say so. Anything
+// else (not signed in, already assigned to someone else, no signal) opens the Assign screen, which says why.
+async function assignFromPush(assign, to, url) {
+  try {
+    const r = await fetch(`/api/lead-assign/${encodeURIComponent(assign.customerId)}`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-Staff-Request': '1' },
+      body: JSON.stringify({ to }),
+    })
+    const j = await r.json().catch(() => ({}))
+    if (r.ok && j && j.success) {
+      await self.registration.showNotification(`Assigned to ${j.data.assignedTo}`, {
+        body: j.data.already ? 'It was already theirs.' : 'It is on their list now.',
+        tag: `lead-${assign.customerId}`, data: { url }, icon: '/icon-192.png', badge: '/icon-192.png',
+      })
+      return
+    }
+  } catch { /* no signal: the screen tries again */ }
+  await openApp(url)
+}
+
 self.addEventListener('notificationclick', e => {
   e.notification.close()
-  const url = new URL((e.notification.data && e.notification.data.url) || '/', self.location.origin).href
-  e.waitUntil((async () => {
-    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const here = open.find(c => new URL(c.url).origin === self.location.origin)
-    if (here) { await here.focus(); try { await here.navigate(url) } catch { /* an iPhone home screen app may refuse: it is open and focused anyway */ } return }
-    await self.clients.openWindow(url)
-  })())
+  const data = e.notification.data || {}
+  const url = new URL(data.url || '/', self.location.origin).href
+  if (e.action && e.action.startsWith('assign:') && data.assign && data.assign.customerId) {
+    e.waitUntil(assignFromPush(data.assign, e.action.slice('assign:'.length), url))
+    return
+  }
+  e.waitUntil(openApp(url))
 })

@@ -13,7 +13,13 @@ import { holdOutbound, outboundBlockReason } from '../outboundGate.js'
 
 const KEY = 'push_vapid'
 
-export interface PushMessage { title: string; body: string; url?: string; tag?: string }
+export interface PushMessage {
+  title: string; body: string; url?: string; tag?: string
+  /** Buttons on the push, where the phone shows them (Android Chrome, a computer; not an iPhone home screen app). */
+  actions?: Array<{ action: string; title: string }>
+  /** A lead's push: its buttons assign the lead from the push itself (public/sw.js, routes/lead-assign.ts). */
+  assign?: { customerId: string }
+}
 export interface PushSender {
   /** Resolves 'held' when the outbound gate kept it back (not the live install). */
   send(sub: { endpoint: string; p256dh: string; auth: string }, payload: string, vapid: { publicKey: string; privateKey: string; subject: string }): Promise<void | 'held'>
@@ -90,7 +96,7 @@ export async function sendPush(accountId: string, msg: PushMessage, opts: { user
   const out: PushResult = { sent: 0, failed: 0, removed: 0, held: 0, subscribers: subs.length, errors: [] }
   if (!subs.length) return out
   const vapid = await vapidKeys(accountId)
-  const payload = JSON.stringify({ title: msg.title.slice(0, 120), body: msg.body.slice(0, 400), url: msg.url || '/', tag: msg.tag })
+  const payload = JSON.stringify({ title: msg.title.slice(0, 120), body: msg.body.slice(0, 400), url: msg.url || '/', tag: msg.tag, ...(msg.actions?.length ? { actions: msg.actions.slice(0, 2) } : {}), ...(msg.assign ? { assign: msg.assign } : {}) })
   for (const s of subs) {
     try {
       if (await sender.send(s, payload, vapid) === 'held') out.held++

@@ -22,6 +22,7 @@ import SalesPipelineBoard from './SalesPipelineBoard'
 import { startNav, navigate, useNav, pagePath, pageForPath, takeOpenedParam, savedScroll, BackClose } from './nav'
 const OperationsBoard = lazy(() => import('./OperationsBoard'))
 const JobPage = lazy(() => import('./JobPage'))
+const AssignLeadPage = lazy(() => import('./AssignLeadPage'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
 const FeedbackPage = lazy(() => import('./FeedbackPage'))
 import FeedbackButton, { FeedbackOverWindow } from './FeedbackButton'
@@ -95,6 +96,7 @@ import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
 import { initBookingTeam, isBookingTeamLoaded } from './bookingTeamStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
 import TodayScreen from './TodayScreen'
+import WaitingLeadsBanner from './WaitingLeadsBanner'
 import InstallerHome from './InstallerHome'
 import FollowUpsPage from './FollowUpsPage'
 import { FollowUpPromptHost } from './FollowUpPrompt'
@@ -182,7 +184,8 @@ const NAV_GROUPS: NavGroup[] = [
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
 // Every page the app can show, for its address (/customers, /pipeline, ...).
 // Job: one job's page, read only, at /job?id= (the Salesman's; JobPage.tsx). Not a menu line.
-const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging', 'Job'])]
+// Assign Lead: /assign-lead?customer=<id>, where the owner's push about a new lead opens (AssignLeadPage.tsx). Not a menu line.
+const PAGE_NAMES = [...new Set([...ALL_NAV_ITEMS.map(i => i.name), 'Jobs', 'Staging', 'Job', 'Assign Lead'])]
 const PAGES_WITH_HEADER = new Set(['Dashboard', 'Sales Pipeline', 'Follow ups', 'Operations', 'Jobs', 'Staging', 'Appointments', 'Today', 'My installs', 'Settings', 'Billing', 'Inventory', 'P&L Statement'])
 
 /** Where a login lands, and where a page its role cannot open sends it: the installer's own home, else Today. */
@@ -633,6 +636,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     ?? (active === 'Jobs' || active === 'Staging' ? { roles: ['owner', 'admin', 'ops_manager'] } : undefined)
     // One job's page: the Salesman reads the Salesman's own jobs there (the server sends no other); the rest go on to Operations.
     ?? (active === 'Job' ? { roles: ['owner', 'admin', 'ops_manager', 'salesman', 'shop'] } : undefined)
+    // Assigning leads is the owner's and the office's (the server refuses the rest too).
+    ?? (active === 'Assign Lead' ? { roles: ['owner', 'admin', 'ops_manager'] } : undefined)
   const pageBlocked = !isFullRole() && !!pageItem && !pageItem.roles.includes(role)
   const toldBlocked = useRef('')
   useEffect(() => {
@@ -1235,6 +1240,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           <ScreenErrorBoundary name={active} resetKey={nav.path}>
           <Suspense fallback={<PageLoading />}>
           {!pageBlocked && <Fragment key={dataEpoch}>
+          {/* Website and phone leads nobody has assigned yet: on top until each is assigned (WaitingLeadsBanner.tsx). */}
+          {(active === 'Dashboard' || active === 'Today' || active === 'Sales Pipeline') && <WaitingLeadsBanner />}
           {active === 'Team' && <TeamManagementPage />}
           {active === 'EZ Budget' && <EZBudgetPage />}
           {active === 'Automations' && <AutomationsPage />}
@@ -1262,6 +1269,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Jobs'           && <OperationsBoard />}
           {active === 'Staging'        && <OperationsBoard />}
           {active === 'Job'            && <JobPage />}
+          {active === 'Assign Lead'    && <AssignLeadPage />}
           {active === 'Schedule'  && <SchedulePage />}
           {active === 'Service'   && <ServicePage />}
           {active === 'Appointments' && <AppointmentsPage />}

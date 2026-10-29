@@ -96,7 +96,8 @@ function upsertPipelineCard(lead: IntakeLead): void {
       stage: roleId('first'),
       createdAt: today,
       lastMoved: today,
-      assignedRep: '',
+      // Assigned before this phone made the card (the owner's push, leadAssign.ts): the card carries the rep too.
+      assignedRep: customer?.salesRep || '',
     })
   }
   savePipeline(leads)

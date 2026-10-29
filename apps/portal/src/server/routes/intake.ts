@@ -197,6 +197,7 @@ quotingRouter.post('/submit', submitLimiter, async (req, res) => {
       email: data.customerEmail || undefined,
       address: data.address || undefined,
       fenceType: fence,
+      feet: feet || null,
       summary: lines.join('\n'),
       estimate: data.totalEstimate ?? null,
       leadSource: 'Website Quote',

@@ -25,6 +25,7 @@ import prisma from './prisma.js'
 import { isUniqueViolation } from './once.js'
 import { pricingWithData } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId } from './intake.js'
+import { pushNewLeadSoon } from './leadAssign.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
@@ -325,6 +326,8 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
     // Tapping it opens the lead: its card window on the Sales Pipeline (?card=, SalesPipelineBoard.tsx).
     data: { title: `Website quote: ${input.name}`, body: `${SOURCE_TEXT} · ${choice} · ${q.footageFt} ft · ${money(price)}`.slice(0, 400), type: 'info', link: leadLink(out.cardId, out.contactId) },
   }).catch(err => console.error('[widget] notification failed:', err))
+  // A new lead, nobody assigned: the owner's push with a one tap Assign (lib/leadAssign.ts).
+  if (!out.duplicate && out.contactId) pushNewLeadSoon(accountId, out.contactId, { name: input.name, source: 'ez_quote', address: input.address, fenceType: choice, feet: q.footageFt })
   return out
 }
 
