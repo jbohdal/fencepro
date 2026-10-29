@@ -213,8 +213,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     expect(jc1.has(`${tag}-jc-sam`)).toBe(true)
   })
 
-  test('the office changes the Salesman on the customer edit too: the open quotes go to the owner with the same commission; sold ones stay', async () => {
-    const r = await call('PATCH', `/api/crm-contacts/${id.gwen}`, office, { salesRep: OLIVE() })
+  test('the owner changes the Salesman on the customer edit too (the office no longer can): the open quotes go to the owner with the same commission; sold ones stay', async () => {
+    // The office's save (an older copy of the customer, as no office screen changes it): saved, Sam kept, nothing moves.
+    const no = await call('PATCH', `/api/crm-contacts/${id.gwen}`, office, { salesRep: OLIVE(), notes: 'office note' })
+    expect(no.status).toBe(200)
+    expect(no.json.salesRepKept).toBe(true)
+    const gwen = await prisma.crmContact.findUnique({ where: { id: id.gwen } })
+    expect([gwen!.salesRep, gwen!.notes]).toEqual([SAM(), 'office note'])
+    expect((await quoteRows()).get(id.qDraft)!.salesRep).toBe(SAM())
+    const r = await call('PATCH', `/api/crm-contacts/${id.gwen}`, owner, { salesRep: OLIVE() })
     expect(r.status).toBe(200)
     const after = await quoteRows()
     expect(after.get(id.qDraft)!.salesRep).toBe(OLIVE())
@@ -227,7 +234,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     const notes = await prisma.crmContactNote.findMany({ where: { crmContactId: id.gwen, body: { startsWith: 'Open quotes moved to ' } }, orderBy: { createdAt: 'asc' } })
     expect(notes.map(n => n.body)).toEqual([
       `Open quotes moved to ${SAM()} with the customer by ${OLIVE()}: 2 quotes not sold yet, they were ${SALLY()}'s. Signed jobs stay with whoever sold them.`,
-      `Open quotes moved to ${OLIVE()} with the customer by Opal ${tag}: 2 quotes not sold yet, they were ${SAM()}'s. Signed jobs stay with whoever sold them.`,
+      `Open quotes moved to ${OLIVE()} with the customer by ${OLIVE()}: 2 quotes not sold yet, they were ${SAM()}'s. Signed jobs stay with whoever sold them.`,
     ])
   })
 

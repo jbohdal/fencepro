@@ -15,6 +15,7 @@
  *   PATCH  /:id               — update a quote (any field)
  *   DELETE /:id               — soft archive a quote
  *   POST   /sync              — bulk push from a localStorage payload
+ *   POST   /:id/salesman      — the owner changes this quote's Salesman (and its job's), { to, confirm? }
  *   POST   /:id/share-token   — issue (or reissue) a public share token
  *   GET    /share/:token      — PUBLIC: fetch a single quote by share token
  *                              (records the firstViewedAt the first time it is hit)
@@ -32,8 +33,9 @@ import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
-import { repForSave, repName, sameName } from '../lib/salesRep.js'
-import { quoteRepKept } from '../lib/quotesFollowCustomer.js'
+import { repForSave, repName } from '../lib/salesRep.js'
+import { samePerson } from '../lib/quotesFollowCustomer.js'
+import { salesmanMoveRoute } from '../lib/salesmanMove.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
@@ -363,11 +365,17 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         keptSentPrices = changes
       }
     }
-    // An open quote's rep is its customer's Salesman (lib/quotesFollowCustomer.ts): a copy read before the Salesman
-    // was changed keeps the rest of its save, never the old rep.
-    if (data.salesRep?.trim() && existing.crmContactId && !sameName(data.salesRep, existing.salesRep)) {
-      const customer = await prisma.crmContact.findFirst({ where: { id: existing.crmContactId, accountId: existing.accountId }, select: { salesRep: true } })
-      if (quoteRepKept({ existing, sentRep: data.salesRep, sentContactId: data.crmContactId, customerRep: customer?.salesRep })) data.salesRep = existing.salesRep
+    // A quote's Salesman, once on it, changes only by the owner (Jonathan, Oct 29 2026: the quote's Salesman control,
+    // lib/salesmanMove.ts, and the customer's Salesman, which brings the open quotes along: lib/quotesFollowCustomer.ts).
+    // No screen's save changes it: a save sending another name is a copy read before the change (or the quote
+    // builder sending its customer's Salesman), so the rest is saved and the Salesman on the quote stays, whoever
+    // saves. An unsold quote given to another customer takes that customer's Salesman (D3), read here, not sent.
+    if (data.salesRep?.trim() && existing.salesRep?.trim() && !samePerson(data.salesRep, existing.salesRep)) {
+      const toOther = !!data.crmContactId && data.crmContactId !== existing.crmContactId
+      const customer = toOther && !(await signedNow(existing)) && !(await prisma.savedJob.findFirst({ where: { accountId: existing.accountId, quoteId: existing.id }, select: { id: true } }))
+        ? await prisma.crmContact.findFirst({ where: { id: data.crmContactId!, accountId: existing.accountId, deletedAt: null }, select: { salesRep: true } })
+        : null
+      data.salesRep = customer?.salesRep?.trim() || existing.salesRep
     }
     const updated = await prisma.savedQuote.update({
       where: { id: existing.id },
@@ -436,6 +444,9 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
   }
 })
 
+// ── The quote's Salesman: the owner only, a signed one after asking (lib/salesmanMove.ts) ──
+router.post('/:id/salesman', requireUser, requireAccount, salesmanMoveRoute('quote'))
+
 // ── Delete (soft, owner and admin) ──
 // With everything that hangs off it, in one transaction, logged in Settings >
 // Deleted Records with a snapshot to restore from (lib/deletion.ts).
@@ -492,6 +503,8 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
             where: { id: existing.id },
             data: {
               ...quoteSchema.partial().parse(q),
+              // The Salesman on the quote stays: only the owner changes it (lib/salesmanMove.ts), never an old browser copy.
+              ...(existing.salesRep?.trim() ? { salesRep: existing.salesRep } : {}),
               runs: toJsonValue(q.runs),
               runRails: toNullableJson(q.runRails),
               layout: toNullableJson(keepWidgetDrawing(q.layout, existing.layout)),

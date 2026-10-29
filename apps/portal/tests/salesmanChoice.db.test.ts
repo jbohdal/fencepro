@@ -88,7 +88,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman choice (dev databas
     expect(f.choices.some((c: any) => c.me)).toBe(false)
     expect(f.preselect).toBe(`Olive ${tag}`)
     expect(f.choices.filter((c: any) => c.preselected).map((c: any) => c.name)).toEqual([`Olive ${tag}`])
-    expect(f.canChange).toBe(true)
+    // Once entered, only the owner changes it (Oct 29 2026): the office picks at entry, but has no Change.
+    expect(f.canChange).toBe(false)
     const s = (await call('GET', '/api/crm-contacts/salesmen', sally))
     expect(s.status).toBe(200)
     expect(s.json.data.choices.find((c: any) => c.me).name).toBe(`Sally ${tag}`)
@@ -144,7 +145,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman choice (dev databas
     const r = await call('PATCH', `/api/crm-contacts/${cid}`, sally, { notes: 'gate on the left', salesRep: `Sam ${tag}` })
     expect(r.status).toBe(403)
     expect(r.json.code).toBe('NOT_ALLOWED')
-    expect(r.json.error).toMatch(/Only the owner or the office can change a customer's Salesman/)
+    expect(r.json.error).toMatch(/Only the owner can change a customer's Salesman/)
     const row = await prisma.crmContact.findUnique({ where: { id: cid } })
     expect(row!.salesRep).toBe(`Sally ${tag}`)
     expect(row!.notes ?? '').toBe('')
@@ -154,7 +155,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman choice (dev databas
     expect((await call('POST', `/api/lead-assign/${cid}`, sally, { to: id.sam, replace: true })).status).toBe(403)
   })
 
-  test('the owner changes Gina from Sally to Sam on the customer page: Sam sees Gina, Sally no longer; then the office gives Gina back', async () => {
+  test('the owner changes Gina from Sally to Sam on the customer page: Sam sees Gina, Sally no longer; the office cannot give her back (owner only), the owner can', async () => {
     const r = await call('POST', `/api/lead-assign/${id.gina}`, owner, { to: id.sam, replace: true })
     expect(r.status).toBe(200)
     expect(r.json.data.assignedTo).toBe(`Sam ${tag}`)
@@ -162,12 +163,19 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman choice (dev databas
     expect(await sees(sally, id.gina)).toBe(false)
     const board = await prisma.pipelineState.findUnique({ where: { accountId } }) as any
     expect(board.leads.find((l: any) => l.customerId === id.gina).assignedRep).toBe(`Sam ${tag}`)
-    const back = await call('POST', `/api/lead-assign/${id.gina}`, office, { to: id.sally, replace: true })
+    // The office: refused in words, with or without "replace", and nothing changes.
+    for (const replace of [true, false]) {
+      const no = await call('POST', `/api/lead-assign/${id.gina}`, office, { to: id.sally, replace })
+      expect(no.status).toBe(403)
+      expect(no.json.error).toBe(`Already assigned to Sam ${tag}. Only the owner can give a lead that has a Salesman to someone else.`)
+    }
+    expect((await prisma.crmContact.findUnique({ where: { id: id.gina } }))!.salesRep).toBe(`Sam ${tag}`)
+    const back = await call('POST', `/api/lead-assign/${id.gina}`, owner, { to: id.sally, replace: true })
     expect(back.status).toBe(200)
     expect(await sees(sally, id.gina)).toBe(true)
     expect(await sees(sam, id.gina)).toBe(false)
     const notes = await prisma.crmContactNote.findMany({ where: { crmContactId: id.gina }, orderBy: { createdAt: 'asc' } })
-    expect(notes.map(n => n.body)).toEqual([`Lead assigned to Sam ${tag} by Olive ${tag}. It was Sally ${tag}'s.`, `Lead assigned to Sally ${tag} by Opal ${tag}. It was Sam ${tag}'s.`])
+    expect(notes.map(n => n.body)).toEqual([`Lead assigned to Sam ${tag} by Olive ${tag}. It was Sally ${tag}'s.`, `Lead assigned to Sally ${tag} by Olive ${tag}. It was Sam ${tag}'s.`])
   })
 
   test('a customer Sally entered and the owner moves to Sam leaves Sally\'s list', async () => {

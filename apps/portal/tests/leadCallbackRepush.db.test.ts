@@ -128,16 +128,20 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the call back moves with the lea
   test('customer page Sales rep change: the open call back moves (full name or a first name one login has); a name that is nobody\'s moves nothing', async () => {
     const { id, cb } = await phoneLead('Uma')
     const cancelled = await prisma.appointment.create({ data: { accountId, crmContactId: id, type: 'call_back', status: 'cancelled', assignedTo: '', history: [] } })
+    // The office gives the lead (no Salesman yet) its first one.
     expect((await call('PATCH', `/api/crm-contacts/${id}`, office, { salesRep: 'Sam' })).status).toBe(200)
     expect(await apptOf(cb.id)).toMatchObject({ assignedTo: `Sam ${tag}`, assignedToUserId: sales2Id })
     expect(await apptOf(cancelled.id)).toMatchObject({ assignedTo: '', assignedToUserId: null })
-    expect((await call('PATCH', `/api/crm-contacts/${id}`, office, { salesRep: `Sally ${tag}` })).status).toBe(200)
+    // Once it has one, only the owner changes it (Oct 29 2026): the office's save keeps Sam and moves nothing.
+    expect((await call('PATCH', `/api/crm-contacts/${id}`, office, { salesRep: `Sally ${tag}` })).json.salesRepKept).toBe(true)
+    expect(await apptOf(cb.id)).toMatchObject({ assignedTo: `Sam ${tag}`, assignedToUserId: sales2Id })
+    expect((await call('PATCH', `/api/crm-contacts/${id}`, owner, { salesRep: `Sally ${tag}` })).status).toBe(200)
     expect(await apptOf(cb.id)).toMatchObject({ assignedTo: `Sally ${tag}`, assignedToUserId: salesId })
-    expect((await call('PATCH', `/api/crm-contacts/${id}`, office, { salesRep: 'Nobody Here' })).status).toBe(200)
+    expect((await call('PATCH', `/api/crm-contacts/${id}`, owner, { salesRep: 'Nobody Here' })).status).toBe(200)
     expect(await apptOf(cb.id)).toMatchObject({ assignedTo: `Sally ${tag}`, assignedToUserId: salesId })
     // Another field saved, same rep: nothing touched.
     const v = (await apptOf(cb.id))!.version
-    expect((await call('PATCH', `/api/crm-contacts/${id}`, office, { salesRep: 'Nobody Here', notes: 'x' })).status).toBe(200)
+    expect((await call('PATCH', `/api/crm-contacts/${id}`, owner, { salesRep: 'Nobody Here', notes: 'x' })).status).toBe(200)
     expect((await apptOf(cb.id))!.version).toBe(v)
   })
 

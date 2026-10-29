@@ -23,6 +23,12 @@ export const SALESMAN_ROLE = 'sales_rep'
 /** Every lead assignment note starts with this (lib/leadAssign.ts); the History shows it as "Lead assigned". */
 export const ASSIGN_NOTE_PREFIX = 'Lead assigned to '
 
+/** Every History line of one quote's or job's Salesman change starts with this (lib/salesmanMove.ts); shown as "Salesman changed". */
+export const SALESMAN_MOVED_NOTE_PREFIX = 'Salesman on '
+/** Is this History line one of those (and not a typed note that happens to start the same way)? */
+export const isSalesmanMovedNote = (body: string): boolean =>
+  body.startsWith(SALESMAN_MOVED_NOTE_PREFIX) && / changed from .+ to .+ by .+\(/.test(body) && body.endsWith("The customer's own Salesman is unchanged.")
+
 export const repName = (u: { firstName?: string | null; lastName?: string | null }): string =>
   `${u.firstName ?? ''} ${u.lastName ?? ''}`.replace(/\s+/g, ' ').trim()
 

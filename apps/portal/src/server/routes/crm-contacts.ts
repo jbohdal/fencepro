@@ -41,9 +41,9 @@ import { salesScopeOf, forgetAllScopes } from '../lib/salesScope.js'
 import { repForSave, sameName } from '../lib/salesRep.js'
 import { loginForRep, moveCallbacks } from '../lib/leadCallback.js'
 import { moveOpenQuotes } from '../lib/quotesFollowCustomer.js'
-import { setCardsRep } from '../lib/leadAssign.js'
+import { canAssignLeads, setCardsRep } from '../lib/leadAssign.js'
 import { staffRoleOf } from '../lib/costRedact.js'
-import { defaultRepFor, enteringName, isSalesmanRole, repChanges, salesmanChoices, SALESMAN_CHANGE_REFUSED } from '../lib/salesmanChoice.js'
+import { defaultRepFor, enteringName, isSalesmanRole, repChanges, requestIsOwner, salesmanChoices, SALESMAN_CHANGE_REFUSED } from '../lib/salesmanChoice.js'
 
 const router = Router()
 
@@ -139,7 +139,7 @@ function partsFor(data: { serviceAddress?: string; city?: string; state?: string
 
 // ── The Salesman choice (lib/salesmanChoice.ts) ──
 // Who a new customer or lead can go to, with the person entering marked `me` (preselected), and whether this
-// login may change a saved customer's Salesman (the owner and office: yes; the Salesman: no).
+// login may change a saved customer's Salesman (the owner only, Oct 29 2026).
 router.get('/salesmen', requireAccount, async (req: any, res) => {
   try {
     const role = staffRoleOf(req) ?? req.user.role ?? null
@@ -321,11 +321,19 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
     if (existing.accountId !== req.user.crmAccountId) {
       res.status(404).json({ success: false, error: 'Contact not found' }); return
     }
-    // Once saved, a customer's Salesman is changed by the owner or the office (the customer page). The Salesman's
-    // change is refused, never saved in part: the screen puts the customer back and shows these words.
-    const salesRepChanged = repChanges(existing.salesRep, data.salesRep)
-    if (salesRepChanged && isSalesmanRole(staffRoleOf(req) ?? req.user.role)) {
-      res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: SALESMAN_CHANGE_REFUSED }); return
+    // Once saved, a customer's Salesman is changed by the owner only (Jonathan, Oct 29 2026; lib/salesmanChoice.ts).
+    // The Salesman's change is refused, never saved in part: the screen puts the customer back and shows these words.
+    // The office (or a manager) may give a customer with no Salesman one, as its one tap Assign does. Any other
+    // login's save that carries another Salesman for a customer that has one is an older copy of the customer
+    // (the owner changed it since the screen read it; no screen but the owner's changes it): the rest is saved and
+    // the Salesman on file stays.
+    let salesRepChanged = repChanges(existing.salesRep, data.salesRep)
+    let salesRepKept = false
+    if (salesRepChanged) {
+      const role = staffRoleOf(req) ?? req.user.role
+      if (isSalesmanRole(role)) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: SALESMAN_CHANGE_REFUSED }); return }
+      const allowed = (await requestIsOwner(req)) || (!existing.salesRep?.trim() && canAssignLeads(role))
+      if (!allowed) { delete data.salesRep; salesRepChanged = false; salesRepKept = true }
     }
     const updated = await prisma.crmContact.update({
       where: { id: req.params.id },
@@ -360,7 +368,7 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
       : []
     await audit(req, 'update', 'CrmContact', updated.id, { oldValues: existing, newValues: quotesMoved.length ? { ...updated, quotesMoved } : updated })
     if (salesRepChanged) forgetAllScopes()
-    res.json({ success: true, data: updated })
+    res.json({ success: true, data: updated, ...(salesRepKept ? { salesRepKept: true } : {}) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[crm-contacts] update error:', err)

@@ -20,14 +20,25 @@
  *   - A new customer saved with no rep gets that same default (the Salesman:
  *     the Salesman; the office: the owner). The CSV import asks for no
  *     default (its rows keep the file's rep).
- *   - Once saved, only the owner, admin, manager and office change it (the
- *     customer page, through POST /api/lead-assign/:id, which also moves the
- *     open cards and writes a History line). A Salesman's change is refused
- *     with words that say so.
+ *   - Once saved, only the owner changes it (Jonathan, Oct 29 2026: "lets me
+ *     (owner only) change the salesman from the customer page AND from a
+ *     single quote [...] Christa can't change it."). The owner is found by
+ *     role as D4 finds him: a super_admin login, else (no super_admin) the
+ *     oldest active admin. The customer page's Change (POST
+ *     /api/lead-assign/:id, which also moves the open cards, open quotes and
+ *     call backs and writes a History line) and one quote's or job's Salesman
+ *     (lib/salesmanMove.ts) are the owner's. The office still picks the
+ *     Salesman when entering a customer (D4) and still assigns a lead nobody
+ *     has yet (the one tap Assign). A Salesman's, Installer's, office's or
+ *     manager's change of a Salesman already on file is refused in words that
+ *     say so (403); an everyday save that only carries an older copy's
+ *     Salesman saves the rest and keeps the Salesman on file
+ *     (routes/crm-contacts.ts, saved-quotes.ts, saved-jobs.ts).
  */
 
 import prisma from './prisma.js'
-import { assignees, canAssignLeads, type Assignee } from './leadAssign.js'
+import { assignees, type Assignee } from './leadAssign.js'
+import { staffRoleOf } from './costRedact.js'
 import { repName, sameName, SALESMAN_ROLE } from './salesRep.js'
 
 export interface SalesmanChoice { id: string; name: string; role: string; me: boolean; preselected: boolean }
@@ -66,8 +77,25 @@ export async function salesmanChoices(accountId: string, userId: string, role: s
   const choices: SalesmanChoice[] = people.map(p => ({ id: p.id, name: p.name, role: p.role, me: p.id === userId, preselected: p.id === start?.id }))
   const mine = await enteringName(userId)
   if (!start && mine) choices.push({ id: userId, name: mine, role: String(role ?? ''), me: true, preselected: true })
-  return { choices, mine, preselect: start?.name || mine, canChange: canAssignLeads(role) }
+  return { choices, mine, preselect: start?.name || mine, canChange: await isOwnerLogin(accountId, userId, role, people) }
 }
+
+/**
+ * Is this login the owner, who alone changes a Salesman once entered? By role, as D4 finds the owner: any
+ * super_admin; an admin only when the company has no active super_admin and this admin is the oldest one.
+ */
+export async function isOwnerLogin(accountId: string, userId: string | null | undefined, role: string | null | undefined, people?: Assignee[]): Promise<boolean> {
+  if (!userId) return false
+  if (role === 'super_admin') return true
+  if (role !== 'admin') return false
+  const list = people ?? await assignees(accountId)
+  if (list.some(p => p.role === 'super_admin')) return false
+  return list.find(p => p.role === 'admin')?.id === String(userId)
+}
+
+/** The owner check for a request: the staff login's role (lib/costRedact.ts staffRoleOf), else the token's. */
+export const requestIsOwner = (req: any): Promise<boolean> =>
+  isOwnerLogin(String(req.user?.crmAccountId ?? ''), req.user?.id, staffRoleOf(req) ?? req.user?.role ?? null)
 
 /** Would this change of a customer's rep be a change (not the same name sent again)? */
 export function repChanges(before: string | null | undefined, sent: string | null | undefined): boolean {
@@ -78,6 +106,9 @@ export function repChanges(before: string | null | undefined, sent: string | nul
   return !sameName(a, b)
 }
 
-export const SALESMAN_CHANGE_REFUSED = "Only the owner or the office can change a customer's Salesman. Nothing was saved; ask the office to change it."
+export const SALESMAN_CHANGE_REFUSED = "Only the owner can change a customer's Salesman. Nothing was saved; ask the owner to change it."
+
+/** The words of every other refused change of a Salesman on file (the office, a manager, the Installer). */
+export const OWNER_ONLY_SALESMAN = 'Only the owner can change the Salesman once it is entered. Nothing was changed.'
 
 export const isSalesmanRole = (role: string | null | undefined): boolean => role === SALESMAN_ROLE

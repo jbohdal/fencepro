@@ -23,6 +23,9 @@
  *     The customer's open quotes (and their commission) move with it; sold
  *     ones stay with whoever sold them (lib/quotesFollowCustomer.ts).
  *   - Only the owner, admin, manager and office assign. Not the Salesman.
+ *     A lead that already has someone moves to another person only by the
+ *     owner (Jonathan, Oct 29 2026, "owner only"; lib/salesmanChoice.ts
+ *     isOwnerLogin): anyone else gets a 403 saying who has it.
  *   - Until assigned, the lead is on the waiting list the owner's Dashboard,
  *     Today and Sales Pipeline show at the top, whether or not the push
  *     reached a phone.
@@ -313,7 +316,7 @@ export type AssignAnswer =
  * to X: assign to Y instead?"; without it a lead someone else has is left as
  * it is (409 ALREADY_ASSIGNED, with who has it, who assigned it and when).
  */
-export async function assignLead(input: { accountId: string; contactId: string; toUserId: string; by: { id: string; name: string }; replace?: boolean }): Promise<AssignAnswer> {
+export async function assignLead(input: { accountId: string; contactId: string; toUserId: string; by: { id: string; name: string }; replace?: boolean; byOwner: boolean }): Promise<AssignAnswer> {
   const { accountId, contactId } = input
   const contact = await prisma.crmContact.findFirst({ where: { id: contactId, accountId, deletedAt: null }, select: { id: true } })
   if (!contact) return { ok: false, status: 404, code: 'NOT_FOUND', error: 'That customer is not on file any more.' }
@@ -329,11 +332,17 @@ export async function assignLead(input: { accountId: string; contactId: string; 
     await prisma.crmContact.updateMany({ where: { id: contactId, accountId, OR: [{ salesRep: null }, { salesRep: '' }] }, data: { salesRep: target.name } })
     // Its open call back too (D7, lib/leadCallback.ts), in case it was booked with someone else.
     const callbackIds = await moveCallbacks(accountId, contactId, target)
-    // Open quotes left with someone else (before quotes moved with the customer) come along too (lib/quotesFollowCustomer.ts).
-    const quotesMoved = await moveOpenQuotes({ accountId, contactId, toRep: target.name, by: input.by })
+    // Open quotes left with someone else (before quotes moved with the customer) come along too (lib/quotesFollowCustomer.ts),
+    // when the owner does it: moving a quote's Salesman is the owner's (Oct 29 2026), so the office's tap leaves them.
+    const quotesMoved = input.byOwner ? await moveOpenQuotes({ accountId, contactId, toRep: target.name, by: input.by }) : []
     for (const p of callbackIds.length || quotesMoved.length ? people : [target]) forgetScope(p.id)
     const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
     return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved }
+  }
+  // A lead that already has a Salesman moves to someone else only by the owner (Jonathan, Oct 29 2026: "owner
+  // only"); the office keeps the one tap Assign of a lead nobody has.
+  if (current && !input.byOwner) {
+    return { ok: false, status: 403, code: 'NOT_ALLOWED', error: `Already assigned to ${current.name}. Only the owner can give a lead that has a Salesman to someone else.`, rep: current }
   }
   if (current && !input.replace) {
     const who = current.by ? ` by ${current.by}` : ''
