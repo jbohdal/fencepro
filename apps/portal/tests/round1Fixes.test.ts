@@ -12,7 +12,7 @@ import { censusSuggestions, streetEstimate, censusQueries, namesTown, addressCou
 import { reviewReason } from '../src/server/lib/vendorInvoices'
 import { optionOverrides } from '../../web/src/proposal'
 import { thanksText } from '../../web/src/widget/thanksText'
-import { shownToast, bottomAbove, TOAST_MS } from '../../web/src/toastQueue'
+import { shownToast, bottomAbove, TOAST_MS, toastMs } from '../../web/src/toastQueue'
 import { phoneCanText } from '../../web/src/textingDevice'
 import { refusalOf, uploadOutcome, isInvoicePdf, isInvoicePhoto } from '../../web/src/uploadOutcome'
 import { starterNote, starterOffer, isStarterItem, workScope } from '../../web/src/moveRepair'
@@ -320,6 +320,12 @@ describe('one toast at a time, never over the quote bar', () => {
     expect(shownToast([m[1], m[2]]).shown?.id).toBe('b')
     expect(shownToast([])).toEqual({ shown: null, waiting: 0 })
     expect(TOAST_MS.info).toBeLessThanOrEqual(3000)
+  })
+  test('a short toast keeps its kind\'s time; a long one, wrapped in full, stays long enough to read (review Oct 28 2026)', () => {
+    expect(toastMs('info', 'Saved')).toBe(TOAST_MS.info)
+    const long = 'This phone or email is already on file for another customer. Nina Newlead is saved as a new customer; the office will merge them if they are the same person.'
+    expect(toastMs('info', 'The office will check this customer', long)).toBe(1500 + 36 * 250)
+    expect(toastMs('error', 'x', 'word '.repeat(200))).toBe(12_000)
   })
   test('placed just above the bar', () => {
     expect(bottomAbove(700, 844)).toBe(152)

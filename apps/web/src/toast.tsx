@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import { plainText } from './plainError'
-import { shownToast, bottomAbove, TOAST_MS } from './toastQueue'
+import { shownToast, bottomAbove, toastMs } from './toastQueue'
 
 export type ToastKind = 'success' | 'error' | 'info' | 'warning'
 
@@ -33,7 +33,7 @@ function emit() {
   for (const l of listeners) l(current)
 }
 
-function push(kind: ToastKind, title: string, body?: string, ttlMs: number = TOAST_MS[kind]) {
+function push(kind: ToastKind, title: string, body?: string, ttlMs: number = toastMs(kind, title, body)) {
   const msg: ToastMessage = { id: uid(), kind, title, body, ttlMs }
   current = [...current, msg]
   emit()
@@ -101,7 +101,8 @@ export function ToastContainer() {
           <span className="text-lg leading-none shrink-0">{icons[m.kind]}</span>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold">{m.title}</p>
-            {m.body && <p className="text-xs opacity-90 mt-0.5 whitespace-pre-wrap line-clamp-3">{m.body}</p>}
+            {/* The whole message, wrapped (review Oct 28 2026: cut off with "…" on a phone); a very long one scrolls. */}
+            {m.body && <p className="text-xs opacity-90 mt-0.5 whitespace-pre-wrap [overflow-wrap:anywhere] max-h-[40vh] overflow-y-auto" data-toast-body>{m.body}</p>}
             {waiting > 0 && <p className="text-[11px] opacity-75 mt-0.5" data-toast-waiting={waiting}>{waiting} more after this</p>}
           </div>
           <button onClick={() => dismiss(m.id)}
