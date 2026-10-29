@@ -6,7 +6,7 @@
  * an outcome.
  */
 
-import { memberKey } from './bookingTeamModel'
+import { memberKey, visitsStartPerson, withSomeoneElse } from './bookingTeamModel'
 import { signedInRole } from './permissions'
 import { currentUser } from './crmAuth'
 import { myDayKey } from './TodayScreen'
@@ -42,7 +42,10 @@ export default function AppointmentsPage() {
   // A Salesman or the crew sees their own appointments first (Everyone is one tap away); the office and the owner, everyone.
   const role = signedInRole()
   const [picked, setPerson] = useState<string | null>(null)
-  const person = picked ?? (role === 'sales_rep' || role === 'field_crew' ? myDayKey(team, currentUser()?.id ?? null, role) : '')
+  // The Salesman starts on everyone: every appointment the server sends is in the Salesman's scope, and those
+  // booked with someone else are marked with who they are with. The crew starts on their own.
+  const meKey = role === 'sales_rep' || role === 'field_crew' ? myDayKey(team, currentUser()?.id ?? null, role) : ''
+  const person = picked ?? visitsStartPerson(role, meKey)
   const [type, setType] = useState<AppointmentType | ''>('')
   const [closing, setClosing] = useState<Appointment | null>(null)
 
@@ -140,7 +143,7 @@ export default function AppointmentsPage() {
           list={dated} start={minutesOf(settings.slotStart) - 60} end={minutesOf(settings.slotEnd) + 60} onDrop={reschedule} />
       )}
       {view === 'month' && <MonthGrid date={date} list={dated} onPickDay={d => { setDate(d); setView('day') }} />}
-      {view === 'agenda' && <Agenda from={date} list={dated} onClose={setClosing} />}
+      {view === 'agenda' && <Agenda from={date} list={dated} onClose={setClosing} meKey={role === 'sales_rep' ? meKey : ''} />}
       {view === 'map' && <DayMap date={date} list={dated} />}
 
       {closing && <OutcomeForm a={closing} onClose={() => setClosing(null)} />}
@@ -246,7 +249,8 @@ function MonthGrid({ date, list, onPickDay }: { date: string; list: Appointment[
   )
 }
 
-function Agenda({ from, list, onClose }: { from: string; list: Appointment[]; onClose: (a: Appointment) => void }) {
+function Agenda({ from, list, onClose, meKey = '' }: { from: string; list: Appointment[]; onClose: (a: Appointment) => void; meKey?: string }) {
+  const team = useBookingTeam()
   const days = Array.from({ length: 14 }, (_, i) => addDays(from, i))
   const any = days.some(d => list.some(a => floridaDate(a.startAt!) === d))
   return (
@@ -263,6 +267,8 @@ function Agenda({ from, list, onClose }: { from: string; list: Appointment[]; on
                 <span className="w-1.5 self-stretch rounded" style={{ background: TYPE_COLORS[a.type] }} />
                 <button onClick={() => openBooking({ appointmentId: a.id })} className="flex-1 min-w-0 text-left">
                   <span className="block text-sm font-semibold text-gray-900">{a.allDay ? 'All day' : fmtTime(a.startAt!)} · {a.customerName}</span>
+                  {/* The Salesman's customer booked with someone else: said plainly (review Oct 28 2026). */}
+                  {withSomeoneElse(team, a, meKey) && <span className="inline-block mt-0.5 text-[11px] font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 rounded px-1.5" data-appointment-with-other>{withSomeoneElse(team, a, meKey)}</span>}
                   <span className="block text-xs text-gray-500 truncate">{TYPE_SHORT[a.type]} · {a.address || 'no address'} · {a.assignedTo || 'nobody'}</span>
                 </button>
                 <span className="text-[11px] text-gray-500 text-right">{visitWords(a, getQuotesForCustomer(a.crmContactId))}</span>

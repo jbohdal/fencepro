@@ -9,7 +9,7 @@
 import { describe, test, expect } from 'vitest'
 import { bookingTeamOf, type StaffLogin } from '../src/server/lib/appointmentRep'
 import {
-  normalizeTeam, defaultMemberOf, newBookingMemberOf, memberOf, formerNamesOf, matchesPerson, memberKey, formerKey, isWith, homeOf, type TeamMember,
+  normalizeTeam, defaultMemberOf, newBookingMemberOf, memberOf, formerNamesOf, matchesPerson, memberKey, formerKey, isWith, homeOf, visitsStartPerson, withSomeoneElse, type TeamMember,
 } from '../../web/src/bookingTeamModel'
 import { withDefaults } from '../../web/src/appointmentLogic'
 
@@ -93,5 +93,26 @@ describe('reading the team on the screens (web)', () => {
     expect(homeOf(s.homes, team[1])).toEqual({ lat: 29.1, lng: -82.1 })
     expect(homeOf(s.homes, team[0])).toBeNull()
     expect(withDefaults(undefined).homes).toEqual({})
+  })
+})
+
+describe('Visits: the Salesman sees every appointment in scope, each with someone else marked (review Oct 28 2026)', () => {
+  const team: TeamMember[] = normalizeTeam([
+    { userId: 'owner', name: 'Jonathan Bohdal', firstName: 'Jonathan', lastName: 'Bohdal', phone: null, role: 'super_admin', isDefault: true },
+    { userId: 'christa', name: 'Christa Feagin', firstName: 'Christa', lastName: 'Feagin', phone: null, role: 'sales_rep', isDefault: false },
+  ])
+  test('starts on everyone for the Salesman and the office; the crew on their own', () => {
+    expect(visitsStartPerson('sales_rep', 'u:christa')).toBe('')
+    expect(visitsStartPerson('super_admin', '')).toBe('')
+    expect(visitsStartPerson('field_crew', 'u:crew')).toBe('u:crew')
+  })
+  test('one with the Salesman: no mark; one with the owner or nobody: "With …"', () => {
+    expect(withSomeoneElse(team, { assignedTo: 'Christa Feagin', assignedToUserId: 'christa' }, 'u:christa')).toBeNull()
+    expect(withSomeoneElse(team, { assignedTo: 'Jonathan Bohdal', assignedToUserId: 'owner' }, 'u:christa')).toBe('With Jonathan Bohdal')
+    expect(withSomeoneElse(team, { assignedTo: '', assignedToUserId: null }, 'u:christa')).toBe('With nobody yet')
+    // The Salesman's login not on the team list: still the Salesman's by its login.
+    expect(withSomeoneElse([], { assignedTo: 'Christa Feagin', assignedToUserId: 'christa' }, 'u:christa')).toBeNull()
+    // Nobody's key (the office): nothing is marked.
+    expect(withSomeoneElse(team, { assignedTo: 'Jonathan Bohdal', assignedToUserId: 'owner' }, '')).toBeNull()
   })
 })
