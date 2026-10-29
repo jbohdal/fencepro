@@ -70,16 +70,33 @@ import { jobScopeWords } from './monthEntries'
 type Tone = 'ok' | 'warn' | 'bad'
 const TONE: Record<Tone, string> = { ok: 'bg-green-50 text-green-800 border-green-200', warn: 'bg-amber-50 text-amber-900 border-amber-200', bad: 'bg-red-50 text-red-800 border-red-200' }
 
+/**
+ * The deposit chip. The Salesman receives no deposit for an install that is
+ * not hers (portal lib/salesSchedule.ts; Jonathan, Oct 29 2026): no chip then,
+ * never "$0" or "No deposit recorded". An amount missing on its own is not shown.
+ */
+export function depositChip(j: Pick<ReadyJob, 'deposit' | 'depositCents' | 'depositPaidCents'>): { key: string; label: string; tone: Tone } | null {
+  if (!j.deposit) return null
+  const amt = (c: number | undefined) => (typeof c === 'number' && Number.isFinite(c) && c > 0 ? money(c) : null)
+  const due = amt(j.depositCents), paid = amt(j.depositPaidCents)
+  const label = j.deposit === 'paid' ? `Deposit paid${due ? ` (${due})` : ''}`
+    : j.deposit === 'part' ? `Deposit part paid${paid && due ? ` (${paid} of ${due})` : ''}`
+    : j.deposit === 'unpaid' ? `Deposit not paid${due ? ` (${due})` : ''}`
+    : 'No deposit recorded'
+  return { key: 'deposit', label, tone: j.deposit === 'paid' ? 'ok' : 'warn' }
+}
+
 export function readyChips(j: ReadyJob): Array<{ key: string; label: string; tone: Tone }> {
   const today = businessDate(new Date())
   const permitOk = j.permitStatus === 'not_needed' || PERMIT_ISSUED.includes(j.permitStatus ?? '')
   const loc = locatesWords(j, today)
   // Booked: the ticket against its own install days, so a "Clear to dig" chip never sits above a warning about the same ticket.
   const locWarn = /^\d{4}-\d{2}-\d{2}$/.test(j.scheduledDate || '') ? locateShortWarning(locateOf(j), j.scheduledDate, j.scheduledEndDate || j.scheduledDate) : null
+  const dep = depositChip(j)
   return [
     { key: 'permit', label: `Permit: ${permitWords(j.permitStatus)}`, tone: permitOk ? 'ok' : 'warn' },
     { key: 'locates', label: locWarn && loc.state === 'ok' ? `⚠ ${locWarn}` : `811: ${loc.text}`, tone: loc.state === 'expired' ? 'bad' : loc.state === 'ok' && !locWarn ? 'ok' : 'warn' },
-    { key: 'deposit', label: j.deposit === 'paid' ? `Deposit paid${j.depositCents ? ` (${money(j.depositCents)})` : ''}` : j.deposit === 'part' ? `Deposit part paid (${money(j.depositPaidCents)} of ${money(j.depositCents)})` : j.deposit === 'unpaid' ? `Deposit not paid (${money(j.depositCents)})` : 'No deposit recorded', tone: j.deposit === 'paid' ? 'ok' : 'warn' },
+    ...(dep ? [dep] : []),
     { key: 'materials', label: `Materials: ${j.materialsStatus === 'not_ordered' ? 'not ordered' : j.materialsStatus.replace('_', ' ')}`, tone: j.materialsStatus === 'not_ordered' ? 'warn' : 'ok' },
   ]
 }

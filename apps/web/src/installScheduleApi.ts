@@ -22,7 +22,8 @@ export interface ReadyJob extends ReadyFacts {
   id: string
   customerName: string
   address: string
-  phone: string
+  /** Left out for the Salesman when the customer is not hers (portal lib/salesSchedule.ts). */
+  phone?: string
   crmContactId: string | null
   quoteId: string | null
   fenceStyle: string
@@ -36,8 +37,9 @@ export interface ReadyJob extends ReadyFacts {
   scheduledEndDate: string | null
   crewAssigned: string
   bookedDays: Ymd[]
-  depositCents: number
-  depositPaidCents: number
+  /** Left out (with `deposit`) for the Salesman on an install that is not hers (portal lib/salesSchedule.ts). */
+  depositCents?: number
+  depositPaidCents?: number
   allowWeekend: boolean
 }
 
