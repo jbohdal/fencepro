@@ -9,21 +9,23 @@
 //
 // Run (dev copy only; a server serving the built app, started with EZ_QUOTE_WIDGET_TOKEN set):
 //   cd apps/web && pnpm -s build
-//   APP_URL=http://localhost:4095 E2E_ACCESS_TOKEN_FILE=<dev owner token> E2E_STAFF_COOKIE=<dev owner cookie> \
-//     WIDGET_TOKEN=<the server's EZ_QUOTE_WIDGET_TOKEN> OUTBOX=<apps/portal/logs/dev-outbox.log> node e2e/lead-assign.mjs
+//   E2E_ACCESS_TOKEN_FILE=<dev owner token> node e2e/lead-assign.mjs   (or through run-heavy.sh, which sets the widget key)
+//   [APP_URL=http://localhost:4001] [WIDGET_TOKEN=<the server's EZ_QUOTE_WIDGET_TOKEN>] [OUTBOX=<apps/portal/logs/dev-outbox.log>]
 // Makes its own Salesman login and lead (LEADCHECK ..., @example.invalid) and removes them at the end.
 import './devOnly.mjs'
 import { webkit, devices } from 'playwright'
 import fs from 'fs'
 import crypto from 'crypto'
 import { execFileSync } from 'child_process'
+import { fileURLToPath } from 'url'
 import { makeTestLogin, removeTestLogin, signInByCookie } from './lib.mjs'
 
-const APP = process.env.APP_URL || 'http://localhost:4095'
+const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
 const OWNER = process.env.E2E_ACCESS_TOKEN || (process.env.E2E_ACCESS_TOKEN_FILE ? fs.readFileSync(process.env.E2E_ACCESS_TOKEN_FILE, 'utf8').trim() : '')
-const WIDGET = process.env.WIDGET_TOKEN || ''
-const OUTBOX = process.env.OUTBOX || ''
+// run-heavy.sh exports the dev copy's widget key as EZ_QUOTE_WIDGET_TOKEN; the dev outbox is apps/portal/logs/dev-outbox.log.
+const WIDGET = process.env.WIDGET_TOKEN || process.env.EZ_QUOTE_WIDGET_TOKEN || ''
+const OUTBOX = process.env.OUTBOX || fileURLToPath(new URL('../../portal/logs/dev-outbox.log', import.meta.url))
 if (!OWNER || !WIDGET || !OUTBOX) { console.error('Set E2E_ACCESS_TOKEN(_FILE), E2E_STAFF_COOKIE, WIDGET_TOKEN and OUTBOX.'); process.exit(2) }
 const DB = 'ezbiz_dev'
 const sql = q => execFileSync('psql', ['-d', DB, '-At', '-v', 'ON_ERROR_STOP=1', '-c', q]).toString().trim()

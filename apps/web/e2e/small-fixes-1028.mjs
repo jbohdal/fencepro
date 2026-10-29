@@ -226,7 +226,9 @@ try {
       await panel.locator('[data-permit-save]').click(); await sleep(5000)
       const after = await hist.innerText()
       const stageNow = await page.locator('[data-ops-stage-choice][style*="background-color"]').first().innerText().catch(() => '')
-      check('4. permit Approved: the job moved by itself and Job history shows it without reopening the window', /Moved to .* by itself/.test(after) && !/Moved to .* by itself/.test(before), `stage now ${stageNow}; history: ${after.split('\n').slice(0, 4).join(' / ')}`)
+      // The history's line for a move the job made by itself (lib/jobMoveHistory.ts): "Moved from A to B automatically: why."
+      const autoMove = /Moved from Permit Pending to .* automatically: permit is Approved/
+      check('4. permit Approved: the job moved by itself and Job history shows it without reopening the window', autoMove.test(after) && !autoMove.test(before), `stage now ${stageNow}; history: ${after.split('\n').slice(0, 4).join(' / ')}`)
       await hist.scrollIntoViewIfNeeded(); await shot(page, '4-office-job-history-after-permit-move')
     }
     check('4/5. no page errors', errors.length === 0, errors.join(' | '))
@@ -282,8 +284,13 @@ try {
     const sizeBefore = fs.existsSync(OUTBOX) ? fs.statSync(OUTBOX).size : 0
     await form.locator('button[type="submit"]').click(); await sleep(2500)
     await shot(page, '2-owner-team-invite-installer')
-    const added = fs.existsSync(OUTBOX) ? fs.readFileSync(OUTBOX, 'utf8').slice(sizeBefore) : ''
-    const line = added.split('\n').filter(l => l.includes(email)).pop() || ''
+    // The invite email is written to the outbox after the reply: wait for it (up to 20 s).
+    let line = ''
+    for (let i = 0; i < 40 && !line; i++) {
+      const added = fs.existsSync(OUTBOX) ? fs.readFileSync(OUTBOX).subarray(sizeBefore).toString('utf8') : '' // bytes, as the size was taken
+      line = added.split('\n').filter(l => l.includes(email)).pop() || ''
+      if (!line) await sleep(500)
+    }
     check('2. the Installer invite (held in the dev outbox) says "as Installer", never "field crew"', /as Installer\b/.test(line) && !/field crew/i.test(line), line.slice(0, 300))
     const u = await (await ownerCtx.request.get(`${API}/api/crm-auth/users`, { headers: H })).json().catch(() => null)
     const id = (u?.data ?? []).find?.(x => x.email === email)?.id
