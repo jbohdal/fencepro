@@ -66,19 +66,48 @@ async function open(who, kind) {
   page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
   return { ctx, page, errors }
 }
-const tapOrClick = (loc, kind) => (kind === 'phone' ? loc.tap() : loc.click())
+/** Done with that phone or computer: closed, as a person puts a phone away (several WebKit phones at once, each
+ *  holding the whole company's data, crash WebKit on a test Mac). Its page errors are kept for the end. */
+const putAway = s => s.ctx.close().catch(() => {})
 const pickedText = sel => sel.evaluate(el => el.options[el.selectedIndex]?.text ?? '')
 
-/** The customer page's Salesman box (on a phone it is on the Overview tab). */
-async function salesmanBox(page, id) {
-  await page.goto(`${APP}/customers/${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
-  const box = page.locator('[data-customer-salesman]:visible').first()
-  if (!(await box.waitFor({ timeout: 30000 }).then(() => true, () => false))) {
-    const tab = page.locator('[data-customer-tab="overview"]')
-    if (await tab.count()) await tab.first().click()
-    await box.waitFor({ timeout: 15000 })
+/**
+ * The next screen in a fresh tab of the same phone or computer (still signed in): WebKit under Playwright crashes a
+ * tab sent to a new address after a screen that used Back (follow-ups.mjs, job-costing.mjs); a phone does not.
+ */
+async function go(s, path) {
+  const page = await s.ctx.newPage()
+  page.on('pageerror', e => s.errors.push(String(e).slice(0, 200)))
+  await s.page.close().catch(() => {})
+  s.page = page
+  await page.goto(`${APP}${path}`, { waitUntil: 'domcontentloaded' })
+  return page
+}
+
+/**
+ * The customer page's Salesman box (on a phone it is on the Details tab), in a fresh tab of that person's phone or
+ * computer. WebKit under Playwright now and then crashes a tab while a customer page loads the whole company's data
+ * on the office's iPhone (as payments.mjs, follow-ups.mjs and nightly-walkthrough.mjs note); a direct load in a loop
+ * never did (0 of 10). A crashed tab is said in the output and opened once more; a second crash fails the run.
+ */
+async function salesmanBox(s, id, again = true) {
+  const page = await s.ctx.newPage()
+  page.on('pageerror', e => s.errors.push(String(e).slice(0, 200)))
+  await s.page.close().catch(() => {})
+  s.page = page
+  try {
+    await page.goto(`${APP}/customers/${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
+    const box = page.locator('[data-customer-salesman]:visible').first()
+    const tab = page.locator('[data-customer-tab="overview"]').first()
+    // A computer shows the box beside the tabs; a phone has it on the Details tab.
+    await Promise.race([box.waitFor({ timeout: 60000 }), tab.waitFor({ timeout: 60000 })])
+    if (!(await box.isVisible())) { await tab.click(); await box.waitFor({ timeout: 15000 }) }
+    return { box, page }
+  } catch (err) {
+    if (!again || !/crashed/i.test(String(err?.message))) throw err
+    console.log(`NOTE  the browser tab crashed opening the customer page (${String(err.message).split('\n')[0]}); opened again in a fresh tab`)
+    return salesmanBox(s, id, false)
   }
-  return box
 }
 
 try {
@@ -119,6 +148,7 @@ try {
     await page.locator('[data-lead-add]').tap()
   }
   const gina = await contact('Gina')
+  await putAway(ownerPhone)
   check(gina?.salesRep === CHRISTA, `the lead is saved with ${CHRISTA} as Salesman`, JSON.stringify(gina))
   const card = sql(`SELECT l->>'assignedRep' FROM "PipelineState" p, jsonb_array_elements(p.leads::jsonb) l WHERE l->>'customerId' = ${lit(gina?.id ?? '')}`)
   check(card === CHRISTA, 'its pipeline card names Christa too', card)
@@ -135,7 +165,7 @@ try {
   // ── 2. Christa enters a New Customer on the iPhone: it starts on Christa ──
   const christaPhone = await open('sales', 'phone')
   {
-    const { page } = christaPhone
+    let { page } = christaPhone
     await page.goto(`${APP}/customers/new`, { waitUntil: 'domcontentloaded' })
     await page.locator('[data-customer-field="first-name"]').waitFor({ timeout: 60000 })
     await page.locator('[data-customer-field="first-name"]').fill('Kim')
@@ -158,19 +188,20 @@ try {
     check(await sees(T.sales, kim?.id), 'Kim is on Christa\'s list')
 
     // Given to the owner: saved with the owner, and it leaves Christa's list and screen.
-    await page.goto(`${APP}/customers/new`, { waitUntil: 'domcontentloaded' })
+    page = await go(christaPhone, '/customers/new')
     await page.locator('[data-customer-field="first-name"]').waitFor({ timeout: 60000 })
     await page.locator('[data-customer-field="first-name"]').fill('Lou')
     await page.locator('[data-customer-field="last-name"]').fill(LAST)
-    await until(async () => (await sel.locator('option').count()) > 1)
-    await sel.selectOption({ label: OWNER })
+    const sel2 = page.locator('[data-salesman-select]')
+    await until(async () => (await sel2.locator('option').count()) > 1)
+    await sel2.selectOption({ label: OWNER })
     await page.locator('[data-customer-save]').tap()
     const lou = await contact('Lou')
     check(lou?.salesRep === OWNER, 'given to the owner: saved with the owner as Salesman', JSON.stringify(lou))
     const gone = await until(async () => !(await sees(T.sales, lou?.id)))
     check(!!gone, 'and it is not on Christa\'s list (the server leaves it out)')
     await sleep(2500)
-    await page.goto(`${APP}/customers`, { waitUntil: 'domcontentloaded' })
+    page = await go(christaPhone, '/customers')
     const search = page.locator('input[placeholder="Search customers..."]')
     await search.waitFor({ timeout: 60000 }); await search.fill(LAST); await sleep(800)
     const listed = await page.getByText(`Lou ${LAST}`).count()
@@ -180,13 +211,13 @@ try {
 
   // ── 3. Christa's quote: Save, New Customer starts on Christa ──
   {
-    const { page } = christaPhone
+    let { page } = christaPhone
     const qid = crypto.randomUUID()
     const today = new Date().toISOString().slice(0, 10)
     const q = await call(T.sales, 'POST', '/api/saved-quotes', { id: qid, customerName: `Max ${LAST}`, customerAddress: '110 SE Watula Ave, Ocala, FL 34471', date: today, status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy", runs: [60], corners: 0, ends: 2, sections: 10, finalPrice: 10, pullSheet: [] })
     made.quotes.push(qid)
     check(q.status === 201 || q.status === 200, `Christa's draft quote is saved (${q.status})`)
-    await page.goto(`${APP}/?quote=${qid}`, { waitUntil: 'domcontentloaded' })
+    page = await go(christaPhone, `/?quote=${qid}`)
     await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 60000 }); await sleep(1500)
     await page.locator('[data-save-open]:visible').first().tap()
     await page.locator('[data-save-mode="new"]').waitFor({ timeout: 15000 })
@@ -209,11 +240,12 @@ try {
     const quoteRep = await until(async () => { const r = await call(T.owner, 'GET', `/api/saved-quotes/${qid}`); return r.json.data?.crmContactId === max?.id ? r.json.data.salesRep : null })
     check(quoteRep === CHRISTA, 'and the quote\'s Sales rep is Christa', String(quoteRep))
   }
+  await putAway(christaPhone)
 
   // ── 4. Christa cannot change a saved customer's Salesman, and is told so ──
   {
-    const { page, ctx } = christaPc
-    const box = await salesmanBox(page, gina.id)
+    const { ctx } = christaPc
+    const { box, page } = await salesmanBox(christaPc, gina.id)
     const t = await box.innerText()
     check(t.includes(CHRISTA) && /Only the owner or the office can change the Salesman\./.test(t) && !(await box.locator('[data-customer-salesman-change]').count()), 'Christa\'s customer page: shows Christa, no Change, says only the owner or office change it', t.replace(/\n/g, ' / '))
     await shot(page, '6-christa-customer-page')
@@ -232,8 +264,9 @@ try {
     const sel = page.locator('[data-salesman-select]')
     await until(async () => (await sel.locator('option').count()) > 1)
     check(await pickedText(sel) === `${OWNER} (me)`, 'owner, New Customer: starts on the owner', await pickedText(sel))
-
-    const box = await salesmanBox(page, gina.id)
+  }
+  {
+    const { box, page } = await salesmanBox(ownerPc, gina.id)
     check((await box.locator('[data-customer-salesman-name]').innerText()) === CHRISTA, 'Gina\'s page: Salesman Christa')
     await box.locator('[data-customer-salesman-change]').click()
     const pick = box.locator('[data-customer-salesman-select]')
@@ -252,6 +285,7 @@ try {
   check(JSON.parse(byName('Gina'))[0]?.salesRep === second.name, 'Gina\'s Salesman is the second Salesman on the server')
   check(await sees(second.token, gina.id), 'the second Salesman has Gina at once')
   check(!(await sees(T.sales, gina.id)), 'Christa no longer has Gina')
+  await putAway(ownerPc)
   const secondPhone = await open('second', 'phone')
   {
     const { page } = secondPhone
@@ -260,9 +294,10 @@ try {
     await search.waitFor({ timeout: 60000 }); await search.fill(LAST)
     check(await page.getByText(`Gina ${LAST}`).first().waitFor({ timeout: 20000 }).then(() => true, () => false), 'the second Salesman\'s iPhone: Gina is on the Customers list')
   }
+  await putAway(secondPhone)
   {
-    const { page } = christaPc
-    await page.goto(`${APP}/customers`, { waitUntil: 'domcontentloaded' })
+    let { page } = christaPc
+    page = await go(christaPc, '/customers')
     const search = page.locator('input[placeholder="Search customers..."]')
     await search.waitFor({ timeout: 60000 }); await search.fill(LAST); await sleep(1500)
     check((await page.getByText(`Gina ${LAST}`).count()) === 0, 'Christa\'s computer, one reload: Gina is gone from Christa\'s list')
@@ -278,8 +313,13 @@ try {
     const sel = page.locator('[data-salesman-select]')
     await until(async () => (await sel.locator('option').count()) > 1)
     check(await pickedText(sel) === `${OFFICE} (me)`, 'office, New Customer: starts on the office login, who is entering it', await pickedText(sel))
-
-    const box = await salesmanBox(page, gina.id)
+  }
+  // The office's phone again, a fresh session (WebKit under Playwright crashed now and then loading the customer
+  // page in the session that had New Customer open; a direct load never did, so it is the harness, not the app).
+  await putAway(officePhone)
+  const officePhone2 = await open('office', 'phone')
+  {
+    const { box, page } = await salesmanBox(officePhone2, gina.id)
     await box.locator('[data-customer-salesman-change]').tap()
     const pick = box.locator('[data-customer-salesman-select]')
     await pick.waitFor({ timeout: 15000 })
@@ -297,7 +337,7 @@ try {
   const lines = (hist.json.data ?? []).filter(h => h.title === 'Lead assigned').map(h => h.detail)
   check(lines.some(l => l === `Lead assigned to ${second.name} by ${OWNER}. It was ${CHRISTA}'s.`) && lines.some(l => l === `Lead assigned to ${CHRISTA} by ${OFFICE}. It was ${second.name}'s.`), 'Gina\'s History says who moved it, to whom, from whom', lines.join(' / '))
 
-  for (const [n, s] of Object.entries({ ownerPhone, christaPc, christaPhone, ownerPc, secondPhone, officePhone })) check(!s.errors.length, `${n}: no page errors`, s.errors.join(' | '))
+  for (const [n, s] of Object.entries({ ownerPhone, christaPc, christaPhone, ownerPc, secondPhone, officePhone, officePhone2 })) check(!s.errors.length, `${n}: no page errors`, s.errors.join(' | '))
 } catch (err) {
   failed++
   console.log(`FAIL  ${err?.stack || err}`)
