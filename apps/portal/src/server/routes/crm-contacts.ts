@@ -38,6 +38,7 @@ import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
 import { findPossibleMatches } from '../lib/customerMerge.js'
 import { salesScopeOf } from '../lib/salesScope.js'
+import { repForSave } from '../lib/salesRep.js'
 
 const router = Router()
 
@@ -197,6 +198,9 @@ router.post('/', requireAccount, async (req: any, res) => {
     // owner and office to merge (lib/salesScope.ts; docs/DECISIONS.md). The Salesman is told only how many.
     const scope = await salesScopeOf(req)
     let onFileElsewhere = 0
+    // A new customer the Salesman saves with no Sales rep is the Salesman's, the same as the Salesman's quote
+    // (lib/salesRep.ts repForSave; review Oct 28 2026: the quote had the Salesman as rep, the new customer none).
+    data.salesRep = (await repForSave(req, data.salesRep)) || undefined
 
     let result: { contact: any; isNew: boolean; pipelineVersion: number | null } | null = null
     for (let attempt = 0; attempt < 5 && !result; attempt++) {

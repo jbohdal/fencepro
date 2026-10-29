@@ -230,7 +230,9 @@ function SaveModal({
         email,
         serviceAddress: address.trim() || propertyAddress.trim(),
         leadSource,
-        salesRep,
+        // The quote's Sales rep: the one typed, else the Salesman saving it (review Oct 28 2026: the quote had
+        // the Salesman as rep, the new customer none). The quote takes the customer's below.
+        salesRep: salesRep.trim() || mySalesRepName(),
       }, { recordMatches: onFile.kind === 'new_possible' })
       onSave({
         customerId: customer.id,
