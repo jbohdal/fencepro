@@ -203,9 +203,10 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
     // ?archived=1 above: the archived ones (search, reports, Unarchive). A small refresh marks a deleted
     // one with archivedAt too, so an older screen drops it (a new screen checks deletedAt first).
     const marked = Number.isFinite(sinceRaw) ? quotes.map(x => (x.deletedAt && !x.archivedAt ? { ...x, archivedAt: x.deletedAt } : x)) : quotes
-    // Each proposal without its drawing and option copies (lib/quoteSlim.ts): they come with the one quote
-    // when it is opened (GET /:id). ?full=1: the whole proposals.
-    const data = req.query.full === '1' ? marked : marked.map(slimQuote)
+    // Whole proposals, as before Oct 28. The phone load cut (lib/quoteSlim.ts, ?slim=1) is held back from the
+    // app: several screens read a sent option's copies straight from the list (sentReprice.ts, change orders),
+    // and sent and signed proposals must open exactly as before (Jonathan, Oct 28 2026).
+    const data = req.query.slim === '1' ? marked.map(slimQuote) : marked
     res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[saved-quotes] list error:', err)

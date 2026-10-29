@@ -157,15 +157,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope and the sl
     expect((await call('GET', `/api/customer-matches/customer/${ids.cOther}`, sales)).json.data.matches).toEqual([])
   })
 
-  test('slim list: no drawing or option copies, sent prices kept; the one quote is whole; a save of the slim copy changes nothing sent', async () => {
-    const list = await call('GET', '/api/saved-quotes?shape=table', owner)
+  test('the list is whole by default; slim only on ?slim=1; a save of a slim copy changes nothing sent', async () => {
+    const whole = await call('GET', '/api/saved-quotes', owner)
+    expect(rows(whole.json.data).find(q => q.id === ids.qOther).proposal).toEqual(proposal)
+    const list = await call('GET', '/api/saved-quotes?shape=table&slim=1', owner)
     const slim = rows(list.json.data).find(q => q.id === ids.qOther)
     expect(slim.proposal.slim).toBe(true)
     expect(slim.proposal.planSvg).toBeUndefined()
     expect(slim.proposal.options.map((o: any) => o.snapshot)).toEqual([undefined, undefined])
     expect(slim.proposal.options.map((o: any) => o.finalPrice)).toEqual([8409, 9100])
     expect(slim.finalPrice).toBe(8409)
-    const full = await call('GET', '/api/saved-quotes?full=1', owner)
+    const full = await call('GET', '/api/saved-quotes', owner)
     expect(full.json.data.find((q: any) => q.id === ids.qOther).proposal).toEqual(proposal)
     const one = await call('GET', `/api/saved-quotes/${ids.qOther}`, owner)
     expect(one.json.data.proposal).toEqual(proposal)
