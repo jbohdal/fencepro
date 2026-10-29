@@ -35,11 +35,14 @@ try {
   let heldId = ''
   await c.route(/\/api\/saved-jobs\/?(\?.*)?$/, async r => {
     if (r.request().method() !== 'GET') return r.abort()
+    // The archived jobs' list (?archived=1) is not the Smart Schedule's: left as it is.
+    if (/[?&]archived=1/.test(r.request().url())) return r.continue()
     const res = await r.fetch(); const json = await res.json()
     // The job list comes as a table (?shape=table, web/src/listTable.ts): back into rows (the app takes a plain list too).
     if (json?.data?.$table === 1) { const { cols, rows, missing } = json.data; json.data = rows.map((row, i) => Object.fromEntries(cols.map((k, n) => [k, row[n]]).filter((_, n) => !missing?.[i]?.includes(n)))) }
-    const j = Array.isArray(json?.data) ? json.data.find(x => x.status === 'staging') : null
-    if (j) { heldId = j.id; j.previousStatus = j.status; j.status = 'on_hold'; j.opsStage = 'customer_delay' }
+    // One job, picked once: a later read (only what changed since, e.g. a job someone else just saved) must not pick another.
+    const j = Array.isArray(json?.data) ? json.data.find(x => heldId ? x.id === heldId : x.status === 'staging' && !x.deletedAt && !x.archivedAt) : null
+    if (j) { heldId = j.id; j.previousStatus = 'staging'; j.status = 'on_hold'; j.opsStage = 'customer_delay' }
     await r.fulfill({ response: res, json })
   })
   const jobSaves = []

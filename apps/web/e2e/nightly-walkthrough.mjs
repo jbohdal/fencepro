@@ -698,6 +698,21 @@ try {
       Object.assign(B, await officeAddsLead(O, 'NIGHTLY', `${TODAY} Chain Link Digset`, '3525550102', /phone call|referral/i))
       return `${B.name}, card in ${B.stage}`
     })
+    // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the office gives
+    // the lead to the Salesman on the Assign screen first.
+    await step('B', 'Office assigns the lead to the Salesman (Assign screen)', O, async () => {
+      const page = await go(O, `/assign-lead?customer=${encodeURIComponent(B.contactId)}`)
+      const one = page.locator(`[data-assign-lead="${B.contactId}"]`)
+      await one.waitFor({ timeout: 20000 })
+      await tap(O, one.locator(`[data-assign-to="${sales.userId}"]`))
+      const done = one.locator('[data-lead-assigned]')
+      await done.waitFor({ timeout: 20000 })
+      const words = (await done.innerText()).split('\n')[0]
+      expect(words.includes(`Assigned to ${sales.name}`), `the Assign screen says "${words}"`)
+      const mine = (await call(sales.token, 'GET', '/api/crm-contacts')).json?.data ?? []
+      expect(Array.isArray(mine) && mine.some(x => x.id === B.contactId), 'the customer is not on the Salesman\'s list after it was assigned')
+      return words
+    })
     await step('B', 'Salesman quotes from the card: the yard, 4 ft chain link dig set, saved (phone)', S, async () => {
       const page = await go(S, `/pipeline?card=${encodeURIComponent(B.cardId)}`)
       await tap(S, page.locator('[data-card-new-quote]').first())
