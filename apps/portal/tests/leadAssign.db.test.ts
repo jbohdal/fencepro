@@ -145,7 +145,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     expect((await call('GET', `/api/crm-contacts/${leadId}/whereabouts`, sales)).status).toBe(404)
     const r = await call('POST', `/api/lead-assign/${leadId}`, office, { to: salesId })
     expect(r.status).toBe(200)
-    expect(r.json.data).toEqual({ assignedTo: `Sally ${tag}`, already: false, cardIds: [`intake-${tag}`] })
+    expect(r.json.data).toEqual({ assignedTo: `Sally ${tag}`, already: false, cardIds: [`intake-${tag}`], quotesMoved: 0 })
     expect((await prisma.crmContact.findUnique({ where: { id: leadId } }))!.salesRep).toBe(`Sally ${tag}`)
     const board = await prisma.pipelineState.findUnique({ where: { accountId } })
     expect((board!.leads as any[])[0].assignedRep).toBe(`Sally ${tag}`)
