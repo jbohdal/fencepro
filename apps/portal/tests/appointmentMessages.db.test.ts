@@ -19,7 +19,7 @@ import bcrypt from 'bcryptjs'
 import type { AddressInfo } from 'net'
 import type { Server } from 'http'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
-import { confirmationSms, repWarning, type RepInfo } from '../../web/src/appointmentMessages'
+import { confirmationSms, onMyWaySms, repWarning, type RepInfo } from '../../web/src/appointmentMessages'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
 describe.skipIf(!process.env.DEV_DB || !onDev)('appointment messages (dev database)', () => {
@@ -91,18 +91,21 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('appointment messages (dev databa
     expect((await prisma.appointment.findUnique({ where: { id: r.json.data.id } })).assignedToUserId).toBe(users.rep)
     const text = confirmationSms(r.json.data, { company })
     expect(text).toMatch(/^Getter Done Fence: Hi Kristi, this is Testrep with Getter Done Fence\./)
-    expect(text).toContain('call or text me directly at (352) 555 0142. Reply STOP to opt out.')
+    expect(text).toContain('call or text our office at (352) 789 4314. Reply STOP to opt out.')
+    expect(text).not.toContain('555 0142')
+    expect(onMyWaySms(r.json.data, 10, { company })).toContain('(352) 555 0142')
     expect(repWarning(r.json.data, company)).toBeNull()
     // Read back in the list too.
     const list = await call('GET', '/api/appointments', 'owner')
     expect(list.json.data.find((a: any) => a.id === r.json.data.id).rep.phone).toBe('3525550142')
   })
 
-  test('the owner: his name and his phone', async () => {
+  test('the owner: his name; the booking text gives the office line, On my way his phone', async () => {
     const r = await book(`Testowner Beta ${tag}`)
     expect(r.json.data.rep.userId).toBe(users.owner)
     expect(confirmationSms(r.json.data, { company })).toContain('this is Testowner with Getter Done Fence')
-    expect(confirmationSms(r.json.data, { company })).toContain('(352) 555 0101')
+    expect(confirmationSms(r.json.data, { company })).toContain('(352) 789 4314')
+    expect(onMyWaySms(r.json.data, 10, { company })).toContain('(352) 555 0101')
   })
 
   test('no Direct phone: the company number and a warning', async () => {
@@ -110,7 +113,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('appointment messages (dev databa
     const a = r.json.data as { rep: RepInfo | null }
     expect(a.rep?.userId).toBe(users.nophone)
     expect(a.rep?.phone).toBeNull()
-    expect(confirmationSms(r.json.data, { company })).toContain('call or text me directly at (352) 789 4314.')
+    expect(onMyWaySms(r.json.data, 10, { company })).toContain('call or text (352) 789 4314.')
     expect(repWarning(r.json.data, company)).toMatch(/has no Direct phone saved/)
   })
 
@@ -161,7 +164,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('appointment messages (dev databa
     expect((await prisma.crmUser.findUnique({ where: { id: users.rep } })).role).toBe('sales_rep')
     // The next appointment's text has the new number.
     const b = await book(`Testrep Alpha ${tag}`)
-    expect(confirmationSms(b.json.data, { company })).toContain('(352) 555 0143')
+    expect(onMyWaySms(b.json.data, 10, { company })).toContain('(352) 555 0143')
   })
 
   test('templates: saved on the server (versioned, in the Change log), and Reset to default takes them out', async () => {

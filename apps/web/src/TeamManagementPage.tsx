@@ -151,7 +151,7 @@ export default function TeamManagementPage() {
                     <div>
                       <p className="font-medium text-gray-900">{user.firstName} {user.lastName}</p>
                       <p className="text-xs text-gray-500">{user.email}</p>
-                      <p className="text-xs text-gray-500" data-direct-phone={user.id}>{user.phone ? <>Direct phone {formatPhone(user.phone)}</> : <span className="text-amber-700">No Direct phone: appointment texts give the company number</span>}</p>
+                      <p className="text-xs text-gray-500" data-direct-phone={user.id}>{user.phone ? <>Direct phone {formatPhone(user.phone)}</> : <span className="text-amber-700">No Direct phone: the On my way text gives the company number</span>}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 lg:gap-3">

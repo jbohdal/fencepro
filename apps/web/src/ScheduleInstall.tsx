@@ -414,7 +414,7 @@ export function TextPreview({ text, what, onLogged }: { text: PreparedText; what
       ) : (
         <p className="text-sm text-red-800" data-install-text-blocked>{text.reason || 'No phone number on the customer.'}</p>
       )}
-      {text.callFrom === 'company' && <p className="text-[11px] text-gray-500">The text gives the company number: the job's salesman has no Direct phone in Settings {'>'} Team.</p>}
+      {!text.officePhone && <p className="text-[11px] text-amber-800" data-install-text-no-office-phone>The text gives no number to call: no company phone is saved in Settings {'>'} Company.</p>}
     </div>
   )
 }

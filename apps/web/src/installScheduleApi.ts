@@ -48,7 +48,8 @@ export interface PreparedText {
   body: string
   allowed: boolean
   reason: string | null
-  callFrom: 'rep' | 'company'
+  /** The number the text gives: the office line (Settings > Company phone). Empty: none saved. */
+  officePhone: string
 }
 
 export interface ScheduleResult {

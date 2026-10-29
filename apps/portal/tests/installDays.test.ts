@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   crewDaysOfWeek, installDays, nextCrewDay, addCrewDays, wholeCrewDays, daysForSections, rainDayMoves, scheduleWarnings,
-  installText, workKindOf, customerPhoneToGive, usDate, locatesWords, holidaysOf, holidayOn, crewConflicts, weekWords, shortDayWords, sameCrewClashes, namesWords,
+  installText, workKindOf, officePhoneToGive, usDate, locatesWords, holidaysOf, holidayOn, crewConflicts, weekWords, shortDayWords, sameCrewClashes, namesWords,
 } from '../src/server/lib/installDays'
 
 // Oct 2026: Mon 26, Tue 27, Wed 28, Thu 29, Fri 30, Sat 31; Nov: Sun 1, Mon 2, Tue 3, Wed 4, Thu 5, Fri 6, Mon 9.
@@ -129,11 +129,12 @@ describe('the customer\'s text', () => {
     expect(installText('moved', { company: 'Getter Done Fence', firstName: 'Kristi', start: '2026-11-09', phone: '(352) 789 4314' }))
       .toMatch(/^Getter Done Fence: Hi Kristi, your fence installation has moved and is now scheduled to start on Monday, 11\/09\/2026\. .* Reply STOP to opt out\.$/)
   })
-  it('gives the rep\'s Direct phone, else the company phone; never the personal cell', () => {
-    expect(customerPhoneToGive('3525551234', '3527894314')).toEqual({ phone: '(352) 555 1234', from: 'rep' })
-    expect(customerPhoneToGive(null, '352-789-4314')).toEqual({ phone: '(352) 789 4314', from: 'company' })
-    expect(customerPhoneToGive('(352) 598-9785', '3527894314')).toEqual({ phone: '(352) 789 4314', from: 'company' })
-    expect(customerPhoneToGive('', '+1 352 598 9785').phone).toBe('')
+  it('gives the office line from Settings > Company, never a salesman\'s own number; never the personal cell (#30, Oct 29 2026)', () => {
+    expect(officePhoneToGive('3527894314')).toBe('(352) 789 4314')
+    expect(officePhoneToGive('352-789-4314')).toBe('(352) 789 4314')
+    expect(officePhoneToGive('+1 352 598 9785')).toBe('')
+    expect(officePhoneToGive('')).toBe('')
+    expect(officePhoneToGive(null)).toBe('')
   })
   it('MM/DD/YYYY', () => { expect(usDate('2026-01-05')).toBe('01/05/2026') })
   it('taken off the schedule: the customer is told the date is changing (prepared only)', () => {
