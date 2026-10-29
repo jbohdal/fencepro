@@ -71,6 +71,8 @@ import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQu
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
+import SalesmanPicker from './SalesmanPicker'
+import { myRepName } from './salesmanChoice'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -230,9 +232,9 @@ function SaveModal({
         email,
         serviceAddress: address.trim() || propertyAddress.trim(),
         leadSource,
-        // The quote's Sales rep: the one typed, else the Salesman saving it (review Oct 28 2026: the quote had
-        // the Salesman as rep, the new customer none). The quote takes the customer's below.
-        salesRep: salesRep.trim() || mySalesRepName(),
+        // The Salesman picked (the person entering unless another is picked; salesmanChoice.ts). The quote takes
+        // the customer's below.
+        salesRep: salesRep.trim() || myRepName(),
       }, { recordMatches: onFile.kind === 'new_possible' })
       onSave({
         customerId: customer.id,
@@ -365,11 +367,11 @@ function SaveModal({
                 <label className="text-xs text-gray-500 mb-1 block">Service Address</label>
                 <AddressAutocomplete value={address} onChange={setAddress} onSelect={p => setAddress(p.formatted)} placeholder="Address..." />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 mb-1 block">Sales Rep</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="e.g. jb" value={salesRep} onChange={e => setSalesRep(e.target.value)} />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* The Salesman choice (salesmanChoice.ts): the person entering, unless another is picked. */}
+                {onFile.kind === 'attach'
+                  ? <p className="text-xs text-gray-500 self-end" data-salesman-kept>{`${onFile.to.firstName} ${onFile.to.lastName}`.trim()}'s Salesman stays as on file{onFile.to.salesRep ? ` (${onFile.to.salesRep})` : ''}.</p>
+                  : <SalesmanPicker value={salesRep} onChange={setSalesRep} onQuote />}
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Lead Source</label>
                   <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={leadSource} onChange={e => setLeadSource(e.target.value)}>

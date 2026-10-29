@@ -190,11 +190,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope and the sl
     void ownerId; void salesId
   })
 
-  test('a new customer\'s Sales rep: the one sent stays; with none, the Salesman\'s name for the Salesman, none for the owner', async () => {
+  test('a new customer\'s Sales rep: the one sent stays; with none, whoever is entering it (the Salesman choice, Oct 28 2026)', async () => {
     const sent = await call('POST', '/api/crm-contacts', sales, { id: crypto.randomUUID(), firstName: 'Rae', lastName: tag, salesRep: `Olive ${tag}` })
     expect(sent.json.data.salesRep).toBe(`Olive ${tag}`)
     const byOwner = await call('POST', '/api/crm-contacts', owner, { id: crypto.randomUUID(), firstName: 'Ola', lastName: tag })
     expect(byOwner.status).toBe(201)
-    expect(byOwner.json.data.salesRep ?? null).toBeNull()
+    expect(byOwner.json.data.salesRep).toBe(`Olive ${tag}`)
   })
 })

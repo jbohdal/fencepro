@@ -160,6 +160,8 @@ export function applySignedContractTransition(lead: { id: string; customerId?: s
         phone: lead.phone || '',
         email: lead.email || '',
         serviceAddress: lead.address || '',
+        // The card's rep is the customer's Salesman (none: the server makes it whoever moved the card).
+        salesRep: (lead as { assignedRep?: string }).assignedRep || '',
       })
       customer = created
     } catch { customer = null }
