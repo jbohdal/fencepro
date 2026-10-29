@@ -3,6 +3,20 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-29: the Salesman's Schedule shows names, addresses and dates only
+
+- **Jonathan** (Oct 29, D5): "Hide deposit amounts, prices and other customers' phone numbers from Christa's Schedule. She only needs names, addresses and dates."
+- **The Schedule stays company wide** (Oct 28: "Leave the schedule ... company wide for now"): the Salesman still sees every install and every waiting job, with the customer's name, the address, the dates and booked days, the crew, the style, footage, sections and crew days, the stage, permit, 811 and materials.
+- **Left out, on the server** (lib/salesSchedule.ts, mounted on every /api/schedule answer), for an install that is not the Salesman's (its job is not in the Salesman's scope, lib/salesScope.ts; an old board entry with only a name counts as not hers):
+  - the board entry's job price and its notes (free text, which can hold a phone number or an amount);
+  - the Ready to schedule row's deposit amount, amount paid and whether it is paid, and the customer's phone (kept when the customer is the Salesman's, e.g. a quote assigned to her);
+  - a rain day's prepared text (it is addressed to the customer's phone);
+  - any field named for money (costRedact.ts isPriceKey), a phone or an email, so a field added later is left out too.
+- **The Salesman's own installs are unchanged**: her jobs' deposits, prices, phones and notes on the Schedule as before (her job pages show them anyway). Owner, admin, manager and office are unchanged. The Installer still gets no price (costRedact.ts) and no Ready list.
+- **Whether another customer's deposit is paid** is left out too (not only the amount): it is that customer's payment, and the Salesman does not book installs. The Ready card then shows no deposit chip (never "$0" or "No deposit recorded"), and the install window no deposit warning.
+- **Saving:** the Salesman never saves the Schedule (the app already shows it read only to her, and her role has no schedule.change). Every write to /api/schedule from the Salesman (the board, its entries, a booking, taking one off, a rain day, the rain log, the settings) is refused (403) before the body is read, so the blanks on her phone can never replace what the office saved, even if the permission table changes. No put-back is needed: no record she does save (business record, kv, her own jobs and quotes) carries the Schedule's hidden fields; the business record's and kv's put-back (lib/salesServed.ts) is unchanged.
+- In apps/portal/src/server/lib/salesSchedule.ts and routes/schedule.ts; web ScheduleInstall.tsx depositChip, installScheduleApi.ts. Pinned in apps/portal/tests/salesSchedule.test.ts and salesSchedule.db.test.ts.
+
 ## 2026-10-28: draft purchase orders show in Pending Orders, marked Draft
 
 - **Jonathan** (Oct 28): "Draft purchase orders from a hand move show in Pending Orders, marked Draft."
