@@ -12,7 +12,7 @@
 //            server refuses a change in those words
 //   owner    computer: New Customer starts on the owner (me); the customer page's Salesman, Change, picks a second
 //            Salesman: that Salesman has the customer, Christa no longer
-//   office   iPhone: New Customer starts on the office login (me); the customer page's Change gives it back to
+//   office   iPhone: New Customer starts on the owner (D4, Oct 29 2026: "Office entries default to me"); the customer page's Change gives it back to
 //            Christa: Christa has it again, the second Salesman no longer
 //
 // Run (dev copy only; a server serving the built app):
@@ -304,7 +304,7 @@ try {
     check((await page.getByText(`Kim ${LAST}`).count()) > 0, '(Kim, still Christa\'s, is there)')
   }
 
-  // ── 6. The office on an iPhone: New Customer starts on the office login; the customer page gives Gina back to Christa ──
+  // ── 6. The office on an iPhone: New Customer starts on the owner (D4); the customer page gives Gina back to Christa ──
   const officePhone = await open('office', 'phone')
   {
     const { page } = officePhone
@@ -312,7 +312,8 @@ try {
     await page.locator('[data-customer-field="first-name"]').waitFor({ timeout: 60000 })
     const sel = page.locator('[data-salesman-select]')
     await until(async () => (await sel.locator('option').count()) > 1)
-    check(await pickedText(sel) === `${OFFICE} (me)`, 'office, New Customer: starts on the office login, who is entering it', await pickedText(sel))
+    check(await pickedText(sel) === OWNER, 'office, New Customer: starts on the owner (D4: office entries default to the owner)', await pickedText(sel))
+    check(!(await sel.locator('option', { hasText: `${OFFICE} (me)` }).count()), 'office, New Customer: the office login is not a Salesman choice', '')
   }
   // The office's phone again, a fresh session (WebKit under Playwright crashed now and then loading the customer
   // page in the session that had New Customer open; a direct load never did, so it is the harness, not the app).

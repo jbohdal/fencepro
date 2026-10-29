@@ -72,7 +72,7 @@ import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
 import { SignedDocumentLinks } from './SignedDocuments'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import SalesmanPicker from './SalesmanPicker'
-import { myRepName } from './salesmanChoice'
+import { defaultRepNow } from './salesmanChoice'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -232,9 +232,9 @@ function SaveModal({
         email,
         serviceAddress: address.trim() || propertyAddress.trim(),
         leadSource,
-        // The Salesman picked (the person entering unless another is picked; salesmanChoice.ts). The quote takes
-        // the customer's below.
-        salesRep: salesRep.trim() || myRepName(),
+        // The Salesman picked (where the choice starts unless another is picked: the person entering, the office's
+        // the owner; salesmanChoice.ts). The quote takes the customer's below.
+        salesRep: salesRep.trim() || defaultRepNow(),
       }, { recordMatches: onFile.kind === 'new_possible' })
       onSave({
         customerId: customer.id,

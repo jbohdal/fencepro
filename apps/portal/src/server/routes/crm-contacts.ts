@@ -39,7 +39,7 @@ import { importHistory } from '../lib/customerImport.js'
 import { findPossibleMatches } from '../lib/customerMerge.js'
 import { salesScopeOf, forgetAllScopes } from '../lib/salesScope.js'
 import { staffRoleOf } from '../lib/costRedact.js'
-import { enteringName, isSalesmanRole, repChanges, salesmanChoices, SALESMAN_CHANGE_REFUSED } from '../lib/salesmanChoice.js'
+import { defaultRepFor, enteringName, isSalesmanRole, repChanges, salesmanChoices, SALESMAN_CHANGE_REFUSED } from '../lib/salesmanChoice.js'
 
 const router = Router()
 
@@ -212,9 +212,10 @@ router.post('/', requireAccount, async (req: any, res) => {
     // owner and office to merge (lib/salesScope.ts; docs/DECISIONS.md). The Salesman is told only how many.
     const scope = await salesScopeOf(req)
     let onFileElsewhere = 0
-    // The Salesman choice (lib/salesmanChoice.ts): a new customer saved with no Sales rep is whoever is entering
-    // it (owner, office or Salesman); the screens send the one picked. The CSV import keeps a row's rep blank.
-    if (!data.salesRep?.trim() && req.body?.keepRepBlank !== true) data.salesRep = (await enteringName(req.user.id)) || undefined
+    // The Salesman choice (lib/salesmanChoice.ts): a new customer saved with no Sales rep gets the choice's
+    // starting name (the owner and a Salesman: themselves; the office: the owner, D4); the screens send the one
+    // picked. The CSV import keeps a row's rep blank.
+    if (!data.salesRep?.trim() && req.body?.keepRepBlank !== true) data.salesRep = (await defaultRepFor(req.user.crmAccountId, req.user.id)) || undefined
     // The card made with the customer carries the same rep (what the board and the Salesman's scope read).
     if (card && data.salesRep && !(typeof (card as any).assignedRep === 'string' && (card as any).assignedRep.trim())) (card as any).assignedRep = data.salesRep
 
