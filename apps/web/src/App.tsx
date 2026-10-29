@@ -905,7 +905,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(id)}`)
     if (r.status === 404 || r.status === 403) {
       toast.error('That quote cannot be opened', isCrewLogin(crmUser.role) ? 'Only the quotes for your installs open on your login. Ask the office if you need this one.'
-        : crmUser.role === 'sales_rep' ? 'Only your own quotes and the ones assigned to you open on your login. Ask the office if you need this one.'
+        : crmUser.role === 'sales_rep' ? 'This quote is not one of yours, or it was deleted. Ask the office if you need this one.'
         : 'It was deleted, or the link is from another company.')
     } else if (r.status === 0 || r.status >= 500) {
       toast.error('The quote did not load', 'Usually that is weak signal. Open it again when you have signal.')

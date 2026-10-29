@@ -234,9 +234,10 @@ function CustomerNotHere({ id }: { id: string }) {
         : <>Deleted{on}. The owner or an admin can bring them back from Settings &gt; Deleted Records.</>,
       can('records.delete') ? <button type="button" className="btn btn-primary" onClick={() => navigate('/settings?tab=deleted')} data-open-deleted-records>Open Deleted Records</button> : null)
   }
-  // The Salesman's list has the Salesman's own customers and the ones assigned (the server sends no others).
+  // The Salesman's list has the Salesman's own customers and the ones assigned (the server sends no others, and
+  // answers another person's customer as not there): the same words as the job page's.
   return box('Customer not found', signedInRole() === 'sales_rep'
-    ? 'This link names a customer who is not on your list. Your list has your own customers and the ones assigned to you; ask the office if you need this one.'
+    ? 'This customer is not one of yours, or it was deleted. Ask the office if you need this one.'
     : 'This link names a customer who is not in the app.')
 }
 
@@ -2031,7 +2032,9 @@ export default function CustomersPage({ onNewQuote }: {
   // show side by side. A customer's own page takes the whole width at every
   // size and scrolls with the page (no box of its own): its header and tabs
   // stay at the top while the rest scrolls (Jonathan, Oct 26 2026).
-  const detailVisible = mode !== 'view' || !!selected
+  // A customer named in the address shows on the phone too, also when it is not on this login's list: the
+  // "not found" box says why (the Salesman's link to another person's customer went quietly to the list; review, Oct 28 2026).
+  const detailVisible = mode !== 'view' || !!selected || !!selectedId
   const customerView = mode === 'view' && !!selected
   return (
     <div className={customerView
