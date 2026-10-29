@@ -195,7 +195,8 @@ async function salesman() {
   // The Salesman's own customer (Sales rep: the Salesman): one not the Salesman's is not even found (lib/salesScope.ts, Oct 28 2026).
   const c = await makeCustomer('Sales Cannot', `E2E Salesman`)
   const other = await makeCustomer('Not His')
-  check('salesman: a customer not the Salesman\'s is not found (404), nor deleted', (await call(sales, 'DELETE', `/api/crm-contacts/${other.id}`)).status === 404 && (await call(sales, 'GET', `/api/crm-contacts/${other.id}`)).status === 404)
+  const salesList = (await call(sales, 'GET', '/api/crm-contacts')).json?.data ?? []
+  check('salesman: a customer not the Salesman\'s is not on the list and not found to delete (404)', (await call(sales, 'DELETE', `/api/crm-contacts/${other.id}`)).status === 404 && Array.isArray(salesList) && !salesList.some(x => x.id === other.id) && salesList.some(x => x.id === c.id))
   const del = await call(sales, 'DELETE', `/api/crm-contacts/${c.id}`)
   check('salesman: the server refuses to delete a customer', del.status === 403, String(del.status))
   check('salesman: ...or a card', (await call(sales, 'DELETE', `/api/pipeline/cards/${c.cardId}`)).status === 403)
