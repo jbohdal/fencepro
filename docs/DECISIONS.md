@@ -37,6 +37,21 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
   - Effective dated: a once per company start-up step (lib/repairPostRates.ts, key migration:repair-post-rates-2026-10-29) sets the rates with an entry in moveRepair.rateHistory (the day it ran, the rates, the ones replaced) and an audit line. It reaches live with the deploy that carries it and never runs again, so a later hand change in Settings stays. Saved quotes keep the cost lines and price they were priced with.
   - Live before: pull $2.50 / $12.00 and disposal $7.50 / $24.00 (no dig / dig set), no footer rate.
   - Pinned in portal tests/moveRepair.test.ts, repairPostRates.db.test.ts, changeOrderPicks.test.ts and walkthroughRules.test.ts.
+## 2026-10-29: the call back moves with the lead; a lead still not assigned pushes twice more
+
+- **Jonathan** (Oct 29, D7): "Yes, the callback moves with the lead."
+  - **What moves:** the customer's open call backs (appointments of type Call back: scheduled, confirmed or rescheduled; not archived or deleted) go to the person the lead is assigned to: the appointment's person (name and login) is set, so it is on that person's Today and Appointments and off the old person's (and out of the old Salesman's scope). Google Calendar is asked to sync, since the event says who it is with.
+  - **What stays:** a call back that is completed, a no show, cancelled, or under way (on my way) stays with who had it. Other appointment types (an estimate booked on the website chat) are not moved: only the call back was asked about.
+  - **Every assign path:** the Assign screen and the push's Assign buttons (both POST /api/lead-assign), including a tap on a lead already that person's; and the Sales Rep changed on the customer page (PATCH /api/crm-contacts). A Sales Rep typed on the customer must be one login (full name, or a first name only one login has) or nothing moves. Card follow ups already follow the card's rep, which the assign writes.
+  - The History note says "The call back went with it." when one moved.
+  - **In the app:** apps/portal/src/server/lib/leadCallback.ts, called from lib/leadAssign.ts and routes/crm-contacts.ts; pinned in tests/leadCallbackRepush.db.test.ts.
+- **Jonathan** (Oct 29, D8): "Push again once after 2 hours, then once at 8 am the next day. No more after that."
+  - A lead still on the waiting list (no rep) gets a repeat push 2 hours after it came in, and one at 8:00 am Florida time (America/New_York) the day after it came in, with the same Assign buttons ("Still not assigned: <name>", what it is, when it came in). None once assigned; never more than those two.
+  - Each repeat push is written down before it is sent (AutomationEffect, key `lead-repush:<customer>:<2h|8am>`), so a restart, a second server or two passes at once never send one twice; one cut off mid send by a restart is not sent again. The automation worker checks every 30 seconds.
+  - **Server down when one came due (reasonable call, not asked):** the 2 hour push goes late, unless 8 am has come by then: then only the 8 am one (one push, not two at once). The 8 am push is sent until noon; after that it is skipped (the lead is still on the waiting list).
+  - **No quiet hours:** the app has none for pushes, so a lead after 10 pm gets its 2 hour push after midnight (11 pm lead: 1 am push). Raised with Jonathan.
+  - On the phone the repeat replaces that lead's earlier push and sounds again (renotify), instead of stacking.
+  - **In the app:** apps/portal/src/server/lib/leadRepush.ts, run from lib/automations/queue.ts tick; pinned in tests/leadRepush.test.ts and tests/leadCallbackRepush.db.test.ts.
 
 ## 2026-10-28: draft purchase orders show in Pending Orders, marked Draft
 

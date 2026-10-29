@@ -33,6 +33,7 @@ import { loadPipelineStages } from './pipelineStages.js'
 import { isFinishedStage } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
+import { moveCallbacks } from './leadCallback.js'
 import type { PushMessage, PushResult } from './automations/push.js'
 
 /** Roles that may assign a lead: the owner, admin, manager and office. Never the Salesman or the Installer. */
@@ -176,14 +177,24 @@ export function pushNewLeadSoon(accountId: string, contactId: string, facts: Lea
  */
 export async function pushNewLead(accountId: string, contactId: string, facts: LeadFacts, deps: LeadPushDeps = {}): Promise<LeadPushOutcome> {
   if (await leadRepOf(accountId, contactId)) return { pushed: false, why: 'already assigned' }
+  return deliverLeadPush(accountId, contactId, leadPushWords(facts), deps)
+}
+
+/**
+ * Send one lead push (the first, or a repeat: lib/leadRepush.ts) to the owner
+ * and admins, with its Assign buttons. Held in the dev outbox off the live
+ * install. `renotify`: the phone sounds again although a push for this lead
+ * (same tag) is still showing.
+ */
+export async function deliverLeadPush(accountId: string, contactId: string, words: { title: string; body: string }, deps: LeadPushDeps = {}, opts: { renotify?: boolean } = {}): Promise<LeadPushOutcome> {
   const owners = await ownerIds(accountId)
   if (!owners.length) return { pushed: false, why: 'no owner login' }
-  const { title, body } = leadPushWords(facts)
+  const { title, body } = words
   const url = assignLeadLink(contactId)
   // Buttons on the push where the phone shows them (not an iPhone home screen app): one per person, the push carries up to two.
   const people = await assignees(accountId)
   const actions = people.slice(0, 2).map(p => ({ action: `assign:${p.id}`, title: `Assign to ${p.name.split(' ')[0]}` }))
-  const msg: PushMessage = { title, body, url, tag: `lead-${contactId}`, actions, assign: { customerId: contactId } }
+  const msg: PushMessage = { title, body, url, tag: `lead-${contactId}`, actions, assign: { customerId: contactId }, ...(opts.renotify ? { renotify: true } : {}) }
   const to = owners.map(o => o.id)
   const allowed = deps.allowed ?? realDeliveryAllowed()
   if (!allowed && !deps.send) {
@@ -291,7 +302,7 @@ export async function leadForAssign(accountId: string, contactId: string): Promi
 // ── Assign ──────────────────────────────────────────────────────────────────
 
 export type AssignAnswer =
-  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null }
+  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null; callbackIds: string[] }
   | { ok: false; status: number; code: string; error: string; rep?: LeadRep }
 
 /**
@@ -313,9 +324,11 @@ export async function assignLead(input: { accountId: string; contactId: string; 
     // Already theirs: make sure the customer and the cards both say so, no new note.
     const cardIds = await setCardsRep(accountId, contactId, target.name)
     await prisma.crmContact.updateMany({ where: { id: contactId, accountId, OR: [{ salesRep: null }, { salesRep: '' }] }, data: { salesRep: target.name } })
-    forgetScope(target.id)
+    // Its open call back too (D7, lib/leadCallback.ts), in case it was booked with someone else.
+    const callbackIds = await moveCallbacks(accountId, contactId, target)
+    for (const p of callbackIds.length ? people : [target]) forgetScope(p.id)
     const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-    return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null }
+    return { ok: true, already: true, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds }
   }
   if (current && !input.replace) {
     const who = current.by ? ` by ${current.by}` : ''
@@ -328,17 +341,19 @@ export async function assignLead(input: { accountId: string; contactId: string; 
     // The board was busy for every try: the customer carries the rep, which is enough for the Salesman's scope.
     console.warn(`[lead-assign] could not write the rep on the cards of ${contactId}; the customer has it`)
   }
+  // The call back moves with the lead (Jonathan, Oct 29 2026, D7): its open call backs go to the new person.
+  const callbackIds = await moveCallbacks(accountId, contactId, target)
   await prisma.crmContactNote.create({
     data: {
       crmContactId: contactId, accountId, isPinned: false,
-      body: `${ASSIGN_NOTE_PREFIX}${target.name} by ${input.by.name}.${current ? ` It was ${current.name}'s.` : ''}`,
+      body: `${ASSIGN_NOTE_PREFIX}${target.name} by ${input.by.name}.${current ? ` It was ${current.name}'s.` : ''}${callbackIds.length ? ` The call back went with it.` : ''}`,
       createdBy: input.by.name, createdById: input.by.id,
     },
   })
   // The Salesman's next request reads the scope again: this lead is in it (and out of the one it left).
   for (const p of people) forgetScope(p.id)
   const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null }
+  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds }
 }
 
 /**
