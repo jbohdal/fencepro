@@ -139,7 +139,7 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
       ['Fence', c.optionLabel],
       ...(c.footageFt > 0 ? [['Footage', `${Math.round(c.footageFt)} ft${c.gatesText ? `, ${c.gatesText}` : ''}`] as [string, string]] : []),
       ['Price', money(c.price)],
-      ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(c.wholeDollar ? depositOf(Math.round(c.price * 100), c.depositPct, true) / 100 : c.price * c.depositPct / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
+      ...(c.depositPct > 0 ? [['Deposit', `${c.depositPct}% to schedule: ${money(depositOf(Math.round(c.price * 100), c.depositPct, c.wholeDollar === true) / 100)}${c.depositNote ? ` (${c.depositNote})` : ''}`] as [string, string]] : []),
       ['Warranty', c.warranty?.name || 'None written'],
     ]
     for (const [k, v] of facts) {
