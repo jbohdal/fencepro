@@ -268,16 +268,17 @@ export default function OperationsBoard() {
     const target = stageInfo(targetStage)
     const updates = stageFields(targetStage, j.rawJob, TODAY()) as Partial<Job> | null
     if (!target || !updates) return false
-    // Materials Ordered and Ready to Pull record the materials: asked first when they are not so yet (round 2, Oct 28 2026).
-    // Past Need Drawing records the drawing done: asked first when the job has no drawing on file (review Oct 28 2026).
-    const q = opts.asked ? null : handMoveQuestion(targetStage, target.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }, drawingFacts(j, updates))
-    if (q && !window.confirm(q)) return false
     // A closed job (Complete, Invoiced, Paid) goes back only with Reopen, by the owner or the office (the server refuses it otherwise).
+    // Asked before anything else: who may reopen it, and whether to, come first (round 2b, Oct 26 2026).
     const reopen = isDoneStage(j.opsStage) && movesBack(j.opsStage, targetStage)
     if (reopen) {
       if (!can('schedule.change')) { toast.error('Not moved', `${j.customerName} is ${stageName(j.opsStage)}, a closed job. Only the owner or the office can reopen it.`); return false }
       if (!window.confirm(`Reopen ${j.customerName}'s job? It is ${stageName(j.opsStage)} (closed). It moves back to ${target.name}${isDonePhase(stagePhase(targetStage)) ? '' : ' and its completed date is cleared'}.`)) return false
     }
+    // Materials Ordered and Ready to Pull record the materials: asked first when they are not so yet (round 2, Oct 28 2026).
+    // Past Need Drawing records the drawing done: asked first when the job has no drawing on file (review Oct 28 2026).
+    const q = opts.asked ? null : handMoveQuestion(targetStage, target.name, { materialsStatus: j.rawJob.materialsStatus, customerName: j.customerName }, drawingFacts(j, updates))
+    if (q && !window.confirm(q)) return false
     // optimistic local update
     setJobs(prev => prev.map(x => x.id === j.id ? { ...x, opsStage: targetStage, opsStageLabel: target.name } : x))
     const wasDone = isDoneStage(j.opsStage)

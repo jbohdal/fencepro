@@ -242,10 +242,15 @@ try {
     // No on "Reopen…?" says nothing moved: no green "Moved to" (re-check, Oct 26 2026: it said "Moved to Complete").
     const toastsAfterNo = await o.page.locator('[data-toast]').allInnerTexts().catch(() => [])
     check('office: No on Reopen shows no "Moved to" toast', !toastsAfterNo.some(t => /Moved to/.test(t)), toastsAfterNo.join(' | ') || 'no toast')
-    o.page.once('dialog', d => d.accept().catch(() => {}))
+    // Yes to Reopen; this job has no drawing on file, so the move then asks about the drawing too (review Oct 28 2026): Yes.
+    const yesAsked = []
+    const yes = d => { yesAsked.push(d.message()); d.accept().catch(() => {}) }
+    o.page.on('dialog', yes)
     await o.page.locator(`[data-job-panel="${A.jobId}"] [data-ops-stage-choice="punch_list"]`).click()
     const reopened = await until(async () => { const j = await jobRow(A.jobId); return j?.opsStage === 'punch_list' ? j : null }, 15000)
+    o.page.off('dialog', yes)
     check('office: Yes reopens it (Punch List, no completed date)', !!reopened && !reopened.completedDate, `${reopened?.opsStage} ${reopened?.completedDate}`)
+    check('office: Reopen is asked before the drawing question', /^Reopen /.test(yesAsked[0] ?? '') && yesAsked.slice(1).every(m => /^No drawing on file/.test(m)), yesAsked.map(m => m.split('\n')[0]).join(' | '))
     // Yes: "Moved to Punch List" once the server has it.
     const movedToast = await until(async () => { const t = await o.page.locator('[data-toast]').allInnerTexts().catch(() => []); return t.find(x => /Moved to Punch List/.test(x)) ?? null }, 15000)
     check('office: Yes says "Moved to Punch List" once saved', !!movedToast, movedToast ?? 'no toast')
