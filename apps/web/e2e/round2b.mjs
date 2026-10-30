@@ -74,7 +74,9 @@ async function soldJob(label, days, extra = {}) {
   const quote = await owner('POST', '/api/saved-quotes', {
     crmContactId: contactId, customerName: name, customerPhone: contact.json.data?.phone ?? '', customerAddress: ADDR,
     fenceStyle: "WV-ND 6'x8' Privacy", runs: [120], corners: 0, ends: 2, sections: 15, finalPrice: 5000, status: 'SOLD', notes: extra.notes ?? '',
-    proposal: { version: 1, options: [{ label: 'White vinyl', fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: 5000, perFoot: 41.67, sections: 15 }] },
+    // A 50% deposit asked on the proposal: one with none asked makes no deposit invoice (D2, Oct 29 2026), and A needs a
+    // deposit paid with the final still open.
+    proposal: { version: 1, depositPct: 50, options: [{ label: 'White vinyl', fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: 5000, perFoot: 41.67, sections: 15 }] },
     ...(extra.quote ?? {}),
   })
   const quoteId = quote.json.data?.id

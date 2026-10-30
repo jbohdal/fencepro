@@ -2,7 +2,8 @@
 // (Payments.tsx, paymentsStore.ts; server lib/contractBilling.ts). See README.md.
 //
 //   1. A quote sold for $8,914.27 (marked Sold, its job made, as the app does):
-//      the job's Deposit is $4,457.14 and its Final $4,457.13.
+//      billed the whole dollar the proposal shows, $8,914 (D1, Oct 29 2026), so
+//      the job's Deposit is $4,457.00 and its Final $4,457.00.
 //   2. On the phone, the job page, no signal: Payment received, check #1042 for
 //      the deposit. The receipt shows at once with its real number (set aside
 //      while the phone had signal), the amount, the check number, the balance,
@@ -103,7 +104,7 @@ try {
   check('setup: customer, quote sold, job made', c.status < 300 && q.status < 300 && sold.status < 300 && !!jobId, `${c.status} ${q.status} ${sold.status} ${j.status}`)
   const sched = (await call('GET', `/api/payments/job/${jobId}`)).json.data?.schedule
   const dep = sched?.invoices.find(i => i.kind === 'deposit'), fin = sched?.invoices.find(i => i.kind === 'final')
-  check('sold: the deposit invoice is $4,457.14, the final $4,457.13 (adds up to $8,914.27)', dep?.amountCents === 445714 && fin?.amountCents === 445713, `${dep?.amountCents} ${fin?.amountCents}`)
+  check('sold: the deposit invoice is $4,457.00, the final $4,457.00 (adds up to the $8,914 shown)', dep?.amountCents === 445700 && fin?.amountCents === 445700, `${dep?.amountCents} ${fin?.amountCents}`)
 
   // ── 2. The phone, on the job page ──
   const ctx = CDP ? browser.contexts()[0] : await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true })
@@ -143,7 +144,7 @@ try {
   await until(async () => reserved > 0, 15000)
   check('the phone set receipt numbers aside while it had signal', reserved > 0)
   const depBtn = page.locator(`[data-payment-schedule="${jobId}"] [data-payment-received="deposit"]`)
-  check('job page: Payment received on the deposit, filled in with $4,457.14', /\$4,457\.14/.test(await depBtn.innerText()))
+  check('job page: Payment received on the deposit, filled in with $4,457.00', /\$4,457\.00/.test(await depBtn.innerText()))
   check('job page: the final shows due on completion', /Due on completion/.test(await page.locator('[data-invoice="final"]').innerText()))
   await shot(page, '1-schedule')
 
@@ -152,7 +153,7 @@ try {
   await sleep(500)
   const t0 = Date.now()
   await tap(depBtn)
-  check('the form opens filled in with the amount due', (await S().locator('[data-payment-amount]').inputValue()) === '4457.14')
+  check('the form opens filled in with the amount due', (await S().locator('[data-payment-amount]').inputValue()) === '4457.00')
   await tap(S().locator('[data-payment-method="check"]'))
   await S().locator('[data-payment-check-number]').fill('1042')
   await shot(page, '2-payment-form')
@@ -161,7 +162,7 @@ try {
   check('no signal: the receipt is on screen at once', Date.now() - t0 < 30000, `${Math.round((Date.now() - t0) / 1000)} s from the tap`)
   const shownNumber = Number(await R().locator('[data-receipt-number]').getAttribute('data-receipt-number'))
   check('no signal: it has its real receipt number', shownNumber > 1000, String(shownNumber))
-  check('no signal: amount, check number, deposit, balance', (await R().locator('[data-receipt-amount]').innerText()) === '$4,457.14' && /Check #1042/.test(await R().locator('[data-receipt-method]').innerText()) && /Deposit/.test(await R().locator('[data-receipt-for]').innerText()) && (await R().locator('[data-receipt-balance]').innerText()) === '$4,457.13')
+  check('no signal: amount, check number, deposit, balance', (await R().locator('[data-receipt-amount]').innerText()) === '$4,457.00' && /Check #1042/.test(await R().locator('[data-receipt-method]').innerText()) && /Deposit/.test(await R().locator('[data-receipt-for]').innerText()) && (await R().locator('[data-receipt-balance]').innerText()) === '$4,457.00')
   check('no signal: says it is saved on this phone', (await R().locator('[data-receipt-status]').getAttribute('data-receipt-status')) === 'waiting')
   check('no signal: not on the server yet', sql(`SELECT count(*) FROM "ContractPayment" WHERE "jobId" = '${jobId}'`) === '0')
   // Text: the phone's own texting app, with the saved phone and the receipt link.
@@ -193,11 +194,11 @@ try {
   const fresh = await desk.newContext()
   const fp = await fresh.newPage()
   await fp.goto(link.replace(/^https?:\/\/[^/]+/, APP))
-  check('the link opens with no sign in', (await fp.locator('[data-receipt-amount]').getAttribute('data-receipt-amount')) === '445714' && Number(await fp.locator('[data-receipt-number]').getAttribute('data-receipt-number')) === shownNumber)
+  check('the link opens with no sign in', (await fp.locator('[data-receipt-amount]').getAttribute('data-receipt-amount')) === '445700' && Number(await fp.locator('[data-receipt-number]').getAttribute('data-receipt-number')) === shownNumber)
   await fresh.close()
   const pdfRes = await fetch(`${API}/p/r/${r1[1]}.pdf`)
   const pdf = pdfText(Buffer.from(await pdfRes.arrayBuffer()))
-  check('the PDF downloads with the right numbers', /application\/pdf/.test(pdfRes.headers.get('content-type') || '') && pdf.includes(`Receipt ${shownNumber}`) && pdf.includes('$4,457.14') && pdf.includes('Check #1042') && pdf.includes('$8,914.27') && pdf.includes('$4,457.13'), pdf.slice(0, 160))
+  check('the PDF downloads with the right numbers', /application\/pdf/.test(pdfRes.headers.get('content-type') || '') && pdf.includes(`Receipt ${shownNumber}`) && pdf.includes('$4,457.00') && pdf.includes('Check #1042') && pdf.includes('$8,914.00') && !pdf.includes('$8,914.27'), pdf.slice(0, 160))
   await tap(R().locator('[data-receipt-done]'))
 
   // ── 4. A short payment: cash $2,000.00 on the final ──
@@ -208,11 +209,11 @@ try {
   await tap(S().locator('[data-payment-method="cash"]'))
   await tap(S().locator('[data-payment-save]'))
   await R().waitFor({ state: 'visible' })
-  check('short payment: the balance carries ($2,457.13 left)', (await R().locator('[data-receipt-balance]').innerText()) === '$2,457.13')
+  check('short payment: the balance carries ($2,457.00 left)', (await R().locator('[data-receipt-balance]').innerText()) === '$2,457.00')
   await until(async () => (await R().locator('[data-receipt-status]').getAttribute('data-receipt-status')) === 'saved', 20000)
   await tap(R().locator('[data-receipt-done]'))
-  await until(async () => /Left \$2,457\.13/.test(await page.locator('[data-invoice="final"]').innerText()), 15000)
-  check('job page: the final shows $2,457.13 left', /Left \$2,457\.13/.test(await page.locator('[data-invoice="final"]').innerText()))
+  await until(async () => /Left \$2,457\.00/.test(await page.locator('[data-invoice="final"]').innerText()), 15000)
+  check('job page: the final shows $2,457.00 left', /Left \$2,457\.00/.test(await page.locator('[data-invoice="final"]').innerText()))
 
   // ── 5. A Salesman in the field; the owner confirms ──
   const repEmail = sql(`SELECT email FROM "CrmUser" WHERE role = 'sales_rep' AND status = 'active' ORDER BY "createdAt" LIMIT 1`)
@@ -220,7 +221,7 @@ try {
   execFileSync(path.join(PORTAL_DIR, 'node_modules/.bin/tsx'), ['scripts/dev-session-token.ts', '--email', repEmail, '--days', '1', '--out', tokFile], { cwd: PORTAL_DIR, stdio: 'ignore' })
   const SALES = fs.readFileSync(tokFile, 'utf8').trim(); fs.rmSync(tokFile)
   salesSession = JSON.parse(Buffer.from(SALES.split('.')[1], 'base64url').toString()).sid
-  const sp = await call('POST', '/api/payments', { id: `e2esales${stamp}`, jobId, amountCents: 45713, method: 'zelle', paidOn: today }, SALES)
+  const sp = await call('POST', '/api/payments', { id: `e2esales${stamp}`, jobId, amountCents: 45700, method: 'zelle', paidOn: today }, SALES)
   check('a Salesman records a payment in the field', sp.status === 201 && sp.json.data?.payment?.needsConfirm === true, String(sp.status))
   const salesReceipt = JSON.stringify(sp.json.data?.receipt?.says)
   await openPage()

@@ -12,8 +12,8 @@
 //     a crew day (Monday to Thursday); the installer makes the packet (no prices), taps Start and Finish, walks
 //     the job with the homeowner (checklist, photos, both signatures); the office takes the final payment and the
 //     job closes itself to Paid (its card to Paid & Closed).
-//   Job B, 4 ft chain link dig set: the Salesman quotes from the card and the customer signs; the office takes the
-//     deposit; the Salesman makes a change order (waits for the OK), the office OKs it, the customer signs it on
+//   Job B, 4 ft chain link dig set: the office adds the lead and gives it to the Salesman (the Salesman choice on
+//     Add lead); the Salesman quotes from the card and the customer signs; the office takes the deposit; the Salesman makes a change order (waits for the OK), the office OKs it, the customer signs it on
 //     her phone; Jonathan makes a change order from the job's drawing and the customer signs it; the contract is
 //     the quote plus both.
 //   Job C, walk-in repair: the office adds the walk-in, quotes the repair, sends it (Send anyway: no photos),
@@ -24,6 +24,10 @@
 //   cd apps/web && pnpm -s build
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev owner token> (or E2E_ACCESS_TOKEN_FILE=<file>) \
 //     [SHOTS=<folder>] [RESULTS=<file.json>] [JOBS=A,B,C] [KEEP=1] node e2e/nightly-walkthrough.mjs
+//
+// The deposit: the proposal's own percent (Settings > Proposal). A proposal that asks 0% or none makes no deposit
+// invoice (D2, Jonathan, Oct 29 2026), so the deposit step then checks the Final is the whole contract and records
+// nothing; the final payment is the whole contract.
 //
 // Prints PASS / FAIL / SKIP per step with its time; a failed step takes a screenshot (SHOTS) and the rest of that
 // job is skipped (it needs the step). RESULTS gets the same as JSON (deploy/mac/nightly-check.sh reads it).
@@ -217,7 +221,7 @@ const PRICE = /\$\s?\d|\bprice\b|\bcost\b|\bmargin\b|\bdeposit\b/i
 // ════════════════════════════════════════════════════════════════════════════
 
 /** The office adds a lead on the Sales Pipeline (computer). Returns { contactId, cardId, name }. */
-async function officeAddsLead(o, first, last, phone, source) {
+async function officeAddsLead(o, first, last, phone, source, salesman = null) {
   const page = await go(o, '/pipeline')
   await page.waitForSelector('[data-kanban-col]', { timeout: 45000 }); await sleep(800)
   await tap(o, page.locator('button:has-text("+ New lead")').first())
@@ -233,6 +237,13 @@ async function officeAddsLead(o, first, last, phone, source) {
   const opts = await src.locator('option').allInnerTexts()
   const want = opts.find(o => source.test(o))
   if (want) await src.selectOption({ label: want })
+  // The Salesman choice (Oct 29 2026): the office's entry starts on the owner (D4); picked here, it goes to that Salesman.
+  if (salesman) {
+    const sel = page.locator('[data-salesman-select]')
+    const there = await until(async () => (await sel.locator(`option[value="${salesman}"]`).count()) > 0, 20000)
+    expect(there, `the Salesman choice on Add lead does not offer ${salesman}`)
+    await sel.selectOption(salesman)
+  }
   await tap(o, page.locator('[data-lead-add]'))
   const name = `${first} ${last}`
   const card = await until(async () => ((await owner('GET', '/api/pipeline')).json?.data?.leads ?? []).find(l => l.firstName === first && l.lastName === last && l.customerId), 20000)
@@ -357,6 +368,22 @@ async function officeTakesPayment(o, jobId, which, checkNo) {
   const paidInFull = await R.locator('[data-receipt-paid-in-full]').isVisible().catch(() => false)
   await tap(o, R.locator('[data-receipt-done]'))
   return { words, paidInFull, amountCents: Math.round(Number(amount) * 100) }
+}
+
+/**
+ * The office takes the deposit on the job page when the proposal asked one. A proposal asking 0% or none makes no
+ * deposit invoice (D2, Oct 29 2026): then the Final must be the whole contract, and nothing is recorded.
+ */
+async function officeTakesDeposit(o, jobId, checkNo) {
+  const s = await until(async () => { const x = await schedule(jobId); return x?.invoices?.length ? x : null }, 30000)
+  expect(s, 'the job has no payment schedule')
+  if (s.invoices.some(i => i.kind === 'deposit')) return (await officeTakesPayment(o, jobId, 'deposit', checkNo)).words
+  const fin = s.invoices.find(i => i.kind === 'final')
+  expect(fin && fin.amountCents === s.contractCents, `no deposit invoice, but the Final ($${(fin?.amountCents ?? 0) / 100}) is not the whole contract ($${s.contractCents / 100})`)
+  const page = await go(o, `/operations?job=${jobId}`)
+  await page.locator(`[data-payment-schedule="${jobId}"] [data-payment-received="final"]`).first().waitFor({ timeout: 40000 })
+  expect(!(await page.locator(`[data-payment-schedule="${jobId}"] [data-payment-received="deposit"]`).count()), 'the job page offers a deposit the schedule does not have')
+  return `no deposit: the proposal asks ${s.depositPct || 0}%, so the Final is the whole contract ($${s.contractCents / 100}) (D2)`
 }
 
 /** The office schedules the install on the Schedule page: the job dragged from Ready to schedule onto a day. */
@@ -655,10 +682,7 @@ try {
       return `job made (${A.job.status}); card in ${card.stage}`
     })
     await step('A', 'Office takes the deposit (job page, Payment received)', O, async () => {
-      const r = await officeTakesPayment(O, A.job.id, 'deposit', '2101')
-      const s = await schedule(A.job.id)
-      expect(s, 'the job has no payment schedule')
-      return r.words
+      return officeTakesDeposit(O, A.job.id, '2101')
     })
     await step('A', 'Office adds the 811 ticket and the permit (job page)', O, async () => {
       const page = await go(O, `/operations?job=${A.job.id}`)
@@ -695,23 +719,19 @@ try {
   if (ONLY.has('B')) {
     const B = {}
     await step('B', 'Office adds the lead (Sales Pipeline, + New lead)', O, async () => {
-      Object.assign(B, await officeAddsLead(O, 'NIGHTLY', `${TODAY} Chain Link Digset`, '3525550102', /phone call|referral/i))
-      return `${B.name}, card in ${B.stage}`
+      // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026). The office's
+      // entry starts on the owner (D4, Oct 29 2026) and only the owner moves a Salesman once saved, so the office gives
+      // the lead to the Salesman on Add lead (the Salesman choice), not on the Assign screen afterwards.
+      Object.assign(B, await officeAddsLead(O, 'NIGHTLY', `${TODAY} Chain Link Digset`, '3525550102', /phone call|referral/i, sales.name))
+      return `${B.name}, card in ${B.stage}, Salesman ${sales.name}`
     })
-    // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the office gives
-    // the lead to the Salesman on the Assign screen first.
-    await step('B', 'Office assigns the lead to the Salesman (Assign screen)', O, async () => {
-      const page = await go(O, `/assign-lead?customer=${encodeURIComponent(B.contactId)}`)
-      const one = page.locator(`[data-assign-lead="${B.contactId}"]`)
-      await one.waitFor({ timeout: 20000 })
-      await tap(O, one.locator(`[data-assign-to="${sales.userId}"]`))
-      const done = one.locator('[data-lead-assigned]')
-      await done.waitFor({ timeout: 20000 })
-      const words = (await done.innerText()).split('\n')[0]
-      expect(words.includes(`Assigned to ${sales.name}`), `the Assign screen says "${words}"`)
-      const mine = (await call(sales.token, 'GET', '/api/crm-contacts')).json?.data ?? []
-      expect(Array.isArray(mine) && mine.some(x => x.id === B.contactId), 'the customer is not on the Salesman\'s list after it was assigned')
-      return words
+    await step('B', 'The Salesman has the lead the office gave her (her customer list)', S, async () => {
+      // (No GET of one customer by id exists; the database has it.)
+      const rep = await until(async () => sql(`SELECT coalesce("salesRep", '') FROM "CrmContact" WHERE id = ${lit(B.contactId)}`) || null, 10000)
+      expect(rep === sales.name, `the customer's Salesman is ${rep || 'none'}, not ${sales.name}`)
+      const mine = await until(async () => { const l = (await call(sales.token, 'GET', '/api/crm-contacts')).json?.data; return Array.isArray(l) && l.some(x => x.id === B.contactId) ? l : null }, 15000)
+      expect(mine, 'the customer is not on the Salesman\'s list after the office gave it to her')
+      return `Salesman ${rep}; on her list`
     })
     await step('B', 'Salesman quotes from the card: the yard, 4 ft chain link dig set, saved (phone)', S, async () => {
       const page = await go(S, `/pipeline?card=${encodeURIComponent(B.cardId)}`)
@@ -731,7 +751,7 @@ try {
       expect(Math.round((B.job.contractValue ?? B.job.quotePrice ?? 0)) === Math.round(B.quote.finalPrice), `the job's contract ($${B.job.contractValue}) is not the price quoted ($${B.quote.finalPrice})${B.job.chose ? `; the customer picked "${B.job.chose}"` : ''}`)
       return `job made (${B.job.status})${B.job.chose ? `, picked "${B.job.chose}"` : ''}`
     })
-    await step('B', 'Office takes the deposit (job page)', O, async () => (await officeTakesPayment(O, B.job.id, 'deposit', '2201')).words)
+    await step('B', 'Office takes the deposit (job page)', O, () => officeTakesDeposit(O, B.job.id, '2201'))
     await step('B', 'Salesman makes a change order on her sold quote: it waits for the OK (phone)', S, async () => {
       const page = await go(S, `/pipeline?card=${encodeURIComponent(B.cardId)}`)
       await tap(S, page.locator(`[data-card-quote="${B.quote.id}"]`).first())
