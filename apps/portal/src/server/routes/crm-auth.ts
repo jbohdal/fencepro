@@ -943,7 +943,9 @@ router.patch('/users/:id', async (req, res) => {
       data: data as any,
     })
     // A new role or a switched off login takes effect now: that person signs in again (a sign in lasts at most 15 minutes without a refresh).
-    if (data.role || (data.status && data.status !== 'active')) {
+    // The Edit window always sends the role: only a real change of it signs them out (Oct 30 2026: saving a
+    // new email with the role unchanged signed the person out on every phone).
+    if ((data.role && data.role !== target.role) || (data.status && data.status !== 'active')) {
       await prisma.crmUserSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {})
     }
     // Who made the change goes in History too (this router sets no req.user of its own).

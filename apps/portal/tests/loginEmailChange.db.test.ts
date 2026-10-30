@@ -140,6 +140,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('changing a login email through t
     expect(act.metadata).toMatchObject({ oldEmail: mail('worker'), newEmail: newMail })
   })
 
+  test("the Team page's Edit save after the email (role sent unchanged) does not sign the person out", async () => {
+    const r = await fetch(`${base}/api/crm-auth/users/${users.worker}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.owner}` }, body: JSON.stringify({ firstName: 'Test', lastName: 'worker', phone: '', role: 'sales_rep', status: 'active' }) })
+    expect(r.status).toBe(200)
+    expect(await prisma.crmUserSession.count({ where: { userId: users.worker, revokedAt: null } })).toBeGreaterThan(0)
+    const a = await prisma.crmAuditLog.findFirst({ where: { entityType: 'CrmUser', entityId: users.worker }, orderBy: { createdAt: 'desc' } })
+    expect(a.userId).toBe(users.owner)
+  })
+
   test('the person stays signed in; the next sign in is with the new email and the same password, never the old email', async () => {
     const me = await get('worker', '/me')
     expect(me.status).toBe(200)
