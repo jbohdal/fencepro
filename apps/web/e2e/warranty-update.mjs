@@ -164,7 +164,9 @@ try {
   check('customer (phone): picking the no dig option shows the Lifetime words', (await p.locator('#wname').textContent()) === LIFE && (await p.locator('#wtext').textContent()).startsWith(LIFETIME))
   check('customer (phone): accepted the no dig option on the new link', !!(await sign(p, `E2E ${NAME}`)))
   const contract = pdfText(Buffer.from(await (await fetch(`${sentUrl.replace(/^https?:\/\/[^/]+/, API)}/contract.pdf`)).arrayBuffer()))
-  check('its signed contract: Lifetime words, the price as offered', contract.includes(LIFE) && contract.includes(LIFETIME) && contract.includes('$12,900.91') && !contract.includes('warranted for 1 year'))
+  // Signed after the Oct 29 2026 cutover: the contract prints the whole dollar the proposal showed, $12,901.00 (D1); the
+  // quote keeps its price as priced (next check).
+  check('its signed contract: Lifetime words, the whole dollar shown', contract.includes(LIFE) && contract.includes(LIFETIME) && contract.includes('$12,901.00') && !contract.includes('$12,900.91') && !contract.includes('warranted for 1 year'))
   check('the quote is sold at the option\'s price', /^SOLD\|12900\.91\|WV-ND/.test(quoteRow(quoteIds[0])), quoteRow(quoteIds[0]))
   await pc.close()
 
