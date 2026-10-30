@@ -3,6 +3,13 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-29: 8 ft tall vinyl with no price typed in Settings uses the Inventory prices (waiting for Jonathan's OK)
+
+- **Why:** "8 ft tall vinyl is still off for quoting even though I entered prices." His prices are in Inventory (Oct 25: the whole 8 ft sections `V , W, Picket Section 8' x 6' / 8' x 8' Privacy` and the 8 ft posts `V , W, Post, 8' Privacy, CP / EP / LP`), but the Oct 21 rule only read the prices typed in Settings > Price List > 8 ft tall vinyl, where none was ever saved, so all four White 8 ft fences stayed "Not available for quoting".
+- **Now:** a price typed in Settings > Price List > 8 ft tall vinyl still wins. Left blank, the section is the color's whole 8 ft section at its Inventory price (its parts stay on the pull sheet at $0), and each post is its parts at Inventory prices (8 ft post, cap, 2 donuts and the pipe, or 2 bags of concrete), as both were priced before Oct 21. The post price typed in Settings covers the whole post kit; the 8 ft post's own Inventory price does not (it would leave the cap, donuts and pipe or concrete unpaid).
+- **Still held** when neither has a price; the row and the hold say which price is missing and which Inventory items would price it.
+- **In the app:** apps/web/src/fenceCatalog.ts (tallPriceStatus, tallJobLot), materialCalculator.ts (tallWholeSectionItem), TallVinylPrices.tsx; pinned in apps/portal/tests/tallVinyl.test.ts (C, live's shape).
+
 ## 2026-10-29 (night): only the owner changes a Salesman once entered; one quote's or job's Salesman, a signed one after asking
 
 - **Jonathan** (Oct 29): "Make sure tonight's Salesman choice lets me (owner only) change the salesman from the customer page AND from a single quote, including a signed one, to fix a wrong pick. Changing a signed job's salesman asks first and moves its commission too, with a History note. Christa can't change it."

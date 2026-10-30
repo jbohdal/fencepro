@@ -64,7 +64,10 @@ export interface FenceStyle {
    * piece, one price per section and one per post (corner, end and line), in
    * integer cents, entered in Settings → Price List (fenceCatalog.ts
    * tallJobLot). The pull sheet still lists every part of a section and a
-   * post, at $0. Until both are in, the style is not available for quoting.
+   * post, at $0. Left blank (Oct 29, 2026), the section is the color's whole
+   * 8 ft section at its Inventory price and each post its parts at Inventory
+   * prices (fenceCatalog.ts tallPriceStatus); with neither, the style is not
+   * available for quoting.
    * `pricedOn` (YYYY-MM-DD) is when they were last changed; a saved quote
    * keeps the prices it was priced with.
    */

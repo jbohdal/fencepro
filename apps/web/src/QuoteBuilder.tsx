@@ -1832,7 +1832,9 @@ export default function QuoteBuilder({
                 <div className={`rounded-xl p-3 space-y-1 border ${jobLotOld ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`} data-job-lot-note>
                   {jobLot.tall ? (<>
                     <p className="text-xs font-semibold text-gray-800">8 ft tall is priced by the piece</p>
-                    <p className="text-xs text-gray-600 leading-snug">One price per section and one per post (Settings → Price List); the parts they cover show at $0 on the pull sheet. Gates are priced from their parts. Internal only.</p>
+                    <p className="text-xs text-gray-600 leading-snug">
+                      {`${jobLot.tallSource?.section === 'inventory' ? `Each section is ${jobLot.tallSource.sectionItem ?? 'the whole 8 ft section'} at its Inventory price` : 'One price per section (Settings → Price List)'}${jobLot.tallSource?.post === 'parts' ? '; each post is its parts at Inventory prices' : ' and one per post (Settings → Price List)'}; the parts these prices cover show at $0 on the pull sheet. Gates are priced from their parts. Internal only.`}
+                    </p>
                   </>) : jobLot.kit ? (<>
                     <p className="text-xs font-semibold text-gray-800">{jobLot.color} sections are sold as a kit</p>
                     <p className="text-xs text-gray-600 leading-snug">Each section line carries the kit's cost (a gate leaf takes one); the parts in the kit show at $0 on the pull sheet. Internal only.</p>
