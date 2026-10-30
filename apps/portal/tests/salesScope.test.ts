@@ -120,6 +120,11 @@ describe('the Salesman\'s scope', () => {
     expect(inSalesScope('pipeline', moved, { id: 'k-dan', customerId: 'c-dan', assignedRep: 'Christa' })).toBe(false)
     expect(inSalesScope('pipeline', moved, { id: 'k-cleo', customerId: 'c-cleo', assignedRep: 'Sam Other' })).toBe(true)
     expect(inSalesScope('contacts', moved, { id: 'c-dan', ownerId: me, salesRep: 'Sam Other' })).toBe(false)
+    // A card of her own customer Eve is shown; Cleo's card for the draft that went to Sam is not (its price is Sam's).
+    expect(inSalesScope('pipeline', moved, { id: 'k-eve', customerId: 'c-eve', quoteId: 'q-eve-sold', assignedRep: 'Christa' })).toBe(true)
+    expect(inSalesScope('pipeline', moved, { id: 'k-cleo-draft', customerId: 'c-cleo', quoteId: 'q-cleo-draft', assignedRep: 'Sam Other' })).toBe(false)
+    expect(inSalesScope('pipeline', moved, { id: 'k-eve-moved', customerId: 'c-eve', quoteId: 'q-eve-draft-moved', assignedRep: 'Christa' })).toBe(false)
+    expect(inSalesScope('pipeline', moved, { id: 'k-dan-job', customerId: 'c-cleo', jobId: 'j-dan-moved', assignedRep: 'Christa' })).toBe(false)
   })
 
   test('names: full or first, any case or spacing; never someone else\'s', () => {

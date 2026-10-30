@@ -33,7 +33,9 @@
  *   something still hers.
  *
  *   Pipeline cards: its customer is in scope, or the card's rep is the
- *   Salesman and its customer (if any) is not someone else's.
+ *   Salesman and its customer (if any) is not someone else's; never a card
+ *   for a quote or job whose rep names someone else (one deal the owner
+ *   moved away, with its price).
  *   Appointments: booked with the Salesman, or with a customer in scope.
  *
  * "Is the Salesman" by name: the login's first and last name, or the first
@@ -61,6 +63,9 @@ export interface SalesScope {
   directContactIds: Set<string>
   /** Customers whose Sales rep names someone else (as read): a card of the Salesman's left on one does not show. */
   elsewhereContactIds?: Set<string>
+  /** Quotes and jobs read whose Sales rep names someone else: a card of her customer for one of them (a deal moved away) does not show. */
+  elsewhereQuoteIds?: Set<string>
+  elsewhereJobIds?: Set<string>
   contactIds: Set<string>
   quoteIds: Set<string>
   jobIds: Set<string>
@@ -124,21 +129,23 @@ export function buildSalesScope(input: {
   const quoteIds = new Set<string>()
   const contactIds = new Set<string>(direct)
   const sq = { ...s, directContactIds: direct }
+  const elsewhereQuotes = new Set<string>()
   for (const q of input.quotes) {
     if (quoteIsMine(sq, q)) {
       quoteIds.add(q.id)
       if (q.crmContactId) contactIds.add(q.crmContactId)
-    }
+    } else if (!blankRep(q.salesRep)) elsewhereQuotes.add(q.id)
   }
   const jobIds = new Set<string>()
   const sj = { ...sq, quoteIds }
+  const elsewhereJobs = new Set<string>()
   for (const j of input.jobs) {
     if (jobIsMine(sj, j)) {
       jobIds.add(j.id)
       if (j.crmContactId) contactIds.add(j.crmContactId)
-    }
+    } else if (!blankRep(j.salesRep)) elsewhereJobs.add(j.id)
   }
-  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, contactIds, quoteIds, jobIds }
+  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, elsewhereQuoteIds: elsewhereQuotes, elsewhereJobIds: elsewhereJobs, contactIds, quoteIds, jobIds }
 }
 
 /** Rows whose rep could be one of these names (a cheap first cut; sameName decides). */
@@ -237,7 +244,11 @@ export function inSalesScope(kind: SalesKind, s: SalesScope, item: any): boolean
     case 'quotes': return blankRep(item.salesRep) ? (s.quoteIds.has(item.id) || quoteIsMine(s, item)) : isMine(s, item.salesRep)
     case 'jobs': return blankRep(item.salesRep) ? (s.jobIds.has(item.id) || jobIsMine(s, item)) : isMine(s, item.salesRep)
     case 'appointments': return item.assignedToUserId === s.userId || isMine(s, item.assignedTo) || (!!item.crmContactId && s.contactIds.has(item.crmContactId))
-    case 'pipeline': return (!!item.customerId && s.contactIds.has(item.customerId)) || (isMine(s, item.assignedRep) && !(item.customerId && s.elsewhereContactIds?.has(item.customerId)))
+    case 'pipeline': {
+      // A card for a quote or job now someone else's (the owner moved that one deal) is theirs, with its price.
+      if ((item.quoteId && s.elsewhereQuoteIds?.has(item.quoteId)) || (item.jobId && s.elsewhereJobIds?.has(item.jobId))) return false
+      return (!!item.customerId && s.contactIds.has(item.customerId)) || (isMine(s, item.assignedRep) && !(item.customerId && s.elsewhereContactIds?.has(item.customerId)))
+    }
   }
 }
 

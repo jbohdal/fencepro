@@ -37,6 +37,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
   const { default: followUps } = await import('../src/server/routes/follow-ups.js')
   const { default: business } = await import('../src/server/routes/business-state.js')
   const { default: kv } = await import('../src/server/routes/kv.js')
+  const { default: pipeline } = await import('../src/server/routes/pipeline.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
   const tag = `sam-${crypto.randomUUID().slice(0, 8)}`
@@ -132,6 +133,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     app.use('/api/crm-contacts', contacts); app.use('/api/saved-jobs', jobs); app.use('/api/saved-quotes', quotes)
     app.use('/api/lead-assign', leadAssign); app.use('/api/follow-ups', followUps)
     app.use('/api/business-state', business); app.use('/api/kv', kv)
+    app.use('/api/pipeline', salesScoped('pipeline')); app.use('/api/pipeline', pipeline)
     server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
   afterAll(async () => {
@@ -220,6 +222,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     for (const k of ['qCleoDraft', 'qCleoSent']) expect(list).not.toContain(id[k])
     // Sam has them.
     for (const k of ['qCleoDraft', 'qCleoSent']) expect((await call('GET', `/api/saved-quotes/${id[k]}`, tok.sam)).status).toBe(200)
+    // Cleo's open card (for the draft, now Sam's) left Sally's board with it, price and all; her won card on Fay is still there.
+    const board = await call('GET', '/api/pipeline', tok.sally)
+    expect(board.status).toBe(200)
+    const cards = [...(board.json.data.leads ?? []), ...(board.json.data.archivedLeads ?? [])].map((k: any) => k.id)
+    expect(cards).not.toContain(`${tag}-k-cleo`)
+    expect(cards).toContain(`${tag}-k-fay`)
   })
 
   test('2. the owner moves Dina\'s unsold quote to Sam: it leaves Sally; Dina (still her customer) stays', async () => {
@@ -243,6 +251,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     expect((await call('GET', `/api/follow-ups/history?customerId=${id.fay}`, tok.sally)).status).toBe(404)
     expect((await call('GET', `/api/follow-ups/history?customerId=${id.cleo}`, tok.sally)).status).toBe(200)
     expect((await call('GET', `/api/follow-ups/history?cardId=${tag}-k-fay`, tok.sally)).status).toBe(404)
+    const board = await call('GET', '/api/pipeline', tok.sally)
+    expect([...(board.json.data.leads ?? []), ...(board.json.data.archivedLeads ?? [])].map((k: any) => k.id)).not.toContain(`${tag}-k-fay`)
   })
 
   test('4. her phone\'s save, built on its copy from before the moves, at the same time as the office\'s: every entry she no longer sees stays byte for byte; the office\'s change lands', async () => {
