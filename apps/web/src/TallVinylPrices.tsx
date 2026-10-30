@@ -3,9 +3,11 @@
  * section price and post price (Jonathan, Oct 21, 2026). Every color (White,
  * Tan, a color added in Vinyl Colors), no dig and dig set, is priced by the
  * piece, like a job lot: one price per section and one per post (corner, end
- * and line). The pull sheet still lists every part of a section and a post at
- * $0 so the crew loads the right material; gates are priced from their parts.
- * Until both prices are in, the fence is not available for quoting.
+ * and line). The section price is all the vinyl in a section and the post
+ * price the vinyl post only; those parts show at $0 on the pull sheet. Caps,
+ * donuts, pipe, concrete and everything else are priced from Inventory at
+ * their own prices (Jonathan, Oct 29, 2026). Gates are priced from their
+ * parts. Until both prices are in, the fence is not available for quoting.
  *
  * Prices are integer cents on the fence style (FenceStyle.pieceCents), saved
  * with Settings on the server. A saved quote keeps the prices it was priced
@@ -53,13 +55,18 @@ export default function TallVinylPrices({ config, onCommit }: {
       <div>
         <h3 className="text-lg font-bold text-gray-900">8 ft tall vinyl: our cost by the piece</h3>
         <p className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-tall-cost-note>
-          Our cost per section and per post: what we pay, not the customer's price. Overhead and margin are added on top, as for any part.
+          Our cost per section and per post: what we pay for the vinyl, not the customer's price. Overhead and margin are added on top, as for any part.
         </p>
+        <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1" data-tall-covers>
+          <li><b>Section</b> = our cost for all the vinyl in one section: pickets, rails, mid rail, U channels and inserts.</li>
+          <li><b>Post</b> = our cost for the vinyl post only (corner, end or line).</li>
+          <li>Caps, donuts, pipe, concrete and everything else come from Inventory at their own prices, and show on the pull sheet with that price.</li>
+        </ul>
         <p className="text-xs text-gray-500">
-          Our cost for one section and for one post (corner, end and line), for each 8 ft tall fence. The pull sheet still lists every part at $0:
+          The section's vinyl and the vinyl post show on the pull sheet at $0, covered by these costs:
           a section is {TALL_VINYL_SECTION[6].rails} rails, {TALL_VINYL_SECTION[6].midRails} mid rail, {TALL_VINYL_SECTION[6].pickets} pickets (4 ft) and {TALL_VINYL_SECTION[6].uChannels} U channels (4 ft) on a 6 ft panel;
           {' '}{TALL_VINYL_SECTION[8].rails} rails, {TALL_VINYL_SECTION[8].midRails} mid rail, {TALL_VINYL_SECTION[8].pickets} pickets, {TALL_VINYL_SECTION[8].uChannels} U channels and {TALL_VINYL_SECTION[8].railInserts} rail inserts on an 8 ft panel.
-          The post cost covers the post, its cap and its donuts and pipe or concrete. Gates are priced from their parts, as before.
+          Gates are priced from their parts in Inventory, as before.
           A fence is not available for quoting until both costs are in. Saved quotes keep the costs they were priced with.
         </p>
       </div>
@@ -77,7 +84,7 @@ export default function TallVinylPrices({ config, onCommit }: {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {(['section', 'post'] as const).map(k => (
-                    <label key={k} className="block text-xs text-gray-600">{k === 'section' ? 'Our cost per section' : 'Our cost per post (corner, end, line)'}
+                    <label key={k} className="block text-xs text-gray-600">{k === 'section' ? 'Our cost per section (all its vinyl)' : 'Our cost per vinyl post (post only)'}
                       <span className="mt-1 flex items-center gap-1"><span className="text-gray-500">$</span>
                         <input className={inputCls} inputMode="decimal" placeholder="Not entered" disabled={!may} value={typed[`${s.name}|${k}`] ?? ''}
                           onChange={e => setTyped(x => ({ ...x, [`${s.name}|${k}`]: e.target.value }))} data-tall-price={`${s.name}|${k}`} />

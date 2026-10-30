@@ -153,6 +153,14 @@ const DEPOSIT_SENTENCE = /\bA \d+(?:\.\d+)?% deposit is required to schedule the
 const BALANCE_SENTENCE = 'The remaining balance is due upon completion.'
 
 /**
+ * Cancellation Policy's stock sentence, and what it says on a contract that
+ * asks no deposit (Jonathan, Oct 29 2026: "No deposit contracts: replace the
+ * sentence with 'Once materials are ordered, their cost is non-refundable.'").
+ */
+export const DEPOSIT_CANCEL_SENTENCE = 'The deposit is non-refundable once materials are ordered.'
+export const NO_DEPOSIT_CANCEL_SENTENCE = 'Once materials are ordered, their cost is non-refundable.'
+
+/**
  * The terms as a proposal not yet signed shows them, and as its contract is
  * signed (Oct 29 2026):
  *   - Payment Terms says the proposal's own deposit: "A 30% deposit is
@@ -162,11 +170,19 @@ const BALANCE_SENTENCE = 'The remaining balance is due upon completion.'
  *     place stay as typed.
  *   - Permits: the stock sentence that had the customer get the permit reads
  *     PERMIT_SENTENCE (#32).
+ *   - Cancellation Policy, for none: the stock "The deposit is non-refundable
+ *     once materials are ordered." reads NO_DEPOSIT_CANCEL_SENTENCE. With a
+ *     deposit it stays; words typed in its place stay as typed.
+ *     `cancellation: false` leaves it as it is: a contract signed before that
+ *     rule (Oct 29 2026, late; portal lib/customerDollars.ts).
  * The same terms again give the same words (safe to run twice).
  */
-export function termsAsAsked<T extends ContractTerm>(terms: T[], depositPct: unknown): T[] {
+export function termsAsAsked<T extends ContractTerm>(terms: T[], depositPct: unknown, opts: { cancellation?: boolean } = {}): T[] {
   const pct = askedDepositPct(depositPct)
   return terms.map(t => {
+    if (t.key === 'cancellation' && pct === null && opts.cancellation !== false && t.text.includes(DEPOSIT_CANCEL_SENTENCE)) {
+      return { ...t, text: t.text.split(DEPOSIT_CANCEL_SENTENCE).join(NO_DEPOSIT_CANCEL_SENTENCE) }
+    }
     if (t.key === 'payment_terms' && DEPOSIT_SENTENCE.test(t.text)) {
       const text = pct === null
         ? t.text.replace(DEPOSIT_SENTENCE, 'No deposit is required to schedule the project.').split(BALANCE_SENTENCE).join('The full price is due upon completion.')
@@ -186,8 +202,10 @@ export function termsAsAsked<T extends ContractTerm>(terms: T[], depositPct: unk
  *   depositPct  the proposal's own percent; null when it asks none (0% or
  *               blank, D2); 50 for a quote with no proposal at all (the
  *               contract's standard terms, as its payment schedule).
+ *   cancellationAsSigned  signed before the no deposit Cancellation Policy
+ *               sentence (Oct 29 2026, late): that sentence stays as signed.
  */
-export interface DepositTerms { asSigned: boolean; depositPct: number | null }
+export interface DepositTerms { asSigned: boolean; depositPct: number | null; cancellationAsSigned?: boolean }
 
 /** The standard deposit of a quote with no proposal (portal lib/paymentMath.ts DEFAULT_DEPOSIT_PCT). */
 export const NO_PROPOSAL_DEPOSIT_PCT = 50
@@ -207,13 +225,14 @@ export function depositTermsOf(quote: unknown): DepositTerms {
  * Settings' contract sections (as the printable quote templates and the quote
  * window's Preview show them) with the deposit the customer's link says
  * (termsAsAsked): "A 30% deposit is required ..." for 30%, "No deposit is
- * required ... The full price is due upon completion." for none. A contract
- * signed before the Oct 29 2026 rules: as it was.
+ * required ... The full price is due upon completion." for none, and its
+ * Cancellation Policy NO_DEPOSIT_CANCEL_SENTENCE. A contract signed before the
+ * Oct 29 2026 rules: as it was.
  */
 export function sectionsAsAsked<S extends { key: string; title: string; body: string }>(sections: S[], d: DepositTerms): S[] {
   if (d.asSigned) return sections
   return sections.map(s => {
-    const [t] = termsAsAsked([{ key: s.key, title: s.title, text: String(s.body ?? '') }], d.depositPct)
+    const [t] = termsAsAsked([{ key: s.key, title: s.title, text: String(s.body ?? '') }], d.depositPct, { cancellation: d.cancellationAsSigned !== true })
     return t.text === s.body ? s : { ...s, body: t.text }
   })
 }

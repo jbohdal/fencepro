@@ -43,7 +43,8 @@ import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE, keepPrices } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
 import { scheduleAfterSigning, termsDepositOf } from '../lib/contractBilling.js'
-import { customerDollarsFrom } from '../lib/customerDollars.js'
+import { customerDollarsFrom, noDepositCancellationFrom } from '../lib/customerDollars.js'
+import { heldPriceRefusal, refuseHeldPrice } from '../lib/heldStylePrice.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
 import { stampQuoteTerms } from '../lib/contractTerms.js'
@@ -241,7 +242,7 @@ router.get('/:id/deposit-terms', requireUser, requireAccount, async (req: any, r
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
-    res.json({ success: true, data: termsDepositOf(q, await customerDollarsFrom(q.accountId)) })
+    res.json({ success: true, data: termsDepositOf(q, await customerDollarsFrom(q.accountId), await noDepositCancellationFrom(q.accountId)) })
   } catch (err) {
     console.error('[saved-quotes] deposit terms error:', err)
     res.status(500).json({ success: false, error: 'Failed to read the deposit' })
@@ -272,6 +273,10 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     if (data.proposal) data.proposal = await stampQuoteTerms(req.user.crmAccountId, data.proposal, null, false, { repair: workKindOf(data.work) === 'repair' }) as any
     // A best price quote's own option shown as its tier, frozen now: a new proposal has not been sent (lib/ownTier.ts).
     if (data.proposal) data.proposal = await stampOwnTier(data.proposal, data.fenceStyle, null, false) as any
+    // A style held now for missing costs (8 ft tall with no piece costs): no price on it is saved (lib/heldStylePrice.ts).
+    // A retried create of a quote already here passes through to its existing row.
+    const heldNew = sameId ? null : await heldPriceRefusal(req.user.crmAccountId, data, null)
+    if (heldNew) { refuseHeldPrice(res, heldNew); return }
     const clientId = clientIdSchema.parse(req.body?.id)
     const decision = await decideClientId(clientId, req.user.crmAccountId, id => prisma.savedQuote.findUnique({ where: { id } }))
     if (decision.kind === 'exists') {
@@ -381,6 +386,10 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         keptSentPrices = changes
       }
     }
+    // A style held now for missing costs: a save that would change the price is refused, drafts too; the saved
+    // price with only words changed goes through (lib/heldStylePrice.ts; review Oct 29 2026, $5,050 → $698).
+    const held = await heldPriceRefusal(existing.accountId, data, existing)
+    if (held) { refuseHeldPrice(res, held); return }
     // A quote's Salesman, once on it, changes only by the owner (Jonathan, Oct 29 2026: the quote's Salesman control,
     // lib/salesmanMove.ts, and the customer's Salesman, which brings the open quotes along: lib/quotesFollowCustomer.ts).
     // No screen's save changes it: a save sending another name is a copy read before the change (or the quote
@@ -684,7 +693,7 @@ function forCustomer<T extends Record<string, any>>(q: T) {
 
 /** The customer's copy and the deposit its Payment Terms say (lib/contractBilling.ts termsDepositOf), as the proposal link says it. */
 async function shownToCustomer<T extends Record<string, any> & { accountId: string; proposal: unknown }>(q: T) {
-  return { ...forCustomer(q), depositTerms: termsDepositOf(q, await customerDollarsFrom(q.accountId)) }
+  return { ...forCustomer(q), depositTerms: termsDepositOf(q, await customerDollarsFrom(q.accountId), await noDepositCancellationFrom(q.accountId)) }
 }
 
 // ── Public accept by share token (no auth) ──

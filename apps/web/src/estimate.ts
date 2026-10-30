@@ -31,6 +31,8 @@ export { planChainDigSet, planChainDigSetPipesAndTies, planChainGateKits } from 
 export { planTanAutoDs } from './tanAutoDs'
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
+// Tan 8 ft tall vinyl, the four styles (lib/tanTallSeed.ts).
+export { planTanTall, planTanTallParts } from './tanTall'
 // A green part priced from Black follows Black's price until a green price is entered (Oct 27 2026).
 export { followBorrowedPrices, borrowedPrice } from './priceAge'
 // Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).
@@ -126,6 +128,19 @@ function useData(data: Pick<EstimateData, 'inventory' | 'kits'> | undefined) {
 export function styleLabels(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): Record<string, string> {
   useData(data)
   return Object.fromEntries(estimateConfig(saved).fenceStyles.map(s => [s.name, s.label || s.name]))
+}
+
+/**
+ * Why a style is held back from quoting now because something it is priced
+ * from is missing (8 ft tall piece costs, a color not fully priced, parts
+ * waiting for prices: fenceCatalog.ts resolveFenceStyles `held`), or null.
+ * Switched off by hand (quotable false) is not "held": it still prices.
+ * Server: lib/heldStylePrice.ts refuses a save that changes such a price.
+ */
+export function heldStyleReason(data: EstimateData, name: string): string | null {
+  useData(data)
+  const s = estimateConfig(data.config).fenceStyles.find(x => x.name === name)
+  return s?.held ? s.held : null
 }
 
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */

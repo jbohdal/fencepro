@@ -137,10 +137,14 @@ export interface StyleJobLot {
   /** Made by the Vinyl Colors form: sold as a section kit, no supplier job lot quote. */
   kit?: boolean
   /**
-   * 8 ft tall vinyl (Jonathan, Oct 21, 2026): one price per section and one
-   * per post, from the style's own prices in Settings → Price List
-   * (FenceStyle.pieceCents), no supplier quote. Every part of a section kit
-   * and of a post kit is covered (coversAll); gates are priced from their parts.
+   * 8 ft tall vinyl (Jonathan, Oct 21, 2026; corrected Oct 29, 2026): one
+   * price per section and one per post, from the style's own prices in
+   * Settings → Price List (FenceStyle.pieceCents), no supplier quote. The
+   * section price covers every part of a section kit (coversAll: pickets,
+   * rails, mid rail, U channels, inserts); the post price covers the vinyl
+   * post only (isVinylPostPart). The cap, donuts, pipe, concrete and every
+   * other part are priced from Inventory, as on 6 ft; gates are priced from
+   * their parts.
    */
   tall?: boolean
   /** These piece prices cover every part of their kits (no part list to tick). */
@@ -431,6 +435,16 @@ export const TALL_PART_NAME = {
   uChannel: (color: string) => `*Vinyl, ${color}, U Channel, 4'`,
 }
 export const TALL_RAIL_INSERT = "Vinyl, Rail Insert, 8'"
+
+/**
+ * The vinyl post in an 8 ft tall post kit ("V , W, Post, 8' Privacy, CP, 5\" x
+ * 5\"", "*Vinyl, Chai Gray, Post, 5\" x 5\", 8' Privacy"): the one part the 8
+ * ft tall post price covers (Jonathan, Oct 29, 2026: "Post price = the vinyl
+ * post ONLY"). Its cap, donuts, pipe and concrete are not it.
+ */
+export function isVinylPostPart(part: string): boolean {
+  return /(^|[\s,])Post([\s,]|$)/.test(part) && !/\b(Cap|Pipe|Donut|Concrete)\b/i.test(part)
+}
 
 /** 8 ft tall vinyl privacy ("WV-ND 8'x6' Privacy"): color, install, width. */
 function vinyl8Tall(s: string): { white: boolean; noDig: boolean; width: 6 | 8 } | null {
@@ -832,10 +846,12 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
 
   // ── VINYL 8 FT TALL PRIVACY (WV/TV, ND/DS, 8'x6' and 8'x8') ──────────────────
   // 8 ft privacy posts and complete 8 x 4 gates. Each section's parts are
-  // listed (Jonathan, Oct 21, 2026; TALL_VINYL_SECTION): they and the posts'
-  // parts are covered by the style's section and post piece prices
-  // (fenceCatalog.ts tallJobLot), so the pull sheet shows them at $0. Until
-  // Oct 21, 2026 a section was one assembled "Picket Section 8' x 6'" item.
+  // listed (Jonathan, Oct 21, 2026; TALL_VINYL_SECTION): they are covered by
+  // the style's section piece price and the vinyl post by its post piece
+  // price (fenceCatalog.ts tallJobLot), so those show at $0 on the pull
+  // sheet. The cap, donuts, pipe and concrete are priced from Inventory
+  // (Jonathan, Oct 29, 2026). Until Oct 21, 2026 a section was one assembled
+  // "Picket Section 8' x 6'" item.
   const tall = vinyl8Tall(s)
   if (tall) {
     const V = tall.white ? 'V , W' : 'V , T'

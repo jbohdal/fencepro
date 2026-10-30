@@ -27,10 +27,29 @@ export const REPAIR_LABEL: Record<RepairItemKey, string> = {
   footerDisposal: 'Concrete footer disposal (per post)',
 }
 
+/**
+ * The concrete footer item is for no dig old posts only (Jonathan, Oct 29
+ * 2026: "Concrete footer $15: no dig posts only. Dig set rates already cover
+ * the concrete."). With dig set old posts it is not offered, and a count
+ * already entered is not charged, said or put on the walkthrough.
+ */
+export const FOOTER_DIG_SET_REASON = 'Dig set haul already covers the concrete'
+
+/** Whether the concrete footer item counts for old posts set this way ('nd' no dig, 'ds' dig set). */
+export const footerCounts = (oldPostType: string | null | undefined) => oldPostType !== 'ds'
+
+/** A repair's items as charged: the concrete footer count dropped when the old posts are dig set. */
+export function chargedRepairItems(repair: { items?: Partial<Record<RepairItemKey, number>>; postType?: string } | null | undefined): Partial<Record<RepairItemKey, number>> {
+  const items = { ...(repair?.items ?? {}) }
+  if (!footerCounts(repair?.postType)) delete items.footerDisposal
+  return items
+}
+
 /** The parts of a quote's saved work (SavedQuote.work) these read. */
 export interface WorkWordsInput {
   type?: string
-  repair?: { items?: Partial<Record<RepairItemKey, number>>; gateKind?: 'walk' | 'double' } | null
+  /** postType: how the old posts are set, as priced ('nd' no dig, 'ds' dig set). */
+  repair?: { items?: Partial<Record<RepairItemKey, number>>; gateKind?: 'walk' | 'double'; postType?: string } | null
   crew?: string[]
   description?: string
 }
@@ -57,7 +76,7 @@ export function workScope(work: Pick<WorkWordsInput, 'type' | 'crew' | 'descript
 export function workSummary(work: WorkWordsInput | null | undefined): string | null {
   if (!work || (work.type !== 'repair' && work.type !== 'move')) return null
   if (work.type === 'repair') {
-    const items = work.repair?.items ?? {}
+    const items = chargedRepairItems(work.repair)
     const gate = work.repair?.gateKind === 'double' ? ' (double gate)' : ''
     const parts = REPAIR_ITEMS.filter(k => (items[k] ?? 0) > 0).map(k => `${items[k]} × ${REPAIR_LABEL[k]}${/Gate$/.test(k) ? gate : ''}`)
     if (parts.length) return `Repair: ${parts.join(' · ')}`

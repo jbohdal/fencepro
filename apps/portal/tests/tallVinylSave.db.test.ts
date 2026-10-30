@@ -114,7 +114,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('8 ft tall prices typed in Settin
     const b = await read()
     for (const s of b.cfg.fenceStyles.filter(s => isTallVinyl(styleChoicesOf(s)))) {
       expect(isQuotable(s), s.name).toBe(false)
-      expect(s.held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+      expect(s.held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     }
     expect(isQuotable(byName(b.cfg.fenceStyles, "WV-ND 6'x8' Privacy"))).toBe(true)
   })
@@ -140,8 +140,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('8 ft tall prices typed in Settin
     // A reload (or another device): on for quoting with both prices; the others say what is missing.
     const again = await read()
     expect(isQuotable(byName(again.cfg.fenceStyles, "WV-ND 8'x6' Privacy"))).toBe(true)
-    expect(byName(again.cfg.fenceStyles, "WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
-    expect(byName(again.cfg.fenceStyles, "WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    expect(byName(again.cfg.fenceStyles, "WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl')
+    expect(byName(again.cfg.fenceStyles, "WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
 
     // The Salesman's phone: the prices are not hidden from him, so the fence is on there too.
     const phone = await read(sales)
@@ -154,7 +154,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('8 ft tall prices typed in Settin
     expect(e.pullSheet.find(l => l.item === '8 ft tall White: section, 6 ft wide')).toMatchObject({ qty: 17, unitCost: 412.5 })
     expect(e.pullSheet.find(l => l.item === '8 ft tall White: corner post')).toMatchObject({ qty: 2, unitCost: 65 })
     expect(e.pullSheet.find(l => l.item === '8 ft tall White: line post')).toMatchObject({ qty: 14, unitCost: 65 })
-    expect(Math.round(e.materialCost * 100)).toBe(17 * 41250 + 18 * 6500)
+    // Plus the post cap, donuts and pipe from Inventory (Oct 29, 2026: the post price is the vinyl post only); the vinyl posts at $0.
+    const fromInv = e.pullSheet.filter(l => !l.jobLotPiece && l.total > 0)
+    expect(fromInv.some(l => /Post, 8' Privacy/.test(l.item))).toBe(false)
+    expect(e.pullSheet.filter(l => /Post, 8' Privacy/.test(l.item)).every(l => l.total === 0)).toBe(true)
+    expect(Math.round(e.materialCost * 100)).toBe(17 * 41250 + 18 * 6500 + Math.round(fromInv.reduce((t, l) => t + l.total, 0) * 100))
     expect(() => estimate({ config: row!.config as any, inventory: items as any, kits: [] }, { fenceStyle: "WV-DS 8'x8' Privacy", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })).toThrow()
   })
 
@@ -178,7 +182,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('8 ft tall prices typed in Settin
     expect(byName(end.saved.fenceStyles, "WV-ND 8'x8' Privacy").pieceCents).toMatchObject({ section: 50000, post: 7000 })
     expect(byName(end.saved.fenceStyles, "WV-DS 8'x8' Privacy").pieceCents).toMatchObject({ section: 45000, post: 7200 })
     for (const n of ["WV-ND 8'x6' Privacy", "WV-ND 8'x8' Privacy", "WV-DS 8'x8' Privacy"]) expect(isQuotable(byName(end.cfg.fenceStyles, n)), n).toBe(true)
-    expect(byName(end.cfg.fenceStyles, "WV-DS 8'x6' Privacy").held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    expect(byName(end.cfg.fenceStyles, "WV-DS 8'x6' Privacy").held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     // The Settings change log has the save.
     const log = await prisma.crmAuditLog.findMany({ where: { userEmail: `${tag}-owner@example.invalid`, entityId: 'business-state/config' } })
     expect(log.length).toBeGreaterThanOrEqual(2)

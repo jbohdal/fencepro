@@ -145,7 +145,7 @@ export async function getSavedQuote(id: string): Promise<SavedQuoteRecord | null
 export async function getDepositTerms(id: string): Promise<DepositTerms | null> {
   const r = await call<DepositTerms>('GET', `/${encodeURIComponent(id)}/deposit-terms`)
   const d = r.ok ? r.data : null
-  return d && typeof d.asSigned === 'boolean' && (d.depositPct === null || typeof d.depositPct === 'number') ? { asSigned: d.asSigned, depositPct: d.depositPct } : null
+  return d && typeof d.asSigned === 'boolean' && (d.depositPct === null || typeof d.depositPct === 'number') ? { asSigned: d.asSigned, depositPct: d.depositPct, ...(d.cancellationAsSigned === true ? { cancellationAsSigned: true } : {}) } : null
 }
 
 export async function createSavedQuote(payload: SavedQuotePayload): Promise<SavedQuoteRecord | null> {

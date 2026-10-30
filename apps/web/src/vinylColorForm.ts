@@ -35,8 +35,11 @@
  * TALL_VINYL_SECTION in the color's parts ("*Vinyl, {Color}, Picket, 4'",
  * "U Channel, 4'", "Mid Rail, {6|8}'", "Rail, {6|8}'", White's shared rail
  * insert) and the post kit the color's 8 ft post and cap with White's
- * setting material, all $0 on the pull sheet (the color's own new parts are
- * catalog items at $0, "included in" the 8 ft tall section or post price).
+ * setting material. The section's parts and the 8 ft vinyl post are $0 on
+ * the pull sheet (the color's own new parts are catalog items at $0,
+ * "included in" the 8 ft tall section or post price); the cap and the setting
+ * material are priced from Inventory (Jonathan, Oct 29, 2026: the post price
+ * is the vinyl post only).
  *
  * Costs are integer cents here; Inventory keeps dollars. The server
  * (portal lib/vinylColors.ts) runs this in one transaction and writes a price
@@ -329,7 +332,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   }
   const swapPart = (r: PartRole, h: string, original: KitPart): KitPart | null => {
     const at = (name: string, cents: number | null): KitPart => ({ part: name, qty: original.qty, fallbackCost: (cents ?? 0) / 100 })
-    // 8 ft tall: the section and post kits' color parts are $0, included in the fence's section or post price.
+    // 8 ft tall: the section kit's color parts and the vinyl post are $0, included in the fence's section or post price; the cap is priced (below).
     const tall = (role: string, name: string, what: string, into: string) => at(want(role, name, null, what, into), null)
     if (h === '8') {
       switch (r.role) {

@@ -180,6 +180,7 @@ export const LISTS: ListSpec[] = [
     defaults: ['DEFAULT_FENCE_STYLES'],
     defaultUsers: {
       'web/src/QuotePlan.tsx': "a saved quote's panel width when the caller passes no saved style (the style is found by its internal name); listed as a follow up in docs/FEATURES.md",
+      'web/src/tanTall.ts': "the one time Tan 8 ft step (server lib/tanTallSeed.ts): a Tan style's id and widths, and its man hours when the company's White 8 ft style is gone; not a screen",
     },
     screens: ['QuoteBuilder.tsx', 'FenceStylesSettings.tsx'],
   },

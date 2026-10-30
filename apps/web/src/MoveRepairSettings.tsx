@@ -77,7 +77,7 @@ export default function MoveRepairSettings({ config, onChange }: { config: AppCo
           <Money data="pullNdDisposalCents" label="Disposal per post, no dig" cents={s.pullNdDisposalCents} onChange={c => set({ pullNdDisposalCents: c })} />
           <Money data="pullDsLaborCents" label="Pull labor per post, dig set (concrete)" cents={s.pullDsLaborCents} onChange={c => set({ pullDsLaborCents: c })} />
           <Money data="pullDsDisposalCents" label="Disposal per post, dig set (concrete)" cents={s.pullDsDisposalCents} onChange={c => set({ pullDsDisposalCents: c })} />
-          <Money data="footerDisposalCents" label="Concrete footer disposal per post" hint={`The repair item "${REPAIR_LABEL.footerDisposal}": the salesman picks how many`} cents={s.footerDisposalCents} onChange={c => set({ footerDisposalCents: c })} />
+          <Money data="footerDisposalCents" label="Concrete footer disposal per post" hint={`The repair item "${REPAIR_LABEL.footerDisposal}": the salesman picks how many. No dig old posts only (dig set haul already covers the concrete)`} cents={s.footerDisposalCents} onChange={c => set({ footerDisposalCents: c })} />
         </div>
         {(() => { const h = latestRateChange(s); return h ? <p className="text-xs text-gray-500" data-mr-rates-since>Rates set {h.effectiveFrom} by {h.by}{h.note ? ` (${h.note})` : ''}. Quotes saved before keep the prices they were priced with.</p> : null })()}
       </section>

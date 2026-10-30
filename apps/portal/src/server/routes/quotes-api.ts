@@ -98,7 +98,7 @@ router.post('/calculate', async (req, res) => {
       res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
-    // Internal: staff are told why it is held ("8 ft tall needs its post price in Settings → …").
+    // Internal: staff are told why it is held ("8 ft tall needs our post cost in Settings → …").
     if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: `Not available for quoting: ${notQuotableReason(err)}`, customerMessage: notQuotableMessage(err) }); return }
     const msg = err instanceof Error ? err.message : 'Failed to calculate quote'
     res.status(400).json({ success: false, error: msg })

@@ -31,7 +31,7 @@
  */
 
 import type { FenceStyle } from './configStore'
-import { inventoryCost, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
+import { inventoryCost, isVinylPostPart, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { WOOD_MATERIAL } from './wood'
 
@@ -328,11 +328,13 @@ export function jobLotFor(s: FenceStyle, sc: StyleChoices, opt: ChoiceOption, pr
  * Settings), no dig and dig set (Jonathan, Oct 21, 2026): one price per
  * section and one per post, each style's own (FenceStyle.pieceCents, entered
  * in Settings → Price List → 8 ft tall vinyl). Like a job lot color: the
- * section price covers every part of a section kit (rails, mid rail, 4 ft
- * pickets, 4 ft U channels, rail inserts) and the post price every part of a
- * post kit (the 8 ft post, its cap, donuts and pipe or concrete), listed on
- * the pull sheet at $0. Gates are priced from their parts, as before. Until
- * both prices are in, the style is not available for quoting.
+ * section price covers all the vinyl in a section (rails, mid rail, 4 ft
+ * pickets, 4 ft U channels, rail inserts) and the post price the vinyl post
+ * only, listed on the pull sheet at $0. Every other part (the post's cap,
+ * donuts, pipe or concrete, and anything else) is priced from Inventory at its
+ * own price, as on 6 ft (Jonathan, Oct 29, 2026: "Post price = the vinyl post
+ * ONLY"). Gates are priced from their parts, as before. Until both prices are
+ * in, the style is not available for quoting.
  */
 export function isTallVinyl(sc: StyleChoices | null | undefined): boolean {
   return !!sc && sc.material === 'vinyl' && sc.choices.height === '8'
@@ -346,7 +348,7 @@ export function tallPricesMissing(s: Pick<FenceStyle, 'pieceCents'>): Array<'sec
 
 /** Why an 8 ft tall style is held back, in words. */
 export function tallHeldReason(missing: Array<'section' | 'post'>): string {
-  return `8 ft tall needs its ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'} in Settings → Price List → 8 ft tall vinyl`
+  return `8 ft tall needs our ${missing.join(' and ')} cost${missing.length === 1 ? '' : 's'} in Settings → Price List → 8 ft tall vinyl`
 }
 
 /** An 8 ft tall style's piece prices, in dollars, as a job lot the material kits price with. */
@@ -359,13 +361,31 @@ export function tallJobLot(s: FenceStyle, color: string): StyleJobLot {
     color, supplier: '', quotedOn: p.pricedOn ?? '', width, sections: section === undefined ? {} : { [String(width)]: section },
     // One price per post: corner, end and line. No blank post (a double gate's center) on 8 ft tall, as before.
     corner: post, end: post, line: post,
-    covers: { section: [], post: [], walkGate: [], dblGate: [] }, coversAll: ['section', 'post'],
+    // The section price covers its whole kit; the post price the vinyl post only (materialKits linesFromKitSetJobLot).
+    covers: { section: [], post: [], walkGate: [], dblGate: [] }, coversAll: ['section'],
     tall: true, label: `8 ft tall ${color}`,
   }
 }
 
-/** Whether a kit of an 8 ft tall style is covered by its piece prices (section and post kits). */
-const tallCovers = (sc: StyleChoices | null | undefined, kind: KitKind) => isTallVinyl(sc) && (PIECE_OF_KIT[kind] === 'section' || PIECE_OF_KIT[kind] === 'post')
+/** Whether a part of a kit of an 8 ft tall style is covered by its piece prices: every part of a section kit, the vinyl post of a post kit. */
+const tallCovers = (sc: StyleChoices | null | undefined, kind: KitKind, part: string) =>
+  isTallVinyl(sc) && (PIECE_OF_KIT[kind] === 'section' || (PIECE_OF_KIT[kind] === 'post' && isVinylPostPart(part)))
+
+/**
+ * An 8 ft tall style's post kits with no vinyl post (or more than one) in
+ * them: the post price would not know which part it pays for, so the style is
+ * held rather than charged twice or not at all.
+ */
+export function tallPostKitProblems(set: KitSet): string[] {
+  const out: string[] = []
+  for (const k of ['corner', 'end', 'line'] as const) {
+    const parts = set.kits[k] ?? []
+    if (!parts.length) continue
+    const n = parts.filter(p => p.qty > 0 && isVinylPostPart(p.part)).length
+    if (n !== 1) out.push(`${KIT_LABEL[k].toLowerCase()} kit has ${n === 0 ? 'no vinyl post' : `${n} vinyl posts`}`)
+  }
+  return out
+}
 
 export interface ColorStatus {
   ready: boolean
@@ -400,8 +420,8 @@ export function colorStatus(styles: FenceStyle[], m: MaterialDef, opt: ChoiceOpt
     if (!set || set === 'archived') { out.noKit.push(s.name); continue }
     const sc = styleChoicesOf(s)
     for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) {
-      // 8 ft tall: its own section and post prices cover those kits (and hold the style until they are in).
-      if (tallCovers(sc, k)) continue
+      // 8 ft tall: its own section and post prices cover the section kit and the vinyl post (and hold the style until they are in).
+      if (tallCovers(sc, k, p.part)) continue
       if (isColorPart(p.part, spec.words) && !((price(p.part) ?? 0) > 0)) unpriced.add(p.part)
     }
     if (isTallVinyl(sc)) continue
@@ -447,8 +467,8 @@ function formColorStatus(mine: FenceStyle[], spec: ColorSpec, price: PriceFn, ki
     const sc = styleChoicesOf(s)
     for (const k of KIT_KINDS) for (const p of set.kits[k] ?? []) {
       if (!isColorPart(p.part, spec.words)) continue
-      // 8 ft tall: its own section and post prices cover those kits (and hold the style until they are in).
-      if (tallCovers(sc, k)) continue
+      // 8 ft tall: its own section and post prices cover the section kit and the vinyl post (and hold the style until they are in).
+      if (tallCovers(sc, k, p.part)) continue
       const piece = PIECE_OF_KIT[k]
       if (piece && covered.get(piece)?.has(normalizeItemName(p.part))) continue
       if (!((price(p.part) ?? 0) > 0)) unpriced.add(p.part)
@@ -574,6 +594,9 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
       s.jobLot = tallJobLot(s, (dim ? optionOf(m, dim.key, sc.choices[dim.key])?.label : undefined) ?? sc.choices.color ?? '')
       const missing = tallPricesMissing(s)
       if (missing.length) why.push(tallHeldReason(missing))
+      const set = kitOf(s.name)
+      const bad = set && set !== 'archived' ? tallPostKitProblems(set) : []
+      if (bad.length) why.push(`8 ft tall: the post price is for the vinyl post only, but the ${bad.join(' and the ')} (Inventory → Material Kits)`)
     }
     if (why.length) s.held = why.join('; ')
     return s
@@ -608,7 +631,7 @@ export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCat
       options: dim.options.filter(opt => !opt.archived || sel[dim.key] === opt.key).map(opt => {
         const here = fits.filter(x => x.sc!.choices[dim.key] === opt.key)
         const state = (here.some(x => isOk(x.s)) ? 'ok' : here.length ? 'held' : 'none') as OptionState
-        // Why it is off, in words (each different reason once): "8 ft tall needs its post price in Settings → …".
+        // Why it is off, in words (each different reason once): "8 ft tall needs our post cost in Settings → …".
         const why = state === 'held' ? [...new Set(here.map(x => x.s.held || (x.s.quotable === false ? 'switched off in Settings → Fence Styles' : '')).filter(Boolean))] : []
         return { opt, state, ...(why.length ? { why } : {}) }
       }),
@@ -616,7 +639,7 @@ export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCat
   })
 }
 
-/** Why a picker choice is off, in words: "8 ft is off: 8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl (ask Jonathan)." */
+/** Why a picker choice is off, in words: "8 ft is off: 8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl (ask Jonathan)." */
 export function offWords(label: string, why: string[], canPrice: boolean): string {
   return `${label} is off: ${why.join('; ')}${canPrice ? '' : ' (ask Jonathan)'}.`
 }

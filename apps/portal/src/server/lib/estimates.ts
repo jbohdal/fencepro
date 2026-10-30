@@ -73,6 +73,9 @@ interface EstimateModule {
   planChainDigSet(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean; concrete: Array<{ kit: string; part: string; qty: number }> }
   planTanAutoDs(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string | null; copiedFrom: string | null; skipped?: string }
   planTallVinylParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { items: unknown[]; added: string[] }
+  heldStyleReason(data: unknown, name: string): string | null
+  planTanTall(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string[]; copiedFrom: Record<string, string> }
+  planTanTallParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }, added: string[]): { items: unknown[]; added: string[] }
   planChainDigSetPipesAndTies(state:{ fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; renamed: Array<{ from: string; to: string }>; kitLines: Array<{ kitSet: string; kit: string; part: string }>; ties: string[]; skipped: string[] }
   planChainGateKits(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; updated: string[]; skipped: string[] }
   /** web/src/priceAge.ts: a part priced from another (green at Black's) takes that part's price now, until its own is entered. */
@@ -83,7 +86,7 @@ interface EstimateModule {
   proposalTerms(savedSections: unknown): Array<{ key: string; title: string; text: string }>
   frozenTerms(proposal: unknown): Array<{ key: string; title: string; text: string }> | null
   /** The terms with the proposal's own deposit in Payment Terms and the Oct 29 2026 permit sentence (web/src/contractTerms.ts). */
-  termsAsAsked<T extends { key: string; title: string; text: string }>(terms: T[], depositPct: unknown): T[]
+  termsAsAsked<T extends { key: string; title: string; text: string }>(terms: T[], depositPct: unknown, opts?: { cancellation?: boolean }): T[]
   companyAddressOf(company: unknown): string
   /** Which proposal options are shown, and which starts selected (web/src/proposalOptions.ts). */
   sameFenceAs(options: unknown[] | null | undefined): number[]
@@ -122,7 +125,7 @@ export function notQuotableMessage(err: unknown): string {
   return typeof m === 'string' && m ? m : NOT_QUOTABLE_MESSAGE
 }
 
-/** For staff: why the style is held ("8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl"). */
+/** For staff: why the style is held ("8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl"). */
 export function notQuotableReason(err: unknown): string {
   const held = (err as { held?: unknown } | null)?.held
   return typeof held === 'string' && held ? held : notQuotableMessage(err)

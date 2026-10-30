@@ -102,7 +102,7 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
         </div>
       </div>
       {rows.map(({ dim, options }) => {
-        // Choices that are off say why, in sight (a phone has no hover): "8 ft is off: 8 ft tall needs its post price in Settings → …".
+        // Choices that are off say why, in sight (a phone has no hover): "8 ft is off: 8 ft tall needs our post cost in Settings → …".
         const offLines = options.filter(o => o.state === 'held' && o.why?.length).map(o => ({ key: o.opt.key, text: offWords(o.opt.label, o.why!, canPrice) }))
         return (
         <div key={dim.key}>
