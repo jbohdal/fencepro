@@ -275,6 +275,22 @@ export function savedRunSections(
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+const dollars = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`)
+
+/**
+ * The quote builder's labor line label. Wood (review Oct 30 2026: the line
+ * read "Labor (sub, $5/ft)" while wood is figured at $5.75/ft): the wood sub
+ * rate and where it comes from, "Labor (sub, $5.75/ft, vinyl $5 × 115%)".
+ */
+export function laborLabel(p: Pick<PriceResult, 'laborMode' | 'subRate' | 'subUnit'>, style?: Pick<QuoteStyle, 'woodBase' | 'woodFactor'> | null): string {
+  if (p.laborMode === 'flat') return 'Labor (flat)'
+  if (p.laborMode !== 'subcontractor') return 'Labor Cost'
+  const unit = p.subUnit === 'section' ? 'sec' : 'ft'
+  if (!style?.woodBase) return `Labor (sub, ${dollars(p.subRate)}/${unit})`
+  const f = typeof style.woodFactor === 'number' && style.woodFactor > 0 ? style.woodFactor : 1.15
+  return `Labor (sub, ${dollars(round2(p.subRate * f))}/${unit}, vinyl ${dollars(p.subRate)} × ${Math.round(f * 1000) / 10}%)`
+}
+
 /**
  * A wood fence (wood.ts, Oct 30 2026). Materials: the wood style's own
  * material kit priced from Inventory, the normal way (sections counted per
