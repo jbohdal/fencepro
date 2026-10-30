@@ -25,6 +25,8 @@ import { startStaffSession, endStaffSessionOf, cookieOnly, sessionEndsAt, staffC
 import { sessionRefusal } from '../lib/sessionGuard.js'
 import { verifyStaffBearer } from '../lib/secrets.js'
 import { normalizeDirectPhone } from '../lib/appointmentRep.js'
+import { isOwnerLogin } from '../lib/salesmanChoice.js'
+import { changeLoginEmail, EMAIL_IN_USE, OWNER_ONLY } from '../lib/loginEmailChange.js'
 
 const router = Router()
 
@@ -941,15 +943,65 @@ router.patch('/users/:id', async (req, res) => {
       data: data as any,
     })
     // A new role or a switched off login takes effect now: that person signs in again (a sign in lasts at most 15 minutes without a refresh).
-    if (data.role || (data.status && data.status !== 'active')) {
+    // The Edit window always sends the role: only a real change of it signs them out (Oct 30 2026: saving a
+    // new email with the role unchanged signed the person out on every phone).
+    if ((data.role && data.role !== target.role) || (data.status && data.status !== 'active')) {
       await prisma.crmUserSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }).catch(() => {})
     }
+    // Who made the change goes in History too (this router sets no req.user of its own).
+    ;(req as any).user = { id: payload.sub, email: payload.email }
     await audit(req, 'update', 'CrmUser', user.id, { newValues: data }).catch(() => {})
 
     res.json({ success: true, data: { id: user.id, role: user.role, status: user.status } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     res.status(500).json({ success: false, error: 'Failed to update user' })
+  }
+})
+
+// What the Team page may offer this login: the email change is the owner's (lib/loginEmailChange.ts).
+router.get('/team-rights', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
+  try {
+    const payload = verifyAccess(auth.slice(7))
+    const accountId = payload.crmAccountId ?? (await prisma.crmUser.findUnique({ where: { id: payload.sub }, select: { crmAccountId: true } }))?.crmAccountId ?? null
+    const owner = !!accountId && can(payload.role, 'users.manage') && await isOwnerLogin(accountId, payload.sub, payload.role)
+    res.json({ success: true, data: { canChangeEmail: owner } })
+  } catch {
+    res.status(401).json({ success: false, error: 'Invalid token' })
+  }
+})
+
+// Change a login's email: the owner only, any login of the company, his own too (lib/loginEmailChange.ts).
+router.patch('/users/:id/email', async (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ success: false, error: 'Not authenticated' }); return }
+  try {
+    const payload = verifyAccess(auth.slice(7))
+    if (!can(payload.role, 'users.manage')) { res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: OWNER_ONLY }); return }
+    const me = await prisma.crmUser.findUnique({ where: { id: payload.sub }, select: { crmAccountId: true } })
+    if (!me?.crmAccountId || !(await isOwnerLogin(me.crmAccountId, payload.sub, payload.role))) {
+      res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: OWNER_ONLY }); return
+    }
+    const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    const target = await prisma.crmUser.findUnique({ where: { id: userId }, select: { crmAccountId: true, firstName: true, lastName: true } })
+    if (!target || target.crmAccountId !== me.crmAccountId) { res.status(404).json({ success: false, error: 'Login not found' }); return }
+    const r = await changeLoginEmail(userId, req.body?.email)
+    if (!r.ok) { res.status(r.status).json({ success: false, error: r.error }); return }
+    if (r.changed) {
+      ;(req as any).user = { id: payload.sub, email: payload.email }
+      await audit(req, 'update', 'CrmUser', userId, { oldValues: { email: r.oldEmail }, newValues: { email: r.newEmail } }).catch(() => {})
+      await prisma.crmUserActivity.create({
+        data: { userId: payload.sub, action: 'email_changed', entityType: 'user', entityId: userId, metadata: { name: `${target.firstName} ${target.lastName}`.trim(), oldEmail: r.oldEmail, newEmail: r.newEmail, moved: r.moved } },
+      }).catch(() => {})
+    }
+    res.json({ success: true, data: { id: userId, email: r.newEmail, changed: r.changed } })
+  } catch (err: any) {
+    // Two changes to the same address at once: the second meets the unique email.
+    if (err?.code === 'P2002') { res.status(409).json({ success: false, error: EMAIL_IN_USE }); return }
+    console.error('[CRM Auth] Change email error:', err)
+    res.status(500).json({ success: false, error: 'Could not change the email' })
   }
 })
 
