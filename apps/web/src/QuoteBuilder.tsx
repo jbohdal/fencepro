@@ -1145,6 +1145,8 @@ export default function QuoteBuilder({
       ...(internal ? {} : { priceRequest }),
       // Priced here: the copy of the price data it was priced with (the server refuses an older one).
       ...(pricingStampNow ? { pricingStamp: pricingStampNow } : {}),
+      // Draft picked on a sent or lost quote: said, or the server keeps it as it is.
+      ...(data.status === 'DRAFT' && init?.status && init.status !== 'DRAFT' ? { backToDraft: true } : {}),
       proposal: workProposal ?? (style ? buildProposal({
         input: calcInput,
         // A Salesman or Installer: every option comes priced from the server.
@@ -2372,7 +2374,7 @@ export default function QuoteBuilder({
                   Save as a new version and send again, or keep the sent prices?</p>
                 <div className="flex flex-col gap-2">
                   {/* Keeping the sent prices is the safe choice, first (a sent proposal never reprices unless chosen). */}
-                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave(keepPrices(init!, q)) }} data-quote-sent-keep>Keep the sent prices</button>
+                  <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave({ ...keepPrices(init!, q), ...(q.backToDraft ? { backToDraft: true } : {}) }) }} data-quote-sent-keep>Keep the sent prices</button>
                   <button type="button" className="btn btn-secondary min-h-[48px]" onClick={() => { const q = pending.quote; setPending(null); onSave({ ...q, needsResend: true }) }} data-quote-sent-new>Save new version (send it again)</button>
                   <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setPending(null)}>Back to the quote</button>
                 </div>
