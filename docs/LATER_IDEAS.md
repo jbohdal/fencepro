@@ -40,3 +40,18 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - A 409 refusal on an appointment (stage blocked, changed on another device) still shows "Couldn't save".
 - Browser suites sent-tiers, small-fixes-1028, review-1028-fixes and review-1028-office need cookies or a sent quote the nightly runner can't give them; they run by hand.
 - Reviewer agents leave RVW jobs on ezbiz_dev that make data-picking suites flaky; automations.db "a step that needs the job…" failed once in a full run, passed twice alone.
+
+## From the Oct 29 night (reviewers; not money, lost data or customer-facing errors)
+
+- Christa's Schedule: tapping a Ready card or install opens the Move editor and says "Not saved"; she needs a read-only view. Her view lacks the "No 811 ticket" warning on others' installs.
+- Sales Order: the per-part "Received" column stays 0 after Mark Received.
+- A phone lead's push and Assign screen don't show the callback time; a callback's Today card offers Navigate / "On my way".
+- Settings > Team: the Direct phone hint still says appointment texts use it; an edited template with {rep_phone} would send the rep's cell again.
+- Repeat lead push leaves out the footage; a lead between midnight and 8 am gets its 8 am push the next morning (about 31 hours).
+- "Low stock" warning on almost every sale now that job materials don't use shop stock.
+- Sales by rep and the Signed Contract column total add quote prices with cents (up to 50¢ each, older cents proposals only).
+- Old cents proposals still show cents per foot; the customer page tile says "Balance due" for the full amount right after signing.
+- Moving one quote's Salesman leaves the old name on the stored board card; a new Salesman gets no push or bell when given a customer; Sales by rep splits Christa into three spellings.
+- A quote opened from the customer page has no Edit; "0 of 2 photos ticked" with no photos.
+- 8 ft: a draft reopened after a Settings price change reprices without saying so; the pull sheet lists the 8 ft section by a generic name next to $0 pickets.
+- e2e: the appointments suite leaves Michael Green booked Nov 2–3 on dev (booking suite fails until Nov 9); schedule-install drag and site-plan-rotate (WebKit crash) fail on main too.
