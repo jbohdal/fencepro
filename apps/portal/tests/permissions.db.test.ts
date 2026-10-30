@@ -233,7 +233,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('roles and permissions (dev datab
     refused(await call('sales', 'POST', '/api/automations/rules', { name: 'x' }), /cannot change automations/)
     refused(await call('sales', 'PUT', '/api/automations/stage-rules', { rules: [] }), /cannot change automations/)
     refused(await call('sales', 'PUT', '/api/schedule/board', { settings: { workDays: [1, 2, 3, 4], crews: [] }, jobs: [], baseVersion: 0 }), /cannot change the crew schedule/)
-    refused(await call('sales', 'PUT', '/api/schedule/settings', { workDays: [1, 2, 3, 4, 5], crews: [], baseVersion: 0 }), /cannot change settings/)
+    refused(await call('sales', 'PUT', '/api/schedule/settings', { workDays: [1, 2, 3, 4, 5], crews: [], baseVersion: 0 }), /cannot change the crew schedule|cannot change settings/)  // D5: every Schedule write from a Salesman is refused first
     refused(await call('sales', 'PUT', '/api/vendor-state', { vendors: [{ id: 'v1', name: 'Vendor' }], bills: [], payments: [], baseVersion: 0 }), /cannot change billing/)
     refused(await call('sales', 'PUT', '/api/kv/fencepro_ops_stages', { value: [{ id: 's1', name: 'Mine' }], baseVersion: 0 }), /cannot change settings/)
     refused(await call('sales', 'POST', '/api/style-photos', {}), /cannot change settings/)
