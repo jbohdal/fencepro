@@ -511,4 +511,43 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     expect((await businessRows('pullSheets')).has(`${tag}-ps-mina3`)).toBe(true)
     for (const [k, t] of before.ps) expect([k, (await businessRows('pullSheets')).get(k)]).toEqual([k, t])
   })
+
+  test('the daily flow (D4): the office books Sally the estimate of the owner\'s customer; she sees it, writes the quote after the visit and sends it; a move takes it all', async () => {
+    const { forgetAllScopes } = await import('../src/server/lib/salesScope.js')
+    // The office's new lead: its Salesman is the owner (D4); the visit is booked with Sally, now.
+    id.pat = (await prisma.crmContact.create({ data: { accountId, firstName: 'Pat', lastName: tag, ownerId: id.office, salesRep: OLIVE(), phone: '3525550460' } })).id
+    id.vPat = (await prisma.appointment.create({ data: { accountId, crmContactId: id.pat, type: 'estimate', address: '1 Pat Way', startAt: new Date(Date.now() - 60_000), endAt: new Date(Date.now() + 3_600_000), assignedTo: SALLY(), assignedToUserId: id.sally, status: 'scheduled' } })).id
+    forgetAllScopes()
+    // Her Today: the visit and its customer.
+    const appts = (await call('GET', '/api/appointments', tok.sally)).json.data as any[]
+    expect(appts.find(a => a.id === id.vPat)?.customerNotYours).toBeUndefined()
+    expect(((await call('GET', '/api/crm-contacts', tok.sally)).json.data as any[]).some(c => c.id === id.pat)).toBe(true)
+    // Complete, Ready to quote: the visit is done; the quote she saves carries the customer's Salesman (the owner).
+    await prisma.appointment.update({ where: { id: id.vPat }, data: { status: 'completed', completedAt: new Date() } })
+    forgetAllScopes()
+    expect(((await call('GET', '/api/crm-contacts', tok.sally)).json.data as any[]).some(c => c.id === id.pat)).toBe(true)
+    const q = await call('POST', '/api/saved-quotes', tok.sally, { runs: [430], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.pat, customerName: `Pat ${tag}`, salesRep: OLIVE(), finalPrice: 9000, status: 'DRAFT' })
+    expect(q.status).toBeLessThan(300)
+    id.qPat = q.json.data.id
+    // Hers to open and send (its window, Copy link), and its pull sheet link saves.
+    expect((await call('GET', `/api/saved-quotes/${id.qPat}`, tok.sally)).status).toBe(200)
+    expect(((await call('GET', '/api/saved-quotes', tok.sally)).json.data as any[]).some(x => x.id === id.qPat)).toBe(true)
+    const read = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const ps = { id: `${tag}-ps-pat`, customerId: id.pat, quoteId: id.qPat, customerName: `Pat ${tag}`, versionNumber: 1 }
+    const saved = await appSave(d => ({ pullSheets: [ps, ...d.pullSheets] }), read)
+    expect([saved.status, saved.json.leftOut]).toEqual([200, undefined])
+    expect(JSON.stringify(saved.json.data)).toContain(`${tag}-ps-pat`)
+    // The owner moves Pat to Sam: the finished visit no longer holds anything; the open quote went with Pat.
+    expect((await call('POST', `/api/lead-assign/${id.pat}`, tok.owner, { to: id.sam, replace: true })).status).toBe(200)
+    expect((await call('GET', `/api/saved-quotes/${id.qPat}`, tok.sally)).json.code).toBe('MOVED')
+    expect(((await call('GET', '/api/crm-contacts', tok.sally)).json.data as any[]).some(c => c.id === id.pat)).toBe(false)
+    // Her past visit stays on her calendar, saying whose the customer is now.
+    expect(((await call('GET', '/api/appointments', tok.sally)).json.data as any[]).find(a => a.id === id.vPat)?.customerNotYours).toBe(SAM())
+    // Put back: her phone's copy, read before the move, saved now: Pat's pull sheet stays as stored.
+    const before = (await businessRows('pullSheets')).get(`${tag}-ps-pat`)
+    const r = await appSave(d => ({ pullSheets: (d.pullSheets as any[]).map(x => ({ ...x, notes: 'later' })) }), saved.json.data)
+    expect(r.status).toBe(200)
+    expect((await businessRows('pullSheets')).get(`${tag}-ps-pat`)).toBe(before)
+  })
 })
+

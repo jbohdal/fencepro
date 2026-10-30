@@ -79,6 +79,7 @@ import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
 import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole } from './permissions'
 import { isMyRep } from './salesmanChoice'
+import { signedInUserId } from './crmAuth'
 import { MOVED_EVENT, recentMoved } from './movedNotice'
 import { forgetQuote, quoteStillMine } from './quoteStore'
 import { possessive } from './personName'
@@ -96,7 +97,7 @@ import { fireQuoteSold } from './automationTrigger'
 import { installedRevenueForYear, soldNotInstalled } from './quoteStats'
 import { marginOf, soldInYear, weightedTarget, leftOutWords } from './moneyTruth'
 import { companyTargets, yearActuals, reportQuotes, quoteMarginTone } from './moneyLoad'
-import { initAppointments, isAppointmentsHydrated } from './appointmentsStore'
+import { initAppointments, isAppointmentsHydrated, getAppointments } from './appointmentsStore'
 import { initBookingTeam, isBookingTeamLoaded } from './bookingTeamStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
 import TodayScreen from './TodayScreen'
@@ -791,7 +792,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       // A Salesman's quote whose Sales rep is someone else (another Salesman's new customer, the Salesman choice):
       // the quote is that person's from now on and leaves her list (lib/salesScope.ts, Oct 29 2026), so no window
       // opens to send it from (its Copy link would fail); she is told plainly whose it is (review, Oct 30 2026).
-      const givenAway = signedInRole() === 'sales_rep' && !!q.salesRep?.trim() && !isMyRep(q.salesRep)
+      // Not when she wrote it after her own visit (the office booked her the customer of another Salesman, the owner by
+      // D4): that quote stays hers to send (portal lib/salesScope.ts writtenAfterVisit).
+      const myId = signedInUserId()
+      const myVisit = !!q.customerId && getAppointments().some(a => a.crmContactId === q.customerId && (a.assignedToUserId === myId || isMyRep(a.assignedTo)))
+      const givenAway = signedInRole() === 'sales_rep' && !!q.salesRep?.trim() && !isMyRep(q.salesRep) && !myVisit
       const toSend = !givenAway && sendAfterSave.current && q.status !== 'SOLD' && !!q.id
       sendAfterSave.current = false
       // The card moves on to the Ready to quote stage (Settings > Pipeline Stages; Estimating to start) when it is
