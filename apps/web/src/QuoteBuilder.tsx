@@ -50,7 +50,7 @@ import { targetMarginPct, overheadPctOf } from './configStore'
 import DollarPickets, { splitDollars } from './DollarPickets'
 import { businessDate } from './businessDate'
 import { isQuotable } from './styleAvailability'
-import { isHeldSavedQuote, heldQuoteSave } from './heldQuote'
+import { isHeldSavedQuote, heldQuoteSave, heldSavedNumbers, heldNote, heldNotSaved, heldBarReason } from './heldQuote'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
@@ -647,6 +647,9 @@ export default function QuoteBuilder({
   // Settings, review Oct 29 2026: it repriced at $0 a piece, $5,050 → $698): never repriced. The saved price stays
   // on screen and is what a save keeps; a change that would move the price cannot be saved (heldChanged below).
   const heldSaved = isHeldSavedQuote(init, style)
+  // While held: the saved numbers (per foot, costs, margin, pull sheet), never today's $0 cost math (review Oct 29 2026).
+  const heldNums = heldSaved ? heldSavedNumbers(init as any) : null
+  const canPrice = can('prices.change')
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
   const optSettings = getRailOptimizerConfig()
@@ -723,10 +726,10 @@ export default function QuoteBuilder({
   // Good, Better, Best: the tier set for this style's category (Settings → Good Better Best),
   // priced from the same layout, no taps needed. A quote already sent keeps the
   // tiers it was sent with unless "Use current tiers" is tapped.
-  const sentTierSet = init?.id && (init.shareToken || init.status === 'SENT' || init.status === 'SOLD') ? init.proposal?.tierSet : undefined
+  const sentTierSet = init?.id && (init.shareToken || init.status === 'SENT' || init.status === 'SOLD' || heldSaved) ? init.proposal?.tierSet : undefined
   const [keepSentTiers, setKeepSentTiers] = useState(!!sentTierSet)
   const liveTierSet = tierSetFor(tierSets, style)
-  const usingSentTiers = keepSentTiers && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
+  const usingSentTiers = (keepSentTiers || heldSaved) && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
   const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
   // What prices the tiers: the fence, its gates, its pricing choices and the tier choices. Changed since the quote
   // opened, the Price step prices them anew; unchanged, a sent proposal's tiers show as the customer reads them.
@@ -850,6 +853,9 @@ export default function QuoteBuilder({
   const adjRefused  = !internal ? !!sv?.adjustmentRefused : work ? work.adjustmentRefused : newMin ? minimum.adjustmentRefused : priced.adjustmentRefused
   // The pull sheet: a move or repair lists only the NEW material.
   const materialItems: LineItem[] = work ? work.pullSheet : newFenceItems
+  // The pull sheet shown: the saved one while held (today's would be $0 costs); what a save writes stays materialItems.
+  const shownItems: LineItem[] = heldNums ? (heldNums.pullSheet as LineItem[]) : materialItems
+  const shownMaterial = heldNums ? heldNums.material : null
   const materialCost = work ? work.materialCents / 100 : newFenceMaterial
   const gmGood      = cfg.margins?.good ?? 0.34
   const gmWarn      = cfg.margins?.warning ?? 0.27
@@ -1220,10 +1226,10 @@ export default function QuoteBuilder({
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
           </div>
           <div className="flex items-center gap-3">
-            {materialItems.length > 0 && (
+            {shownItems.length > 0 && (
               <button onClick={() => { if (step !== 'price') { setShowPullSheet(true); goStep('price') } else setShowPullSheet(p => !p) }} className="text-sm text-orange-500 border border-orange-300 rounded-lg px-3 py-1.5 hover:bg-orange-50">
-                <span className="hidden sm:inline">{showPullSheet && step === 'price' ? 'Hide Pull Sheet' : 'Show Pull Sheet'} ({materialItems.length} items)</span>
-                <span className="sm:hidden">Pull sheet ({materialItems.length})</span>
+                <span className="hidden sm:inline">{showPullSheet && step === 'price' ? 'Hide Pull Sheet' : 'Show Pull Sheet'} ({shownItems.length} items)</span>
+                <span className="sm:hidden">Pull sheet ({shownItems.length})</span>
               </button>
             )}
             <button onClick={() => { if (okToLeave()) onClose() }} aria-label="Close" className="text-gray-500 hover:text-gray-800 text-3xl leading-none w-12 h-12 grid place-items-center" data-quote-close>×</button>
@@ -1569,7 +1575,7 @@ export default function QuoteBuilder({
               </select>
               {heldSaved && !signedQuote && (
                 <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-style-held-saved>
-                  {style!.label || style!.name} is not available for quoting: {style!.held}. This quote keeps its saved price ({fmt(init!.finalPrice)}); notes and customer details can be saved, a change to the fence or its price cannot until the costs are in.
+                  {heldNote(style!.label || style!.name, style!.held!, fmt(init!.finalPrice), canPrice)}
                 </p>
               )}
               {style && !isQuotable(style) && !heldSaved && (
@@ -1701,9 +1707,10 @@ export default function QuoteBuilder({
                 {work && <p className="text-gray-300 text-xs mt-1" data-work-kind>{jobType === 'move' ? 'Fence move' : 'Repair'}: {work.description}</p>}
                 {work?.minimumApplied && internal && <p className="text-blue-200 text-xs mt-1 font-semibold" data-price-minimum>Minimum job price applied (internal)</p>}
                 {newMin && internal && <p className="text-blue-200 text-xs mt-1 font-semibold" data-price-minimum>Minimum job price applied (internal)</p>}
-                {!work && totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
-                {showCommission && commAmt > 0 && <p className="text-gray-400 text-xs mt-1" data-commission>Commission: {fmt(commAmt)}</p>}
-                {compare && !work && (
+                {heldNums ? (heldNums.perFoot != null && <p className="text-gray-400 text-xs mt-1" data-held-per-foot>{fmt(heldNums.perFoot)} per foot (saved)</p>)
+                  : !work && totalFootage > 0 && <p className="text-gray-400 text-xs mt-1">{fmt(priced.pricePerFoot)} per foot</p>}
+                {!heldSaved && showCommission && commAmt > 0 && <p className="text-gray-400 text-xs mt-1" data-commission>Commission: {fmt(commAmt)}</p>}
+                {!heldSaved && compare && !work && (
                   <p className="text-gray-300 text-xs mt-2 pt-2 border-t border-gray-700" data-width-compare>
                     Same job at 6 ft wide: {fmt(compare.at6)}  |  at 8 ft wide: {fmt(compare.at8)}
                   </p>
@@ -1746,7 +1753,12 @@ export default function QuoteBuilder({
                     {can('settings.change') && <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
                       onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>}
                   </div>
-                  {usingSentTiers && (() => {
+                  {heldSaved && (
+                    <p className="text-xs rounded-lg px-2 py-1.5 border text-gray-700 bg-blue-50 border-blue-200" data-tiers-held>
+                      {showSentCards ? 'As saved: our costs for this fence are missing, so these are the options and prices this quote was saved with, kept as they are.' : 'Good, Better, Best are not priced while our costs for this fence are missing. This quote keeps the options it was saved with.'}
+                    </p>
+                  )}
+                  {usingSentTiers && !heldSaved && (() => {
                     // Said as it is (review Oct 27 2026): the prices the customer has, or new prices once the fence is changed.
                     const note = sentTiersNote({ asSent: showSentCards, fenceChanged, signed: signedQuote, sentPricesChanged: !!sentPricesChanged })
                     return (
@@ -1756,7 +1768,7 @@ export default function QuoteBuilder({
                       </p>
                     )
                   })()}
-                  {sentTierSet && !keepSentTiers && (
+                  {sentTierSet && !keepSentTiers && !heldSaved && (
                     // After "Use the current tiers" (review Oct 27 2026: the heading still said "on the proposal" over today's prices).
                     <p className="text-xs rounded-lg px-2 py-1.5 border text-amber-900 bg-amber-50 border-amber-300" data-tiers-current-note>
                       These are today's tiers. The customer's proposal still shows the sent prices; saving asks whether to keep them.{' '}
@@ -1766,17 +1778,17 @@ export default function QuoteBuilder({
                   {!tierSet && tierSets === null && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-tiers-not-loaded>Good, Better, Best have not loaded yet (weak signal). They are tried again every few seconds; a proposal saved now would not show them.</p>}
                   {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. {can('settings.change') ? 'Tap Edit tiers to add one.' : 'Ask Jonathan to add one.'}</p>}
                   {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. {can('settings.change') ? 'Tap Edit tiers to add them.' : 'Ask Jonathan to add them.'}</p>}
-                  {tiers.map(t => {
+                  {(heldSaved && !showSentCards ? [] : tiers).map(t => {
                     // A sent proposal, the fence unchanged: each tier as the customer reads it (frozen price and fence).
                     const sent = showSentCards ? sentCards![t.spec.key] : undefined
                     if (showSentCards && !sent) return (
                       <div key={t.spec.key} className="rounded-lg border border-dashed border-gray-300 p-3 opacity-80" data-tier={t.spec.key} data-tier-not-sent>
                         <label className="flex items-center gap-2 min-w-0">
-                          <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} aria-label={`Offer ${t.spec.name}`}
+                          <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} disabled={heldSaved} aria-label={`Offer ${t.spec.name}`}
                             onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
                           <span className="font-bold text-gray-900" data-tier-name>{t.spec.name}</span>
                         </label>
-                        <p className="text-xs text-gray-600 mt-1">Not on the proposal that was {signedQuote ? 'signed' : 'sent'}.</p>
+                        <p className="text-xs text-gray-600 mt-1">{heldSaved && !sentQuote ? 'Not on the saved quote.' : `Not on the proposal that was ${signedQuote ? 'signed' : 'sent'}.`}</p>
                       </div>
                     )
                     if (!sent && (!t.style || !t.option)) return (
@@ -1800,7 +1812,7 @@ export default function QuoteBuilder({
                       <div key={t.spec.key} className={`rounded-lg border p-3 ${main ? 'border-orange-500 bg-orange-50' : 'border-gray-200'} ${t.off ? 'opacity-60' : ''}`} data-tier={t.spec.key}>
                         <div className="flex items-start justify-between gap-2">
                           <label className="flex items-center gap-2 min-w-0">
-                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} aria-label={`Offer ${t.spec.name}`}
+                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} disabled={heldSaved} aria-label={`Offer ${t.spec.name}`}
                               onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
                             <span className="font-bold text-gray-900" data-tier-name>{t.spec.name}</span>
                             {t.popular && <span className="text-[11px] font-semibold bg-orange-500 text-white rounded-full px-2 py-0.5">Most popular</span>}
@@ -1827,7 +1839,7 @@ export default function QuoteBuilder({
                             </p>
                           ) : null
                         })()}
-                        <div className="flex gap-2 mt-2">
+                        {!heldSaved && <div className="flex gap-2 mt-2">
                           <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main || !t.style}
                             onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style!.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
                           <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
@@ -1835,15 +1847,24 @@ export default function QuoteBuilder({
                             <option value="">Style: automatic</option>
                             {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}
                           </select>
-                        </div>
+                        </div>}
                       </div>
                     )
                   })}
                 </div>
               )}
 
-              {work && internal && <WorkBreakdown work={work} />}
-              {internal && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={showCommission ? commAmt : 0} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} category={style?.category ?? null} />}
+              {work && internal && !heldSaved && <WorkBreakdown work={work} />}
+              {internal && heldNums && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-1" data-held-saved-costs>
+                  <p className="text-xs font-semibold text-gray-500">From the saved quote (our costs for this fence are missing, so nothing is priced today)</p>
+                  <p className="text-sm flex justify-between"><span>Material</span><span className="tabular-nums" data-held-material>{fmt(heldNums.material)}</span></p>
+                  <p className="text-sm flex justify-between"><span>Labor and tear out</span><span className="tabular-nums">{fmt(heldNums.labor)}</span></p>
+                  <p className="text-sm flex justify-between"><span>Total cost</span><span className="tabular-nums" data-held-cogs>{fmt(heldNums.cogs)}</span></p>
+                  {heldNums.marginPct != null && <p className="text-sm flex justify-between"><span>Margin</span><span className="tabular-nums" data-held-margin>{Math.round(heldNums.marginPct * 1000) / 10}%</span></p>}
+                </div>
+              )}
+              {internal && !heldSaved && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={showCommission ? commAmt : 0} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} category={style?.category ?? null} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -2126,16 +2147,16 @@ export default function QuoteBuilder({
               >
                 {signedQuote ? 'Save notes and customer details only' : init?.id ? 'Update quote' : 'Save quote'}
               </button>
-              {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>Not saved: {style!.label || style!.name} has no costs in Settings ({style!.held}), so its price cannot change. Close without saving to keep the saved quote.</p>}
+              {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>{heldNotSaved(style!.label || style!.name, style!.held!, canPrice)}</p>}
               {!canSave && !heldChanged && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
-            {showPullSheet && materialItems.length > 0 && (
-              <div className="flex-1 overflow-y-auto px-6 py-4">
+            {showPullSheet && shownItems.length > 0 && (
+              <div className="flex-1 overflow-y-auto px-6 py-4" data-pull-sheet>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-semibold text-gray-500">{work ? 'Pull sheet (new material only)' : 'Pull Sheet'}</h3>
-                  <span className="text-xs text-gray-400">{materialItems.length} items</span>
+                  <h3 className="text-xs font-semibold text-gray-500">{heldSaved ? 'Pull sheet (as saved)' : work ? 'Pull sheet (new material only)' : 'Pull Sheet'}</h3>
+                  <span className="text-xs text-gray-400">{shownItems.length} items</span>
                 </div>
                 <div className="space-y-1">
-                  {materialItems.map((item, i) => (
+                  {shownItems.map((item, i) => (
                     <div key={i} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
                       <div className="flex-1 pr-2">
                         <p className="text-gray-800 font-medium leading-tight">{partWithPair(item.item)}</p>
@@ -2147,7 +2168,7 @@ export default function QuoteBuilder({
                 </div>
                 <div className={`mt-3 pt-3 border-t border-gray-300 flex justify-between items-center ${!internal ? 'hidden' : ''}`}>
                   <span className="text-sm font-semibold text-gray-700">Total Material</span>
-                  <span className="text-sm font-bold text-gray-900">{fmt(materialCost)}</span>
+                  <span className="text-sm font-bold text-gray-900">{fmt(shownMaterial ?? materialCost)}</span>
                 </div>
               </div>
             )}
@@ -2188,6 +2209,7 @@ export default function QuoteBuilder({
                 <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-bar-next>{barNextLabel}</button>
               )}
             </div>
+            {heldChanged && <p className="text-xs font-semibold text-amber-800 mt-1 leading-snug" data-held-bar-reason>{heldBarReason(canPrice)}</p>}
             </div>
           </div>
         </div>
