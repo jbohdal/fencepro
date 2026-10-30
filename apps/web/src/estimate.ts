@@ -23,8 +23,8 @@ import { pickList, pickPrice, type PickInput, type PickList } from './changeOrde
 export { importedOldPrice, keepsCents } from './pricingEngine'
 
 export { NOT_QUOTABLE_MESSAGE }
-// The server's wood seed (lib/woodSeed.ts) runs this through the bundle.
-export { planWood } from './wood'
+// The server's wood seed (lib/woodSeed.ts) runs these through the bundle.
+export { planWood, planWoodRealKits } from './wood'
 // The server's chain link dig set seed (lib/chainDigSetSeed.ts).
 export { planChainDigSet, planChainDigSetPipesAndTies, planChainGateKits } from './chainDigSet'
 // The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).

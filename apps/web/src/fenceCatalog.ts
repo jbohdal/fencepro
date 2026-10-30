@@ -5,7 +5,7 @@
  *   Vinyl        Style > Height > Color > Install > Panel width
  *   Chain link   Height > Finish > Grade > Install (No dig: the styles priced so far; Dig set: Oct 2026)
  *   Aluminum     Panel style > Height > Install
- *   Wood         Style > Height > Install > Panel width (priced from white vinyl × the Wood factor, wood.ts)
+ *   Wood         Style > Height > Install > Panel width (its own wood kit from Inventory; labor white vinyl × the Wood factor, wood.ts)
  *   Other        Product
  *
  * Every style keeps its old code ("WV-ND 6'x8' Privacy") as its hidden
@@ -587,6 +587,17 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
     if (s.madeFrom) {
       const set = kitOf(s.name)
       if (!set || set === 'archived') why.push('it has no material kit')
+    }
+    // Wood (wood.ts, Oct 30 2026): priced from its own wood parts, so held
+    // until every part of its kit has an Inventory price; then it quotes by
+    // itself. No kit in use: held.
+    if (sc.material === 'wood') {
+      const set = kitOf(s.name)
+      if (!set || set === 'archived') { if (!s.madeFrom) why.push('it has no material kit') }
+      else {
+        const left = partsWaitingForPrice(s.name, price, kitOf)
+        if (left.length) why.push(`${m.label} is waiting for prices on ${left.length} part${left.length === 1 ? '' : 's'} in Inventory`)
+      }
     }
     // 8 ft tall vinyl, every color: one price per section and one per post (Jonathan, Oct 21, 2026).
     if (isTallVinyl(sc)) {

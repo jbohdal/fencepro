@@ -24,7 +24,7 @@ import { colorNamesOf } from './fenceCatalog'
 
 export type WidgetMaterial = 'vinyl' | 'chain' | 'alum' | 'wood'
 export const MATERIAL_LABEL: Record<WidgetMaterial, string> = { vinyl: 'Vinyl', chain: 'Chain link', alum: 'Aluminum', wood: 'Wood' }
-const KIND_NAME: Record<string, string> = { privacy: 'privacy', bell: 'bell top', emily: 'Emily' }
+const KIND_NAME: Record<string, string> = { privacy: 'privacy', bell: 'bell top', emily: 'Emily', stockade: 'stockade', bob: 'board on board', sb: 'shadow box' }
 
 /** One thing the customer can pick: material, color (where it applies), height and kind (privacy / bell top ...). */
 export interface WidgetPick { material: WidgetMaterial; color: string; height: string; kind: string }

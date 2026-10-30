@@ -26,8 +26,10 @@
  * REPAIR: a price list per style, each item made from kits plus labor
  *   (labor = the sub rate per section, post or gate × the item's multiplier).
  *
- * Wood (wood.ts) is priced on its white vinyl style and its material and labor
- * are multiplied by the Wood factor.
+ * Wood (wood.ts) moves and repairs are priced on its white vinyl style and
+ * their material and labor are multiplied by the Wood factor (the repair
+ * rates; Jonathan, Oct 30 2026). A new wood fence is not: its material is its
+ * own wood kit from Inventory (quoteCalc.ts woodQuote).
  */
 
 import { calculatePrice, resolveSubRate, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'

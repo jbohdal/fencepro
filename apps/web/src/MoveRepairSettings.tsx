@@ -127,7 +127,7 @@ export default function MoveRepairSettings({ config, onChange }: { config: AppCo
 
       <section className="space-y-3">
         <h3 className="text-sm font-bold text-gray-900">Wood</h3>
-        <Num data="woodFactorPct" label="Wood factor" hint="Wood material and labor = the matching White Vinyl 6 ft privacy numbers × this, for new fences, moves and repairs (default 115%)" value={s.woodFactorPct} onChange={v => set({ woodFactorPct: v && v > 0 ? v : DEFAULT_MOVE_REPAIR.woodFactorPct })} suffix="%" step="1" />
+        <Num data="woodFactorPct" label="Wood factor" hint="Wood labor and repair rates = the matching White Vinyl numbers × this (default 115%). Wood materials are priced from the wood parts in Inventory." value={s.woodFactorPct} onChange={v => set({ woodFactorPct: v && v > 0 ? v : DEFAULT_MOVE_REPAIR.woodFactorPct })} suffix="%" step="1" />
       </section>
     </div>
   )

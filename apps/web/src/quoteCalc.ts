@@ -13,10 +13,7 @@ import {
   calculateMixedMaterialsDetailed,
   totalMaterialCost,
   sectionWidthForStyle,
-  materialUnitCost,
-  withPriceSource,
   type GateWidths,
-  type LineItem,
   type MaterialResult,
   type RailWidth,
   type StyleJobLot,
@@ -46,7 +43,7 @@ export interface QuoteStyle extends StylePricing {
   jobLot?: StyleJobLot
   /** Made in Settings (a color or choice added later), copying this style. */
   madeFrom?: string
-  /** Wood (wood.ts): the white vinyl style it is priced from, and the Wood factor (1.15). */
+  /** Wood (wood.ts): the white vinyl style its install labor comes from, and the Wood factor (1.15) on that labor. */
   woodOf?: string
   woodBase?: QuoteStyle
   woodFactor?: number
@@ -270,22 +267,22 @@ export function savedRunSections(
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
- * A wood fence (wood.ts): the same job priced on its white vinyl style, then
- * that style's material and install labor each times the Wood factor, rounded
- * to the cent once on each total. Tear out and extra hours are not wood rates
- * and are added as they are. The pull sheet names the wood parts from the wood
- * style's own kit at $0 (for the crew) and carries the wood material as one
- * money only line.
+ * A wood fence (wood.ts, Oct 30 2026). Materials: the wood style's own
+ * material kit priced from Inventory, the normal way (sections counted per
+ * run at its own panel width; each wood part on the pull sheet at its
+ * Inventory price). Labor: the same job's install labor on its White Vinyl
+ * style (woodBase) times the Wood factor, rounded to the cent once. Tear out
+ * and extra hours are not wood rates and are added as they are.
  */
 function woodQuote(input: QuoteCalcInput, style: QuoteStyle, base: QuoteStyle): QuoteCalc {
   const f = typeof style.woodFactor === 'number' && style.woodFactor > 0 ? style.woodFactor : 1.15
   const o = input.overrides ?? {}
   const laborChoice: QuotePricingOverrides = { laborMode: o.laborMode, subUnit: o.subUnit, subRate: o.subRate }
+  // The White Vinyl job, for its install labor only (its material is never used).
   const v = calculateQuote({
     ...input, style: base, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
     overrides: laborChoice,
   })
-  const woodMaterial = round2(v.materialCost * f)
   const woodLabor = round2(v.priced.laborCost * f)
   // Tear out and extra hours at their own rates (not wood rates).
   const other = calculatePrice({
@@ -294,37 +291,24 @@ function woodQuote(input: QuoteCalcInput, style: QuoteStyle, base: QuoteStyle): 
   })
   const filled = input.runs.filter(r => r.ft > 0).map(r => r.ft)
   const width = sectionWidthForStyle(style.name, style.panelWidth)
-  const items: LineItem[] = []
-  const tear = (item: string, qty: number, fallback: number) => {
-    if (!(qty > 0)) return
-    const unit = materialUnitCost(item, fallback)
-    items.push({ item, qty, unitCost: unit, total: round2(qty * unit), costSource: 'inventory' })
-  }
-  tear('Tear Out Haul-Away Fence', input.tearOutSections, 9.50)
-  tear('Tear Out Haul-Away Gate', input.tearOutGates, 27.00)
-  if (v.sections > 0) {
-    // The wood parts by name, for the crew: never priced.
-    const parts = withPriceSource(() => 0, () => calculateMaterialsDetailed({
-      fenceStyle: style.name, runs: filled, corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates,
-      tearOutSections: 0, tearOutGates: 0, sectionWidth: width,
-    }))
-    for (const i of parts.items) items.push({ item: i.item, qty: i.qty, unitCost: 0, total: 0, costSource: 'wood' })
-    items.push({ item: `Wood material: ${baseLabel(base)} material × ${Math.round(f * 1000) / 10}%`, qty: 1, unitCost: woodMaterial, total: woodMaterial, costSource: 'wood', moneyOnly: true })
-  }
-  const materialCost = totalMaterialCost(items)
-  const warnings = [...v.materials.warnings]
-  if (v.sections > 0 && !items.some(i => i.costSource === 'wood' && !i.moneyOnly)) warnings.push(`"${style.label || style.name}" has no wood parts list (Inventory > Material Kits), so the pull sheet names no wood parts. The price is not affected.`)
+  const perRunSections = input.runs.map(r => (Number.isFinite(r.ft) && r.ft > 0 ? sectionsForRun(r.ft, width) : 0))
+  const sections = perRunSections.reduce((t, n) => t + n, 0)
+  const materials: MaterialResult = sections > 0
+    ? calculateMaterialsDetailed({
+        fenceStyle: style.name, runs: filled, corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates,
+        tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates, sectionWidth: width,
+        ...(input.extraLinePosts ? { extraLinePosts: input.extraLinePosts } : {}),
+        ...(input.gateWidths ? { gateWidths: input.gateWidths } : {}),
+      })
+    : { items: [], warnings: [] }
+  const materialCost = totalMaterialCost(materials.items)
   const flat = typeof o.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0
   const priced0 = calculatePrice({
-    sections: v.sections, footage: filled.reduce((t, n) => t + n, 0), walkGates: input.walkGates, dblGates: input.dblGates,
+    sections, footage: filled.reduce((t, n) => t + n, 0), walkGates: input.walkGates, dblGates: input.dblGates,
     tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates, materialCost, extraLaborHrs: input.extraLaborHrs,
     hasSalesman: input.hasSalesman, priceAdjust: input.priceAdjust, style: { ...base, margin: style.margin, pricePerFoot: style.pricePerFoot },
     pricing: input.pricing, overrides: { ...o, laborCost: flat ? o.laborCost : round2(woodLabor + other.laborCost) },
   })
   const priced: PriceResult = flat ? priced0 : { ...priced0, laborMode: v.priced.laborMode, subRate: v.priced.subRate, notes: [...v.priced.notes, ...other.notes] }
-  return { perRunSections: v.perRunSections, perRunRail: v.perRunRail, sections: v.sections, materials: { items, warnings }, materialCost, priced, optimizer: null }
-}
-
-function baseLabel(s: QuoteStyle & { label?: string }): string {
-  return s.label || s.name
+  return { perRunSections, perRunRail: input.runs.map(() => null), sections, materials, materialCost, priced, optimizer: null }
 }
