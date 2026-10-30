@@ -64,11 +64,12 @@ async function lookupGoogle(address: string): Promise<Point | null> {
 }
 
 /**
- * Where an address is. Looked up once per address and kept; a position set
- * by hand always wins. Null when the address cannot be found (or the lookup
+ * Where an address is. Looked up once per address and kept (unless `keep` is
+ * false: the website quote's addresses are not kept); a position set by hand
+ * always wins. Null when the address cannot be found (or the lookup
  * service is down; that is not kept, so it is tried again next time).
  */
-export async function locate(accountId: string, address: string): Promise<(Point & { source: string }) | null> {
+export async function locate(accountId: string, address: string, opts: { keep?: boolean } = {}): Promise<(Point & { source: string }) | null> {
   const key = addressKey(address)
   if (!key) return null
   const known = await prisma.geoPoint.findUnique({ where: { accountId_addressKey: { accountId, addressKey: key } } })
@@ -78,7 +79,7 @@ export async function locate(accountId: string, address: string): Promise<(Point
   if (known) {
     const near = streetEstimate(address)
     if (!near) return null
-    await prisma.geoPoint.update({ where: { accountId_addressKey: { accountId, addressKey: key } }, data: { lat: near.lat, lng: near.lng, source: 'street' } }).catch(() => {})
+    if (opts.keep !== false) await prisma.geoPoint.update({ where: { accountId_addressKey: { accountId, addressKey: key } }, data: { lat: near.lat, lng: near.lng, source: 'street' } }).catch(() => {})
     return { lat: near.lat, lng: near.lng, source: 'street' }
   }
   // Marion County's own property list first (exact, on the Mac), then the lookup service.
@@ -89,6 +90,8 @@ export async function locate(accountId: string, address: string): Promise<(Point
   catch (err) { console.error('[geo] lookup failed:', String((err as Error)?.message || err)); return null }
   // Neither has it: placed between its neighbours on the same street, when the county lists the street.
   if (!point) { const near = streetEstimate(address); if (near) { point = { lat: near.lat, lng: near.lng }; source = 'street' } }
+  // keep: false (the website quote, before the customer gave a name): looked up, not written down.
+  if (opts.keep === false) return point ? { ...point, source } : null
   try {
     await prisma.geoPoint.upsert({
       where: { accountId_addressKey: { accountId, addressKey: key } },

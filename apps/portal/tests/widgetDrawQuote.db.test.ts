@@ -2,9 +2,9 @@
  * The website quote drawn on the photo, against the dev database:
  *   - test mode (?test=1) prices everything and writes nothing (no draft, no
  *     customer, no quote, no card, no website lead, no note);
- *   - the draft is saved with no name, phone or email, found again by its
- *     cookie and by its id, and the cookie is httpOnly, Secure, SameSite=None,
- *     Partitioned;
+ *   - no draft is kept any more (nothing before the name and phone; the lead
+ *     saved then is tests/widgetPartialLead.db.test.ts); a leftover draft past
+ *     its 30 days is cleared;
  *   - sending makes exactly one customer, one pipeline card and one saved
  *     quote; sending again (twice at once, too) never makes a second; another
  *     option picked updates that quote;
@@ -87,9 +87,6 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the website quote drawn on the p
     const t0 = new Date()
     const mine = async () => ({ ...(await counts()), drafts: await prisma.widgetDraft.count({ where: { createdAt: { gte: t0 } } }), notes: await prisma.notification.count({ where: { title: `Website quote: ${NAME}` } }), leads: await prisma.intakeLead.count({ where: { sourceRef: 'testtesttesttesttest01' } }) })
     const before = await mine()
-    const d = await call('/draft', { method: 'PUT', body: JSON.stringify({ id: null, data: { step: 2, address: drawing.address, at, drawing, pick: null }, test: true }) })
-    expect(d.body).toMatchObject({ success: true, test: true, id: null })
-    expect(d.setCookie).toBe('')
     const r = await call('/submit', { method: 'POST', body: JSON.stringify({ draftId: 'testtesttesttesttest01', name: NAME, phone: PHONE, address: drawing.address, drawing, pick, test: true }) })
     expect(r.status).toBe(200)
     expect(r.body.test).toBe(true)
@@ -114,38 +111,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the website quote drawn on the p
     expect(JSON.stringify(r.body.preview)).not.toMatch(/cost|margin|pullSheet|overhead|costFactor/i)
   })
 
-  let draftId = ''
-  let cookie = ''
-  test('the draft: saved with no name, phone or email; its cookie is httpOnly, Secure, SameSite=None, Partitioned', async () => {
-    const d = await call('/draft', { method: 'PUT', body: JSON.stringify({ id: null, data: { step: 2, address: drawing.address, at, atSource: 'county', drawing, pick, snap: true } }) })
-    draftId = d.body.id
-    made.draftIds.push(draftId)
-    expect(draftId).toMatch(/^[A-Za-z0-9_-]{20,40}$/)
-    expect(d.setCookie).toMatch(new RegExp(`^ezq_draft=${draftId}; Path=/p/quote; Max-Age=2592000; HttpOnly; Secure; SameSite=None; Partitioned`))
-    cookie = `ezq_draft=${draftId}`
-    const row = await prisma.widgetDraft.findUnique({ where: { id: draftId } })
-    expect(JSON.stringify(row!.data)).not.toMatch(/name|phone|email/i)
-    const days = (row!.expiresAt.getTime() - Date.now()) / 86_400_000
-    expect(days).toBeGreaterThan(29.9); expect(days).toBeLessThanOrEqual(30)
-  })
-
-  test('found again by the cookie, and by the id in the page address; another browser\'s cookie finds nothing', async () => {
-    const byCookie = await call('/draft', {}, cookie)
-    expect(byCookie.body.data).toMatchObject({ id: draftId, step: 2, address: drawing.address, sent: false })
-    expect(byCookie.body.data.drawing.runs[0].gates[1]).toEqual({ type: 'walk', widthFt: 4, startFt: 11 })
-    const byId = await call(`/draft?id=${draftId}`)
-    expect(byId.body.data.id).toBe(draftId)
-    expect((await call('/draft', {}, 'ezq_draft=nosuchdraftnosuchdraft00')).body.data).toBeNull()
-    expect((await call('/draft')).body.data).toBeNull()
-  })
-
-  test('a draft past 30 days is not found, and is cleared away', async () => {
-    const old = 'expiredexpiredexpired000'
-    made.draftIds.push(old)
-    await prisma.widgetDraft.create({ data: { id: old, data: {}, expiresAt: new Date(Date.now() - 1000) } })
-    expect((await call(`/draft?id=${old}`)).body.data).toBeNull()
-    await call('/draft', { method: 'PUT', body: JSON.stringify({ id: draftId, data: { step: 3, address: drawing.address, at, drawing, pick } }) })
-    expect(await prisma.widgetDraft.count({ where: { id: old } })).toBe(0)
+  // The visit's id, made by the page (memory only).
+  const draftId = (await import('crypto')).randomBytes(18).toString('base64url')
+  made.draftIds.push(draftId)
+  const OLD_DRAFT = 'expiredexpiredexpired000'
+  test('no draft is kept: the draft routes are gone and a leftover past its 30 days is cleared when a quote is sent', async () => {
+    expect((await fetch(base + '/draft', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: null, data: { step: 2, address: drawing.address, at, drawing, pick } }) })).status).toBe(404)
+    expect((await fetch(base + '/draft')).status).toBe(404)
+    // A leftover from before (made by the old page), past its 30 days: the next quote sent clears it (checked below).
+    made.draftIds.push(OLD_DRAFT)
+    await prisma.widgetDraft.create({ data: { id: OLD_DRAFT, data: {}, expiresAt: new Date(Date.now() - 1000) } })
   })
 
   test('contact before price (the default): /price says to add a name first', async () => {
@@ -160,6 +135,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the website quote drawn on the p
     const [a, b] = await Promise.all([send(), send()])
     expect([a.status, b.status].sort()).toEqual([200, 201])
     expect(await counts()).toMatchObject({ contacts: 1, quotes: 1, cards: 1, leads: 1 })
+    expect(await prisma.widgetDraft.count({ where: { id: OLD_DRAFT } })).toBe(0)
     const better = a.body.chosen
     expect(better.name).toBe('Better')
     const q1 = await prisma.savedQuote.findFirst({ where: { crmContactId: (await prisma.crmContact.findFirst({ where: { accountId, firstName: 'E2E', lastName: 'DbWidget Drawn' } }))!.id } })
@@ -167,8 +143,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the website quote drawn on the p
     expect(Math.round(q1!.finalPrice! * 100)).toBe(Math.round(better.price * 100))
     expect((q1!.layout as any).widgetDrawing.source).toBe('Website, drawn by customer')
     expect((q1!.layout as any).yard.sides[1].gate).toMatchObject({ position: 'distance', distanceIn: 132 })
-    // The draft knows it was sent; the page can now get prices.
-    expect((await prisma.widgetDraft.findUnique({ where: { id: draftId } }))!.quoteId).toBe(q1!.id)
+    // Sent: the page can now get prices.
     expect((await call('/price', { method: 'POST', body: JSON.stringify({ drawing, pick, draftId }) })).status).toBe(200)
     // Good picked after: the same quote changes.
     const good = a.body.options.find((o: any) => o.name === 'Good')

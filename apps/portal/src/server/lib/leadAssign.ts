@@ -52,7 +52,7 @@ export { ASSIGN_NOTE_PREFIX }
 
 export const canAssignLeads = (role: string | null | undefined): boolean => !!role && ASSIGNER_ROLES.has(role)
 
-const SOURCE_WORDS: Record<string, string> = { ez_quote: 'Website quote', retell: 'Phone call', website_chat: 'Website chat' }
+const SOURCE_WORDS: Record<string, string> = { ez_quote: 'Website quote', ez_quote_partial: "Didn't finish instant quote", retell: 'Phone call', website_chat: 'Website chat' }
 export const sourceWords = (source: string | null | undefined): string => SOURCE_WORDS[String(source || '')] ?? 'New lead'
 
 /**

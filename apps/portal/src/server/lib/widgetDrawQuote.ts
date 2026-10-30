@@ -1,28 +1,31 @@
 /**
  * The website quote drawn on the aerial photo (EZ Budget, /p/quote).
  *
- *   drafts   the drawing while the customer works, kept on the server under a
- *            random id (no name, phone or email), gone 30 days after it was
- *            last touched;
+ *   nothing  is kept while the customer works until they type a name and a
+ *            phone or email; from then the lead so far is kept as a "Didn't
+ *            finish instant quote" lead (lib/widgetPartialLead.ts). The old
+ *            drafts (WidgetDraft, the drawing with no name) are no longer made;
+ *            any left go when their 30 days are up;
  *   prices   the options for what they picked, priced for their drawn yard by
  *            the quote builder's own math (web/src/widgetPricing.ts through the
  *            estimate bundle), prices only;
  *   submit   one customer, one pipeline card and one saved quote, together in
- *            one transaction, keyed by the draft id: sending again (a retry, or
+ *            one transaction, keyed by the visit's id: sending again (a retry, or
  *            another option picked) never makes a second one. The quote keeps
  *            the builder's yard (so the salesman opens it drawn on the photo)
  *            and, apart from it, the customer's drawing exactly as drawn
  *            (layout.widgetDrawing), which the builder's saves never replace.
  *
  * Test mode (the page opened with ?test=1) prices and checks everything and
- * writes nothing: no draft, no customer, no quote, no card, no note.
+ * writes nothing: no lead, no customer, no quote, no card, no note.
  */
 
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import prisma from './prisma.js'
-import { isUniqueViolation } from './once.js'
+import { isUniqueViolation, withLock } from './once.js'
+import { findPartialLead, finishPartialLead } from './widgetPartialLead.js'
 import { pricingWithData } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId } from './intake.js'
 import { pushNewLeadSoon, newLeadLink } from './leadAssign.js'
@@ -35,11 +38,10 @@ type Json = any
 
 export const SOURCE_TEXT = 'Website, drawn by customer'
 export const LEAD_SOURCE = 'Website Quote'
-export const DRAFT_DAYS = 30
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 
-const day = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
-const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
+export const day = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date())
+export const money = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -77,28 +79,10 @@ export function optionView(o: Json) {
   return { key: o.key, name: o.name, text: o.text, popular: !!o.popular, fenceStyle: o.fenceStyle, styleLabel: o.styleLabel, price: o.price, perFoot: o.perFoot }
 }
 
-// ── Drafts ───────────────────────────────────────────────────────────────────
+// ── The visit ────────────────────────────────────────────────────────────────
 
-export const newDraftId = () => crypto.randomBytes(18).toString('base64url')
+/** The id the page makes for one visit and keeps in its memory (never in the browser's storage): the lead's key. */
 export const DRAFT_ID = /^[A-Za-z0-9_-]{20,40}$/
-
-export async function readDraft(id: string) {
-  if (!DRAFT_ID.test(id)) return null
-  const d = await prisma.widgetDraft.findUnique({ where: { id } })
-  if (!d || d.expiresAt < new Date()) return null
-  return d
-}
-
-/** Saves the draft (made the first time), 30 more days from now. Old drafts past their date are removed as it goes. */
-export async function saveDraft(id: string, data: Json, accountId: string | null) {
-  const expiresAt = new Date(Date.now() + DRAFT_DAYS * 86_400_000)
-  await prisma.widgetDraft.deleteMany({ where: { expiresAt: { lt: new Date() } } })
-  return prisma.widgetDraft.upsert({
-    where: { id },
-    create: { id, accountId, data, expiresAt },
-    update: { data, expiresAt },
-  })
-}
 
 // ── The customer's own drawing, kept on the quote ────────────────────────────
 
@@ -117,7 +101,7 @@ export function saveSnapshot(dataUrl: string | undefined | null): string | null 
   return `/api/portal/files/intake/${name}`
 }
 
-function widgetDrawingRecord(drawing: Json, sides: Json[][], pick: Pick, options: Json[], chosen: Json, snapshotUrl: string | null, photos: string[] = []) {
+export function widgetDrawingRecord(drawing: Json, sides: Json[][], pick: Pick, options: Json[], chosen: Json, snapshotUrl: string | null, photos: string[] = []) {
   return {
     v: 1,
     source: SOURCE_TEXT,
@@ -191,7 +175,7 @@ export interface DrawnResult {
   preview?: Json
 }
 
-class PipelineBusy extends Error {}
+export class PipelineBusy extends Error {}
 
 /** Where the "Website quote" notification goes: the lead's card window, else the customer. */
 export function leadLink(cardId: string | null, contactId: string | null): string | null {
@@ -200,27 +184,23 @@ export function leadLink(cardId: string | null, contactId: string | null): strin
   return null
 }
 
-export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnResult> {
-  const accountId = await resolveIntakeAccountId()
-  if (!accountId) throw new Error('No company is set up on this server yet')
+export const materialWord = (m: string) => (m === 'vinyl' ? 'Vinyl' : m === 'chain' ? 'Chain link' : m === 'alum' ? 'Aluminum' : 'Wood')
+
+/**
+ * A drawing and a pick priced as the quote builder would: the options, the
+ * one chosen (the customer's, else the most popular, else the first), and
+ * the saved quote's fields for it.
+ */
+export async function drawnQuoteFor(accountId: string, drawing: Json, pick: Pick, fenceStyle?: string | null) {
   const { m, data } = await pricingWithData()
-  const { yard, priced, sides } = await priceDrawing(accountId, input.drawing, input.pick)
+  const { yard, priced, sides } = await priceDrawing(accountId, drawing, pick)
   const options: Json[] = priced.options
-  const chosen = options.find(o => o.fenceStyle === input.fenceStyle) ?? options.find(o => o.popular) ?? options[0]
+  const chosen = options.find(o => o.fenceStyle === fenceStyle) ?? options.find(o => o.popular) ?? options[0]
   const q = m.widgetQuoteFor(data, yard, chosen.fenceStyle, chosen.priceAdjust)
-  const price = q.price
+  const price: number = q.price
   const runSections: number[] = q.job.calc.perRunSections.filter((_: number, i: number) => q.req.runs[i].ft > 0)
   const layoutBase = { yard, runSections }
-
-  if (input.test) {
-    return {
-      test: true, duplicate: false, quoteId: null, contactId: null, cardId: null,
-      options: options.map(optionView), chosen: optionView(chosen),
-      preview: { fenceStyle: chosen.fenceStyle, finalPrice: price, priceAdjust: chosen.priceAdjust, runs: q.req.runs.map((r: Json) => r.ft), corners: q.req.corners, ends: q.req.ends, walkGates: q.req.walkGates, dblGates: q.req.dblGates, layout: layoutBase },
-    }
-  }
-
-  const choice = [input.pick.material === 'vinyl' ? 'Vinyl' : input.pick.material === 'chain' ? 'Chain link' : input.pick.material === 'alum' ? 'Aluminum' : 'Wood', chosen.name, chosen.styleLabel].filter(Boolean).join(', ')
+  const choice = [materialWord(pick.material), chosen.name, chosen.styleLabel].filter(Boolean).join(', ')
   const quoteFields = {
     fenceStyle: chosen.fenceStyle,
     runs: q.req.runs.map((r: Json) => r.ft), corners: q.req.corners, ends: q.req.ends, walkGates: q.req.walkGates, dblGates: q.req.dblGates,
@@ -231,30 +211,99 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
     pullSheet: JSON.parse(JSON.stringify(q.job.pullSheet)),
     pricing: q.job.pricing ? JSON.parse(JSON.stringify(q.job.pricing)) : undefined,
   }
+  return { options, chosen, q, price, layoutBase, quoteFields, sides, choice, footageFt: q.footageFt as number }
+}
+export type DrawnQuote = Awaited<ReturnType<typeof drawnQuoteFor>>
+
+/**
+ * The customer's one open card, saved in the same step as the rest: `make`
+ * gets the card on the board now (null: none) and returns the card to save.
+ * A new card goes on top. Throws PipelineBusy when a browser saved the board
+ * in between (the caller tries again).
+ */
+export async function putCard(tx: Json, accountId: string, contactId: string, make: (existing: Json | null, firstStageId: string) => Json): Promise<Json> {
+  const cur = await tx.pipelineState.findUnique({ where: { accountId } })
+  const leads = ((cur?.leads as Json[]) ?? [])
+  const stages = ((cur?.stages as Json[]) ?? [])
+  // A new card lands in the "new cards land here" stage of Settings > Pipeline Stages.
+  const firstStageId = roleStageId((await loadPipelineStages(accountId, tx)).stages, 'first') ?? ''
+  const existing = leads.find(l => l?.customerId === contactId) ?? null
+  const card = make(existing, firstStageId)
+  if (!cur) {
+    await tx.pipelineState.create({ data: { accountId, leads: [card], stages: [] } })
+  } else {
+    const next = applyPipelineDelta({ leads, stages }, { upsert: [{ lead: card, before: existing ? undefined : (leads[0]?.id ?? null) }], remove: [] })
+    const done = await tx.pipelineState.updateMany({ where: { accountId, version: cur.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
+    if (done.count === 0) throw new PipelineBusy()
+    // A new card is saved for automations (follow ups) in the same step, as for any new lead.
+    await recordCardMoves(accountId, leads, next.leads, cur.version + 1, tx)
+  }
+  return card
+}
+
+/** The website quote's summary (its note on the customer and on the website lead). */
+export function drawnSummary(d: DrawnQuote, input: { address: string; wantsVisit: boolean; notes?: string }, widgetDrawing: Json, firstLine = `${SOURCE_TEXT} (website quote on the aerial photo)`): string {
+  // A side drawn on the photo is just its length (never "(measured)": nobody measured it on site, round 2 Oct 26 2026); a typed one says so.
+  const sideLines = (widgetDrawing.sides as Json[][]).flat().map((s: Json) => `Run ${s.run} side ${s.side}: ${s.ft} ft${s.how === 'typed' ? ` (typed by the customer; the photo said ${s.measuredFt} ft)` : ''}`)
+  return [
+    firstLine,
+    `${d.footageFt} ft of ${d.choice}`,
+    d.q.req.walkGates || d.q.req.dblGates ? `Gates: ${d.q.req.walkGates} walk, ${d.q.req.dblGates} double` : 'No gates',
+    `Estimate shown to the customer: ${money(d.price)}`,
+    `Options shown: ${d.options.map((o: Json) => `${o.name} ${money(o.price)}`).join(', ')}`,
+    ...sideLines,
+    `Asked for an on site estimate: ${input.wantsVisit ? 'yes' : 'no'}`,
+    `Address: ${input.address}`,
+    widgetDrawing.snapshotUrl ? 'The drawing on the aerial photo is on the quote.' : '',
+    input.notes ? `Customer notes: ${input.notes}` : '',
+  ].filter(Boolean).join('\n')
+}
+
+export const drawnQuoteNotes = (chosen: Json, notes?: string) =>
+  `${SOURCE_TEXT}. The customer drew the fence on the aerial photo of the property and saw an estimate of ${money(chosen.price)} (${chosen.name}). Confirm every measurement on site.${notes ? `\nCustomer notes: ${notes}` : ''}`
+
+/**
+ * Send the quote. One lock per page visit (the draft id is the visit's id),
+ * shared with the lead saved when the customer stopped part way
+ * (lib/widgetPartialLead.ts), so the two never make two customers.
+ */
+export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnResult> {
+  if (input.test) return submitDrawnQuoteNow(input)
+  return withLock(`widget-lead:${input.draftId}`, () => submitDrawnQuoteNow(input))
+}
+
+async function submitDrawnQuoteNow(input: DrawnSubmission): Promise<DrawnResult> {
+  const accountId = await resolveIntakeAccountId()
+  if (!accountId) throw new Error('No company is set up on this server yet')
+  const d = await drawnQuoteFor(accountId, input.drawing, input.pick, input.fenceStyle)
+  const { options, chosen, q, price, layoutBase, quoteFields, sides, choice } = d
+
+  if (input.test) {
+    return {
+      test: true, duplicate: false, quoteId: null, contactId: null, cardId: null,
+      options: options.map(optionView), chosen: optionView(chosen),
+      preview: { fenceStyle: chosen.fenceStyle, finalPrice: price, priceAdjust: chosen.priceAdjust, runs: q.req.runs.map((r: Json) => r.ft), corners: q.req.corners, ends: q.req.ends, walkGates: q.req.walkGates, dblGates: q.req.dblGates, layout: layoutBase },
+    }
+  }
 
   // Sent before (a retry, or another option picked): the same quote, never a second one.
   const sentBefore = () => prisma.intakeLead.findUnique({ where: { source_sourceRef: { source: 'ez_quote', sourceRef: input.draftId } } })
   const already = await sentBefore()
   if (already) return changeChoice(accountId, already, chosen, options, quoteFields, layoutBase)
 
+  // Drafts are no longer kept (nothing is saved before the name and phone); old ones go when their 30 days are up.
+  await prisma.widgetDraft.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {})
+
+  // They stopped part way before (this visit, or an earlier one with the same name and phone or email):
+  // finishing updates that lead, never a second customer, card or push (lib/widgetPartialLead.ts).
+  const partial = await findPartialLead(accountId, { sessionId: input.draftId, name: input.name, phone: input.phone, email: input.email })
+  if (partial) return finishPartialLead(accountId, partial, input, d)
+
   const snapshotUrl = saveSnapshot(input.snapshot)
   const photos = (input.photos ?? []).filter(u => INTAKE_PHOTO.test(u))
   const widgetDrawing = widgetDrawingRecord(input.drawing, sides, input.pick, options, chosen, snapshotUrl, photos)
   const today = day()
-  // A side drawn on the photo is just its length (never "(measured)": nobody measured it on site, round 2 Oct 26 2026); a typed one says so.
-  const sideLines = (widgetDrawing.sides as Json[][]).flat().map((s: Json) => `Run ${s.run} side ${s.side}: ${s.ft} ft${s.how === 'typed' ? ` (typed by the customer; the photo said ${s.measuredFt} ft)` : ''}`)
-  const summary = [
-    `${SOURCE_TEXT} (website quote on the aerial photo)`,
-    `${q.footageFt} ft of ${choice}`,
-    q.req.walkGates || q.req.dblGates ? `Gates: ${q.req.walkGates} walk, ${q.req.dblGates} double` : 'No gates',
-    `Estimate shown to the customer: ${money(price)}`,
-    `Options shown: ${options.map((o: Json) => `${o.name} ${money(o.price)}`).join(', ')}`,
-    ...sideLines,
-    `Asked for an on site estimate: ${input.wantsVisit ? 'yes' : 'no'}`,
-    `Address: ${input.address}`,
-    snapshotUrl ? 'The drawing on the aerial photo is on the quote.' : '',
-    input.notes ? `Customer notes: ${input.notes}` : '',
-  ].filter(Boolean).join('\n')
+  const summary = drawnSummary(d, input, widgetDrawing)
 
   let out: DrawnResult | null = null
   for (let attempt = 0; attempt < 5 && !out; attempt++) {
@@ -270,20 +319,14 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
             ...quoteFields,
             layout: JSON.parse(JSON.stringify({ ...layoutBase, widgetDrawing })),
             status: 'DRAFT', date: today,
-            notes: `${SOURCE_TEXT}. The customer drew the fence on the aerial photo of the property and saw an estimate of ${money(price)} (${chosen.name}). Confirm every measurement on site.${input.notes ? `\nCustomer notes: ${input.notes}` : ''}`,
+            notes: drawnQuoteNotes(chosen, input.notes),
           },
         })
 
         // One open card per customer: a second website quote updates it.
         const header = `${SOURCE_TEXT} · ${today} · estimate shown ${money(price)}`
-        const cur = await tx.pipelineState.findUnique({ where: { accountId } })
-        const leads = ((cur?.leads as Json[]) ?? [])
-        const stages = ((cur?.stages as Json[]) ?? [])
-        // A new card lands in the "new cards land here" stage of Settings > Pipeline Stages.
-        const firstStageId = roleStageId((await loadPipelineStages(accountId, tx)).stages, 'first') ?? ''
-        const existing = leads.find(l => l?.customerId === contact.id)
         const [first, ...rest] = (contact.created ? input.name : (contact.name || input.name)).trim().split(/\s+/)
-        const card = existing
+        const card = await putCard(tx, accountId, contact.id, (existing, firstStageId) => existing
           ? { ...existing, notes: [header, existing.notes].filter(Boolean).join('\n'), fenceType: existing.fenceType || choice, quotePrice: existing.quotePrice || price }
           : {
               id: crypto.randomUUID(), customerId: contact.id, firstName: first || 'Unknown', lastName: rest.join(' '),
@@ -291,16 +334,7 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
               fenceType: choice, sections: q.job.calc.sections, quotePrice: price, crew: '', scheduledDate: '', jobValue: 0,
               paymentStatus: '', balanceDue: 0, notes: header, stage: firstStageId,
               createdAt: today, lastMoved: today, assignedRep: '',
-            }
-        if (!cur) {
-          await tx.pipelineState.create({ data: { accountId, leads: [card], stages: [] } })
-        } else {
-          const next = applyPipelineDelta({ leads, stages }, { upsert: [{ lead: card, before: existing ? undefined : (leads[0]?.id ?? null) }], remove: [] })
-          const done = await tx.pipelineState.updateMany({ where: { accountId, version: cur.version }, data: { leads: JSON.parse(JSON.stringify(next.leads)), version: { increment: 1 } } })
-          if (done.count === 0) throw new PipelineBusy()
-          // A new card is saved for automations (follow ups) in the same step, as for any new lead.
-          await recordCardMoves(accountId, leads, next.leads, cur.version + 1, tx)
-        }
+            })
 
         await tx.intakeLead.create({
           data: {
@@ -311,7 +345,6 @@ export async function submitDrawnQuote(input: DrawnSubmission): Promise<DrawnRes
           },
         })
         await tx.crmContactNote.create({ data: { crmContactId: contact.id, accountId, body: summary.slice(0, 19000), isPinned: false, createdBy: 'Website quote (drawn by customer)' } })
-        await tx.widgetDraft.updateMany({ where: { id: input.draftId }, data: { quoteId: quote.id, submittedAt: new Date() } })
         return { test: false, duplicate: false, quoteId: quote.id, contactId: contact.id, cardId: card.id, options: options.map(optionView), chosen: optionView(chosen) }
       })
     } catch (e) {

@@ -15,7 +15,8 @@ import { roleStageId } from './pipelineStageModel.js'
 import { findPossibleMatches } from './customerMerge.js'
 import { pushNewLeadSoon, newLeadLink } from './leadAssign.js'
 
-export type IntakeSource = 'ez_quote' | 'retell' | 'website_chat'
+/** ez_quote_partial: a website instant quote the customer did not finish (lib/widgetPartialLead.ts). */
+export type IntakeSource = 'ez_quote' | 'ez_quote_partial' | 'retell' | 'website_chat'
 
 export interface IntakeInput {
   source: IntakeSource
@@ -70,7 +71,7 @@ export async function resolveIntakeAccountId(): Promise<string | null> {
 /** A transaction or the client itself: the widget makes the customer inside its one save. */
 type Db = Pick<typeof prisma, 'crmContact' | 'customerPossibleMatch'>
 
-export async function findOrCreateContact(accountId: string, input: Pick<IntakeInput, 'name' | 'phone' | 'email' | 'address' | 'leadSource'>, db: Db = prisma): Promise<{ id: string; created: boolean; name: string }> {
+export async function findOrCreateContact(accountId: string, input: Pick<IntakeInput, 'name' | 'phone' | 'email' | 'address' | 'leadSource'> & { tags?: string[] }, db: Db = prisma): Promise<{ id: string; created: boolean; name: string }> {
   const email = (input.email || '').trim().toLowerCase()
   const matches = await findPossibleMatches(db, accountId, { phone: input.phone, email })
 
@@ -87,6 +88,7 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
       serviceAddress: input.address || null,
       leadSource: input.leadSource,
       jobStatus: firstStageId,
+      ...(input.tags?.length ? { tags: input.tags } : {}),
     },
     select: { id: true },
   })
