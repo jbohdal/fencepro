@@ -126,6 +126,18 @@ export function depositPctOf(q: { proposal: unknown } | null): number {
   return DEFAULT_DEPOSIT_PCT
 }
 
+/**
+ * The deposit a quote's Payment Terms say, for the app's own previews of the proposal (the quote window's
+ * Preview, the printable templates), so they read as the customer's link and the contract do:
+ *   asSigned    signed before the Oct 29 2026 rules (onCustomerDollars false): the terms stay as signed, unchanged;
+ *   depositPct  the schedule's percent (depositPctOf: the proposal's own; a quote with no proposal 50); null when
+ *               the proposal asks none (0% or blank, D2), and the terms say "No deposit is required".
+ */
+export function termsDepositOf(q: { proposal: unknown; acceptedAt?: Date | string | null; soldAt?: Date | string | null; status?: string | null }, from: Date): { asSigned: boolean; depositPct: number | null } {
+  const pct = depositPctOf(q)
+  return { asSigned: !onCustomerDollars(q, from), depositPct: pct > 0 ? pct : null }
+}
+
 /** Progress invoices a contract defines: none do today. The shape a proposal would carry: progressPayments [{ label, pct }]. */
 export function progressOf(q: { proposal: unknown } | null): Array<{ label: string; pct: number }> {
   const list = (q?.proposal as any)?.progressPayments

@@ -11,6 +11,7 @@ import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
 import { issueShareToken, turnOffShare } from './savedQuotesApi'
 import { proposalUrl } from './proposal'
+import { askedDepositPct } from './contractTerms'
 import { shownOptions, proposalFold } from './proposalOptions'
 import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
@@ -130,6 +131,8 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
   // option shows as the tier it is the fence of (proposalOptions.ts), as on the customer's page (never changed once sent).
   const fold = proposalFold(p as any, quote as any, n => cfg.fenceStyles?.find(s => s.name === n))
   const offered = shownOptions(p.options as any, fold).length
+  // The deposit the customer's link asks (contractTerms.ts askedDepositPct): 0% or blank is none (Oct 29 2026, D2).
+  const asked = askedDepositPct(p.depositPct)
   const day = (d: string) => { const t = new Date(typeof d === 'string' ? d : NaN); return Number.isNaN(t.getTime()) ? 'its end date' : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   const expired = !offAt && !!expiresAt && new Date(expiresAt).getTime() < Date.now()
   const linkLine = offAt ? `Link turned off ${day(offAt)}. Sending it again makes a new link.`
@@ -148,7 +151,7 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
           Accepted by {quote.acceptedBy} on {new Date(quote.acceptedAt!).toLocaleDateString()}: {chosenName}, ${Math.round(chosen.finalPrice).toLocaleString('en-US')}.
         </p>
       )}
-      <p className="text-sm text-gray-700" data-options-offered={offered}>{offered} option{offered === 1 ? '' : 's'} offered{p.depositPct ? `, ${p.depositPct}% deposit` : ''}{p.financing ? `, financing over ${p.financing.months} months` : ''}.</p>
+      <p className="text-sm text-gray-700" data-options-offered={offered}>{offered} option{offered === 1 ? '' : 's'} offered{asked === null ? ', no deposit' : `, ${asked}% deposit`}{p.financing ? `, financing over ${p.financing.months} months` : ''}.</p>
       {!cfg.proposal?.publicLinks && (
         <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900" data-proposal-private>
           Right now this link opens only on your own phones and computers, not on the customer's phone. Once outside access is set up, turn it on in Settings → Proposals.

@@ -16,6 +16,7 @@ import type { SavedWork } from './moveRepair'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { plainError, plainThrown } from './plainError'
 import { untableBody, asTable } from './listTable'
+import type { DepositTerms } from './contractTerms'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 
@@ -90,6 +91,8 @@ export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmC
   archivedAt: string | null
   createdAt: string
   updatedAt: string
+  /** With the customer's copy (GET /share/:token): the deposit its Payment Terms say. */
+  depositTerms?: DepositTerms | null
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string; serverTime?: string }> {
@@ -136,6 +139,13 @@ export async function listSavedQuotes(): Promise<SavedQuoteRecord[] | null> {
 export async function getSavedQuote(id: string): Promise<SavedQuoteRecord | null> {
   const r = await call<SavedQuoteRecord>('GET', `/${id}`)
   return r.ok ? (r.data || null) : null
+}
+
+/** The deposit a quote's Payment Terms say, as the customer's link says it (portal lib/contractBilling.ts termsDepositOf); null offline. */
+export async function getDepositTerms(id: string): Promise<DepositTerms | null> {
+  const r = await call<DepositTerms>('GET', `/${encodeURIComponent(id)}/deposit-terms`)
+  const d = r.ok ? r.data : null
+  return d && typeof d.asSigned === 'boolean' && (d.depositPct === null || typeof d.depositPct === 'number') ? { asSigned: d.asSigned, depositPct: d.depositPct } : null
 }
 
 export async function createSavedQuote(payload: SavedQuotePayload): Promise<SavedQuoteRecord | null> {

@@ -57,7 +57,8 @@ export default function ContractTemplatesSettings() {
 
       {showPreview ? (
         <div className="bg-white border border-gray-200 rounded-2xl p-4 lg:p-8">
-          <p className="text-lg font-bold text-gray-900 mb-6">Contract Preview</p>
+          <p className="text-lg font-bold text-gray-900 mb-1">Contract Preview</p>
+          <p className="text-sm text-gray-600 mb-6" data-contract-preview-deposit>On each proposal and contract, "A 50% deposit is required to schedule the project." says that proposal's own deposit (Settings → Proposals). With 0% or blank it reads "No deposit is required to schedule the project. The full price is due upon completion."</p>
           {sections.filter(s => s.visible).map(s => (
             <div key={s.key} className="mb-5">
               <p className="font-bold text-gray-900 mb-1">{s.title}</p>

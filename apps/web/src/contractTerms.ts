@@ -178,6 +178,46 @@ export function termsAsAsked<T extends ContractTerm>(terms: T[], depositPct: unk
   })
 }
 
+/**
+ * The deposit a quote's Payment Terms say, as the server works it out
+ * (portal lib/contractBilling.ts termsDepositOf, sent by
+ * GET /api/saved-quotes/:id/deposit-terms and with the customer's copy):
+ *   asSigned    signed before the Oct 29 2026 rules: its terms stay as signed;
+ *   depositPct  the proposal's own percent; null when it asks none (0% or
+ *               blank, D2); 50 for a quote with no proposal at all (the
+ *               contract's standard terms, as its payment schedule).
+ */
+export interface DepositTerms { asSigned: boolean; depositPct: number | null }
+
+/** The standard deposit of a quote with no proposal (portal lib/paymentMath.ts DEFAULT_DEPOSIT_PCT). */
+export const NO_PROPOSAL_DEPOSIT_PCT = 50
+
+/**
+ * The same, until the server's answer is in (no signal in a driveway): a
+ * quote not yet signed reads exactly as the server reads it.
+ */
+export function depositTermsOf(quote: unknown): DepositTerms {
+  const p = quote && typeof quote === 'object' ? (quote as { proposal?: unknown }).proposal : undefined
+  const options = p && typeof p === 'object' ? (p as { options?: unknown }).options : undefined
+  if (!Array.isArray(options) || options.length === 0) return { asSigned: false, depositPct: NO_PROPOSAL_DEPOSIT_PCT }
+  return { asSigned: false, depositPct: askedDepositPct((p as { depositPct?: unknown }).depositPct) }
+}
+
+/**
+ * Settings' contract sections (as the printable quote templates and the quote
+ * window's Preview show them) with the deposit the customer's link says
+ * (termsAsAsked): "A 30% deposit is required ..." for 30%, "No deposit is
+ * required ... The full price is due upon completion." for none. A contract
+ * signed before the Oct 29 2026 rules: as it was.
+ */
+export function sectionsAsAsked<S extends { key: string; title: string; body: string }>(sections: S[], d: DepositTerms): S[] {
+  if (d.asSigned) return sections
+  return sections.map(s => {
+    const [t] = termsAsAsked([{ key: s.key, title: s.title, text: String(s.body ?? '') }], d.depositPct)
+    return t.text === s.body ? s : { ...s, body: t.text }
+  })
+}
+
 /** "123 Main St, Ocala, FL 34470" from Settings → Company; '' when the street, city and ZIP are all empty. */
 export function companyAddressOf(company: unknown): string {
   const c = (company && typeof company === 'object' ? company : {}) as Record<string, unknown>
