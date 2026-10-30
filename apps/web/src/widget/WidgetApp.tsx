@@ -483,7 +483,7 @@ function ContactForm(p: {
           <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) p.addPhoto(f); e.target.value = '' }} />
         </label>
       ) : (
-        <p className="text-sm text-gray-500 text-center min-h-[44px] flex items-center justify-center" data-w-photo-later>Add your name and phone to add photos of the yard (optional)</p>
+        <p className="text-sm text-gray-500 text-center min-h-[44px] flex items-center justify-center" data-w-photo-later>Add your name and phone (or email) to add photos of the yard (optional)</p>
       )}
     </div>
   )

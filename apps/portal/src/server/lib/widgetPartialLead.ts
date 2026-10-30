@@ -145,6 +145,9 @@ function pickWords(pick: Pick | null | undefined): string {
   return [materialWord(pick.material), color, pick.height ? `${pick.height} ft${pick.kind ? ` ${pick.kind}` : ''}` : pick.kind].filter(Boolean).join(', ')
 }
 
+/** (352) 555-0141 for a 10 digit number, else as typed. */
+const showPhone = (p: string) => { const d = phoneDigits(p); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p }
+
 const at = (d: Date) => new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d)
 
 interface Entered {
@@ -156,14 +159,14 @@ interface Entered {
   priceShown: boolean
 }
 
-function partialSummary(e: Entered, input: PartialInput, startedAt: Date): string {
+function partialSummary(e: Entered, input: PartialInput, startedAt: Date, photoCount: number): string {
   const step = STEP_WORDS[Math.max(0, Math.min(3, input.step | 0))]
-  const photos = (input.photos ?? []).filter(u => INTAKE_PHOTO.test(u)).length
+  const photos = photoCount
   const priced = e.d
   return [
     `${UNFINISHED} (website, ${at(startedAt)})`,
     `Got as far as: ${step}. They typed their name and ${e.contact.phone && e.contact.email ? 'phone and email' : e.contact.phone ? 'phone' : 'email'}, then stopped before sending.`,
-    e.contact.phone ? `Phone: ${e.contact.phone}` : '',
+    e.contact.phone ? `Phone: ${showPhone(e.contact.phone)}` : '',
     e.contact.email ? `Email: ${e.contact.email}` : '',
     e.address ? `Address: ${e.address}` : 'Address: not entered',
     e.drawnFt > 0 ? `Drawn on the photo: ${Math.round(e.drawnFt)} ft${priced && (priced.q.req.walkGates || priced.q.req.dblGates) ? ` (gates: ${priced.q.req.walkGates} walk, ${priced.q.req.dblGates} double)` : ''}` : 'Drawing: none yet',
@@ -171,7 +174,8 @@ function partialSummary(e: Entered, input: PartialInput, startedAt: Date): strin
     priced && e.priceShown ? `Prices shown to the customer: ${priced.options.map((o: Json) => `${o.name} ${money(o.price)}`).join(', ')}` : '',
     priced && !e.priceShown ? `Estimate for what they drew (not shown to the customer: prices come after the name and phone): ${priced.chosen.name} ${money(priced.price)}; ${priced.options.map((o: Json) => `${o.name} ${money(o.price)}`).join(', ')}` : '',
     priced ? 'The drawing is on the draft quote.' : '',
-    typeof input.wantsVisit === 'boolean' && input.step >= 3 ? `Free visit box: ${input.wantsVisit ? 'checked' : 'unchecked'}` : '',
+    // The free visit box starts ticked: only a customer who unticked it said anything.
+    input.wantsVisit === false && input.step >= 3 ? 'They unticked "I would like a free visit".' : '',
     photos ? `Photos of the yard: ${photos}` : '',
     input.notes?.trim() ? `Customer notes: ${input.notes.trim()}` : '',
   ].filter(Boolean).join('\n')
@@ -210,10 +214,12 @@ async function savePartialNow(input: PartialInput): Promise<PartialResult> {
   const d = drawn && drawn.runs.length && input.pick ? await drawnQuoteFor(accountId, drawn, input.pick, input.fenceStyle).catch(() => null) : null
   const priceShown = !!input.priceShown && !!d
   const e: Entered = { contact, address, drawnFt, d, pick: input.pick ?? null, priceShown }
-  const photos = (input.photos ?? []).filter(u => INTAKE_PHOTO.test(u))
   const fenceType = (d ? d.choice : pickWords(input.pick)).slice(0, 120)
 
   const existing = await findPartialLead(accountId, { sessionId: input.sessionId, name: contact.name, phone: contact.phone, email: contact.email })
+  // This visit's photos and any an earlier visit sent (a return visit starts with none on the page).
+  const earlier: string[] = Array.isArray((existing?.payload as Json)?.photos) ? (existing!.payload as Json).photos : []
+  const photos = [...new Set([...earlier, ...(input.photos ?? [])])].filter(u => INTAKE_PHOTO.test(u)).slice(0, 20)
   const out = existing
     ? await updatePartial(accountId, existing, input, e, fenceType, photos, drawn)
     : await createPartial(accountId, input, e, fenceType, photos, drawn)
@@ -249,7 +255,7 @@ function quoteData(accountId: string, contactId: string, e: Entered, drawn: Json
 
 async function createPartial(accountId: string, input: PartialInput, e: Entered, fenceType: string, photos: string[], drawn: Json): Promise<PartialResult> {
   const startedAt = new Date()
-  const summary = partialSummary(e, input, startedAt)
+  const summary = partialSummary(e, input, startedAt, photos.length)
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await prisma.$transaction(async tx => {
@@ -272,7 +278,7 @@ async function createPartial(accountId: string, input: PartialInput, e: Entered,
             accountId, source: PARTIAL_SOURCE, sourceRef: input.sessionId, crmContactId: contact.id, status: 'imported', importedAt: new Date(),
             name: e.contact.name.slice(0, 200), phone: e.contact.phone.slice(0, 40), email: e.contact.email.slice(0, 200), address: e.address.slice(0, 500),
             fenceType, summary: summary.slice(0, 8000), estimate: e.d?.price ?? null,
-            payload: partialPayload({}, input, e, drawn, photos, { madeContact: true, cardId: card.id, noteId: note.id, quoteId: quote?.id ?? null, writtenAt: quote?.updatedAt.toISOString() ?? null }),
+            payload: partialPayload({}, input, e, drawn, photos, { madeContact: true, madeBy: input.sessionId, cardId: card.id, noteId: note.id, quoteId: quote?.id ?? null, writtenAt: quote?.updatedAt.toISOString() ?? null }),
           },
         })
         return { saved: true, created: true, intakeId: row.id, contactId: contact.id, cardId: card.id, quoteId: quote?.id ?? null }
@@ -287,7 +293,7 @@ async function createPartial(accountId: string, input: PartialInput, e: Entered,
 async function updatePartial(accountId: string, row: Json, input: PartialInput, e: Entered, fenceType: string, photos: string[], drawn: Json): Promise<PartialResult> {
   const p = (row.payload ?? {}) as Json
   const contactId: string = row.crmContactId
-  const summary = partialSummary(e, input, row.createdAt)
+  const summary = partialSummary(e, input, row.createdAt, photos.length)
   // The draft quote follows the drawing while nobody in the office has touched it.
   let quoteId: string | null = p.quoteId ?? null
   let writtenAt: string | null = p.writtenAt ?? null
@@ -313,7 +319,9 @@ async function updatePartial(accountId: string, row: Json, input: PartialInput, 
   })
   if (p.noteId) await prisma.crmContactNote.updateMany({ where: { id: p.noteId, crmContactId: contactId }, data: { body: summary.slice(0, 19000) } })
   // A typo fixed while still on the page: the customer this lead made follows (one made earlier stays as the office has it).
-  if (p.madeContact) {
+  // Only the visit that made the customer (a typo fixed on the page); a later visit leaves the customer as the office has it.
+  const ownVisit = !!p.madeContact && (p.madeBy ? p.madeBy === input.sessionId : row.sourceRef === input.sessionId)
+  if (ownVisit) {
     const { firstName, lastName } = splitName(e.contact.name)
     await prisma.crmContact.updateMany({
       where: { id: contactId, accountId },
@@ -324,7 +332,7 @@ async function updatePartial(accountId: string, row: Json, input: PartialInput, 
     ...card, unfinishedQuote: true, notes: withHeader(card.notes, cardHeader(e)), fenceType: fenceType || card.fenceType,
     ...(e.d ? { quotePrice: e.d.price, sections: e.d.q.job.calc.sections } : {}),
     ...(e.address && !card.address ? { address: e.address } : {}),
-    ...(p.madeContact ? { ...splitFirstLast(e.contact.name), ...(e.contact.phone ? { phone: e.contact.phone } : {}), ...(e.contact.email ? { email: e.contact.email } : {}), ...(e.address ? { address: e.address } : {}) } : {}),
+    ...(ownVisit ? { ...splitFirstLast(e.contact.name), ...(e.contact.phone ? { phone: e.contact.phone } : {}), ...(e.contact.email ? { email: e.contact.email } : {}), ...(e.address ? { address: e.address } : {}) } : {}),
   }))
   return { saved: true, created: false, intakeId: row.id, contactId, cardId, quoteId }
 }
@@ -409,7 +417,7 @@ export async function finishPartialLead(accountId: string, row: Json, input: Dra
         const { firstName, lastName } = splitName(input.name)
         await tx.crmContact.update({
           where: { id: contactId },
-          data: { tags, ...(p.madeContact ? { firstName, lastName, phone: input.phone, ...(input.email ? { email: input.email } : {}), serviceAddress: input.address } : {}) },
+          data: { tags, ...(p.madeContact && (p.madeBy ? p.madeBy === input.draftId : row.sourceRef === input.draftId) ? { firstName, lastName, phone: input.phone, ...(input.email ? { email: input.email } : {}), serviceAddress: input.address } : {}) },
         })
         return { test: false, duplicate: false, quoteId: quote.id, contactId, cardId: card.id, options: options.map(optionView), chosen: optionView(chosen) }
       })

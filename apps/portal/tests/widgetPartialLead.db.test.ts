@@ -178,6 +178,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('website quotes not finished (dev
     expect([m.contacts.length, m.cards.length, m.leads.length, m.notes.length, m.quotes.length]).toEqual([1, 1, 1, 1, 1])
     expect(m.leads[0].email).toBe(`e2e.partial.${tag}@example.invalid`)
     expect(m.leads[0].summary).toMatch(/Customer notes: Dog in the yard/)
+    expect(m.leads[0].summary).not.toMatch(/free visit/)
     expect(m.notes[0].body).toMatch(/Dog in the yard/)
     expect(m.quotes[0].fenceStyle).toMatch(/^TV/)
     await leadPushesSettled()
@@ -212,6 +213,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('website quotes not finished (dev
     expect([m.contacts.length, m.leads.length, m.cards.length]).toEqual([1, 1, 1])
     expect(m.leads[0].sourceRef).toBe(sid2)
     expect((m.leads[0].payload as any).sessions).toEqual([sid1, sid2])
+    // A later visit does not rewrite the customer (the office may have corrected it): the name stays as first saved.
+    expect(m.contacts[0]).toMatchObject({ firstName: 'E2E', lastName: LAST })
     sid1 = sid2
     const other = await call('/partial', { sessionId: visit(), name: `Pat ${LAST}`, phone: PHONE, address: ADDRESS, step: 0 })
     expect(other.status).toBe(201)
