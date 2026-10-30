@@ -28,6 +28,12 @@
  * Queued automation steps (texts, emails) for anything deleted are stopped
  * (status skipped). A restore never sends them again.
  *
+ * What hangs off them is closed out, not deleted (lib/closeOut.ts, Oct 30
+ * 2026): the quote's contract, open tasks, appointments and the permit are
+ * marked Cancelled, the job's unread notices read, and the job's steps taken
+ * off; the snapshot keeps each as it was (closed, steps) and a restore puts
+ * them back.
+ *
  * Restore:
  *   - a row comes back only if it is still exactly as the deletion left it
  *     (same deletedAt and updatedAt); one changed since is skipped and named;
@@ -47,6 +53,7 @@
 
 import prisma from './prisma.js'
 import { ORDER_TO_CANCEL, cancelOrderForDeletion, sameJson } from './ordersOfDeletedJobs.js'
+import { closeOutTx, reopenTx, type SnapClosed, type SnapSteps } from './closeOut.js'
 
 type Tx = any
 
@@ -114,6 +121,10 @@ export interface Snapshot {
   runsStopped: Array<{ id: string; status: string }>
   /** Entries changed in place (a Sales Order cancelled); not in logs made before Oct 28 2026. */
   changed?: SnapChanged[]
+  /** Rows closed out (a task, appointment, permit or contract cancelled, a notice read); not in logs made before Oct 30 2026. */
+  closed?: SnapClosed[]
+  /** Job steps (milestones) taken off; not in logs made before Oct 30 2026. */
+  steps?: SnapSteps[]
 }
 
 export interface Actor { accountId: string; userId: string | null }
@@ -307,6 +318,12 @@ export async function deleteRootsTx(tx: Tx, actor: Actor, roots: Roots, at: Date
     const p = await plan(tx, accountId, roots)
     const snap: Snapshot = { v: 1, rows: [], hard: [], items: [], runsStopped: [] }
 
+    // Closed out first: a row's deletion snapshot then holds it as closed (a restore matches its updatedAt).
+    const jobNames = new Map<string, string>(p.jobIds.length ? (await tx.savedJob.findMany({ where: { id: { in: p.jobIds } }, select: { id: true, customerName: true } })).map((j: any) => [j.id, j.customerName || 'a job']) : [])
+    const out = await closeOutTx(tx, accountId, { contactIds: p.contactIds, quoteIds: p.quoteIds, jobIds: p.jobIds, cardIds: p.cardIds }, at, jobNames)
+    if (out.closed.length) snap.closed = out.closed
+    if (out.steps.length) snap.steps = out.steps
+
     for (const { model, ids } of p.rows) {
       if (!ids.length) continue
       await tx[model].updateMany({ where: { id: { in: ids }, accountId, deletedAt: null }, data: { deletedAt: at } })
@@ -387,6 +404,8 @@ export function countsOf(s: Snapshot): Record<string, number> {
   for (const h of s.hard) add(h.model)
   for (const i of s.items) add(i.doc)
   for (const c of s.changed ?? []) add(`${c.doc}.cancelled`)
+  for (const c of s.closed ?? []) add(c.model === 'notification' ? 'notification.read' : `${c.model}.cancelled`)
+  if (s.steps?.length) out.jobSteps = s.steps.length
   return out
 }
 
@@ -556,6 +575,11 @@ export async function restoreDeletion(actor: Actor, logId: string): Promise<Rest
       }
       if (Object.keys(fields).length) await writeDoc(tx, doc, accountId, fields)
     }
+
+    // What the deletion closed out (lib/closeOut.ts): reopened, only if still as it left them.
+    const reopened = await reopenTx(tx, accountId, snap)
+    restored += reopened.restored
+    skipped.push(...reopened.skipped)
 
     if (importHooks) skipped.push(...await importHooks.afterImportRestore(tx, actor, log.entityId))
 

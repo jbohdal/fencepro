@@ -30,6 +30,9 @@ function summaryOf(s: Snapshot, entityId: string, entityType?: string): string[]
     ...s.rows.filter(r => r.id !== entityId).map(r => labelOf(r.model, r.row)),
     ...s.items.filter(i => i.id !== entityId).map(i => labelOf(i.doc, i.item)),
     ...s.hard.filter(h => h.id !== entityId).map(h => labelOf(h.model, h.row)),
+    // Closed out with it (lib/closeOut.ts): cancelled, or a notice marked read; the job's steps taken off.
+    ...(s.closed ?? []).map(c => `${c.label}${c.model === 'notification' ? ' (marked read)' : ' (cancelled)'}`),
+    ...(s.steps ?? []).map(st => st.label),
   ]
 }
 
