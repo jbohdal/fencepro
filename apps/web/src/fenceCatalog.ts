@@ -31,7 +31,7 @@
  */
 
 import type { FenceStyle } from './configStore'
-import { inventoryCost, normalizeItemName, sectionWidthForStyle, tallWholeSectionItem, type StyleJobLot } from './materialCalculator'
+import { inventoryCost, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { WOOD_MATERIAL } from './wood'
 
@@ -338,99 +338,29 @@ export function isTallVinyl(sc: StyleChoices | null | undefined): boolean {
   return !!sc && sc.material === 'vinyl' && sc.choices.height === '8'
 }
 
-/** The piece prices an 8 ft tall style has no Settings price for ('section', 'post'). */
+/** The piece prices an 8 ft tall style still needs ('section', 'post'). */
 export function tallPricesMissing(s: Pick<FenceStyle, 'pieceCents'>): Array<'section' | 'post'> {
   const p = s.pieceCents ?? {}
   return (['section', 'post'] as const).filter(k => cents(p[k]) === undefined)
 }
 
-/**
- * Where an 8 ft tall style's section and post prices come from, and what is
- * still missing (Oct 29, 2026: Jonathan's 8 ft prices were in Inventory, on
- * the whole 8 ft sections and the 8 ft posts, and the style stayed held).
- * A price typed in Settings → Price List → 8 ft tall vinyl
- * (FenceStyle.pieceCents) wins. Without one:
- *  - the section is the color's whole 8 ft section in Inventory, at its
- *    Inventory price (White and Tan: "V , W, Picket Section 8' x 6' Privacy";
- *    a color made with the form: its "section:8x6" item), as a section was
- *    priced before Oct 21, 2026; its parts stay on the pull sheet at $0;
- *  - each post is its kit's parts at their Inventory prices (the 8 ft post,
- *    its cap, donuts and pipe or concrete), as before Oct 21, 2026.
- * Available for quoting once both are priced; otherwise `missing` says which,
- * and `postPartsWaiting` names the post parts with no Inventory price.
- */
-export interface TallPriceStatus {
-  /** One section, integer cents. */
-  sectionCents?: number
-  sectionFrom?: 'settings' | 'inventory'
-  /** The color's whole 8 ft section in Inventory, when it has one. */
-  sectionItem?: string
-  /** One post (corner, end and line), integer cents: only when typed in Settings. */
-  postCents?: number
-  postFrom?: 'settings' | 'parts'
-  /** Post kit parts with no Inventory price (when the post is priced from its parts). */
-  postPartsWaiting: string[]
-  missing: Array<'section' | 'post'>
+/** Why an 8 ft tall style is held back, in words. */
+export function tallHeldReason(missing: Array<'section' | 'post'>): string {
+  return `8 ft tall is priced by the piece: enter its ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'} in Settings → Price List`
 }
 
-const POST_KITS: KitKind[] = ['corner', 'end', 'line', 'blank']
-
-export function tallPriceStatus(s: FenceStyle, opt?: ChoiceOption, price: PriceFn = inventoryCost, kitOf: KitFn = n => kitSetFor(n)): TallPriceStatus {
+/** An 8 ft tall style's piece prices, in dollars, as a job lot the material kits price with. */
+export function tallJobLot(s: FenceStyle, color: string): StyleJobLot {
   const p = s.pieceCents ?? {}
-  const out: TallPriceStatus = { postPartsWaiting: [], missing: [] }
-  const width = s.choices?.width && /^\d+$/.test(s.choices.width) ? s.choices.width : String(sectionWidthForStyle(s.name, s.panelWidth))
-  out.sectionItem = tallWholeSectionItem(s.name) ?? opt?.color?.form?.items[`section:8x${width}`]
-  const typedSection = cents(p.section)
-  const invSection = out.sectionItem ? price(out.sectionItem) : undefined
-  if (typedSection !== undefined) { out.sectionCents = typedSection; out.sectionFrom = 'settings' }
-  else if (typeof invSection === 'number' && Number.isFinite(invSection) && invSection > 0) { out.sectionCents = Math.round(invSection * 100); out.sectionFrom = 'inventory' }
-  else out.missing.push('section')
-  const typedPost = cents(p.post)
-  if (typedPost !== undefined) { out.postCents = typedPost; out.postFrom = 'settings' }
-  else {
-    const set = kitOf(s.name)
-    const parts = set && set !== 'archived' ? POST_KITS.flatMap(k => set.kits[k] ?? []).filter(x => x.qty > 0) : []
-    const waiting = [...new Set(parts.filter(x => !((price(x.part) ?? 0) > 0)).map(x => x.part))].sort()
-    if (parts.length && !waiting.length) out.postFrom = 'parts'
-    else { out.postPartsWaiting = waiting; out.missing.push('post') }
-  }
-  return out
-}
-
-/** Why an 8 ft tall style is held back, in words: which price is missing, and where it can be entered. */
-export function tallHeldReason(st: TallPriceStatus): string {
-  const say: string[] = []
-  if (st.missing.includes('section')) say.push(`enter its section price in Settings → Price List → 8 ft tall vinyl${st.sectionItem ? `, or a price for ${st.sectionItem} in Inventory` : ''}`)
-  if (st.missing.includes('post')) say.push(`enter its post price in Settings → Price List → 8 ft tall vinyl${st.postPartsWaiting.length ? `, or prices in Inventory for ${st.postPartsWaiting.join(', ')}` : ''}`)
-  return `8 ft tall is priced by the piece: ${say.join('; ')}`
-}
-
-/** Settings → Price List → 8 ft tall vinyl: where each price comes from, or what is missing, in words. */
-export function tallSourceWords(st: TallPriceStatus): { section: string; post: string } {
-  return {
-    section: st.sectionFrom === 'settings' ? 'Typed here'
-      : st.sectionFrom === 'inventory' ? `Blank: uses ${st.sectionItem} in Inventory, $${(st.sectionCents! / 100).toFixed(2)}`
-        : `Missing: type it here${st.sectionItem ? `, or price ${st.sectionItem} in Inventory` : ''}`,
-    post: st.postFrom === 'settings' ? 'Typed here (corner, end and line)'
-      : st.postFrom === 'parts' ? 'Blank: each post is its parts at Inventory prices (8 ft post, cap, donuts and pipe or concrete)'
-        : `Missing: type it here${st.postPartsWaiting.length ? `, or price in Inventory: ${st.postPartsWaiting.join(', ')}` : ''}`,
-  }
-}
-
-/** An 8 ft tall style's prices, in dollars, as a job lot the material kits price with. */
-export function tallJobLot(s: FenceStyle, color: string, st: TallPriceStatus): StyleJobLot {
+  const d = (v: number | null | undefined) => { const c = cents(v); return c === undefined ? undefined : c / 100 }
   const width = sectionWidthForStyle(s.name, s.panelWidth)
-  const section = st.sectionCents === undefined ? undefined : st.sectionCents / 100
-  // One price per post (corner, end and line) when typed in Settings; otherwise the post kit's parts price from Inventory.
-  // No blank post (a double gate's center) on 8 ft tall, as before.
-  const post = st.postFrom === 'settings' && st.postCents !== undefined ? st.postCents / 100 : undefined
+  const section = d(p.section), post = d(p.post)
   return {
-    color, supplier: '', quotedOn: s.pieceCents?.pricedOn ?? '', width, sections: section === undefined ? {} : { [String(width)]: section },
+    color, supplier: '', quotedOn: p.pricedOn ?? '', width, sections: section === undefined ? {} : { [String(width)]: section },
+    // One price per post: corner, end and line. No blank post (a double gate's center) on 8 ft tall, as before.
     corner: post, end: post, line: post,
-    covers: { section: [], post: [], walkGate: [], dblGate: [] },
-    coversAll: [...(section !== undefined ? ['section' as const] : []), ...(post !== undefined ? ['post' as const] : [])],
+    covers: { section: [], post: [], walkGate: [], dblGate: [] }, coversAll: ['section', 'post'],
     tall: true, label: `8 ft tall ${color}`,
-    tallSource: { section: st.sectionFrom, post: st.postFrom, ...(st.sectionFrom === 'inventory' && st.sectionItem ? { sectionItem: st.sectionItem } : {}) },
   }
 }
 
@@ -641,10 +571,9 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
     // 8 ft tall vinyl, every color: one price per section and one per post (Jonathan, Oct 21, 2026).
     if (isTallVinyl(sc)) {
       const dim = colorDimOf(m)
-      const opt = dim ? optionOf(m, dim.key, sc.choices[dim.key]) : undefined
-      const st = tallPriceStatus(s, opt, price, kitOf)
-      s.jobLot = tallJobLot(s, opt?.label ?? sc.choices.color ?? '', st)
-      if (st.missing.length) why.push(tallHeldReason(st))
+      s.jobLot = tallJobLot(s, (dim ? optionOf(m, dim.key, sc.choices[dim.key])?.label : undefined) ?? sc.choices.color ?? '')
+      const missing = tallPricesMissing(s)
+      if (missing.length) why.push(tallHeldReason(missing))
     }
     if (why.length) s.held = why.join('; ')
     return s

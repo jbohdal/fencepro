@@ -2,8 +2,8 @@
 //
 //   E2E_ACCESS_TOKEN=<dev owner token> APP_URL=http://localhost:4001 SHOTS=<folder, optional> node e2e/tall-vinyl-prices.mjs
 //
-// Dev only (4001). White 8'x8' no dig starts with no prices typed: it is priced
-// from Inventory (Oct 29, 2026) and the row says where from. Browser A
+// Dev only (4001). White 8'x8' no dig starts with no prices: the row says
+// "Not available for quoting" and the server will not estimate it. Browser A
 // types a section and a post price and saves; the server has them in integer
 // cents; browser B (fresh) sees them after a reload with "Available for
 // quoting", and the server now estimates the style, with the section and post
@@ -50,14 +50,12 @@ const open = async () => {
 const row = (page) => page.locator(`[data-tall-row="${STYLE}"]`)
 try {
   await setPieces(null)
-  // Oct 29, 2026: nothing typed here uses Inventory (the whole 8 ft section; each post's parts), as the dev copy has them priced.
-  const blank = await settle(true)
-  check('nothing typed: the server estimates it from Inventory', !!blank.success && /V , W, Picket Section 8' x 8' Privacy|8 ft tall White: section, 8 ft wide/.test(JSON.stringify(blank.data ?? {})), blank.error || '')
+  const held = await settle(false)
+  check('no prices: the server will not estimate it (not available for quoting)', !held.success, held.error || held.data?.message)
 
   const a = await open()
   check('Settings → Price List lists the 8 ft tall fences', (await a.page.locator('[data-tall-row]').count()) >= 4, String(await a.page.locator('[data-tall-row]').count()))
-  check('nothing typed: the row says Available for quoting and where each price comes from',
-    !!(await row(a.page).locator('[data-tall-ready]').count()) && /Blank: uses V , W, Picket Section 8' x 8' Privacy in Inventory/.test(await row(a.page).textContent()) && /each post is its parts at Inventory prices/.test(await row(a.page).textContent()))
+  check('no prices: the row says Not available for quoting', /Not available for quoting: enter the section and post prices/.test(await row(a.page).textContent()))
   await a.page.locator(`[data-tall-price="${STYLE}|section"]`).fill('412.50')
   await a.page.locator(`[data-tall-price="${STYLE}|post"]`).fill('65')
   await a.page.locator('[data-tall-save]').click(); await sleep(2500)

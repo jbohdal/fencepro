@@ -143,12 +143,6 @@ export interface StyleJobLot {
    * and of a post kit is covered (coversAll); gates are priced from their parts.
    */
   tall?: boolean
-  /**
-   * 8 ft tall: where its prices came from (fenceCatalog.ts tallPriceStatus).
-   * Section: typed in Settings, or the whole 8 ft section in Inventory
-   * (sectionItem). Post: typed in Settings, or its kit's parts at Inventory prices.
-   */
-  tallSource?: { section?: 'settings' | 'inventory'; post?: 'settings' | 'parts'; sectionItem?: string }
   /** These piece prices cover every part of their kits (no part list to tick). */
   coversAll?: Array<keyof StyleJobLot['covers']>
   /** What a piece price line starts with (default "Job lot, {color}"). */
@@ -443,17 +437,6 @@ function vinyl8Tall(s: string): { white: boolean; noDig: boolean; width: 6 | 8 }
   const m = s.match(/^(WV|TV)-(ND|DS) 8'x([68])'/)
   if (!m) return null
   return { white: m[1] === 'WV', noDig: m[2] === 'ND', width: m[3] === '8' ? 8 : 6 }
-}
-
-/**
- * White's and Tan's whole 8 ft tall section in Inventory ("V , W, Picket
- * Section 8' x 6' Privacy"): the section's price when no section price is
- * typed in Settings → Price List → 8 ft tall vinyl (fenceCatalog.ts
- * tallPriceStatus). Its parts stay on the pull sheet at $0.
- */
-export function tallWholeSectionItem(styleName: string): string | undefined {
-  const t = vinyl8Tall(styleName)
-  return t ? `${t.white ? 'V , W' : 'V , T'}, Picket Section 8' x ${t.width}' Privacy` : undefined
 }
 
 /** Whether the calculator has a parts list for this style name. */

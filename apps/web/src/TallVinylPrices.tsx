@@ -10,16 +10,11 @@
  * Prices are integer cents on the fence style (FenceStyle.pieceCents), saved
  * with Settings on the server. A saved quote keeps the prices it was priced
  * with.
- *
- * Left blank (Oct 29, 2026), the section is the color's whole 8 ft section at
- * its Inventory price and each post its parts at Inventory prices
- * (fenceCatalog.ts tallPriceStatus); each row says which price it uses, and
- * which one is still missing.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import type { AppConfig, FenceStyle } from './configStore'
-import { catalogOf, colorDimOf, isTallVinyl, materialOf, optionOf, styleChoicesOf, styleLabel, tallPriceStatus, tallSourceWords } from './fenceCatalog'
+import { isTallVinyl, styleChoicesOf, styleLabel, tallPricesMissing } from './fenceCatalog'
 import { TALL_VINYL_SECTION } from './materialCalculator'
 import { isQuotable } from './styleAvailability'
 import { businessDate } from './businessDate'
@@ -81,24 +76,20 @@ export default function TallVinylPrices({ config, onCommit }: {
           a section is {TALL_VINYL_SECTION[6].rails} rails, {TALL_VINYL_SECTION[6].midRails} mid rail, {TALL_VINYL_SECTION[6].pickets} pickets (4 ft) and {TALL_VINYL_SECTION[6].uChannels} U channels (4 ft) on a 6 ft panel;
           {' '}{TALL_VINYL_SECTION[8].rails} rails, {TALL_VINYL_SECTION[8].midRails} mid rail, {TALL_VINYL_SECTION[8].pickets} pickets, {TALL_VINYL_SECTION[8].uChannels} U channels and {TALL_VINYL_SECTION[8].railInserts} rail inserts on an 8 ft panel.
           A post price covers the post, its cap and its donuts and pipe or concrete. Gates are priced from their parts, as before.
-          A price left blank uses Inventory: the section is the whole 8 ft section at its Inventory price, and each post is its parts at Inventory prices.
-          A fence is not available for quoting until both are priced. Saved quotes keep the prices they were priced with.
+          A fence is not available for quoting until both prices are in. Saved quotes keep the prices they were priced with.
         </p>
       </div>
       {styles.length === 0 ? <p className="text-sm text-gray-500">There is no 8 ft tall vinyl fence turned on.</p> : (
         <ul className="divide-y divide-gray-100">
           {styles.map(s => {
-            const vinyl = materialOf(catalogOf(config), 'vinyl'), dim = colorDimOf(vinyl), sc = styleChoicesOf(s)
-            const st = tallPriceStatus(s, dim && sc ? optionOf(vinyl, dim.key, sc.choices[dim.key]) : undefined)
-            const words = tallSourceWords(st)
-            const missing = st.missing
+            const missing = tallPricesMissing(s)
             const ok = isQuotable(s)
             return (
               <li key={s.name} className="py-3 space-y-2" data-tall-row={s.name}>
                 <div>
                   <span className="block text-sm font-semibold text-gray-900">{s.label || styleLabel(s.name)}</span>
                   {ok ? <span className="block text-xs text-green-700" data-tall-ready>Available for quoting{s.pieceCents?.pricedOn ? ` · prices from ${s.pieceCents.pricedOn}` : ''}</span>
-                    : <span className="block text-xs text-amber-700" data-tall-held>Not available for quoting{missing.length ? `: the ${missing.join(' and ')} price${missing.length === 1 ? ' is' : 's are'} missing` : s.held ? `: ${s.held}` : ''}</span>}
+                    : <span className="block text-xs text-amber-700" data-tall-held>Not available for quoting{missing.length ? `: enter the ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'}` : s.held ? `: ${s.held}` : ''}</span>}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {(['section', 'post'] as const).map(k => (
@@ -107,7 +98,6 @@ export default function TallVinylPrices({ config, onCommit }: {
                         <input className={inputCls} inputMode="decimal" placeholder="0.00" disabled={!may} value={typed[`${s.name}|${k}`] ?? ''}
                           onChange={e => setTyped(x => ({ ...x, [`${s.name}|${k}`]: e.target.value }))} data-tall-price={`${s.name}|${k}`} />
                       </span>
-                      <span className={`mt-1 block text-xs ${missing.includes(k) ? 'text-amber-700' : 'text-gray-500'}`} data-tall-source={`${s.name}|${k}`}>{words[k]}</span>
                     </label>
                   ))}
                 </div>

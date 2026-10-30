@@ -17,7 +17,7 @@ import { estimateConfig } from '../../web/src/estimate'
 import { calculateQuote, type QuoteCalcInput } from '../../web/src/quoteCalc'
 import { setMaterialPriceSource, priceSourceFromMap, legacyCalculateMaterialsDetailed, TALL_VINYL_SECTION, type LineItem } from '../../web/src/materialCalculator'
 import { setSavedKitSets, kitSetFor, clearBuiltInKits } from '../../web/src/materialKits'
-import { DEFAULT_CATALOG, tallPricesMissing, tallPriceStatus, tallSourceWords, type InvItem } from '../../web/src/fenceCatalog'
+import { DEFAULT_CATALOG, tallPricesMissing, type InvItem } from '../../web/src/fenceCatalog'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
 import { isQuotable } from '../../web/src/styleAvailability'
 import { planTallVinylParts } from '../../web/src/tallVinylParts'
@@ -37,8 +37,8 @@ const INV: Record<string, number> = {
 const styles = (prices: Record<string, FenceStyle['pieceCents']> = {}): FenceStyle[] =>
   DEFAULT_FENCE_STYLES.map(s => (prices[s.name] ? { ...s, pieceCents: prices[s.name] } : { ...s }))
 
-function setup(prices: Record<string, FenceStyle['pieceCents']> = {}, inv: Record<string, number> = INV) {
-  setMaterialPriceSource(priceSourceFromMap(inv))
+function setup(prices: Record<string, FenceStyle['pieceCents']> = {}) {
+  setMaterialPriceSource(priceSourceFromMap(INV))
   setSavedKitSets(() => [])
   return estimateConfig({ fenceStyles: styles(prices), fenceCatalog: DEFAULT_CATALOG } as any)
 }
@@ -79,21 +79,14 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
   })
 
   test('not available for quoting until both prices are in; then it is', () => {
-    // No section price anywhere (INV has no whole 8 ft section); the posts' parts are priced in Inventory.
     let cfg = setup()
-    for (const [name, w] of W8) {
+    for (const [name] of W8) {
       const s = cfg.fenceStyles.find(x => x.name === name)!
       expect(isQuotable(s), name).toBe(false)
-      expect(s.held).toBe(`8 ft tall is priced by the piece: enter its section price in Settings → Price List → 8 ft tall vinyl, or a price for V , W, Picket Section 8' x ${w}' Privacy in Inventory`)
+      expect(s.held).toBe('8 ft tall is priced by the piece: enter its section and post prices in Settings → Price List')
     }
-    // Neither price: the post's parts with no Inventory price are named.
-    const noPost = Object.fromEntries(Object.entries(INV).filter(([n]) => !/Post, 8' Privacy, (EP|LP)/.test(n)))
-    cfg = setup({}, noPost)
-    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe(
-      "8 ft tall is priced by the piece: enter its section price in Settings → Price List → 8 ft tall vinyl, or a price for V , W, Picket Section 8' x 8' Privacy in Inventory; "
-      + 'enter its post price in Settings → Price List → 8 ft tall vinyl, or prices in Inventory for V , W, Post, 8\' Privacy, EP, 5" x 5", V , W, Post, 8\' Privacy, LP, 5" x 5"')
-    cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250 } }, noPost)
-    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall is priced by the piece: enter its post price in Settings → Price List → 8 ft tall vinyl, or prices in Inventory for V , W, Post, 8\' Privacy, EP, 5" x 5", V , W, Post, 8\' Privacy, LP, 5" x 5"')
+    cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250 } })
+    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall is priced by the piece: enter its post price in Settings → Price List')
     expect(tallPricesMissing({ pieceCents: { section: 41250, post: 0 } })).toEqual(['post'])
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500, pricedOn: '2026-10-21' } })
     expect(isQuotable(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!)).toBe(true)
@@ -145,112 +138,5 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     for (const n of plan.added) expect(plan.items.find(i => i.name === n)).toMatchObject({ unitCost: 0, status: 'active', includedIn: '8 ft tall section price', category: 'Vinyl White' })
     expect(plan.items.slice(0, items.length)).toEqual(items)
     expect(planTallVinylParts({ fenceStyles: styles(), items: plan.items, kits: [] }).added).toEqual([])
-  })
-})
-
-/**
- * Oct 29, 2026: "8 ft tall vinyl is still off for quoting even though I
- * entered prices." On live, Jonathan's 8 ft prices are in Inventory (the
- * whole 8 ft sections and the 8 ft posts, dated 2026-10-25); no style had a
- * price typed in Settings → Price List → 8 ft tall vinyl (pieceCents), so
- * every 8 ft tall style stayed held. A blank Settings price now uses
- * Inventory: the section is the whole 8 ft section at its Inventory price,
- * each post its kit's parts at Inventory prices. A typed price still wins.
- */
-describe("C. live's shape: prices entered in Inventory, none typed in Settings", () => {
-  // Live's four 8 ft tall styles, as saved in Settings (config.fenceStyles), no customer data.
-  const LIVE_STYLES: FenceStyle[] = [
-    { id: '3', name: "WV-ND 8'x6' Privacy", margin: 0.56, choices: { color: 'white', style: 'privacy', width: '6', height: '8', install: 'nd' }, category: 'Vinyl', isActive: true, material: 'vinyl', panelWidth: 6, mhPerDblGate: 4.8, mhPerWalkGate: 2.4, sectionsPerMH: 0.8, targetProfitPct: 14 },
-    { id: '4', name: "WV-ND 8'x8' Privacy", margin: 0.56, choices: { color: 'white', style: 'privacy', width: '8', height: '8', install: 'nd' }, category: 'Vinyl', isActive: true, material: 'vinyl', panelWidth: 8, mhPerDblGate: 4.8, mhPerWalkGate: 2.4, sectionsPerMH: 0.8, targetProfitPct: 14 },
-    { id: '8', name: "WV-DS 8'x6' Privacy", margin: 0.6, choices: { color: 'white', style: 'privacy', width: '6', height: '8', install: 'ds' }, category: 'Vinyl', isActive: true, material: 'vinyl', panelWidth: 6, mhPerDblGate: 4.8, mhPerWalkGate: 2.4, sectionsPerMH: 0.7, targetProfitPct: 10 },
-    { id: '9', name: "WV-DS 8'x8' Privacy", margin: 0.6, choices: { color: 'white', style: 'privacy', width: '8', height: '8', install: 'ds' }, category: 'Vinyl', isActive: true, material: 'vinyl', panelWidth: 8, mhPerDblGate: 4.8, mhPerWalkGate: 2.4, sectionsPerMH: 0.7, targetProfitPct: 10 },
-  ] as FenceStyle[]
-  // Live's Inventory prices (dollars) for every part these styles use.
-  const LIVE_INV: Record<string, number> = {
-    "V , W, Picket Section 8' x 6' Privacy": 92.5, "V , W, Picket Section 8' x 8' Privacy": 147.8,
-    "V , W, Post, 8' Privacy, CP, 5\" x 5\"": 26.7, "V , W, Post, 8' Privacy, EP, 5\" x 5\"": 26.7, "V , W, Post, 8' Privacy, LP, 5\" x 5\"": 26.7,
-    '*Vinyl, White, Cap, 5"x5"': 1.5, 'ND, Donut': 4.12, "Pipe, PT40, Galv, 2-1/2\" x 8'": 16.06, 'Misc, Concrete': 7.06,
-    "*Vinyl, White, Rail, 6'": 6.65, "*Vinyl, White, Rail, 8'": 9.85, "Vinyl, Rail Insert, 8'": 8.15,
-    "*Vinyl, White, Mid Rail, 6'": 0, "*Vinyl, White, Mid Rail, 8'": 0, "*Vinyl, White, Picket, 4'": 0, "*Vinyl, White, U Channel, 4'": 0,
-    'V , W, Privacy Gate 8 x 4': 399, '*Vinyl, Gate, Hinge': 29.03, '*Vinyl, Gate, Latch': 20.46, '*Vinyl, Gate, Handle': 5.98, '*Vinyl, White, Cap, Gate': 1.75,
-  }
-  const live = (styles: FenceStyle[] = LIVE_STYLES, inv = LIVE_INV) => {
-    setMaterialPriceSource(priceSourceFromMap(inv))
-    setSavedKitSets(() => [])
-    return estimateConfig({ fenceStyles: styles, fenceCatalog: DEFAULT_CATALOG } as any)
-  }
-  // 100 ft with 2 corners: three runs, 2 corners, 2 ends.
-  const sample = (cfg: ReturnType<typeof live>, name: string) => calculateQuote(job(cfg, name, { runs: [{ ft: 30, rail: 'auto' }, { ft: 40, rail: 'auto' }, { ft: 30, rail: 'auto' }], corners: 2, ends: 2 }))
-
-  // [style, panel width, sections (per run: 30, 40, 30 ft), section $, one post's parts $]
-  const CASES: Array<[string, 6 | 8, number, number, number]> = [
-    ["WV-ND 8'x6' Privacy", 6, 5 + 7 + 5, 92.5, 26.7 + 1.5 + 2 * 4.12 + 16.06],
-    ["WV-ND 8'x8' Privacy", 8, 4 + 5 + 4, 147.8, 26.7 + 1.5 + 2 * 4.12 + 16.06],
-    ["WV-DS 8'x6' Privacy", 6, 5 + 7 + 5, 92.5, 26.7 + 1.5 + 2 * 7.06],
-    ["WV-DS 8'x8' Privacy", 8, 4 + 5 + 4, 147.8, 26.7 + 1.5 + 2 * 7.06],
-  ]
-
-  test.each(CASES)('%s: available for quoting, priced from what is in Inventory', (name, w, n, secPrice, postParts) => {
-    const cfg = live()
-    const s = cfg.fenceStyles.find(x => x.name === name)!
-    expect(s.held).toBeUndefined()
-    expect(isQuotable(s)).toBe(true)
-    expect(s.jobLot).toMatchObject({ tall: true, sections: { [String(w)]: secPrice }, coversAll: ['section'], tallSource: { section: 'inventory', post: 'parts', sectionItem: `V , W, Picket Section 8' x ${w}' Privacy` } })
-    const c = sample(cfg, name)
-    const items = c.materials.items
-    const posts = 2 + 2 + (n - 3)   // 2 corners, 2 ends, line posts (sections less runs)
-    expect(c.sections).toBe(n)
-    // One section line at the whole section's Inventory price.
-    expect(line(items, `8 ft tall White: section, ${w} ft wide`)).toEqual([expect.objectContaining({ qty: n, unitCost: secPrice, jobLotPiece: true })])
-    // Posts: each part at its Inventory price, corner, end and line alike.
-    expect(line(items, "V , W, Post, 8' Privacy, CP, 5\" x 5\"")).toEqual([expect.objectContaining({ qty: 2, unitCost: 26.7 })])
-    expect(line(items, "V , W, Post, 8' Privacy, EP, 5\" x 5\"")).toEqual([expect.objectContaining({ qty: 2, unitCost: 26.7 })])
-    expect(line(items, "V , W, Post, 8' Privacy, LP, 5\" x 5\"")).toEqual([expect.objectContaining({ qty: n - 3, unitCost: 26.7 })])
-    expect(line(items, '*Vinyl, White, Cap, 5"x5"')).toEqual([expect.objectContaining({ qty: posts, unitCost: 1.5 })])
-    if (/-ND /.test(name)) {
-      expect(line(items, 'ND, Donut')).toEqual([expect.objectContaining({ qty: 2 * posts, unitCost: 4.12 })])
-      expect(line(items, "Pipe, PT40, Galv, 2-1/2\" x 8'")).toEqual([expect.objectContaining({ qty: posts, unitCost: 16.06 })])
-    } else expect(line(items, 'Misc, Concrete')).toEqual([expect.objectContaining({ qty: 2 * posts, unitCost: 7.06 })])
-    // The section's parts are on the pull sheet at $0 (the whole section's price covers them); no post piece line.
-    for (const p of [`*Vinyl, White, Rail, ${w}'`, `*Vinyl, White, Mid Rail, ${w}'`, "*Vinyl, White, Picket, 4'", "*Vinyl, White, U Channel, 4'"]) expect(line(items, p), p).toEqual([expect.objectContaining({ unitCost: 0, total: 0, costSource: 'jobLot' })])
-    expect(items.some(i => /post$/.test(i.item) && i.jobLotPiece)).toBe(false)
-    // Material is the sections plus every post's parts, to the cent.
-    expect(Math.round(c.materialCost * 100)).toBe(Math.round((n * secPrice + posts * postParts) * 100))
-  })
-
-  test('a price typed in Settings wins over Inventory', () => {
-    const typed = LIVE_STYLES.map(s => s.name === "WV-ND 8'x6' Privacy" ? { ...s, pieceCents: { section: 10000, post: 6000, pricedOn: '2026-10-29' } } : s)
-    const cfg = live(typed)
-    const s = cfg.fenceStyles.find(x => x.name === "WV-ND 8'x6' Privacy")!
-    expect(s.jobLot).toMatchObject({ sections: { '6': 100 }, corner: 60, end: 60, line: 60, coversAll: ['section', 'post'], tallSource: { section: 'settings', post: 'settings' } })
-    const items = sample(cfg, s.name).materials.items
-    expect(line(items, '8 ft tall White: section, 6 ft wide')).toEqual([expect.objectContaining({ qty: 17, unitCost: 100 })])
-    expect(line(items, '8 ft tall White: corner post')).toEqual([expect.objectContaining({ qty: 2, unitCost: 60 })])
-    expect(line(items, "V , W, Post, 8' Privacy, CP, 5\" x 5\"")).toEqual([expect.objectContaining({ unitCost: 0, costSource: 'jobLot' })])
-  })
-
-  test('a style missing a price says which one', () => {
-    // The 8 x 8 whole section and the pipe with no Inventory price.
-    const inv = { ...LIVE_INV }
-    delete inv["V , W, Picket Section 8' x 8' Privacy"]
-    delete inv["Pipe, PT40, Galv, 2-1/2\" x 8'"]
-    const cfg = live(LIVE_STYLES, inv)
-    const by = (n: string) => cfg.fenceStyles.find(x => x.name === n)!
-    expect(isQuotable(by("WV-ND 8'x8' Privacy"))).toBe(false)
-    expect(by("WV-ND 8'x8' Privacy").held).toBe(
-      "8 ft tall is priced by the piece: enter its section price in Settings → Price List → 8 ft tall vinyl, or a price for V , W, Picket Section 8' x 8' Privacy in Inventory; "
-      + "enter its post price in Settings → Price List → 8 ft tall vinyl, or prices in Inventory for Pipe, PT40, Galv, 2-1/2\" x 8'")
-    expect(by("WV-DS 8'x8' Privacy").held).toBe("8 ft tall is priced by the piece: enter its section price in Settings → Price List → 8 ft tall vinyl, or a price for V , W, Picket Section 8' x 8' Privacy in Inventory")
-    expect(by("WV-ND 8'x6' Privacy").held).toBe("8 ft tall is priced by the piece: enter its post price in Settings → Price List → 8 ft tall vinyl, or prices in Inventory for Pipe, PT40, Galv, 2-1/2\" x 8'")
-    expect(isQuotable(by("WV-DS 8'x6' Privacy"))).toBe(true)
-    const st = tallPriceStatus(by("WV-ND 8'x8' Privacy"), undefined, priceSourceFromMap(inv))
-    expect(tallSourceWords(st)).toEqual({
-      section: "Missing: type it here, or price V , W, Picket Section 8' x 8' Privacy in Inventory",
-      post: "Missing: type it here, or price in Inventory: Pipe, PT40, Galv, 2-1/2\" x 8'",
-    })
-    expect(tallSourceWords(tallPriceStatus(by("WV-DS 8'x6' Privacy"), undefined, priceSourceFromMap(inv)))).toEqual({
-      section: "Blank: uses V , W, Picket Section 8' x 6' Privacy in Inventory, $92.50",
-      post: 'Blank: each post is its parts at Inventory prices (8 ft post, cap, donuts and pipe or concrete)',
-    })
   })
 })
