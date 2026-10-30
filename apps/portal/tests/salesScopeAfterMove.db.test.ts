@@ -364,9 +364,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     expect(await businessRows('pullSheets')).toEqual(before.ps)
     expect(await businessRows('pendingOrders')).toEqual(before.so)
     expect(await kvRows('fencepro_customer_activity')).toEqual(before.ac)
-    // An entry for a customer that left her is refused (404), never saved.
-    const sneak = await call('PUT', '/api/kv/fencepro_customer_activity', tok.sally, { value: [{ id: `${tag}-ac-sneak`, customerId: id.fay, body: 'x', at: '2026-10-29T13:00:00Z', kind: 'note' }, ...k.json.data.fencepro_customer_activity], baseVersion: kv2.json.version ?? k.json.versions.fencepro_customer_activity + 1 })
-    expect([404, 409]).toContain(sneak.status)
+    // An entry for a customer that left her (Fay: the owner's, not one she entered) is left out, never saved.
+    const sneak = await call('PUT', '/api/kv/fencepro_customer_activity', tok.sally, { value: [{ id: `${tag}-ac-sneak`, customerId: id.fay, body: 'x', at: '2026-10-29T13:00:00Z', kind: 'note' }, ...k.json.data.fencepro_customer_activity], baseVersion: kv2.json.version })
+    expect(sneak.status).toBe(200)
+    expect(sneak.json.leftOut).toBe(1)
     expect((await kvRows('fencepro_customer_activity')).has(`${tag}-ac-sneak`)).toBe(false)
     // The moved quotes and job stay Sam's; nothing Sally did brought one back.
     const reps = await prisma.savedQuote.findMany({ where: { id: { in: [id.qCleoDraft, id.qCleoSent, id.qDina, id.qFay] } }, select: { salesRep: true } })
@@ -381,5 +382,66 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     expect((await call('GET', `/api/follow-ups/history?customerId=${id.cleo}`, tok.sally)).status).toBe(404)
     const k = await call('GET', '/api/kv', tok.sally)
     expect(idsOf(k.json.data.fencepro_customer_activity).sort()).toEqual([`${tag}-ac-dina`, `${tag}-ac-mina`].sort())
+  })
+
+  // ── Lost data, reviewer Oct 30 2026: a save carrying an entry not hers was refused whole (404), stuck in the
+  // phone's outbox, and her later saves behind it never reached the server. ────────────────────────────────────
+
+  /** The app's way: PATCH; on a 409 put the change on the newer copy (here: its own lists added) and save again. */
+  const appSave = async (lists: (d: any) => Record<string, unknown>, baseCopy: any) => {
+    let r = await call('PATCH', '/api/business-state', tok.sally, { ...lists(baseCopy), baseVersion: baseCopy.version })
+    for (let i = 0; r.status === 409 && i < 4; i++) r = await call('PATCH', '/api/business-state', tok.sally, { ...lists(r.json.data), baseVersion: r.json.version })
+    return r
+  }
+
+  test('the Salesman choice: her quote for Sam\'s new customer saves its pull sheet (200), which she does not read back; her own Tia\'s pull sheet lands after it', async () => {
+    // As the quote's Save does: the new customer with Sam as Salesman, then the quote (its Sales rep: the customer's).
+    const c = await call('POST', '/api/crm-contacts', tok.sally, { firstName: 'Nora', lastName: tag, phone: '3525550444', salesRep: SAM() })
+    expect(c.status).toBeLessThan(300)
+    id.nora = c.json.data.id
+    expect((await prisma.crmContact.findUnique({ where: { id: id.nora } }))!.salesRep).toBe(SAM())
+    const q = await call('POST', '/api/saved-quotes', tok.sally, { runs: [100], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.nora, customerName: `Nora ${tag}`, salesRep: SAM(), finalPrice: 7000, status: 'DRAFT' })
+    expect(q.status).toBeLessThan(300)
+    id.qNora = q.json.data.id
+    expect((await prisma.savedQuote.findUnique({ where: { id: id.qNora } }))!.ownerId).toBe(id.sally)
+    // Her phone links the pull sheet (web billingStore linkPullSheetToCustomer): one business record save.
+    const read = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const psNora = { id: `${tag}-ps-nora`, customerId: id.nora, quoteId: id.qNora, customerName: `Nora ${tag}`, versionNumber: 1 }
+    const r = await appSave(d => ({ pullSheets: [psNora, ...d.pullSheets] }), read)
+    expect(r.status).toBe(200)
+    expect(r.json.leftOut).toBeUndefined()
+    expect((await businessRows('pullSheets')).has(`${tag}-ps-nora`)).toBe(true)
+    // Written, not read back: Nora is Sam's.
+    expect(JSON.stringify((await call('GET', '/api/business-state', tok.sally)).json.data)).not.toContain(id.nora)
+    // Then her own new customer Tia: the pull sheet link reaches the server.
+    id.tia = (await call('POST', '/api/crm-contacts', tok.sally, { firstName: 'Tia', lastName: tag, phone: '3525550445', salesRep: SALLY() })).json.data.id
+    id.qTia = (await call('POST', '/api/saved-quotes', tok.sally, { runs: [80], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.tia, customerName: `Tia ${tag}`, salesRep: SALLY(), finalPrice: 5000, status: 'DRAFT' })).json.data.id
+    const read2 = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const psTia = { id: `${tag}-ps-tia`, customerId: id.tia, quoteId: id.qTia, customerName: `Tia ${tag}`, versionNumber: 1 }
+    expect((await appSave(d => ({ pullSheets: [psTia, ...d.pullSheets] }), read2)).status).toBe(200)
+    expect((await businessRows('pullSheets')).has(`${tag}-ps-tia`)).toBe(true)
+  })
+
+  test('after a move: the phone\'s stuck save (an entry for the owner\'s customer, built on a copy the server no longer knows) goes through on the next try with that entry left out; her later save lands', async () => {
+    const before = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders') }
+    // The stuck copy: a Sales Order for Fay (the owner's now) and a note on Mina's, on a base the server forgot (a restart).
+    const old = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const { forgetHandedOut } = await import('../src/server/lib/salesServed.js')
+    forgetHandedOut()
+    const stuck = (d: any) => ({ pendingOrders: [{ id: `${tag}-so-stuck`, customerId: id.fay, quoteId: id.qFay, status: 'pending', items: [] }, ...d.pendingOrders.map((x: any) => x.id === `${tag}-so-mina` ? { ...x, notes: 'mina, from the stuck save' } : x)] })
+    const r = await appSave(stuck, old)
+    expect(r.status).toBe(200)
+    expect(r.json.leftOut).toBe(1)
+    const so = await businessRows('pendingOrders')
+    expect(so.has(`${tag}-so-stuck`)).toBe(false)
+    expect(JSON.parse(so.get(`${tag}-so-mina`)!).notes).toBe('mina, from the stuck save')
+    for (const [k, t] of before.so) if (!k.endsWith('-so-mina')) expect([k, so.get(k)]).toEqual([k, t])
+    // The answer is her copy as saved (no Fay): the app takes it, so the entry is not sent again. Her next save lands.
+    expect(JSON.stringify(r.json.data)).not.toContain(id.fay)
+    const later = await appSave(d => ({ pullSheets: [{ id: `${tag}-ps-mina3`, customerId: id.mina, quoteId: id.qMina, versionNumber: 3 }, ...d.pullSheets] }), r.json.data)
+    expect(later.status).toBe(200)
+    expect(later.json.leftOut).toBeUndefined()
+    expect((await businessRows('pullSheets')).has(`${tag}-ps-mina3`)).toBe(true)
+    for (const [k, t] of before.ps) expect([k, (await businessRows('pullSheets')).get(k)]).toEqual([k, t])
   })
 })

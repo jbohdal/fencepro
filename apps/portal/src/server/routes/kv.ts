@@ -118,6 +118,7 @@ router.put('/:key', async (req: any, res) => {
     // What the Salesman's phone held at the version this save is built on, and what it holds after (lib/salesServed.ts).
     let had: Had | null = null
     let sentByPhone: Set<string> | null = null
+    let leftOut = 0
     if (scope) {
       const json = res.json.bind(res)
       res.json = (body: any) => {
@@ -137,16 +138,19 @@ router.put('/:key', async (req: any, res) => {
         if (!had) { refuseStale(res, saved ? saved.value : null, saved?.version ?? 0); return }
       }
       const sent = value ?? null
-      try { ({ value, accepted: sentByPhone } = salesKvValue(scope, key, saved ? saved.value : null, sent, had ?? NOTHING)) } catch (e) {
-        if (!(e instanceof OutsideScopeError)) throw e
-        // Maybe a customer, quote or job made a moment ago: read the scope again once before refusing.
-        forgetScope(scope.userId)
-        scope = await salesScope(scope.userId, scope.accountId)
-        try { if (!scope) throw e; ({ value, accepted: sentByPhone } = salesKvValue(scope, key, saved ? saved.value : null, sent, had ?? NOTHING)) } catch (e2) {
-          if (!(e2 instanceof OutsideScopeError)) throw e2
-          res.status(404).json({ success: false, error: 'Not found' }); return
-        }
+      // An entry for someone else's customer, job or quote is left out (`leftOut`), the rest is saved (Oct 30 2026).
+      const merge = (s: NonNullable<typeof scope>) => {
+        try { return salesKvValue(s, key, saved ? saved.value : null, sent, had ?? NOTHING) } catch (e) { if (e instanceof OutsideScopeError) return null; throw e }
       }
+      let m = merge(scope)
+      if (!m || m.leftOut > 0) {
+        // Maybe a customer, quote or job made a moment ago: read the scope again once.
+        forgetScope(scope.userId)
+        const again = await salesScope(scope.userId, scope.accountId)
+        if (again) { scope = again; m = merge(again) }
+      }
+      if (!m) { res.status(404).json({ success: false, error: 'Not found' }); return }
+      ;({ value, accepted: sentByPhone, leftOut } = m)
     }
     // The phone keeps what it sent as its copy of the new version: remembered for its next save.
     const remember = (version: number) => {
@@ -192,6 +196,8 @@ router.put('/:key', async (req: any, res) => {
     const row = await prisma.accountKeyValue.findUnique({ where })
     // Who changed which saved setting, from which device (Settings > Change log).
     await auditSettingChange(req, `kv/${key}`, saved ? saved.value : null, clean, { version: row?.version ?? 1 })
+    // Some of it was not the Salesman's to send: the answer carries her copy as saved, which the app takes as its own.
+    if (leftOut && scope) { res.json({ success: true, data: row?.value ?? null, version: row?.version ?? 1, leftOut }); return }
     res.json({ success: true, data: true, version: row?.version ?? 1 })
   } catch (err) {
     console.error('[kv] put error:', err)

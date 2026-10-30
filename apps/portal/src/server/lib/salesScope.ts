@@ -66,6 +66,13 @@ export interface SalesScope {
   /** Quotes and jobs read whose Sales rep names someone else: a card of her customer for one of them (a deal moved away) does not show. */
   elsewhereQuoteIds?: Set<string>
   elsewhereJobIds?: Set<string>
+  /**
+   * Quotes the Salesman wrote (ownerId) and customers the Salesman entered, whoever their rep is now. Never
+   * read through these: a NEW entry of the business record or kv for one of them is still taken from her phone
+   * (the pull sheet of a quote she just wrote for another Salesman's new customer), lib/salesScopeRecords.ts.
+   */
+  madeQuoteIds?: Set<string>
+  madeContactIds?: Set<string>
   contactIds: Set<string>
   quoteIds: Set<string>
   jobIds: Set<string>
@@ -145,7 +152,10 @@ export function buildSalesScope(input: {
       if (j.crmContactId) contactIds.add(j.crmContactId)
     } else if (!blankRep(j.salesRep)) elsewhereJobs.add(j.id)
   }
-  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, elsewhereQuoteIds: elsewhereQuotes, elsewhereJobIds: elsewhereJobs, contactIds, quoteIds, jobIds }
+  const madeQuoteIds = new Set(input.quotes.filter(q => q.ownerId === input.userId).map(q => q.id))
+  const madeContactIds = new Set(input.contacts.filter(c => c.ownerId === input.userId).map(c => c.id))
+  for (const q of input.quotes) if (q.ownerId === input.userId && q.crmContactId) madeContactIds.add(q.crmContactId)
+  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, elsewhereQuoteIds: elsewhereQuotes, elsewhereJobIds: elsewhereJobs, madeQuoteIds, madeContactIds, contactIds, quoteIds, jobIds }
 }
 
 /** Rows whose rep could be one of these names (a cheap first cut; sameName decides). */

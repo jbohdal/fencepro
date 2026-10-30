@@ -11,7 +11,8 @@
 import { deepEqual, merge3 } from './merge3'
 
 export type SaveResult<T> =
-  | { status: 'saved'; version: number }
+  /** `server` (with `leftOut`): part of the save was not this login's to send and was left out; the server's copy as saved. */
+  | { status: 'saved'; version: number; server?: T; leftOut?: number }
   | { status: 'stale'; server: T; version: number }
   | { status: 'failed' }
   /** The server refused it for this login's role; `server` is its copy, to put the screen back. */
@@ -30,6 +31,8 @@ export interface VersionedDocOptions<T> {
   save: (state: T, baseVersion: number, base: T) => Promise<SaveResult<T>>
   /** Told each time a refused save was merged; `problems` lists anything that could not be reapplied. */
   onMerged?: (info: { problems: string[]; overlap: boolean }) => void
+  /** Told when a save went through with part of it left out (`leftOut` entries not this login's to send). */
+  onLeftOut?: (leftOut: number) => void
 }
 
 export interface VersionedDoc<T> {
@@ -73,8 +76,19 @@ export function createVersionedDoc<T>(opts: VersionedDocOptions<T>): VersionedDo
           return { refused: r.message }
         }
         if (r.status === 'saved') {
-          base = sent
           version = r.version
+          if (r.server !== undefined) {
+            // Part of it was left out (an entry for a customer no longer this login's): the server's copy as saved is
+            // the base now, and what is left out leaves this copy too, so it is never sent again (Oct 30 2026: sent
+            // again and again, it held back every later save behind it). Changes made since are kept on top.
+            const { merged } = merge3(sent, clone(opts.get()), r.server)
+            base = clone(r.server)
+            opts.apply(merged)
+            opts.onLeftOut?.(r.leftOut ?? 0)
+            if (deepEqual(merged, base)) return true
+            continue
+          }
+          base = sent
           if (deepEqual(clone(opts.get()), sent)) return true
           continue                                     // edited again while that save was in flight
         }
