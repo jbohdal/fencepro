@@ -34,7 +34,8 @@ import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser, currentUser } from './crmAuth'
 import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
-import { getQuotes } from './quoteStore'
+import { getQuotes, QUOTE_REPRICE_EVENT } from './quoteStore'
+import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
@@ -479,6 +480,7 @@ export default function QuoteBuilder({
   initialQuote,
   startOnYard = false,
   changeOrder = false,
+  repriceOnOpen = false,
 }: {
   onClose: () => void
   onSave: (q: SavedQuote) => void
@@ -487,6 +489,8 @@ export default function QuoteBuilder({
   startOnYard?: boolean
   /** Opened from "Change order" > "Change the yard drawing": the bar's button makes the change order straight away. */
   changeOrder?: boolean
+  /** Opened because the server sent its save back for new prices (#58): it reprices and asks before saving. */
+  repriceOnOpen?: boolean
 }) {
   const init = initialQuote
 
@@ -653,6 +657,15 @@ export default function QuoteBuilder({
   const quoteIdRef = useRef<string>(init?.id || newId())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
+  // The fence picked here was taken off quoting while the quote was open (switched off, or its prices removed):
+  // said on the Price step with the reason, not dropped silently (#58 review).
+  const droppedStyle = (() => {
+    if (!styleId || style) return null
+    const s = cfg.fenceStyles.find(x => x.id === styleId)
+    if (!s) return null
+    const why = s.isActive === false || s.quotable === false ? 'switched off in Settings' : s.held ? s.held : 'not available for quoting'
+    return `${optionLabel(s.name)} is off for quoting now (${why}). Pick another fence.`
+  })()
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
   const optSettings = getRailOptimizerConfig()
@@ -900,8 +913,10 @@ export default function QuoteBuilder({
   const repriced = repricedFrom && repricedFrom.fence === fenceKey && priceNowRef.current > 0 && !samePrice(repricedFrom.was, adjPrice) ? repricedFrom : null
   // A draft opened after a price change says so, rather than silently showing the new price (a quote brought in
   // from JobNimbus is priced from its parts on purpose, so it is not compared).
+  // A quote that never reached the server (its first save was sent back for new prices) was not "saved": since it was opened.
+  const neverSaved = !!init?.id && pendingFor(`quote:${init.id}`).some(o => o.kind === 'quote.create')
   const draftLine = !pricesStand && !!init?.id && init.status === 'DRAFT' && oldPrice == null && !fenceChanged && !!style && (internal || !!sv)
-    ? draftPriceLine(init.finalPrice ?? 0, adjPrice) : null
+    ? draftPriceLine(init.finalPrice ?? 0, adjPrice, neverSaved ? 'opened' : 'saved') : null
   const repricedLine = !draftLine && !pricesStand && repriced ? `Prices changed while this quote was open. It is now ${priceText(adjPrice)} (was ${priceText(repriced.was)}).` : null
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
   // Help that prevents bad quotes: plain warnings, never a block.
@@ -1042,6 +1057,7 @@ export default function QuoteBuilder({
       const check = await checkPricing()
       if (check.changed.length || repriced) {
         setShowSaveModal(false)
+        keepSaveWindow(data)
         setRecheck({ data, was, styleName, asked: false })
         return
       }
@@ -1186,14 +1202,14 @@ export default function QuoteBuilder({
 
   // A save held back because the prices changed: priced again with the new data, then saved as it is (same price),
   // or shown with the new price to confirm, or stopped (the fence is no longer available for quoting).
-  const [recheck, setRecheck] = useState<{ data: Parameters<typeof handleSave>[0]; was: number; styleName: string; asked: boolean } | null>(null)
+  const [recheck, setRecheck] = useState<{ data: Parameters<typeof handleSave>[0] | null; was: number; styleName: string; asked: boolean } | null>(null)
   const recheckOutcome = recheck ? repriceOutcome(recheck.was, adjPrice, { name: recheck.styleName, available: !!style && isQuotable(style) || (!!style && style.name === init?.fenceStyle) }) : null
   useEffect(() => {
     if (!recheck || recheck.asked || !recheckOutcome) return
     if (recheckOutcome.kind === 'save') {
       const d = recheck.data
       setRecheck(null); setRepricedFrom(null)
-      void handleSave(d, { pricesChecked: true })
+      if (d) void handleSave(d, { pricesChecked: true }); else setShowSaveModal(true)
       return
     }
     setRecheck({ ...recheck, asked: true })
@@ -1202,8 +1218,52 @@ export default function QuoteBuilder({
     if (!recheck) return
     const d = recheck.data
     setRecheck(null); setRepricedFrom(null)
-    void handleSave(d, { pricesChecked: true })
+    // Checked before the Save window: it opens now, at the new price (no customer is made before this).
+    if (d) void handleSave(d, { pricesChecked: true }); else setShowSaveModal(true)
   }
+  // What the Save window had when its save was held back for new prices: it opens with them again (the customer
+  // just made stays picked: #58 review, "Create new customer instead" made a second one).
+  const [saveWindowKept, setSaveWindowKept] = useState<{ status: SavedQuote['status']; notes: string } | null>(null)
+  function keepSaveWindow(d: Parameters<typeof handleSave>[0]) {
+    if (d.customerId && !init?.customerId) setPickedCustomerId(d.customerId)
+    setSaveWindowKept({ status: d.status, notes: d.notes })
+  }
+  /** Save / Update quote: prices are checked before the Save window opens (nothing, a new customer included, is made first). */
+  const [checkingPrices, setCheckingPrices] = useState(false)
+  async function openSave() {
+    if (!internal || pricesStand) { setShowSaveModal(true); return }
+    const was = repriced?.was ?? adjPrice
+    const styleName = style ? optionLabel(style.name) : ''
+    setCheckingPrices(true)
+    const check = await checkPricing().finally(() => setCheckingPrices(false))
+    if (check.changed.length || repriced) { setRecheck({ data: null, was, styleName, asked: false }); return }
+    setShowSaveModal(true)
+  }
+  // The data a sent-back save is made again with: the quote's own customer and details.
+  const dataOfInit = (): Parameters<typeof handleSave>[0] | null => init ? {
+    customerId: init.customerId ?? '', customerName: init.customerName, customerPhone: init.customerPhone, customerEmail: init.customerEmail,
+    customerAddress: init.customerAddress, leadSource: init.leadSource, salesRep: init.salesRep, status: init.status, notes: init.notes ?? '', leadTemp: init.leadTemp ?? 0,
+  } : null
+  // Opened because the server sent the save back for new prices (the app read the prices again first): repriced
+  // now, then saved as it is (same price) or shown to confirm.
+  useEffect(() => {
+    if (!repriceOnOpen || !init || !internal) return
+    const t = setTimeout(() => setRecheck({ data: dataOfInit(), was: init.finalPrice ?? 0, styleName: style ? optionLabel(style.name) : optionLabel(init.fenceStyle), asked: false }), 500)
+    return () => clearTimeout(t)
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Sent back while this builder is still open on it: the prices are read again and it asks here.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent).detail as { id?: string } | undefined
+      if (!d?.id || d.id !== quoteIdRef.current || !internal) return
+      e.preventDefault()
+      const was = priceNowRef.current
+      const styleName = style ? optionLabel(style.name) : ''
+      void checkPricing().then(() => setRecheck({ data: dataOfInit(), was, styleName, asked: false }))
+    }
+    window.addEventListener(QUOTE_REPRICE_EVENT, on)
+    return () => window.removeEventListener(QUOTE_REPRICE_EVENT, on)
+  })
 
   /**
    * "Make change order" on a signed quote: the quote as it is now, as the save
@@ -1732,6 +1792,12 @@ export default function QuoteBuilder({
           </div>
 
           <div className={step === 'price' ? 'space-y-3' : 'hidden'} data-step-panel="price">
+              {droppedStyle && (
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2" data-style-off>
+                  <p className="text-sm font-semibold text-amber-900" data-style-off-line>{droppedStyle}</p>
+                  <button type="button" className="btn btn-primary min-h-[48px] w-full" onClick={() => goStep('style')} data-style-off-pick>Pick another fence</button>
+                </div>
+              )}
               <div className="bg-gray-900 rounded-xl p-4">
                 <p className="text-gray-400 text-xs mb-1">{customerPrice != null ? (signedQuote ? "The customer's price (as signed)" : "The customer's price (as sent)") : priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
                 <p className="text-white text-3xl font-bold" data-quote-price>{fmt(shownPrice)}</p>
@@ -2172,7 +2238,7 @@ export default function QuoteBuilder({
               )}
               <button
                 disabled={!canSave}
-                onClick={() => setShowSaveModal(true)}
+                onClick={() => { void openSave() }}
                 className={signedQuote ? 'btn btn-secondary w-full min-h-[48px]' : 'btn btn-primary btn-lg w-full'}
               >
                 {signedQuote ? 'Save notes and customer details only' : init?.id ? 'Update quote' : 'Save quote'}
@@ -2233,7 +2299,7 @@ export default function QuoteBuilder({
                   <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary min-h-[52px] px-3 text-base font-semibold flex-1 min-w-0 whitespace-nowrap md:flex-none md:min-w-[160px]" data-co-make>Make change order</button>
                 </div>
               ) : step === 'price' ? (
-                <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
+                <button disabled={!canSave || checkingPrices} onClick={() => { void openSave() }} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
               ) : (
                 <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-bar-next>{barNextLabel}</button>
               )}
@@ -2276,8 +2342,8 @@ export default function QuoteBuilder({
           initialCustomerName={customerName}
           initialCustomerId={quoteCustomerId || undefined}
           initialAddress={quoteDraftAddress(entry === 'layout' ? yard?.plan?.aerial?.address : null, init?.customerAddress)}
-          initialStatus={init?.status ?? 'DRAFT'}
-          initialNotes={[init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
+          initialStatus={saveWindowKept?.status ?? init?.status ?? 'DRAFT'}
+          initialNotes={saveWindowKept ? saveWindowKept.notes : [init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
           onCancel={() => setShowSaveModal(false)}
           onSave={handleSave}
         />
@@ -2323,7 +2389,7 @@ export default function QuoteBuilder({
             <p className="text-base font-bold text-gray-900" data-price-recheck-line>{recheckOutcome.line}</p>
             {recheckOutcome.kind === 'confirm' ? (
               <div className="flex flex-col gap-2">
-                <button type="button" className="btn btn-primary min-h-[48px]" onClick={saveRepriced} data-price-recheck-save>Save at {priceText(adjPrice)}</button>
+                <button type="button" className="btn btn-primary min-h-[48px]" onClick={saveRepriced} data-price-recheck-save>{recheck.data ? 'Save' : 'Continue'} at {priceText(adjPrice)}</button>
                 <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setRecheck(null)} data-price-recheck-back>Back to the quote</button>
               </div>
             ) : (

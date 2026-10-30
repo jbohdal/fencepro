@@ -55,6 +55,8 @@ export interface Op<P = any> {
    * STYLE_NOT_QUOTABLE). It waits as "Couldn't save" with the reason; the next save of the same record replaces it.
    */
   redo?: boolean
+  /** The code it was sent back with. */
+  redoCode?: string
 }
 
 /** What a send came to. */
@@ -85,6 +87,12 @@ export interface KindHandler<P = any> {
    * left the outbox.
    */
   refusedWithReason?: (op: Op<P>, reason: string) => void
+  /**
+   * The server sent it back to be made again (REDO_CODES: a quote priced at prices it no longer has). Called when
+   * that happens and when Try again is tapped on it: the kind makes it again (the quote is repriced and confirmed)
+   * instead of sending the same copy, which would only be refused again.
+   */
+  redo?: (op: Op<P>, code: string) => void
 }
 
 /**
@@ -263,6 +271,7 @@ export async function enqueue<P>(o: { key: string; kind: string; payload: P; lab
     again.label = o.label
     again.after = o.after
     again.redo = false
+    again.redoCode = undefined
     again.state = 'pending'
     again.error = undefined
     again.errorKind = undefined
@@ -367,7 +376,11 @@ async function pump() {
         op.error = plainText(r.error || 'Prices changed since this quote was priced. Open it to see the new price, then save it again.', handler.what?.(op))
         op.errorKind = undefined
         await persist(op)
-        try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message: `${op.label}: ${op.error}`, label: op.label } })) } catch { /* no window (tests) */ }
+        op.redoCode = r.code
+        await persist(op)
+        // A kind that can make it again (the quote: repriced and confirmed) does so; otherwise the reason is shown.
+        if (handler.redo) { try { handler.redo(op, r.code) } catch { /* shown as Couldn't save */ } }
+        else { try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message: `${op.label}: ${op.error}`, label: op.label } })) } catch { /* no window (tests) */ } }
         emit()
         continue
       }
@@ -415,6 +428,9 @@ export function resumeAfterSignIn() { signedOut = false; for (const op of ops) i
 export async function retry(opId?: string) {
   for (const op of ops) {
     if (opId && op.id !== opId) continue
+    // Sent back to be made again: Try again makes it again (the same copy would be refused again).
+    const h = op.redo ? kinds.get(op.kind) : undefined
+    if (op.redo && h?.redo) { try { h.redo(op, op.redoCode ?? '') } catch { /* stays as it is */ } continue }
     op.state = 'pending'; op.nextAt = undefined; op.attempts = 0
     await persist(op)
   }

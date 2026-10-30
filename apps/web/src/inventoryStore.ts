@@ -15,6 +15,7 @@ import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { stampPriceChanges, confirmPrices as confirmPricesIn, followBorrowedPrices, borrowedPrice } from './priceAge'
 import { businessDate } from './businessDate'
 import { setSavedKitSets, type KitSet } from './materialKits'
+import { merge3 } from './merge3'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const INV_EVT = 'fencepro:inventory:updated'
@@ -87,6 +88,7 @@ export function initInventory(): Promise<void> {
     invCache = next
     rememberCosts()
     invFlusher.loaded(next, version)
+    loadedPriced = JSON.parse(JSON.stringify({ items: next.items, kits: next.kits }))
     notePricingPart('inventory', r.part)
     invHydrated = true
     invEmit()
@@ -111,28 +113,40 @@ export async function refreshInventory(): Promise<void> {
   costIndexFor = null
   rememberCosts()
   invFlusher.loaded(invCache, version)
+  loadedPriced = JSON.parse(JSON.stringify({ items: invCache.items, kits: invCache.kits }))
   notePricingPart('inventory', r.part)
   invEmit()
 }
 
-/** Resolves once every Inventory change made here has reached the server (false after `ms`: no signal). */
-function whenInventorySaved(ms = 15_000): Promise<boolean> {
-  const end = Date.now() + ms
-  return new Promise(res => {
-    const tick = () => {
-      if (!invFlusher.isDirty()) { res(true); return }
-      if (Date.now() > end) { res(false); return }
-      setTimeout(tick, 120)
-    }
-    setTimeout(tick, 60)
-  })
+/**
+ * Only the parts' prices and the kits, read again while other Inventory changes made here are still waiting (or
+ * cannot go yet): the server's copy, with the changes made here put on top of it (broken list #58).
+ */
+let loadedPriced: { items: any[]; kits: any[] } | null = null
+async function refreshPricedParts(): Promise<void> {
+  const r = await invCall<InventoryStateBlob>('GET')
+  if (!r.ok || !r.data) return
+  const server = pickInventory(r.data)
+  const was = loadedPriced ?? { items: invCache.items, kits: invCache.kits }
+  invCache = {
+    ...invCache,
+    items: merge3(was.items, invCache.items, server.items).merged,
+    kits: merge3(was.kits, invCache.kits, server.kits).merged,
+  }
+  loadedPriced = JSON.parse(JSON.stringify({ items: server.items, kits: server.kits }))
+  costIndexFor = null
+  rememberCosts()
+  notePricingPart('inventory', r.part)
+  invEmit()
 }
 
-// Prices changed on the server (pricingFreshness.ts): a change made here goes first, then Inventory is read again.
+// Prices changed on the server (pricingFreshness.ts): Inventory is read again. Changes waiting here (or stuck)
+// never hold the prices back.
 registerPricingReload('inventory', async () => {
   if (!invHydrated) { await initInventory(); return }
-  if (invFlusher.isDirty()) await whenInventorySaved()
+  if (invFlusher.isDirty()) { await refreshPricedParts(); return }
   await refreshInventory()
+  if (invFlusher.isDirty()) await refreshPricedParts()
 })
 
 export const INVENTORY_UPDATED_EVENT = INV_EVT

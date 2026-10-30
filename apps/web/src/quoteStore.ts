@@ -127,6 +127,8 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     ...(q.priceRequest ? { priceRequest: q.priceRequest } : {}),
     // The copy of the price data the quote builder priced it with: the server refuses an older one (broken list #58).
     ...(q.pricingStamp ? { pricingStamp: q.pricingStamp } : {}),
+    // Back to Draft picked on a sent quote: the server moves a sent quote back to Draft only when this says so.
+    ...(q.backToDraft && q.status === 'DRAFT' ? { backToDraft: true } : {}),
   }
 }
 
@@ -309,6 +311,22 @@ function pushQuoteUpdate(id: string): void {
   void enqueue<SavedQuote>({ key: `quote:${id}`, kind: 'quote.update', payload: current, label: quoteLabel(current, 'quote changes'), after: customerKeys(current) })
 }
 
+/**
+ * A quote the server sent back because it was priced at prices it no longer has (409 PRICES_CHANGED) or on a fence
+ * no longer available for quoting (broken list #58): { id, code }. A quote builder open on it takes it (cancels the
+ * event); otherwise QUOTE_REPRICE_OPEN_EVENT asks the app to open it, repriced, to confirm. Never left stuck: Try
+ * again on it does the same.
+ */
+export const QUOTE_REPRICE_EVENT = 'ezbiz:quote-reprice'
+export const QUOTE_REPRICE_OPEN_EVENT = 'ezbiz:quote-reprice-open'
+function repriceQuote(op: Op<SavedQuote>, code: string) {
+  const detail = { id: op.payload.id, code, label: op.label }
+  try {
+    const taken = !window.dispatchEvent(new CustomEvent(QUOTE_REPRICE_EVENT, { detail, cancelable: true }))
+    if (!taken) window.dispatchEvent(new CustomEvent(QUOTE_REPRICE_OPEN_EVENT, { detail }))
+  } catch { /* no window (tests) */ }
+}
+
 const takeServerFields = (op: Op<SavedQuote>, data: unknown) => {
   const id = op.payload.id
   // Never over an edit made while this was on its way.
@@ -323,6 +341,7 @@ registerKind<SavedQuote>('quote.create', {
   what: () => 'This quote',
   send: op => sendJson('POST', '/api/saved-quotes', { ...toApiPayload(op.payload), id: op.payload.id }).then(r => r.result),
   confirmed: takeServerFields,
+  redo: repriceQuote,
   apply: op => { if (!cache.some(q => q.id === op.payload.id)) cache = [op.payload, ...cache] },
 })
 registerKind<SavedQuote>('quote.update', {
@@ -330,6 +349,7 @@ registerKind<SavedQuote>('quote.update', {
   what: () => 'This change to the quote',
   send: op => sendJson('PATCH', `/api/saved-quotes/${encodeURIComponent(op.payload.id)}`, toApiPayload(op.payload)).then(r => r.result),
   confirmed: takeServerFields,
+  redo: repriceQuote,
   apply: op => { cache = cache.map(q => q.id === op.payload.id ? op.payload : q) },
 })
 registerKind<{ id: string }>('quote.archive', {

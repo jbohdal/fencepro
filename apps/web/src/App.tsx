@@ -58,7 +58,8 @@ import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
 import { clearOldBrowserData } from './browserStorage'
 import { initCustomers, getCustomers, isCustomersHydrated, findCustomerFresh } from './customerStore'
-import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes, isSlimQuote, loadFullQuote } from './quoteStore'
+import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes, isSlimQuote, loadFullQuote, QUOTE_REPRICE_OPEN_EVENT } from './quoteStore'
+import { checkPricing } from './pricingFreshness'
 import { sizeText } from './moveRepair'
 import { sendJson } from './syncHttp'
 import { initJobs, isJobsHydrated, getJobs, getArchivedJobs } from './jobStore'
@@ -552,12 +553,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const active = pageForPath(nav.path, PAGE_NAMES)
   const setActive = (page: string) => navigate(pagePath(page))
   const [showQuote, setShowQuote]       = useState(false)
+  const showQuoteRef = useRef(false)
+  showQuoteRef.current = showQuote
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   // A draft opened from Ready to quote or a pipeline card starts on the Yard step (its drawing and the site visit).
   const [quoteOnYard, setQuoteOnYard]   = useState(false)
   // Opened from "Change order" > "Change the yard drawing": the builder makes the change order straight away.
   const [quoteForChange, setQuoteForChange] = useState(false)
+  // Opened because the server sent its save back for new prices (#58): it reprices and asks before saving.
+  const [quoteReprice, setQuoteReprice] = useState(false)
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
   // Back to a screen puts its scroll back; a new screen starts at the top.
   const pageScroll = useRef<HTMLDivElement | null>(null)
@@ -691,6 +696,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       })
       setShowQuote(false)
       setEditingQuote(null)
+      setQuoteReprice(false)
       // Use the saved record for downstream side effects so we get the canonical id.
       q = saved
 
@@ -762,7 +768,11 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
   }
 
-  function handleOpenQuote(q: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
+  function handleOpenQuote(q0: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
+    // The phone's newest copy: a window may hold the quote as it was when it opened (Copy link has made it Sent
+    // since; #58 review: Edit then opened it as a Draft and Update quote sent it back to Draft).
+    const now = q0.id ? getQuoteById(q0.id) : null
+    const q: SavedQuote = now ? (isSlimQuote(now) && !isSlimQuote(q0) ? { ...now, proposal: q0.proposal } : now) : q0
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     // "Change order" sends the work with the approved ones (openChangeFromDrawing): it opens on the latest drawing too,
@@ -795,6 +805,27 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     setEditingQuote(q)
     setShowQuote(true)
   }
+
+  // A quote the server sent back for new prices (#58), with no quote builder open on it: prices are read again
+  // and the quote opens repriced, to confirm the new price (or save at once when it came out the same).
+  useEffect(() => {
+    const onReprice = (e: Event) => {
+      const d = (e as CustomEvent).detail as { id?: string; label?: string; code?: string } | undefined
+      if (!d?.id) return
+      void checkPricing().then(() => {
+        const q = getQuoteById(d.id!)
+        if (!q) return
+        if (showQuoteRef.current) {
+          toast.error('Not saved', `${d.label || 'A quote'}: ${d.code === 'STYLE_NOT_QUOTABLE' ? 'its fence is not available for quoting now' : 'prices changed since it was priced'}. Close this quote, then tap Try again on it to see the new price.`)
+          return
+        }
+        setQuoteReprice(true)
+        handleOpenQuote(q)
+      })
+    }
+    window.addEventListener(QUOTE_REPRICE_OPEN_EVENT, onReprice)
+    return () => window.removeEventListener(QUOTE_REPRICE_OPEN_EVENT, onReprice)
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   /** A new quote for a customer: from their page, or from an appointment closed out "Ready to quote" (with its property and measurements). */
   function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean } = {}) {
@@ -1495,9 +1526,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}
       {showQuote && (
-        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false) }}><QuoteBuilder
-          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); sendAfterSave.current = false }}
+        <ScreenErrorBoundary name="Quote" window onBack={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); setQuoteReprice(false) }}><QuoteBuilder
+          onClose={() => { setShowQuote(false); setEditingQuote(null); setQuoteOnYard(false); setQuoteForChange(false); setQuoteReprice(false); sendAfterSave.current = false }}
           onSave={handleSaveQuote}
+          repriceOnOpen={quoteReprice}
           initialQuote={editingQuote}
           startOnYard={quoteOnYard}
           changeOrder={quoteForChange}

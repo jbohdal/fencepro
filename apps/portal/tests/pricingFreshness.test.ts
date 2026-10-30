@@ -10,7 +10,7 @@ import {
   _resetPricingForTests, notePricingPart, registerPricingReload, heldPricingStamp, changedPricingParts, checkPricing,
   repriceOutcome, draftPriceLine, priceText, samePrice, isServerStamp, type ServerStamp,
 } from '../../web/src/pricingFreshness'
-import { _resetForTests, startOutbox, registerKind, enqueue, allOps, statusOf, type Op, type OutboxStorage, type SendResult } from '../../web/src/outbox'
+import { _resetForTests, startOutbox, registerKind, enqueue, allOps, statusOf, retry, type Op, type OutboxStorage, type SendResult } from '../../web/src/outbox'
 import { businessPart, inventoryPart, tierPart, joinStamp, canonical } from '../src/server/lib/pricingStamp'
 
 const stamp = (business: string, inventory: string, tiers: string): ServerStamp => ({ stamp: `${business}.${inventory}.${tiers}`, business, inventory, tiers })
@@ -97,6 +97,8 @@ describe('reprice before save', () => {
     expect(draftPriceLine(5350, 5350)).toBeNull()
     // Not priced yet (no style, no runs): nothing to say.
     expect(draftPriceLine(5350, 0)).toBeNull()
+    // A quote whose first save was sent back (never on the server): since it was opened, not saved.
+    expect(draftPriceLine(5350, 5662, 'opened')).toBe('Prices changed since you opened this quote. It is now $5,662 (was $5,350).')
   })
 
   test('prices read in plain dollars, cents only when there are any', () => {
@@ -137,6 +139,32 @@ describe('the outbox keeps a quote the server sent back for new prices', () => {
     expect(got[1].kind).toBe('quote.create')
     expect((got[1].payload as any).finalPrice).toBe(5662)
     expect(allOps().length).toBe(0)
+  })
+})
+
+describe('a quote sent back for new prices is made again, never stuck', () => {
+  function phoneStorage(): OutboxStorage {
+    const map = new Map<string, Op>()
+    return { all: async () => [...map.values()].map(o => JSON.parse(JSON.stringify(o))), put: async o => { map.set(o.id, JSON.parse(JSON.stringify(o))) }, remove: async id => { map.delete(id) } }
+  }
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 5)) }
+
+  test('the kind is told (to reprice and confirm); Try again asks it again instead of resending the old copy', async () => {
+    _resetForTests()
+    const sent: Op[] = [], redone: string[] = []
+    const answer = (): SendResult => ({ ok: false, status: 409, code: 'PRICES_CHANGED', error: 'Prices changed since this quote was priced. Open it to see the new price, then save it again.' })
+    registerKind('quote.create', { send: async op => { sent.push(op); return answer() }, redo: (op, code) => { redone.push(`${(op.payload as any).id}:${code}`) } })
+    await startOutbox('u1', { storage: phoneStorage() })
+    await enqueue({ key: 'quote:q9', kind: 'quote.create', payload: { id: 'q9', pricingStamp: 'old' }, label: 'Christa, new quote' })
+    await settle()
+    expect(redone).toEqual(['q9:PRICES_CHANGED'])
+    expect(sent.length).toBe(1)
+    await retry()
+    await settle()
+    // Not sent again with the old stamp: made again.
+    expect(sent.length).toBe(1)
+    expect(redone).toEqual(['q9:PRICES_CHANGED', 'q9:PRICES_CHANGED'])
+    expect(statusOf(['quote:q9']).status).toBe('failed')
   })
 })
 

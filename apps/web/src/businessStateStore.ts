@@ -10,7 +10,7 @@
 
 import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave } from './syncGuard'
-import { deepEqual } from './merge3'
+import { deepEqual, merge3 } from './merge3'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { serverVersionOf } from './docVersions'
 import { notePricingPart, registerPricingReload } from './pricingFreshness'
@@ -61,6 +61,14 @@ const DEFAULT: BusinessFields = {
 }
 
 let cache: BusinessFields = { ...DEFAULT }
+/**
+ * The price-bearing parts (Settings and the budget) as the server last handed them out (pricingFreshness.ts). They
+ * are read again on their own when prices change, even while other changes made here are still waiting to go, so a
+ * change that cannot go yet never keeps a quote on old prices (broken list #58).
+ */
+const PRICE_FIELDS = ['config', 'budget'] as const
+let loadedPrice: Pick<BusinessFields, 'config' | 'budget'> = { config: {}, budget: {} }
+const notePriceFields = (b: BusinessFields) => { loadedPrice = JSON.parse(JSON.stringify({ config: b.config, budget: b.budget })) }
 let initPromise: Promise<void> | null = null
 let hydrated = false
 
@@ -133,6 +141,8 @@ const flusher = createVersionedFlusher<BusinessFields>({
     for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
       // A part not read here is never sent: the empty copy would replace the saved one.
       if (LAZY.includes(k) && !loadedLazy.has(k)) continue
+      // Settings or the budget taken from the server on their own (prices changed) are not a change made here.
+      if ((PRICE_FIELDS as readonly string[]).includes(k) && deepEqual(state[k], loadedPrice[k as 'config' | 'budget'])) continue
       if (!deepEqual(state[k], base[k])) patch[k] = state[k]
     }
     return versionedSave(stateUrl(), 'PATCH', patch, version, pickBusiness)
@@ -152,6 +162,7 @@ export function initBusinessState(): Promise<void> {
     const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     cache = next
     flusher.loaded(cache, version)
+    notePriceFields(next)
     notePricingPart('business', r.part)
     hydrated = true
     emit()
@@ -177,15 +188,35 @@ export async function refreshBusinessState(): Promise<void> {
   const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
   cache = pickBusiness(r.data)
   flusher.loaded(cache, version)
+  notePriceFields(cache)
   notePricingPart('business', r.part)
   emit()
 }
 
-// Prices changed on the server (pricingFreshness.ts): a change made here goes first, then Settings are read again.
+/**
+ * Only Settings and the budget, read again while other changes made here are still waiting (or cannot go yet):
+ * the server's copy is taken, with any Settings change made here and not saved yet put on top of it.
+ */
+async function refreshPriceFields(): Promise<void> {
+  const r = await call<BusinessFields>('GET')
+  if (!r.ok || !r.data) return
+  const server = pickBusiness(r.data)
+  const next = { ...cache }
+  for (const k of PRICE_FIELDS) next[k] = merge3(loadedPrice[k], cache[k], server[k]).merged
+  cache = next
+  notePriceFields(server)
+  notePricingPart('business', r.part)
+  emit()
+}
+
+// Prices changed on the server (pricingFreshness.ts): Settings are read again.
 registerPricingReload('business', async () => {
   if (!hydrated) { await initBusinessState(); return }
-  if (flusher.isDirty()) await whenBusinessStateSaved()
+  // Changes waiting here (or stuck: refused, no signal) never hold the prices back.
+  if (flusher.isDirty()) { await refreshPriceFields(); return }
   await refreshBusinessState()
+  // A change made while that read was on its way: it skipped; the prices are taken on their own.
+  if (flusher.isDirty()) await refreshPriceFields()
 })
 
 /**

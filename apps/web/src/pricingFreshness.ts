@@ -131,8 +131,11 @@ export function repriceOutcome(was: number, now: number, fence: { name: string; 
   return { kind: 'confirm', line: `Prices changed since you opened this quote. It is now ${priceText(now)} (was ${priceText(was)}).` }
 }
 
-/** A draft opened after a price change: said, rather than silently showing the new price. Null when nothing changed. */
-export function draftPriceLine(savedPrice: number, nowPrice: number): string | null {
+/**
+ * A draft opened after a price change: said, rather than silently showing the new price. Null when nothing changed.
+ * `since`: 'opened' for a quote that never reached the server (its first save was sent back for new prices).
+ */
+export function draftPriceLine(savedPrice: number, nowPrice: number, since: 'saved' | 'opened' = 'saved'): string | null {
   if (!(nowPrice > 0) || samePrice(savedPrice, nowPrice)) return null
-  return `Prices changed since this quote was saved. It is now ${priceText(nowPrice)} (was ${priceText(savedPrice)}).`
+  return `Prices changed since ${since === 'opened' ? 'you opened this quote' : 'this quote was saved'}. It is now ${priceText(nowPrice)} (was ${priceText(savedPrice)}).`
 }
