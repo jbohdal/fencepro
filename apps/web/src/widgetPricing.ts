@@ -14,7 +14,7 @@
 import { deriveLayout, teePostFor, type YardLayout } from './yardLayout'
 import { layoutPanelFt } from './gateSlide'
 import { priceQuoteJob, type QuoteJob, type QuoteJobRequest } from './quoteJob'
-import { resolveTiers, type TierSet } from './tiers'
+import { resolveTiers, COLOR_LABEL, type TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
 import type { AppConfig, FenceStyle } from './configStore'
 import type { QuotePricingOverrides } from './pricingEngine'
@@ -47,7 +47,8 @@ export function pickOf(s: Pick<FenceStyle, 'material' | 'choices'>): WidgetPick 
   if (m === 'vinyl') return c.color ? { material: 'vinyl', color: c.color, height: c.height, kind: c.style || 'privacy' } : null
   if (m === 'chain') return c.grade === 'res' && c.finish ? { material: 'chain', color: c.finish, height: c.height, kind: 'res' } : null
   if (m === 'alum') return { material: 'alum', color: '', height: c.height, kind: c.panel || '' }
-  if (m === 'wood') return { material: 'wood', color: '', height: c.height, kind: c.style || 'privacy' }
+  // Wood: the picket grade is its "color" (PT Pine, Alta Premium; wood.ts).
+  if (m === 'wood') return { material: 'wood', color: c.picket || '', height: c.height, kind: c.style || 'privacy' }
   return null
 }
 
@@ -78,7 +79,7 @@ export function widgetCatalog(cfg: Pick<AppConfig, 'fenceStyles'> & Partial<Pick
     }
     out.materials.push({
       material, label: MATERIAL_LABEL[material],
-      colors: colors.map(k => ({ key: k, label: colorNames[k] ?? k.charAt(0).toUpperCase() + k.slice(1) })),
+      colors: colors.map(k => ({ key: k, label: colorNames[k] ?? COLOR_LABEL[k] ?? k.charAt(0).toUpperCase() + k.slice(1) })),
       heights: [...hk.values()].sort((a, b) => Number(a.height) - Number(b.height) || a.kind.localeCompare(b.kind)),
     })
   }

@@ -82,7 +82,8 @@ export function startingOption(options: OptionLike[] | null | undefined, quote: 
 // ── Reading a style name (tiers.ts builds tiers from it too) ─────────────────
 
 export interface StyleParts {
-  family: 'vinyl' | 'chain' | 'alum'
+  family: 'vinyl' | 'chain' | 'alum' | 'wood'
+  /** The color or finish; wood: the picket grade (pine, premium), which its Good / Better tiers swap (Oct 30 2026). */
   color: string | null
   install: 'no-dig' | 'dig-set' | null
   /** Height in feet, as written in the name. */
@@ -101,9 +102,12 @@ const ALUM = /^Alum - (ND|DS) - (.+)$/
 /** What a style is, from its old code; a combination made in Settings (a color added later) from its choices. */
 export function styleParts(name: string, style?: { material?: string; choices?: Record<string, string>; madeFrom?: string } | null): StyleParts | null {
   const fromCode = partsFromCode(name)
-  if (fromCode || !style?.madeFrom || !style.material || !style.choices) return fromCode
+  if (fromCode || !style?.material || !style.choices) return fromCode
   const c = style.choices
   const install = c.install === 'nd' ? 'no-dig' : c.install === 'ds' ? 'dig-set' : null
+  // Wood (wood.ts) is made from choices, never from a code: style is the model, the picket grade the "color".
+  if (style.material === 'wood') return { family: 'wood', color: c.picket ?? null, install, height: c.height ?? '', width: c.width ? Number(c.width) : null, model: c.style }
+  if (!style.madeFrom) return null
   if (style.material === 'vinyl') {
     return { family: 'vinyl', color: c.color ?? null, install, height: c.height ?? '', width: c.width === 'auto' ? 'auto' : Number(c.width), ...(c.style && c.style !== 'privacy' ? { model: c.style } : {}) }
   }

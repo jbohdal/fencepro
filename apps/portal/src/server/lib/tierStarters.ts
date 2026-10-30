@@ -15,6 +15,7 @@
  *   Chainlink Two options (Oct 2026): Dig set with concrete, No dig (Most
  *             popular). The dig set one shows once its prices are in.
  *   Aluminum  Two options: Dig set with concrete, No dig (Most popular).
+ *   Wood      Good PT Pine pickets, Better Alta Premium pickets (Oct 30 2026).
  * A category whose styles are not there starts empty, and Settings asks for
  * tiers to be added.
  *
@@ -33,7 +34,8 @@ export const tierSpecSchema = z.object({
   name: z.string().trim().min(1, 'Every tier needs a name').max(40),
   install: z.enum(['same', 'no-dig', 'dig-set']),
   width: z.enum(['same', 'cheapest', '6', '8']),
-  color: z.enum(['same', 'white', 'tan', 'galv', 'black']),
+  // Wood: the picket grade (pine, premium; web wood.ts), its Good / Better tiers (Oct 30 2026).
+  color: z.enum(['same', 'white', 'tan', 'galv', 'black', 'pine', 'premium']),
   style: z.string().max(200).nullable().optional(),
   priceAdjustPct: z.number().min(-50).max(100).nullable().optional(),
   text: z.string().max(400).default(''),
@@ -62,6 +64,15 @@ export const CHAIN_STARTER: TierSpec[] = [
 export const ALUM_STARTER: TierSpec[] = [
   { key: 'good', name: 'Dig set with concrete', install: 'dig-set', width: 'same', color: 'same', text: 'Standard aluminum post set in concrete.' },
   { key: 'better', name: 'No dig', install: 'no-dig', width: 'same', color: 'same', text: 'Aluminum post with a steel I beam insert inside, no concrete.' },
+]
+/**
+ * Wood (Jonathan, Oct 30 2026): Good and Better are the same fence with the
+ * picket grade swapped: regular pressure treated pine, or Alta Premium
+ * treated dog-ear (web wood.ts WOOD_GRADES). No tier marked Most popular.
+ */
+export const WOOD_STARTER: TierSpec[] = [
+  { key: 'good', name: 'Good', install: 'same', width: 'same', color: 'pine', text: 'Pressure treated pine pickets.' },
+  { key: 'better', name: 'Better', install: 'same', width: 'same', color: 'premium', text: 'Alta Premium treated dog-ear pickets.' },
 ]
 /** The tier marked Most popular in the two option sets: No dig. */
 export const TWO_OPTION_POPULAR = 'better'
@@ -108,11 +119,15 @@ export function startersFor(config: unknown): Starter[] {
   const alumModels = (m: string) => new Set(named.map(s => s.name.match(new RegExp(`^Alum - ${m} - (.+)$`))?.[1]).filter(Boolean))
   const nd = alumModels('ND'), ds = alumModels('DS')
   const alumOk = [...nd].some(x => ds.has(x))
+  const woodOk = named.some(s => /^wood\/(stockade|bob|sb)\/6\/(pine|premium)\//.test(s.name))
 
   return [
     { key: 'vinyl', category: catOf(/^(WV|TV)-/, 'Vinyl'), tiers: vinyl.tiers, popular: vinyl.popular, sortOrder: 0 },
     { key: 'chainlink', category: catOf(/^CL - \d+' (Galv|Black)$/, 'Chainlink'), tiers: chainOk ? CHAIN_STARTER : [], popular: chainOk ? TWO_OPTION_POPULAR : null, sortOrder: 1 },
     { key: 'aluminum', category: catOf(/^Alum - (ND|DS) - /, 'Aluminum'), tiers: alumOk ? ALUM_STARTER : [], popular: alumOk ? TWO_OPTION_POPULAR : null, sortOrder: 2 },
+    // Wood: only once its styles are in Settings (not made empty, so it is made, once, as soon as they are: ensureTierSets
+    // adds a starter not made yet, also for companies whose other sets were made before wood).
+    ...(woodOk ? [{ key: 'wood', category: 'Wood', tiers: WOOD_STARTER, popular: null, sortOrder: 3 }] : []),
   ]
 }
 

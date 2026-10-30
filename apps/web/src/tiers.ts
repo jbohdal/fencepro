@@ -58,7 +58,8 @@ export const MAX_TIERS = 3
 
 export const INSTALL_LABEL: Record<TierInstall, string> = { same: 'Same as the quote', 'no-dig': 'No dig', 'dig-set': 'Dig set' }
 export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Whichever width prices lower (6 or 8 ft)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
-export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote' }
+/** Wood's picket grades are its tier "colors" (wood.ts WOOD_GRADES); they are a choice, not a color in Settings. */
+export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', pine: 'PT Pine pickets', premium: 'Alta Premium pickets' }
 
 /** A tier color's name: the color's name in Settings (fenceCatalog.ts colorNamesOf; the default tree when none is given). */
 export function colorLabel(key: string, names: Record<string, string> = colorNamesOf(null)): string {
@@ -80,7 +81,7 @@ function describe(p: { family: StyleParts['family']; color: string | null; insta
   if (p.height) bits.push(`${p.height} ft tall`)
   if (p.width === 'auto') bits.push('auto mix (6 and 8 ft wide)')
   else if (typeof p.width === 'number') bits.push(`${p.width} ft wide`)
-  const what = p.family === 'vinyl' ? 'vinyl privacy' : p.family === 'chain' ? 'chain link' : `aluminum ${p.model ?? ''}`.trim()
+  const what = p.family === 'vinyl' ? 'vinyl privacy' : p.family === 'chain' ? 'chain link' : p.family === 'wood' ? `wood ${p.model ?? ''}`.trim() : `aluminum ${p.model ?? ''}`.trim()
   return `${bits.join(', ')}${bits.length ? ' ' : ''}${what}`
 }
 
