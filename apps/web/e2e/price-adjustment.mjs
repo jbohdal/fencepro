@@ -198,9 +198,15 @@ try {
   jobId = await until(async () => sql(`SELECT id FROM "SavedJob" WHERE "quoteId" = '${quoteId}' LIMIT 1`) || null, 20000)
   const sched = jobId ? await until(async () => (await call('GET', `/api/payments/job/${jobId}`)).json.data?.schedule ?? null, 20000) : null
   const dep = sched?.invoices?.find(i => i.kind === 'deposit'), fin = sched?.invoices?.find(i => i.kind === 'final')
-  const pct = Number(sched?.depositPct)
-  const wantDep = Math.floor(Math.round(pickCents * pct / 100) / 100) * 100
-  check('payment schedule: the deposit comes from the final price, deposit + final = the final price', !!dep && dep.amountCents === wantDep && dep.amountCents + (fin?.amountCents ?? 0) === pickCents, `${dep?.amountCents} + ${fin?.amountCents} of ${pickCents} at ${pct}%`)
+  const pct = Number(sched?.depositPct) || 0
+  // A proposal that asks no deposit (0% or blank, as the copied quote may) makes no deposit invoice: the Final is
+  // the whole final price (D2, Jonathan, Oct 29 2026). Otherwise the deposit is the percent of the final, to the dollar.
+  if (pct > 0) {
+    const wantDep = Math.floor(Math.round(pickCents * pct / 100) / 100) * 100
+    check('payment schedule: the deposit comes from the final price, deposit + final = the final price', !!dep && dep.amountCents === wantDep && dep.amountCents + (fin?.amountCents ?? 0) === pickCents, `${dep?.amountCents} + ${fin?.amountCents} of ${pickCents} at ${pct}%`)
+  } else {
+    check('payment schedule: no deposit asked, so no deposit invoice; the Final is the final price', !dep && fin?.amountCents === pickCents, `${dep?.amountCents} + ${fin?.amountCents} of ${pickCents} at ${pct}%`)
+  }
   await cust.close()
 
   // ── Signed: the builder shows the adjustment, no fields to change it ──
