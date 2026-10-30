@@ -28,7 +28,7 @@ import { parseCallbackTime } from '../lib/appointments.js'
 import { recordIntake, resolveIntakeAccountId, digits } from '../lib/intake.js'
 import { verifyRetellSignature, summarizeRetellCall } from '../lib/retell.js'
 import { plainZod } from '../lib/plainZod.js'
-import { estimateJob, estimateStyleList, widgetCatalog, isNotQuotable, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
+import { estimateJob, estimateStyleList, widgetCatalog, isNotQuotable, notQuotableMessage } from '../lib/estimates.js'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -120,7 +120,7 @@ quotingRouter.post('/estimate', estimateLimiter, async (req, res) => {
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     // Commercial and industrial are on hold: the answer the caller (phone agent, website) gives the customer.
-    if (isNotQuotable(err)) { res.json({ success: false, notQuotable: true, error: NOT_QUOTABLE_MESSAGE, message: NOT_QUOTABLE_MESSAGE }); return }
+    if (isNotQuotable(err)) { const m = notQuotableMessage(err); res.json({ success: false, notQuotable: true, error: m, message: m }); return }
     const msg = err instanceof Error && /Unknown fence style/.test(err.message) ? err.message : 'Could not work out an estimate'
     if (!(err instanceof Error && /Unknown fence style/.test(err.message))) console.error('[quoting] estimate error:', err)
     res.status(400).json({ success: false, error: msg })

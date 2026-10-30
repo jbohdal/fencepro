@@ -20,6 +20,9 @@ import { setSavedKitSets, kitSetFor, clearBuiltInKits } from '../../web/src/mate
 import { DEFAULT_CATALOG, tallPricesMissing, pickerState, offWords, type InvItem } from '../../web/src/fenceCatalog'
 import { applyTallPrices, shownCents, tallKey } from '../../web/src/tallVinylPriceSave'
 import { resolveTiers, type TierSet } from '../../web/src/tiers'
+import { estimate, onHoldStyles } from '../../web/src/estimate'
+import { widgetStyles } from '../../web/src/widgetPricing'
+import { isNotQuotable, notQuotableMessage, notQuotableReason } from '../src/server/lib/estimates'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
 import { isQuotable } from '../../web/src/styleAvailability'
 import { planTallVinylParts } from '../../web/src/tallVinylParts'
@@ -197,6 +200,29 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     // One priced: 8 ft is on.
     const one = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
     expect(row(one).options.find(o => o.opt.key === '8')!.state).toBe('ok')
+  })
+
+  test('the server and the website: an unpriced 8 ft fence is "call us for a price on 8 ft tall fence", never commercial; staff hear why', () => {
+    const cfg = setup()
+    const data = { config: { fenceStyles: styles(), fenceCatalog: DEFAULT_CATALOG } as any, inventory: Object.entries(INV).map(([name, unitCost], i) => ({ id: `i${i}`, name, unitCost })) as any, kits: [] }
+    let err: unknown
+    try { estimate(data, { fenceStyle: "WV-ND 8'x8' Privacy", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 }) } catch (e) { err = e }
+    expect(isNotQuotable(err)).toBe(true)
+    expect(notQuotableMessage(err)).toBe('Call us for a price on 8 ft tall fence')
+    expect(notQuotableMessage(err)).not.toMatch(/commercial|industrial/i)
+    expect(notQuotableReason(err)).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    // The website never offers it (only what is available for quoting), nor lists it with commercial and industrial.
+    expect(widgetStyles(cfg).some(s => /8'x[68]'/.test(s.name))).toBe(false)
+    expect(onHoldStyles(data.config).styles.some(s => /8'x[68]'/.test(s.name))).toBe(false)
+    // Commercial and industrial, switched off, still say so.
+    const onHold = { ...data, config: { ...data.config, fenceStyles: styles().map(s => s.name === "CL - Com 6'" ? { ...s, quotable: false } : s) } }
+    expect(onHold.config.fenceStyles.some((s: FenceStyle) => s.quotable === false)).toBe(true)
+    let comErr: unknown
+    try { estimate(onHold, { fenceStyle: "CL - Com 6'", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 }) } catch (e) { comErr = e }
+    expect(notQuotableMessage(comErr)).toBe('Call us for commercial and industrial fencing')
+    // Priced: estimated.
+    const priced = { ...data, config: { ...data.config, fenceStyles: styles({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } }) } }
+    expect(estimate(priced, { fenceStyle: "WV-ND 8'x8' Privacy", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 }).sections).toBe(13)
   })
 
   test('the Price step: a width that is not priced is said, never "prices lower"', () => {

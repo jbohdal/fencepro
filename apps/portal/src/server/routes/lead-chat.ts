@@ -11,7 +11,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { quickEstimate, estimateStyleList, isNotQuotable, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
+import { quickEstimate, estimateStyleList, isNotQuotable, notQuotableMessage, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
 import { scoreLead, leadPriority } from '../lib/leadScoring.js'
 import { sendLeadConfirmation } from '../lib/sms.js'
 import { scheduleFollowUps } from '../lib/followUpScheduler.js'
@@ -217,7 +217,7 @@ async function handleToolCall(name: string, input: Record<string, unknown>, sess
         dblGates,
       })
     } catch (err) {
-      if (isNotQuotable(err)) return JSON.stringify({ answer: NOT_QUOTABLE_MESSAGE })
+      if (isNotQuotable(err)) return JSON.stringify({ answer: notQuotableMessage(err) })
       return JSON.stringify({ error: `Could not calculate: ${err instanceof Error ? err.message : 'unknown style'}` })
     }
   }

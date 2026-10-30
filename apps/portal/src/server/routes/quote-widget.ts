@@ -30,7 +30,7 @@ import multer from 'multer'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { estimateOnHold, pricingWithData, isNotQuotable, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
+import { estimateOnHold, pricingWithData, isNotQuotable, notQuotableMessage, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
 import { resolveIntakeAccountId } from '../lib/intake.js'
 import { recordWebsiteTextConsent } from '../lib/textConsent.js'
 import { audit } from '../lib/auditLog.js'
@@ -202,7 +202,7 @@ api.post('/price', priceLimiter, async (req, res) => {
 function refuse(res: Response, err: unknown, fallback: string) {
   if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
   if (err instanceof DrawingProblem) { res.status(400).json({ success: false, error: err.message }); return }
-  if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: NOT_QUOTABLE_MESSAGE }); return }
+  if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: notQuotableMessage(err) }); return }
   if (err instanceof Error && /Unknown fence style/.test(err.message)) { res.status(400).json({ success: false, error: 'That fence style is not offered' }); return }
   console.error('[widget]', fallback, err)
   res.status(500).json({ success: false, error: fallback })

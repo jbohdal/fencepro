@@ -44,20 +44,23 @@ export default function TallVinylPrices({ config, onCommit }: {
   function save() {
     setError('')
     const { fenceStyles: next, bad } = applyTallPrices(config.fenceStyles, styles, typed, businessDate(new Date()), s => s.label || styleLabel(s.name))
-    if (bad.length) { setError(`Type a price in dollars (like 412.50) or leave it blank: ${bad.join('; ')}.`); return }
+    if (bad.length) { setError(`Type our cost in dollars (like 412.50) or leave it blank: ${bad.join('; ')}.`); return }
     onCommit({ ...config, fenceStyles: next })
   }
 
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3 mt-5" data-tall-prices>
       <div>
-        <h3 className="text-lg font-bold text-gray-900">8 ft tall vinyl: price by the piece</h3>
+        <h3 className="text-lg font-bold text-gray-900">8 ft tall vinyl: our cost by the piece</h3>
+        <p className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-tall-cost-note>
+          Our cost per section and per post: what we pay, not the customer's price. Overhead and margin are added on top, as for any part.
+        </p>
         <p className="text-xs text-gray-500">
-          One price per section and one per post (corner, end and line), for each 8 ft tall fence. The pull sheet still lists every part at $0:
+          Our cost for one section and for one post (corner, end and line), for each 8 ft tall fence. The pull sheet still lists every part at $0:
           a section is {TALL_VINYL_SECTION[6].rails} rails, {TALL_VINYL_SECTION[6].midRails} mid rail, {TALL_VINYL_SECTION[6].pickets} pickets (4 ft) and {TALL_VINYL_SECTION[6].uChannels} U channels (4 ft) on a 6 ft panel;
           {' '}{TALL_VINYL_SECTION[8].rails} rails, {TALL_VINYL_SECTION[8].midRails} mid rail, {TALL_VINYL_SECTION[8].pickets} pickets, {TALL_VINYL_SECTION[8].uChannels} U channels and {TALL_VINYL_SECTION[8].railInserts} rail inserts on an 8 ft panel.
-          A post price covers the post, its cap and its donuts and pipe or concrete. Gates are priced from their parts, as before.
-          A fence is not available for quoting until both prices are in. Saved quotes keep the prices they were priced with.
+          The post cost covers the post, its cap and its donuts and pipe or concrete. Gates are priced from their parts, as before.
+          A fence is not available for quoting until both costs are in. Saved quotes keep the costs they were priced with.
         </p>
       </div>
       {styles.length === 0 ? <p className="text-sm text-gray-500">There is no 8 ft tall vinyl fence turned on.</p> : (
@@ -69,17 +72,17 @@ export default function TallVinylPrices({ config, onCommit }: {
               <li key={s.name} className="py-3 space-y-2" data-tall-row={s.name}>
                 <div>
                   <span className="block text-sm font-semibold text-gray-900">{s.label || styleLabel(s.name)}</span>
-                  {ok ? <span className="block text-xs text-green-700" data-tall-ready>Available for quoting{s.pieceCents?.pricedOn ? ` · prices from ${s.pieceCents.pricedOn}` : ''}</span>
-                    : <span className="block text-xs text-amber-700" data-tall-held>Not available for quoting{missing.length ? `: the ${missing.join(' and ')} price${missing.length === 1 ? ' is' : 's are'} missing${may ? `, type ${missing.length === 1 ? 'it' : 'them'} below and save` : ' (ask Jonathan)'}` : s.held ? `: ${s.held}` : ''}</span>}
+                  {ok ? <span className="block text-xs text-green-700" data-tall-ready>Available for quoting{s.pieceCents?.pricedOn ? ` · costs from ${s.pieceCents.pricedOn}` : ''}</span>
+                    : <span className="block text-xs text-amber-700" data-tall-held>Not available for quoting{missing.length ? `: our ${missing.join(' and ')} cost${missing.length === 1 ? ' is' : 's are'} missing${may ? `, type ${missing.length === 1 ? 'it' : 'them'} below and save` : ' (ask Jonathan)'}` : s.held ? `: ${s.held}` : ''}</span>}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {(['section', 'post'] as const).map(k => (
-                    <label key={k} className="block text-xs text-gray-600">{k === 'section' ? 'Section price' : 'Post price (corner, end, line)'}
+                    <label key={k} className="block text-xs text-gray-600">{k === 'section' ? 'Our cost per section' : 'Our cost per post (corner, end, line)'}
                       <span className="mt-1 flex items-center gap-1"><span className="text-gray-500">$</span>
                         <input className={inputCls} inputMode="decimal" placeholder="Not entered" disabled={!may} value={typed[`${s.name}|${k}`] ?? ''}
                           onChange={e => setTyped(x => ({ ...x, [`${s.name}|${k}`]: e.target.value }))} data-tall-price={`${s.name}|${k}`} />
                       </span>
-                      {missing.includes(k) && <span className="mt-1 block text-xs text-amber-700" data-tall-missing={`${s.name}|${k}`}>Missing</span>}
+                      {missing.includes(k) && !(typed[`${s.name}|${k}`] ?? '').trim() && <span className="mt-1 block text-xs text-amber-700" data-tall-missing={`${s.name}|${k}`}>Missing</span>}
                     </label>
                   ))}
                 </div>
@@ -91,7 +94,7 @@ export default function TallVinylPrices({ config, onCommit }: {
       {error && <p className="text-sm text-red-700" role="alert" data-tall-error>{error}</p>}
       {may && styles.length > 0 && (
         <div className="flex justify-end">
-          <button type="button" className="btn btn-primary min-h-[44px]" disabled={!changed} onClick={save} data-tall-save>Save 8 ft tall prices</button>
+          <button type="button" className="btn btn-primary min-h-[44px]" disabled={!changed} onClick={save} data-tall-save>Save 8 ft tall costs</button>
         </div>
       )}
     </section>
