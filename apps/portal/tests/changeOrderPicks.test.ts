@@ -5,7 +5,9 @@
  *
  *   price = cost ÷ (1 − Target Margin), Target Margin = Overhead % + Repair
  *   Profit % when that is set, else the style's; whole dollars (rounded down);
- *   no minimum job price; wood × the Wood factor on material and labor.
+ *   no minimum job price; wood: its own wood parts and wood labor (woodChangeOrders.test.ts).
+ *   Sections and gates added or replaced: as a new quote prices them
+ *   (changeOrderAddedPieces.test.ts).
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
@@ -16,6 +18,7 @@ import { pickList, pickPrice, pickOf } from '../../web/src/changeOrderPicks'
 import { estimateConfig } from '../../web/src/estimate'
 import type { QuoteStyle } from '../../web/src/quoteCalc'
 import type { PricingSettings } from '../../web/src/pricingEngine'
+import { OFFER_ADD_PICKS } from '../../web/src/changeOrderPicks'
 
 const WV = "WV-ND 6'x6' Privacy"
 const PRICING: PricingSettings = {
@@ -83,7 +86,7 @@ describe('priced as the Repair price list prices', () => {
     expect(priceChangeOrderPick(common({ overrides: { finalPrice: 9999, laborCost: 500 }, priceAdjust: 0.5, extraLaborHrs: 3 }), { kind: 'part', part: 'Misc, Concrete' }, 2).priceCents).toBe(2200)
   })
 
-  test('a wood job: material × the Wood factor (115 %), as a wood repair is priced', () => {
+  test('a wood style with no wood kit in use (the Oct 19 privacy rows): material × the Wood factor (115 %), as before; real wood jobs: woodChangeOrders.test.ts', () => {
     const wood = style({ name: 'Wood 6ft', woodBase: style() } as Partial<QuoteStyle>)
     // $12.50 × 1.15 = $14.38 ÷ 0.56 = $25.67 → $25.
     expect(priceChangeOrderPick(common({ style: wood }), { kind: 'part', part: 'Misc, Concrete' }, 2).priceCents).toBe(2500)
@@ -98,19 +101,30 @@ describe('the list', () => {
     { id: 'free', name: '*Vinyl section price', unitCost: 0 },
   ]
   const nd = cfg.fenceStyles.find(s => /ND/.test(s.name) && !s.woodBase)!.name
-  test('every repair item (gates twice) and every Inventory item in use with a cost', () => {
+  test.skipIf(!OFFER_ADD_PICKS)('sections and gates to add first, then every repair item (gates twice) and every Inventory item in use with a cost', () => {
     const l = pickList(cfg, inv, { fenceStyle: nd, hasSalesman: false }, 30)
     expect(l.noStyle).toBe(false)
     expect(l.items.filter(i => i.group === 'repair').map(i => i.source)).toEqual([
+      'add:section', 'add:walk', 'add:double',
       'repair:resetPost', 'repair:replacePost', 'repair:repairSection', 'repair:replaceSection', 'repair:rehangGate:walk', 'repair:rehangGate:double',
       'repair:replaceGate:walk', 'repair:replaceGate:double', 'repair:haulDebris', 'repair:footerDisposal', 'repair:pullPost',
     ])
     expect(l.items.filter(i => i.group === 'catalog').map(i => i.source)).toEqual(['catalog:c1'])
     expect(l.items.find(i => i.source === 'repair:replaceGate:double')!.label).toBe('Replace a gate (double gate)')
+    expect(l.items.slice(0, 3).map(i => i.label)).toEqual(['Add a section', 'Add a walk gate', 'Add a double gate'])
+    // Chain link gates go by width: a walk gate 4, 5 and 6 ft, a double gate 8, 10 and 12 ft.
+    const cl = pickList(cfg, inv, { fenceStyle: "CL - 5' Galv", hasSalesman: false }, 30)
+    expect(cl.items.filter(i => i.source.startsWith('add:')).map(i => i.label)).toEqual([
+      'Add a section', 'Add a 4 ft walk gate', 'Add a 5 ft walk gate', 'Add a 6 ft walk gate', 'Add an 8 ft double gate', 'Add a 10 ft double gate', 'Add a 12 ft double gate',
+    ])
   })
-  test('an unknown style or source prices nothing', () => {
+  test.skipIf(!OFFER_ADD_PICKS)('an unknown style or source prices nothing', () => {
     expect(pickList(cfg, inv, { fenceStyle: 'No such style', hasSalesman: false }, 30)).toMatchObject({ noStyle: true, items: [] })
     expect(pickOf('repair:rehangGate', inv)).toBeNull()
+    expect(pickOf('add:fence', inv)).toBeNull()
+    expect(pickOf('add:walk:99', inv)).toBeNull()
+    expect(pickOf('add:section:4', inv)).toBeNull()
+    expect(pickOf('add:double:10', inv)).toMatchObject({ pick: { kind: 'add', piece: 'double', widthFt: 10 }, label: 'Add a 10 ft double gate' })
     expect(pickOf('repair:nothing', inv)).toBeNull()
     expect(pickOf('catalog:off', inv)).toBeNull()
     expect(pickPrice(cfg, inv, { fenceStyle: nd, hasSalesman: false }, 30, 'catalog:c1', 2)).toMatchObject({ qty: 2, label: 'Misc, Concrete' })

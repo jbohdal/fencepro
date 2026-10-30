@@ -87,7 +87,7 @@ import { startDuplicateCheck } from './lib/duplicateCheck.js'
 import { startAutomationWorker } from './lib/automations/queue.js'
 import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
 import { ensureCostReviewAll } from './lib/costReview.js'
-import { ensureWoodAll } from './lib/woodSeed.js'
+import { ensureWoodAll, ensureWoodRealKitsAll } from './lib/woodSeed.js'
 import vendorInvoiceRoutes from './routes/vendor-invoices.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
@@ -517,6 +517,8 @@ if (!isVercel) {
       await ensureStylesOnHoldAll().catch(err => console.error('[styles] on hold check failed:', err))
       // Wood privacy styles, kits and unpriced wood parts: once per company (lib/woodSeed.ts).
       await ensureWoodAll().catch(err => console.error('[wood] check failed:', err))
+      // Real wood kits (Oct 30 2026): renamed vinyl parts and kits archived, real kit and $0 parts added: once per company (lib/woodSeed.ts).
+      await ensureWoodRealKitsAll().catch(err => console.error('[wood] real kits check failed:', err))
       // Chain link Install choice and the unpriced dig set styles: once per company (lib/chainDigSetSeed.ts).
       await ensureChainDigSetAll().catch(err => console.error('[chain link] dig set check failed:', err))
       // Chain link dig set post names with 0.055 wall and size, and hook ties per section on saved kits: once per company (lib/chainDigSetPipes.ts).

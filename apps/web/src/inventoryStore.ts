@@ -6,6 +6,7 @@
  * server, so spam-saves from the inventory page don't hammer the network.
  */
 
+import { inventorySummaryOf, type InventorySummary } from './inventorySummary'
 import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { notePricingPart, registerPricingReload } from './pricingFreshness'
@@ -160,7 +161,8 @@ export interface InventoryItem {
   category: string
   supplier?: string
   unitOfMeasure?: string
-  status?: 'active' | 'inactive' | 'discontinued'
+  /** 'archived': kept, never deleted, hidden from the Catalog list unless asked (a removed color's parts; the white vinyl parts once renamed as wood, Oct 30 2026). */
+  status?: 'active' | 'inactive' | 'discontinued' | 'archived'
   /** Made by Settings → Fence styles for a color or choice added there ("vinyl:color:clay"); removed with it. */
   madeFor?: string
   /** $0 on purpose: a part whose cost is in a section kit or piece price ("*Vinyl, Chai Gray, Section, 6x8", "8 ft tall section price"). Never asked for a price. */
@@ -818,38 +820,8 @@ export function saveSuppliers(suppliers: Supplier[]): void {
 }
 
 // ── Inventory Summary Helpers ──
+// The counts themselves: inventorySummary.ts (pure, tested).
 
-export function getInventorySummary(): {
-  totalItems: number
-  totalValue: number
-  lowStockCount: number
-  outOfStockCount: number
-  categoryCounts: Record<string, number>
-} {
-  const items = getInventory()
-  const levels = getStockLevels()
-
-  let totalValue = 0
-  let lowStockCount = 0
-  let outOfStockCount = 0
-  const categoryCounts: Record<string, number> = {}
-
-  for (const item of items) {
-    const totalQty = levels.filter(s => s.itemId === item.id).reduce((sum, s) => sum + s.quantity, 0)
-    totalValue += totalQty * item.unitCost
-    categoryCounts[item.category] = (categoryCounts[item.category] || 0) + 1
-
-    // Per-location check: an item is low-stock if ANY location is at or below its own reorder point
-    const itemLevels = levels.filter(s => s.itemId === item.id)
-    if (itemLevels.some(s => s.reorderPoint > 0 && s.quantity <= s.reorderPoint)) lowStockCount++
-    if (itemLevels.length > 0 && totalQty === 0) outOfStockCount++
-  }
-
-  return {
-    totalItems: items.length,
-    totalValue,
-    lowStockCount,
-    outOfStockCount,
-    categoryCounts,
-  }
+export function getInventorySummary(): InventorySummary {
+  return inventorySummaryOf(getInventory(), getStockLevels())
 }

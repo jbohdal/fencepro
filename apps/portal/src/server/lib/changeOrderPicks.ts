@@ -13,13 +13,19 @@ import { workNow } from './changeOrderWork.js'
 
 const err = (status: number, message: string) => Object.assign(new Error(message), { status })
 
-/** The job's style now and whether the quote has a salesman (commission), for a quote of this company. */
-async function inputFor(accountId: string, quoteId: string): Promise<{ fenceStyle: string; hasSalesman: boolean }> {
-  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId, deletedAt: null }, select: { fenceStyle: true, hasSalesman: true } })
+/**
+ * The job's style now, whether the quote has a salesman (commission) and the
+ * gates the job has now (a gate added by change order is not charged the once
+ * per job gate parts again; web moveRepair.ts priceAddedPieces), for a quote
+ * of this company.
+ */
+async function inputFor(accountId: string, quoteId: string): Promise<{ fenceStyle: string; hasSalesman: boolean; walkGates: number; dblGates: number }> {
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId, deletedAt: null }, select: { fenceStyle: true, hasSalesman: true, walkGates: true, dblGates: true } })
   if (!q) throw err(404, 'Quote not found')
-  const now = (await workNow(accountId, quoteId)).work as { fenceStyle?: unknown } | null
+  const now = (await workNow(accountId, quoteId)).work as { fenceStyle?: unknown; walkGates?: unknown; dblGates?: unknown } | null
   const fenceStyle = typeof now?.fenceStyle === 'string' && now.fenceStyle ? now.fenceStyle : q.fenceStyle
-  return { fenceStyle, hasSalesman: !!q.hasSalesman }
+  const count = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : d)
+  return { fenceStyle, hasSalesman: !!q.hasSalesman, walkGates: count(now?.walkGates, q.walkGates), dblGates: count(now?.dblGates, q.dblGates) }
 }
 
 export async function pickListFor(accountId: string, quoteId: string) {

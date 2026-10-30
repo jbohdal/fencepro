@@ -49,6 +49,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('chain link dig set pipe names an
     // The dig set and wood steps already ran for this company (as on live).
     const { CHAIN_DS_KEY } = await import('../src/server/lib/chainDigSetSeed.js')
     await prisma.accountKeyValue.create({ data: { accountId, key: CHAIN_DS_KEY, value: { test: true } } })
+    const { WOOD_KEY, WOOD_RESTORE_KEY } = await import('../src/server/lib/woodSeed.js')
+    for (const key of [WOOD_KEY, WOOD_RESTORE_KEY]) await prisma.accountKeyValue.create({ data: { accountId, key, value: { test: true } } })
   })
 
   afterAll(async () => {

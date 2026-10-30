@@ -283,10 +283,11 @@ async function keepApplied(tx: any, id: string, own: Json, applied: StoredWork |
  * every approved change order's change and every still open one's (Waiting
  * for OK, draft, sent), and the open ones it includes.
  */
-export async function startOfChange(accountId: string, quoteId: string, tx: any = prisma): Promise<{ shape: WorkShape; like: Json; quote: Json; open: CoRow[]; steps: FoldedStep[] } | null> {
+export async function startOfChange(accountId: string, quoteId: string, tx: any = prisma, exclude: string | null = null): Promise<{ shape: WorkShape; like: Json; quote: Json; open: CoRow[]; steps: FoldedStep[] } | null> {
   const q = await tx.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q) return null
-  const rows: CoRow[] = await tx.changeOrder.findMany({ where: { accountId, quoteId, deletedAt: null } })
+  // `exclude`: the change order being worked out again (its lines changed), never on top of itself.
+  const rows: CoRow[] = await tx.changeOrder.findMany({ where: { accountId, quoteId, deletedAt: null, ...(exclude ? { id: { not: exclude } } : {}) } })
   const { shape, steps } = foldShapes(q, rows, await deriveFor(accountId), { open: true })
   const last = steps[steps.length - 1]
   const like = last && isObj(last.row.work) && isObj((last.row.work as Json).request) ? (last.row.work as Json).request : requestOfQuote(q)

@@ -489,7 +489,7 @@ function PickSheet({ quoteId, onPick, onClose }: { quoteId: string; onPick: (ite
               {(['repair', 'catalog'] as const).map(g => (
                 <button key={g} type="button" role="tab" aria-selected={group === g} onClick={() => setGroup(g)}
                   className={`min-h-[44px] rounded-lg text-sm font-semibold border ${group === g ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-700'}`} data-co-pick-group={g}>
-                  {g === 'repair' ? 'Repair price list' : 'Catalog'}
+                  {g === 'repair' ? 'Fence and repairs' : 'Catalog'}
                 </button>
               ))}
             </div>
@@ -504,7 +504,7 @@ function PickSheet({ quoteId, onPick, onClose }: { quoteId: string; onPick: (ite
               className="w-full text-left rounded-xl px-3 py-2 min-h-[52px] hover:bg-gray-50 active:bg-gray-100 disabled:hover:bg-transparent disabled:opacity-60 flex items-center justify-between gap-3" data-co-pick-item={i.source} data-co-pick-off={i.off ? 'yes' : undefined}>
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-gray-900">{i.label}</span>
-                <span className="block text-xs text-gray-500 truncate">{words.length ? `${i.group === 'repair' ? 'Repair price list' : 'Catalog'}${i.detail ? ` · ${i.detail}` : ''}` : i.detail}</span>
+                <span className="block text-xs text-gray-500 truncate">{words.length ? `${i.group === 'repair' ? 'Fence and repairs' : 'Catalog'}${i.detail ? ` · ${i.detail}` : ''}` : i.detail}</span>
                 {i.off && <span className="block text-[11px] font-semibold text-gray-700" data-co-pick-off-reason>Not for this job: {i.off}</span>}
                 {!i.off && i.warnings.length > 0 && <span className="block text-[11px] text-amber-800">{i.warnings[0]}</span>}
               </span>
@@ -644,7 +644,7 @@ export function QuickChangeOrderModal({
                           onBlur={() => update(item.id, { qtyText: undefined })}
                           className="w-20 border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm text-right font-normal" data-co-line-qty />
                       </label>
-                      <span className="min-w-0">{item.pricing ? 'Pricing…' : `${item.source.kind === 'repair' ? 'Repair price list' : 'Catalog'}${typeof item.source.listCents === 'number' ? `: ${money(item.source.listCents)}` : ''}`}</span>
+                      <span className="min-w-0">{item.pricing ? 'Pricing…' : `${item.source.kind === 'repair' ? (/^(add:|repair:replace(Section|Gate))/.test(item.source.ref) ? 'Priced as a new quote' : 'Repair price list') : 'Catalog'}${typeof item.source.listCents === 'number' ? `: ${money(item.source.listCents)}` : ''}`}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-2">
@@ -1059,7 +1059,7 @@ function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }:
         )}
         <button type="button" onClick={onLines} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-lines>
           <span className="block font-semibold text-gray-900">Type the change</span>
-          <span className="block text-xs text-gray-600">Pick from the Repair price list or the catalog (add or credit), or type a custom line with a price.</span>
+          <span className="block text-xs text-gray-600">Pick sections and gates to add (priced as a new quote), a repair or a catalog part (add or credit), or type a custom line with a price.</span>
         </button>
       </div>
     </div>

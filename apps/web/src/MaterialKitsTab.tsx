@@ -12,7 +12,7 @@ import { styleLabel } from './fenceCatalog'
 import { useEffect, useMemo, useState } from 'react'
 import { getConfig, getRailOptimizerConfig, type AppConfig } from './configStore'
 import { getInventory, getInventoryUnitCost, getKitSets, saveKitSets, INVENTORY_UPDATED_EVENT } from './inventoryStore'
-import { allKitSets, kitSetFor, withKitSets, withoutBellStandIns, bellSectionCostEntered, BELL_STYLES, BELL_SECTION_PART, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
+import { allKitSets, kitSetFor, kitStyleNote, withKitSets, withoutBellStandIns, bellSectionCostEntered, BELL_STYLES, BELL_SECTION_PART, KIT_KINDS, KIT_LABEL, isAutoKitStyle, type KitSet, type KitKind, type KitPart } from './materialKits'
 import { calculateQuote } from './quoteCalc'
 import { layoutGateWidths } from './yardLayout'
 import { getQuotes } from './quoteStore'
@@ -164,7 +164,7 @@ export default function MaterialKitsTab() {
 
   const status = (s: KitSet) => (s.builtIn ? 'Built in (from the old parts list)' : !s.styleName ? 'Copy, not in use' : s.archived ? 'Archived' : 'In use')
   const inventory = useMemo(() => getInventory(), [])
-  const matches = search.trim() ? inventory.filter(i => i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 8) : []
+  const matches = search.trim() ? inventory.filter(i => i.status !== 'archived' && i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 8) : []
 
   return (
     <div className="space-y-5" data-material-kits>
@@ -176,7 +176,7 @@ export default function MaterialKitsTab() {
       <div className="flex flex-col lg:flex-row gap-3">
         <select data-kit-style className="border border-gray-300 rounded-lg px-3 py-2 text-sm lg:w-80" value={style}
           onChange={e => { setStyle(e.target.value); setSelected(null); setAddTo(null) }}>
-          {styleNames.map(n => <option key={n} value={n}>{styleLabel(n)}{byStyle(n).length ? '' : ' (no parts list)'}</option>)}
+          {styleNames.map(n => <option key={n} value={n}>{styleLabel(n)}{kitStyleNote(byStyle(n))}</option>)}
         </select>
         {(byStyle(style).length > 1 || copies.length > 0) && (
           <select data-kit-set className="border border-gray-300 rounded-lg px-3 py-2 text-sm lg:w-96" value={current?.id ?? ''} onChange={e => setSelected(e.target.value)}>

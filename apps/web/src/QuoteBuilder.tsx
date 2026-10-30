@@ -22,7 +22,7 @@ import { BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
 import { checkPricing, heldPricingStamp, repriceOutcome, draftPriceLine, priceText, samePrice, fenceOffLine, PRICING_CHANGED_EVENT } from './pricingFreshness'
 import { getRailOptimizerConfig } from './configStore'
 import { sourcePicker } from './optionListsStore'
-import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
+import { calculateQuote, widthComparison, laborLabel, type QuoteCalcInput } from './quoteCalc'
 import { layoutPanelFt } from './gateSlide'
 import { defaultGateWidths, deriveLayout, fitGateWidths, formatFtIn, postSpacing, teePostFor, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type YardLayout } from './yardLayout'
 import LayoutEditor, { nextEmptySide } from './LayoutEditor'
@@ -2166,7 +2166,7 @@ export default function QuoteBuilder({
               <div className={`bg-white rounded-xl border border-gray-200 p-4 space-y-2 ${work || !internal ? 'hidden' : ''}`}>
                 {[
                   { label: 'Material cost', val: fmt(materialCost) },
-                  { label: priced.laborMode === 'flat' ? 'Labor (flat)' : priced.laborMode === 'subcontractor' ? `Labor (sub, $${priced.subRate}/${priced.subUnit === 'section' ? 'sec' : 'ft'})` : 'Labor Cost', val: fmt(laborCost) },
+                  { label: laborLabel(priced, calcInput.style), val: fmt(laborCost) },
                   { label: 'Tear out',      val: fmt(tearOutCost) },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between text-sm">

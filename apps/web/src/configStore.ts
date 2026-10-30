@@ -51,7 +51,7 @@ export interface FenceStyle {
   madeFrom?: string
   /** Auto mix made in Settings: the kit set it reads (its own name). */
   kitKey?: string
-  /** Wood: the White Vinyl 6 ft privacy style it is priced from (material and labor × the Wood factor, wood.ts). */
+  /** Wood: the White Vinyl 6 ft privacy style its install labor and repair rates come from (× the Wood factor, wood.ts); its material is its own kit. */
   woodOf?: string
   /** Priced with stand-in parts until Jonathan enters the real supplier cost (WV-ND Bell 4'x6', Oct 2026):
    *  shown on Finish setup and as a badge here; cleared by the server when the style's kit set is
@@ -78,7 +78,7 @@ export interface FenceStyle {
   jobLot?: StyleJobLot
   /** The color's own Target Profit %, when set (wins over the style's). */
   colorTargetProfitPct?: number
-  /** Wood: the vinyl style it is priced from, as read (with its Target Margin), and the Wood factor (1.15). */
+  /** Wood: the vinyl style its labor comes from, as read (with its Target Margin), and the Wood factor (1.15). */
   woodBase?: FenceStyle
   woodFactor?: number
 }

@@ -31,7 +31,7 @@ export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceSt
     const earn = typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
     return { ...s, targetProfitPct: profit, margin: (100 - overhead - earn) / 100 }
   })
-  // Wood is priced from its white vinyl style (wood.ts): that style as read, and the Wood factor.
+  // Wood's install labor (and its moves and repairs) come from its white vinyl style × the Wood factor (wood.ts): that style as read, and the factor.
   const factor = woodFactorOf(cfg)
   const fenceStyles = styles.map(s => {
     if (!s.woodOf) return s

@@ -17,7 +17,7 @@ import { toast } from './toast'
 import { useTierSets, createTierSet, updateTierSet, deleteTierSet } from './tierSetsApi'
 import { listStylePhotos, uploadStylePhoto, deleteStylePhoto, stylePhotoUrl, type StylePhoto } from './stylePhotosApi'
 import {
-  MAX_TIERS, INSTALL_LABEL, WIDTH_LABEL, colorLabel, SAMPLE_YARDS, styleParts, resolveTiers, sampleInput, tierPhotoName,
+  MAX_TIERS, INSTALL_LABEL, WIDTH_LABEL, colorLabel, SAMPLE_YARDS, styleParts, resolveTiers, sampleInput, tierPhotoName, tierChoicesFor,
   type TierSet, type TierSpec, type TierInstall, type TierWidth, type TierColor,
 } from './tiers'
 import { optionLabel } from './proposal'
@@ -28,19 +28,6 @@ import { useSettingsPageSave } from './settingsPageSave'
 const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 h-11 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
 const newKey = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-
-/** What the styles in a category let a tier change. */
-function choicesFor(styles: FenceStyle[]) {
-  const parts = styles.map(s => styleParts(s.name, s)).filter(Boolean)
-  const colors = [...new Set(parts.map(p => p!.color).filter(Boolean))] as TierColor[]
-  const installs = [...new Set(parts.map(p => p!.install).filter(Boolean))] as TierInstall[]
-  const widths = parts.some(p => typeof p!.width === 'number')
-  return {
-    colors: ['same', ...colors] as TierColor[],
-    installs: ['same', ...installs] as TierInstall[],
-    widths: (widths ? ['same', 'cheapest', '6', '8'] : ['same']) as TierWidth[],
-  }
-}
 
 export default function TierSettings() {
   const cfg = useMemo(() => getConfig(), [])
@@ -67,7 +54,7 @@ export default function TierSettings() {
   const categories = useMemo(() => [...new Set(cfg.fenceStyles.map(s => s.category).filter(Boolean))], [cfg])
   const freeCats = categories.filter(c => !ordered.some(s => s.category.toLowerCase() === String(c).toLowerCase()))
   const catStyles = useMemo(() => (draft ? cfg.fenceStyles.filter(s => isQuotable(s) && s.category.toLowerCase() === draft.category.toLowerCase()) : []), [cfg, draft?.category])  // eslint-disable-line react-hooks/exhaustive-deps
-  const choices = useMemo(() => choicesFor(catStyles), [catStyles])
+  const choices = useMemo(() => tierChoicesFor(catStyles), [catStyles])
   // Color names from Settings → Fence styles (colors added later included).
   const colorNames = useMemo(() => colorNamesOf(cfg), [cfg])
 
@@ -217,11 +204,14 @@ export default function TierSettings() {
                         {keep(choices.installs, t.install).map(v => <option key={v} value={v}>{INSTALL_LABEL[v]}</option>)}
                       </select>
                     </label>
+                    {/* One section width in the category (wood: 8 ft only): no width to pick. */}
+                    {(choices.widths.length > 1 || t.width !== 'same') && (
                     <label className="block text-xs text-gray-600">Section width
                       <select className={inputCls + ' mt-1'} value={t.width} disabled={!!t.style} onChange={e => setTier(i, { width: e.target.value as TierWidth })} data-tier-width>
                         {keep(choices.widths, t.width).map(v => <option key={v} value={v}>{WIDTH_LABEL[v]}</option>)}
                       </select>
                     </label>
+                    )}
                     <label className="block text-xs text-gray-600">Color
                       <select className={inputCls + ' mt-1'} value={t.color} disabled={!!t.style} onChange={e => setTier(i, { color: e.target.value as TierColor })} data-tier-color>
                         {keep(choices.colors, t.color).map(v => <option key={v} value={v}>{colorLabel(v, colorNames)}</option>)}

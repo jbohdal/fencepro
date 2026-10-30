@@ -68,6 +68,11 @@ export interface KitCounts {
   end: number
   /** One blank post at the center of every double gate. */
   blank: number
+  /**
+   * Posts each side of a gate, taken out of `end` where the kit set has a gate
+   * post kit (materialKits.ts withGatePosts; wood). Never set by the counting.
+   */
+  gatePost?: number
   /** Walk gates with no kit of their own width: 4 ft, a typed count (no width), or a width the takeoff sheet has no row for. */
   walkGate: number
   /** Double gates with no kit of their own width: 8 ft, a typed count, or a width with no sheet row. */
@@ -89,6 +94,13 @@ export interface KitCounts {
   perJob: number
   /** Gate widths the takeoff sheet has no row for (priced as the 4 ft / 8 ft gate), named on the quote. */
   gateNotes?: string[]
+  /**
+   * Pieces added to a sold job (a change order, addedCounts below): no part is
+   * rounded up to a whole one, so a bag of ties or a roll of fabric the job
+   * already has is charged as the share these pieces use, the same share a new
+   * quote's price per section carries.
+   */
+  exact?: boolean
 }
 export interface KitLine {
   part: string; qty: number; fallbackCost: number
@@ -272,6 +284,30 @@ export interface JobInputs {
   extraLinePosts?: number
   /** Each gate's width in feet, from the yard drawing (yardLayout.ts gateWidthsOf). Used only when it has one width for every gate. */
   gateWidths?: GateWidths | null
+  /** Pieces added to a sold job that has these gates (a change order): addedCounts. */
+  addedTo?: AddedTo | null
+}
+
+/**
+ * Sections, posts and gates added to a job that is already sold (a change
+ * order line, Jonathan, Oct 30 2026: "Added sections and gates on a change
+ * order should price the same as on a new quote"). The job already has its
+ * once per job parts, so they are not counted again: the once per job kit
+ * never, and the once per job gate kits (any gate, any walk gate, any double
+ * gate) only when the job had no gate of that kind before. Nothing is rounded
+ * up to a whole one (KitCounts.exact). Everything else is the new quote's own
+ * count of the pieces.
+ */
+export interface AddedTo { walkGates: number; dblGates: number }
+export function addedCounts(counts: KitCounts, addedTo: AddedTo | null | undefined): KitCounts {
+  if (!addedTo) return counts
+  const had = (n: unknown) => typeof n === 'number' && n > 0
+  return {
+    ...counts, perJob: 0, exact: true,
+    anyGate: had(addedTo.walkGates) || had(addedTo.dblGates) ? 0 : counts.anyGate,
+    anyWalkGate: had(addedTo.walkGates) ? 0 : counts.anyWalkGate,
+    anyDblGate: had(addedTo.dblGates) ? 0 : counts.anyDblGate,
+  }
 }
 
 /** Each gate's opening width in feet, one entry per gate. */
@@ -327,7 +363,7 @@ export interface LineItem {
   costSource?: 'inventory' | 'builtin' | 'jobLot' | 'wood'
   /** A job lot piece price line (section, post, gate): money only, not a part to pull or order. */
   jobLotPiece?: boolean
-  /** Money only, not a part to pull or order: wood's material (white vinyl × the Wood factor, wood.ts). Wood parts themselves are listed at $0 ('wood'). */
+  /** Money only, not a part to pull or order: the material of a move or repair on a wood style with no wood kit in use (the Oct 19 privacy rows: white vinyl × the Wood factor, moveRepair.ts woodWork), and quotes saved before Oct 30 2026. Parts named for the crew there are listed at $0 ('wood'). */
   moneyOnly?: boolean
 }
 
@@ -558,11 +594,11 @@ export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const { fenceStyle: s, runs, corners, ends, walkGates, dblGates } = inputs
   const w = inputs.sectionWidth
   const perRun = w ? runs.map(ft => sectionsForRun(ft, w)) : null
-  const counts: KitCounts = {
+  const counts: KitCounts = addedCounts({
     section: perRun ? perRun.reduce((t, n) => t + n, 0) : totalSections(runs, s), section8: 0,
     line: (perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s)) + extraLines(inputs.extraLinePosts), corner: corners, end: ends,
     blank: dblGates, ...gateCounts(walkGates, dblGates, inputs.gateWidths), perFoot: totalFt(runs), perJob: 1,
-  }
+  }, inputs.addedTo)
   return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)
     ?? legacyCalculateMaterialsDetailed(inputs)
 }
@@ -1171,6 +1207,8 @@ export interface MixedJobInputs {
   jobLot?: StyleJobLot
   /** Line posts beyond the runs' own (sections − 1 per run): vinyl tees from the yard layout (yardLayout.ts VINYL_TEE_POST). */
   extraLinePosts?: number
+  /** Pieces added to a sold job that has these gates (a change order): addedCounts. */
+  addedTo?: AddedTo | null
 }
 
 /** Whole line posts to add (a missing or bad count adds none). */
@@ -1204,10 +1242,10 @@ export function calculateMixedMaterialsDetailed(input: MixedJobInputs): Material
     if (sec > 1) line += sec - 1
   }
   line += extraLines(input.extraLinePosts)
-  const counts: KitCounts = {
+  const counts: KitCounts = addedCounts({
     section, section8, line, corner: input.corners, end: input.ends, blank: input.dblGates,
     ...gateCounts(input.walkGates, input.dblGates), perFoot: input.runs.reduce((t, r) => t + r.ft, 0), perJob: 1,
-  }
+  }, input.addedTo)
   if (input.kitKey) {
     // A style made from Settings has only its kits; the old white / tan lists are not its parts.
     const own = fromKits(input.kitKey, counts, input.tearOutSections, input.tearOutGates, () => [], input.jobLot)
