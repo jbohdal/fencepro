@@ -1,5 +1,5 @@
 /**
- * Fence moves and repairs (web/src/moveRepair.ts), wood (web/src/wood.ts),
+ * Fence moves and repairs (web/src/moveRepair.ts), wood moves and repairs (web/src/wood.ts; new wood fences: woodRealKits.test.ts),
  * the minimum job price and who sees the cost lines. Every number below is
  * worked by hand from the built in White Vinyl no dig 6'x6' kits at the costs
  * in PRICES (the kits' own parts list costs), so a formula that changes shows.
@@ -15,7 +15,7 @@ import {
 import { calculateQuote, type QuoteStyle } from '../../web/src/quoteCalc'
 import { estimateConfig } from '../../web/src/estimate'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
-import { planWood, woodPartName, WOOD_OF } from '../../web/src/wood'
+import { planWood, woodPartName, WOOD_OF, WOOD_OLD_OF, WOOD_REAL_STYLES } from '../../web/src/wood'
 import { buildWorkProposal, workOption } from '../../web/src/proposal'
 import type { PricingSettings } from '../../web/src/pricingEngine'
 
@@ -267,65 +267,45 @@ describe('who sees costs (spec 7)', () => {
   })
 })
 
-describe('wood (× the Wood factor on material and labor)', () => {
-  const vinylStyles = DEFAULT_FENCE_STYLES
-  const plan = planWood({ fenceStyles: vinylStyles, items: [], kits: [] })
+describe('wood moves and repairs (× the Wood factor on the white vinyl rates)', () => {
+  // The three real wood styles (planWood) and the four Oct 19 privacy rows live still has.
+  const oldRows = Object.entries(WOOD_OLD_OF).map(([name, v]) => {
+    const [, , height, install, width] = name.split('/')
+    return { id: name, name, category: 'Wood', margin: 0.6, sectionsPerMH: 0.8, panelWidth: Number(width), mhPerWalkGate: 2.4, mhPerDblGate: 4.8, isActive: true, material: 'wood', choices: { style: 'privacy', height, install, width }, woodOf: v } as any
+  })
+  const plan = planWood({ fenceStyles: [...DEFAULT_FENCE_STYLES, ...oldRows], items: [], kits: [] })
   const cfg = estimateConfig({ fenceStyles: plan.state.fenceStyles, pricing: { ...PRICING, overheadPct: 30 } as any })
   const st = (n: string) => cfg.fenceStyles.find(s => s.name === n)!
-  test('four wood styles, one per White Vinyl 6 ft privacy install and width; wood parts named, unpriced', () => {
-    expect(plan.styles.sort()).toEqual(Object.keys(WOOD_OF).sort())
-    expect(plan.items.length).toBeGreaterThan(0)
-    expect(plan.state.items.every(i => i.unitCost === 0)).toBe(true)
+  test('planWood: the three real wood styles, their kits and parts, never a renamed vinyl part or kit; labor base attached to every wood style', () => {
+    expect(plan.styles).toEqual(WOOD_REAL_STYLES)
+    expect(plan.kits).toEqual(WOOD_REAL_STYLES)
+    expect(plan.state.items.some(i => /5" x 5"|U-Trim|Rivet|62-1\/4/.test(i.name))).toBe(false)
     expect(woodPartName('*Vinyl, White, Picket, 62-1/4"')).toBe('Wood, Picket, 62-1/4"')
     expect(woodPartName('ND, Donut')).toBe('ND, Donut')
-    expect(planWood(plan.state).styles).toEqual([])   // twice: nothing more
+    const again = planWood(plan.state)   // twice: nothing more
+    expect([again.styles, again.items, again.kits]).toEqual([[], [], []])
     for (const [w, v] of Object.entries(WOOD_OF)) expect(st(w).woodBase?.name).toBe(v)
   })
-  test('new fence: material and labor exactly 115% of the same job in vinyl (rounded to the cent once per total)', () => {
-    setSavedKitSets(() => plan.state.kits)
-    try {
-      for (const [w, v] of Object.entries(WOOD_OF)) {
-        const job = { runs: [{ ft: 100 }], corners: 0, ends: 2, walkGates: 1, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: cfg.pricing, optimizer: cfg.railOptimizer! }
-        const vin = calculateQuote({ ...job, style: st(v) })
-        const wood = calculateQuote({ ...job, style: st(w) })
-        expect(wood.materialCost).toBe(Math.round(vin.materialCost * 1.15 * 100) / 100)
-        expect(wood.priced.laborCost).toBe(Math.round(vin.priced.laborCost * 1.15 * 100) / 100)
-        expect(wood.sections).toBe(vin.sections)
-        expect(wood.materials.items.filter(i => !i.moneyOnly).every(i => i.unitCost === 0)).toBe(true)
-        expect(wood.materials.items.some(i => /^Wood, Picket/.test(i.item))).toBe(true)
-      }
-    } finally { setSavedKitSets(() => []) }
-  })
   test('move and repair: material and labor exactly 115% of vinyl; disposal as it is', () => {
-    const w = st('wood/privacy/6/nd/6'), v = st(WV)
-    const c = (s: QuoteStyle) => ({ ...common(s), pricing: cfg.pricing })
-    const mw = priceMove(c(w), mv({ oldWalkGates: 1 }), straight(100, 1)), mvv = priceMove(c(v), mv({ oldWalkGates: 1 }), straight(100, 1))
-    expect(mw.materialCents).toBe(Math.round(mvv.materialCents * 1.15))
-    expect(mw.laborCents).toBe(Math.round(mvv.laborCents * 1.15))
-    expect(mw.disposalCents).toBe(mvv.disposalCents)
-    const rep = { what: 'storm' as const, items: { replaceSection: 2 }, postType: 'nd' as const, newPostCaps: false, gateKind: 'walk' as const }
-    const rw = priceRepair(c(w), rep), rv = priceRepair(c(v), rep)
-    expect(rw.materialCents).toBe(Math.round(rv.materialCents * 1.15))
-    expect(rw.laborCents).toBe(Math.round(rv.laborCents * 1.15))
-    expect(rw.pullSheet.some(i => /^Wood, Picket/.test(i.item) && i.unitCost === 0)).toBe(true)
+    for (const [wn, vn] of [['wood/privacy/6/nd/6', WV], [WOOD_REAL_STYLES[0], "WV-DS 6'x8' Privacy"]]) {
+      const w = st(wn), v = st(vn)
+      const c = (s: QuoteStyle) => ({ ...common(s), pricing: cfg.pricing })
+      const mw = priceMove(c(w), mv({ oldWalkGates: 1 }), straight(100, 1)), mvv = priceMove(c(v), mv({ oldWalkGates: 1 }), straight(100, 1))
+      expect(mw.materialCents).toBe(Math.round(mvv.materialCents * 1.15))
+      expect(mw.laborCents).toBe(Math.round(mvv.laborCents * 1.15))
+      expect(mw.disposalCents).toBe(mvv.disposalCents)
+      const rep = { what: 'storm' as const, items: { replaceSection: 2 }, postType: wn.includes('/nd/') ? 'nd' as const : 'ds' as const, newPostCaps: false, gateKind: 'walk' as const }
+      const rw = priceRepair(c(w), rep), rv = priceRepair(c(v), rep)
+      expect(rw.materialCents).toBe(Math.round(rv.materialCents * 1.15))
+      expect(rw.laborCents).toBe(Math.round(rv.laborCents * 1.15))
+      expect(rw.pullSheet.some(i => /^Wood, Picket/.test(i.item) && i.unitCost === 0)).toBe(true)
+    }
   })
-  test('the 15 unpriced wood parts never warn on a wood quote (new fence, move, repair)', () => {
-    // Inventory as it is: every kit part priced, the wood parts in Inventory at $0.
-    const map: Record<string, number> = { 'Tear Out Haul-Away Fence': 9.5, 'Tear Out Haul-Away Gate': 27 }
-    for (const n of Object.values(WOOD_OF)) { const k = builtInKitSet(n)!; for (const kind of KIT_KINDS) for (const p of k.kits[kind] ?? []) map[p.part] = p.fallbackCost }
-    for (const i of plan.state.items) map[i.name] = 0
-    expect(plan.state.items.length).toBe(15)
-    setMaterialPriceSource(priceSourceFromMap(map))
+  test('a wood move or repair never warns about the wood names it lists at $0', () => {
     setSavedKitSets(() => plan.state.kits)
-    const priceWords = /price|inventory|\$0|not priced|missing/i
     try {
       for (const w of Object.keys(WOOD_OF)) {
-        const s = st(w)
-        const q = calculateQuote({ style: s, runs: [{ ft: 100 }], corners: 0, ends: 2, walkGates: 1, dblGates: 1, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: cfg.pricing, optimizer: cfg.railOptimizer! })
-        expect(q.materials.items.some(i => /^Wood, /.test(i.item))).toBe(true)
-        expect(q.materials.warnings.filter(x => priceWords.test(x))).toEqual([])
-        expect(matchRisk(s)).toBeNull()
-        const c = { ...common(s), pricing: cfg.pricing }
+        const c = { ...common({ ...st(w), held: undefined } as QuoteStyle), pricing: cfg.pricing }
         const mvw = priceMove(c, mv({ oldWalkGates: 1 }), straight(100, 1))
         const rpw = priceRepair(c, { what: 'storm', items: { replaceSection: 2, replacePost: 1, replaceGate: 1 }, postType: 'nd', newPostCaps: true, gateKind: 'walk', debrisCleared: true })
         for (const r of [mvw, rpw]) {
@@ -333,15 +313,11 @@ describe('wood (× the Wood factor on material and labor)', () => {
           expect(r.warnings.filter(x => /not in Inventory|no Inventory price/i.test(x))).toEqual([])
         }
       }
-    } finally {
-      const back: Record<string, number> = { 'Tear Out Haul-Away Fence': 9.5, 'Tear Out Haul-Away Gate': 27 }
-      for (const n of [WV, WVDS, "WV-ND 6'x8' Privacy", "WV-DS 6'x8' Privacy", "CL - 4' Galv", 'Alum - ND - Emily - 48']) { const k = builtInKitSet(n)!; for (const kind of KIT_KINDS) for (const p of k.kits[kind] ?? []) back[p.part] = p.fallbackCost }
-      setMaterialPriceSource(priceSourceFromMap(back))
-      setSavedKitSets(() => [])
-    }
+    } finally { setSavedKitSets(() => []) }
   })
   test('the Wood factor is a setting', () => {
     const c2 = estimateConfig({ fenceStyles: plan.state.fenceStyles, pricing: { ...PRICING, overheadPct: 30 } as any, moveRepair: { woodFactorPct: 120 } } as any)
     expect(c2.fenceStyles.find(s => s.name === 'wood/privacy/6/nd/6')!.woodFactor).toBe(1.2)
+    expect(c2.fenceStyles.find(s => s.name === WOOD_REAL_STYLES[2])!.woodFactor).toBe(1.2)
   })
 })

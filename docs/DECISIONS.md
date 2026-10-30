@@ -3,6 +3,25 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-30: wood is priced from real wood parts; the 15% is labor and repairs only
+
+Jonathan: "The 15% is for wood labor and repair rates only. Archive (don't delete) every vinyl part renamed as wood, and take them out of the wood kits. Build real wood kits ... made of real wood parts ... Every new part goes into Inventory at $0, named plainly so I can find them. I'll enter all the prices myself in the app. Each wood style turns on by itself once all its parts have a price, like the other styles. Wood labor stays at vinyl's rate +15%." Later the same day he gave the styles and parts: 6 ft tall only, dig set, 8 ft sections; Stockade, Board on Board and Shadow Box; gates on a steel frame, hinges included, $350.
+
+- **Replaces the Oct 19 rule** (wood = matching White Vinyl style × Wood factor, material and labor), which was a mistake.
+- **Styles:** three, each its own style and kit: Wood Stockade / Board on Board / Shadow Box, 6 ft tall, 8 ft panels, Dig set (`wood/stockade/6/ds/8`, `wood/bob/6/ds/8`, `wood/sb/6/ds/8`). The four Oct 19 "Privacy" wood styles stay as rows, held: Privacy, No dig and 6 ft panels are archived in the choice tree. Saved quotes on them keep their saved prices (the sent quote of Oct 23, $1,039, unchanged).
+- **Materials:** a new wood fence's material is its own kit priced from Inventory, the same way as any other style; each wood part shows on the pull sheet at its Inventory price. No "Wood material × 115%" line any more.
+- **Labor:** WV-DS 6'x8' Privacy install labor × the Wood factor (Settings → Moves and Repairs, 115%), for all three. Tear out and extra hours unchanged.
+- **Moves and repairs** on a wood fence: unchanged (White Vinyl rates × the Wood factor).
+- **The kits (set Oct 30, editable in Inventory > Material Kits):**
+  - Posts, all styles: line, corner and end one 4x4x8' pressure treated post and 1 bag of concrete; each side of a gate a 6x6x8' gate post and 2 bags (a new kit kind, "Gate post", used in place of an end post: 2 a gate, never more than the end posts).
+  - 8 ft section: 3 2x4x8' rails; the style's own pickets (Stockade 17, Board on Board 22, Shadow Box 22); 6 nails a picket; 12 rail screws.
+  - Gates: a steel gate frame a leaf, hinges included (no rails, brace, hinges or nails); the style's pickets at its pickets per foot, rounded up per leaf (Stockade 4/5/6 ft: 9/11/13; Board on Board and Shadow Box: 11/14/17); 4 self-tapping screws a picket; 1 latch a gate. A double gate is two leaves (8 ft two 4 ft, 10 ft two 5 ft, 12 ft two 6 ft) and closes on a drop rod, no center post: one "Drop Rod, 48", Black" a job with any double gate (TAKEOFF_RULES, Wood DS styles).
+  - No post caps. Concrete and the drop rod are the Inventory items already priced.
+- **New parts** (13, category Wood): Wood, PT Post, Line / Corner / End, 4x4x8'; Wood, PT Post, Gate, 6x6x8'; Wood, PT Rail, 2x4x8'; Wood, Picket, Stockade / Board on Board / Shadow Box, 1x6x6' (one style each); Wood, Nail, Picket, 2" Ring Shank; Wood, Screw, Rail, 3" Exterior; Wood, Screw, Picket to Steel Frame, Self-Tapping; Wood, Gate Latch: all $0 until Jonathan types them. Wood, Steel Gate Frame (hinges included): $350, his price.
+- **Turns on by itself:** each wood style is held ("Wood is waiting for prices on N parts in Inventory") while any part of its kit has no price, and is available for quoting as soon as every part has one: the quote builder, the server's save check and the website quote read the same rule.
+- **Archived, never deleted:** the white vinyl parts renamed as wood (Inventory, hidden from the Catalog list unless "Show them") and the four kits made from vinyl kits. The wood material, turned off by hand on live that morning, is turned back on by the same one-time step; the price check holds it until priced.
+- **In the app:** apps/web/src/wood.ts (WOOD_KITS, WOOD_PARTS, planWoodRealKits), quoteCalc.ts (woodQuote), materialKits.ts (gatePost, withGatePosts), fenceCatalog.ts (resolveFenceStyles); the one-time step apps/portal/src/server/lib/woodSeed.ts (`migration:wood-real-kits-2026-10-30`); pinned in apps/portal/tests/woodRealKits.test.ts and woodRealKits.db.test.ts.
+
 ## 2026-10-29 (night): 8 ft tall post price is the vinyl post only
 
 Jonathan: "8 ft tall vinyl is underpriced, fix tonight. My piece prices cover only the vinyl: Section price = all the vinyl in a section (pickets, rails, mid rail, U channels, inserts). That part is correct. Post price = the vinyl post ONLY. Everything else must be priced from Inventory at its real price and show on the pull sheet with that price: post caps, donuts, pipe (no dig), concrete (dig set), and anything else that isn't the vinyl section or the vinyl post."
