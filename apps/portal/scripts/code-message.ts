@@ -72,7 +72,11 @@ async function main() {
   const misuse = liveDatabaseMisuse(process.env.DATABASE_URL, process.cwd())
   if (misuse) { console.error(misuse); process.exit(2) }
 
-  // Loaded after the checks above, so nothing opens the database before them.
+  // Loaded after the checks above, so nothing opens the database before them. The app's shared client
+  // (lib/prisma.ts) takes this quiet one: no database query lines in the script's answer on a dev copy.
+  const { PrismaClient } = await import('@prisma/client')
+  const g = globalThis as unknown as { prisma?: InstanceType<typeof PrismaClient> }
+  g.prisma ??= new PrismaClient({ log: ['error'] })
   const { default: prisma } = await import('../src/server/lib/prisma.js')
   const { createCodeMessage, codeMessagePath } = await import('../src/server/lib/codeMessages.js')
   try {
