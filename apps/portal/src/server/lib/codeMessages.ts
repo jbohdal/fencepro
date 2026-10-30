@@ -15,7 +15,7 @@
  *     lib/salesmanChoice.ts isOwnerLogin finds him (every active super_admin
  *     login; with none, the oldest active admin). Never the other admins, the
  *     office, a Salesman or an Installer. Tapping it opens the message in the
- *     app (/messages-from-code?m=<id>).
+ *     app (/messages-from-code?msg=<id>).
  *   - The phone push goes through lib/automations/push.ts sendPush, so the
  *     outbound gate (lib/outboundGate.ts) decides: only the live install
  *     reaches the phone; anywhere else it is written to the dev outbox.
@@ -45,7 +45,7 @@ export const CODE_MESSAGE_TITLE_MAX = 200
 export const CODE_MESSAGE_BODY_MAX = 100_000
 
 /** The app's address for one message (where the push opens). */
-export const codeMessagePath = (id: string) => `/messages-from-code?m=${encodeURIComponent(id)}`
+export const codeMessagePath = (id: string) => `/messages-from-code?msg=${encodeURIComponent(id)}`
 
 export function isCodeMessageKind(k: unknown): k is CodeMessageKind {
   return typeof k === 'string' && (CODE_MESSAGE_KINDS as readonly string[]).includes(k)

@@ -5,7 +5,7 @@
  *   - a message is saved and its title pushed to the owner's phones only:
  *     another admin (Christa's kind of login), the office, a Salesman and an
  *     Installer each have a phone signed up too, and none of them gets it;
- *   - the push opens the message (/messages-from-code?m=<id>);
+ *   - the push opens the message (/messages-from-code?msg=<id>);
  *   - the script, run as a command, saves it and writes the push to the dev
  *     outbox (the gate is shut in tests), for the owner only;
  *   - the API: the owner lists them newest first, opens one (all its
@@ -97,7 +97,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Messages from Code (dev database
     const p = JSON.parse(payloads[pushed.indexOf(ownerEndpoint)])
     expect(p.title).toBe('Needs your answer')
     expect(p.body).toBe(`${tag} Which hinge for the 5 ft gate?`)
-    expect(p.url).toBe(`/messages-from-code?m=${saved.id}`)
+    expect(p.url).toBe(`/messages-from-code?msg=${saved.id}`)
     const row = await prisma.codeMessage.findUnique({ where: { id: saved.id } })
     expect(row?.kind).toBe('needs_answer')
     expect(row?.body).toBe('Line one\n\n- a\n- b')
