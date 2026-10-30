@@ -46,6 +46,8 @@ export interface PipelineLead {
   jobId?: string
   /** Hand placed position on the board. Only counts while the card is still in `stage`. */
   boardOrder?: { stage: string; rank: number }
+  /** A website instant quote the customer stopped part way through (cleared when they send it; lib/widgetPartialLead.ts). */
+  unfinishedQuote?: boolean
 }
 
 
