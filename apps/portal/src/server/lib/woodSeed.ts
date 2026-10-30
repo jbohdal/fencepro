@@ -2,8 +2,9 @@
  * Wood privacy fence (web/src/wood.ts).
  *
  * ensureWood: the wood styles, the wood material in a saved choice tree, and
- * (since Oct 30 2026) the three real wood styles (Stockade, Board on Board,
- * Shadow Box) with their kits and parts in Inventory. Added once per company, ever: recorded under a fixed key
+ * (since Oct 30 2026) the six real wood styles (Stockade, Board on Board,
+ * Shadow Box, each with PT Pine or Alta Premium pickets) with their kits and
+ * parts in Inventory. Added once per company, ever: recorded under a fixed key
  * (AccountKeyValue 'migration:wood-styles-2026-10'), so a wood style Jonathan
  * later turns off or edits stays as he left it. It never makes a renamed
  * vinyl part or kit any more.
@@ -11,8 +12,9 @@
  * ensureWoodRealKits (Oct 30 2026, 'migration:wood-real-kits-2026-10-30'):
  * once per company, after ensureWood. Archives (never deletes) the white
  * vinyl parts renamed as wood on Oct 19 and the kits made from them, adds the
- * three real wood styles, their kits and their new parts ($0; the steel gate
- * frame at $350), adds the three styles to the choice tree and archives
+ * six real wood styles, their kits and their new parts at Jonathan's costs
+ * (wood.ts WOOD_PARTS; the self-tapping screw $0 until he prices it), adds
+ * the styles and picket grades to the choice tree and archives
  * wood's Privacy, No dig and 6 ft panel choices, and turns the wood material
  * back on (its parts' prices hold it until they are typed). If Jonathan turns wood off again afterwards, it
  * stays off: this never runs twice.
