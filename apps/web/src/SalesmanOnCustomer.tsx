@@ -48,7 +48,7 @@ export default function SalesmanOnCustomer({ customerId, salesRep }: { customerI
     // Open quotes (and their commission) go with the customer; sold ones stay with whoever sold them (portal lib/quotesFollowCustomer.ts).
     const quotes = n ? ` ${n === 1 ? 'Their open quote is' : `Their ${n} open quotes are`} ${r.assignedTo}'s now too; sold jobs stay with whoever sold them.` : ''
     setDone(was
-      ? `${r.assignedTo} is the Salesman now and sees this customer.${quotes} ${was} no longer does, unless ${was} made one of their quotes or has a visit booked with them.`
+      ? `${r.assignedTo} is the Salesman now and sees this customer.${quotes} ${was} no longer does, unless a signed quote of theirs is still ${was}'s (${was} then keeps that quote, its job and the customer).`
       : `${r.assignedTo} is the Salesman.${quotes}`)
   }
 

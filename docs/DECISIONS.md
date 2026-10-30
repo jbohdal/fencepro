@@ -3,6 +3,19 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-30: a Salesman's save is never refused whole; her phone follows a move
+
+- **Lost data (reviewer, Oct 30):** a business record save from Christa's phone carrying a pull sheet for a quote no longer hers (after a move, or her quote for another Salesman's new customer, live since Oct 29 21:43) was refused 404 whole. It stayed in the phone's outbox and was sent again every 15 to 30 s, even after a reload, and her later saves were merged into it and never reached the server.
+  - **Now** (portal lib/salesScopeRecords.ts, routes/business-state.ts, kv.ts): an entry for someone else's customer, quote or job is left out of the save (`leftOut` in the answer; a stored one stays as stored) and the rest is saved. A NEW entry for a quote she wrote or a customer she entered is taken (written, never read back): the pull sheet of her quote for Sam's new customer saves.
+  - **Her phone** (web versionedDoc.ts, syncGuard.ts): an answer with `leftOut` carries her copy as saved; the phone takes it, says "N entries were for a customer or quote that is no longer yours", and never sends them again. A phone holding the stuck save recovers on its next try, since the server no longer refuses it.
+  - **Live, read only (Oct 30, 03:20 UTC):** no quote or customer was saved by a Salesman since the deploy at 01:43 UTC (Christa's last quote save was Oct 29 20:32 UTC), so nothing is missing on live.
+- **After saving for another Salesman** (web App.tsx): no window opens to send the proposal; the toast says the quote and customer are that Salesman's now and leave her list.
+- **Her open screens follow a move:** a small list refresh (?since=) of customers, quotes and jobs carries `keepOnly` (her ids of that kind) and the phone drops the rest; the board's answer carries a `scopeKey`, so a changed scope sends the board again; an appointment that left her comes as a removal. Opening or saving a quote, job or customer moved away answers 404 `MOVED` with the person's name, and the app says "The owner moved this to <name>. It is off your list now." (outbox: dropped, never sent again; the quote window, the job page, the warranty box and the job cost box say it instead of "check the connection").
+- **The owner's call, for Jonathan to confirm:** when the owner moves a customer, its UPCOMING visits (not call backs, not done, cancelled or no show, from now on) that were with the old Salesman go to the new one, as D7 moves the call backs; the History line says so. Past visits and visits with anyone else stay. An appointment she keeps for a customer she can no longer open says so on the visit ("<customer> is Sam's customer now, so you can't open the customer or start a quote").
+- **The owner's message after Change** now says the old Salesman keeps the customer only through a signed quote still theirs.
+- **Name split** on the quote's New Customer stays as decided Oct 27 (web personName.ts): on the last space, so "Mary Ann Smith" is Mary Ann / Smith; "Sam REVIEWMOVE Two" is "Sam REVIEWMOVE" / "Two" by that rule. Both boxes can be changed before saving.
+- Pinned in portal tests/salesLeftOut.test.ts, salesScopeAfterMove.db.test.ts, salesScopeRecords.db.test.ts, outbox.test.ts.
+
 ## 2026-10-29: after a move, the rep on a quote or job decides what the Salesman sees
 
 - **Jonathan** (Oct 29): "Christa's quotes after a move: unsold ones leave her list. Signed ones she sold stay with her."

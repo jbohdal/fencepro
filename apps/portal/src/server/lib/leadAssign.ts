@@ -38,7 +38,7 @@ import { loadPipelineStages } from './pipelineStages.js'
 import { isFinishedStage } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
-import { moveCallbacks } from './leadCallback.js'
+import { moveCallbacks, moveUpcomingVisits, loginForRep } from './leadCallback.js'
 import type { PushMessage, PushResult } from './automations/push.js'
 import { moveOpenQuotes, type MovedQuote } from './quotesFollowCustomer.js'
 
@@ -357,10 +357,12 @@ export async function assignLead(input: { accountId: string; contactId: string; 
   }
   // The call back moves with the lead (Jonathan, Oct 29 2026, D7): its open call backs go to the new person.
   const callbackIds = await moveCallbacks(accountId, contactId, target)
+  // So do the upcoming visits that were with the Salesman it moves from (the owner's call, Oct 30 2026; lib/leadCallback.ts).
+  const visitIds = current ? await moveUpcomingVisits(accountId, contactId, await loginForRep(accountId, current.name), current.name, target) : []
   await prisma.crmContactNote.create({
     data: {
       crmContactId: contactId, accountId, isPinned: false,
-      body: `${ASSIGN_NOTE_PREFIX}${target.name} by ${input.by.name}.${current ? ` It was ${current.name}'s.` : ''}${callbackIds.length ? ` The call back went with it.` : ''}`,
+      body: `${ASSIGN_NOTE_PREFIX}${target.name} by ${input.by.name}.${current ? ` It was ${current.name}'s.` : ''}${callbackIds.length ? ` The call back went with it.` : ''}${visitIds.length ? ` ${visitIds.length === 1 ? 'The upcoming visit went' : `The ${visitIds.length} upcoming visits went`} with it.` : ''}`,
       createdBy: input.by.name, createdById: input.by.id,
     },
   })

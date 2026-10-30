@@ -259,6 +259,11 @@ export function VisitWindow({ a, onClose, onOutcome }: { a: Appointment; onClose
           </div>
           <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl px-2">✕</button>
         </div>
+        {a.customerNotYours !== undefined && (
+          <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2" data-visit-not-yours>
+            {a.customerName || 'This customer'} {a.customerNotYours ? `is ${a.customerNotYours}'s customer now` : 'is not on your list any more'}, so you can't open the customer or start a quote. Ask {a.customerNotYours || 'the office'} or the office about this visit.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <a href={a.customerPhone ? `tel:${a.customerPhone.replace(/[^\d+]/g, '')}` : undefined} className={`btn min-h-[48px] ${a.customerPhone ? 'btn-secondary' : 'btn-secondary pointer-events-none opacity-50'}`} data-visit-call>
             <Phone size={18} aria-hidden="true" /> {a.customerPhone ? 'Call' : 'No phone'}

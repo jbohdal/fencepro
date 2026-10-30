@@ -38,6 +38,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
   const { default: business } = await import('../src/server/routes/business-state.js')
   const { default: kv } = await import('../src/server/routes/kv.js')
   const { default: pipeline } = await import('../src/server/routes/pipeline.js')
+  const { default: appointments } = await import('../src/server/routes/appointments.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
   const tag = `sam-${crypto.randomUUID().slice(0, 8)}`
@@ -84,6 +85,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
       { id: `${tag}-k-cleo`, stage: 'new_lead', firstName: 'Cleo', lastName: tag, customerId: id.cleo, quoteId: id.qCleoDraft, assignedRep: SALLY() },
       { id: `${tag}-k-fay`, stage: 'won', firstName: 'Fay', lastName: tag, customerId: id.fay, quoteId: id.qFay, assignedRep: SALLY() },
     ] } as any })
+
+    // Cleo's visits: an estimate with Sally next week, one with Sally last week (done), and one with the owner next week.
+    const day = (n: number) => new Date(Date.now() + n * 86400_000)
+    const visit = (data: any) => prisma.appointment.create({ data: { accountId, crmContactId: id.cleo, type: 'estimate', address: '1 Cleo Way', ...data } }).then(a => a.id)
+    id.vUpcoming = await visit({ startAt: day(7), endAt: day(7), assignedTo: SALLY(), assignedToUserId: id.sally, status: 'scheduled' })
+    id.vPast = await visit({ startAt: day(-7), endAt: day(-7), assignedTo: SALLY(), assignedToUserId: id.sally, status: 'completed', completedAt: day(-7) })
+    id.vOwner = await visit({ type: 'install', startAt: day(8), endAt: day(8), assignedTo: OLIVE(), assignedToUserId: id.owner, status: 'scheduled' })
 
     // The company-wide records: entries of every customer (other customers' payments and invoices in them).
     const per = (c: string, q: string, j?: string) => ({ customerId: id[c], quoteId: id[q], ...(j ? { jobId: id[j] } : {}), customerName: `${c} ${tag}` })
@@ -134,6 +142,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     app.use('/api/lead-assign', leadAssign); app.use('/api/follow-ups', followUps)
     app.use('/api/business-state', business); app.use('/api/kv', kv)
     app.use('/api/pipeline', salesScoped('pipeline')); app.use('/api/pipeline', pipeline)
+    app.use('/api/appointments', salesScoped('appointments')); app.use('/api/appointments', appointments)
     server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
   afterAll(async () => {
@@ -187,8 +196,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     return new Map(rows.map(r => [r.id, r.t]))
   }
 
-  // The phone's copies, read before any move.
+  // The phone's copies, read before any move; and when and under which scope her lists were read.
   let phoneBiz: any, phoneKv: any
+  let since = '', board0: { version: number; scopeKey: string } = { version: 0, scopeKey: '' }
   let stored: Record<string, Map<string, string>> = {}
   let storedChecklists = ''
 
@@ -198,6 +208,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
       quotes: ['qCleoDraft', 'qCleoSent', 'qCleoSigned', 'qDina', 'qFay', 'qMina'],
       jobs: ['jCleo', 'jFay'],
     })
+    since = (await call('GET', '/api/saved-quotes', tok.sally)).json.serverTime
+    const b = (await call('GET', '/api/pipeline', tok.sally)).json
+    board0 = { version: b.data.version, scopeKey: b.scopeKey }
+    expect(typeof b.scopeKey).toBe('string')
+    // Unchanged board, same scope: "unchanged".
+    expect((await call('GET', `/api/pipeline?version=${board0.version}&scope=${board0.scopeKey}`, tok.sally)).json.unchanged).toBe(true)
     phoneBiz = (await call('GET', '/api/business-state', tok.sally)).json.data
     phoneKv = (await call('GET', '/api/kv', tok.sally)).json
     expect(idsOf(phoneBiz.invoices)).toEqual([`${tag}-inv-cleo`, `${tag}-inv-fay`, `${tag}-inv-mina`])
@@ -222,6 +238,36 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     for (const k of ['qCleoDraft', 'qCleoSent']) expect(list).not.toContain(id[k])
     // Sam has them.
     for (const k of ['qCleoDraft', 'qCleoSent']) expect((await call('GET', `/api/saved-quotes/${id[k]}`, tok.sam)).status).toBe(200)
+    // Her open quote window: "The owner moved this to Sam", not a bare 404 (the app says it instead of "check the connection").
+    const gone = await call('GET', `/api/saved-quotes/${id.qCleoDraft}`, tok.sally)
+    expect([gone.status, gone.json.code, gone.json.movedTo]).toEqual([404, 'MOVED', SAM()])
+    expect(gone.json.error).toBe(`The owner moved this to ${SAM()}. It is off your list now.`)
+    expect(JSON.stringify(gone.json)).not.toMatch(/finalPrice|totalCOGS/)
+    // Saving her open copy of it: the same answer (the phone's outbox drops it and says so).
+    const save = await call('PATCH', `/api/saved-quotes/${id.qCleoDraft}`, tok.sally, { notes: 'from her open window' })
+    expect([save.status, save.json.code]).toEqual([404, 'MOVED'])
+    // Her open list's small refresh: keepOnly names what is still hers, so the moved quotes leave it.
+    const delta = await call('GET', `/api/saved-quotes?since=${encodeURIComponent(since)}`, tok.sally)
+    expect(delta.json.partial).toBe(true)
+    expect(delta.json.keepOnly).toEqual(expect.arrayContaining([id.qCleoSigned, id.qDina, id.qFay, id.qMina]))
+    for (const k of ['qCleoDraft', 'qCleoSent', 'qOtto']) expect(delta.json.keepOnly).not.toContain(id[k])
+    // The board: her scope moved on, so the same version is sent again (not "unchanged").
+    const b = await call('GET', `/api/pipeline?version=${board0.version}&scope=${board0.scopeKey}`, tok.sally)
+    expect(b.json.unchanged).toBeUndefined()
+    expect(b.json.scopeKey).not.toBe(board0.scopeKey)
+
+    // The upcoming estimate with Sally went to Sam with the customer (the owner's call, Oct 30 2026); the past one and
+    // the owner's install stayed. The History says so.
+    const v = async (k: string) => (await prisma.appointment.findUnique({ where: { id: id[k] } }))!
+    expect([(await v('vUpcoming')).assignedToUserId, (await v('vUpcoming')).assignedTo]).toEqual([id.sam, SAM()])
+    expect((await v('vPast')).assignedToUserId).toBe(id.sally)
+    expect((await v('vOwner')).assignedToUserId).toBe(id.owner)
+    const notes = await prisma.crmContactNote.findMany({ where: { crmContactId: id.cleo } })
+    expect(notes.some(n => /The upcoming visit went with it\./.test(n.body))).toBe(true)
+    // Her appointments: Cleo is still hers (the signed quote), so she still sees Cleo's visits, the estimate now with Sam.
+    const appts = (await call('GET', '/api/appointments', tok.sally)).json.data as any[]
+    expect(appts.find(a => a.id === id.vUpcoming)?.assignedTo).toBe(SAM())
+    expect(appts.find(a => a.id === id.vPast)?.customerNotYours).toBeUndefined()
     // Cleo's open card (for the draft, now Sam's) left Sally's board with it, price and all; her won card on Fay is still there.
     const board = await call('GET', '/api/pipeline', tok.sally)
     expect(board.status).toBe(200)
@@ -378,6 +424,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
 
   test('the owner moves Cleo\'s signed quote too: Cleo leaves Sally entirely (nothing of hers keeps the customer)', async () => {
     expect((await call('POST', `/api/saved-quotes/${id.qCleoSigned}/salesman`, tok.owner, { to: id.sam, confirm: true })).status).toBe(200)
+    // Her lists' small refresh drops Cleo, her quotes and her job; nothing else of hers.
+    const keep = async (path: string) => (await call('GET', `${path}?since=${encodeURIComponent(since)}`, tok.sally)).json.keepOnly as string[]
+    const [kc, kq, kj] = [await keep('/api/crm-contacts'), await keep('/api/saved-quotes'), await keep('/api/saved-jobs')]
+    expect(kc).not.toContain(id.cleo); expect(kc).toEqual(expect.arrayContaining([id.dina, id.mina]))
+    expect(kq).not.toContain(id.qCleoSigned); expect(kq).toContain(id.qMina)
+    expect(kj).not.toContain(id.jCleo)
+    // Her past visit with Cleo stays on her calendar, and says why she cannot open the customer.
+    const past = ((await call('GET', '/api/appointments', tok.sally)).json.data as any[]).find(a => a.id === id.vPast)
+    expect(past.customerNotYours).toBe(SAM())
+    // The job and the signed quote: "moved to Sam".
+    expect((await call('GET', `/api/saved-jobs/${id.jCleo}`, tok.sally)).json.code).toBe('MOVED')
     expect(await sallySees()).toEqual({ customers: ['dina', 'mina'], quotes: ['qMina'], jobs: [] })
     expect((await call('GET', `/api/follow-ups/history?customerId=${id.cleo}`, tok.sally)).status).toBe(404)
     const k = await call('GET', '/api/kv', tok.sally)

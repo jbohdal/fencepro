@@ -7,7 +7,7 @@ import { startOutbox, resumeAfterSignIn } from './outbox'
 import { unsentCount } from './unsent'
 import { uploadAll } from './mediaStore'
 import { uploadWaitingClips } from './voiceClient'
-import { startLiveRefresh } from './liveRefresh'
+import { startLiveRefresh, refreshNow } from './liveRefresh'
 import './liveOverhead'
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, Fragment, lazy, Suspense } from 'react'
 import QuoteBuilder from './QuoteBuilder'
@@ -78,6 +78,8 @@ import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
 import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole } from './permissions'
+import { isMyRep } from './salesmanChoice'
+import { MOVED_EVENT, recentMoved } from './movedNotice'
 import { seesCommission, withShownMargin } from './salesmanCommission'
 import { roleName } from './teamRoles'
 import { REFUSED_EVENT } from './outbox'
@@ -392,6 +394,17 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     }
     window.addEventListener('fencepro:quote_first_viewed', onFirstView)
     return () => window.removeEventListener('fencepro:quote_first_viewed', onFirstView)
+  }, [])
+
+  // A Salesman's record the owner moved to someone else ("The owner moved this to Sam"): said once, and her lists are
+  // read again so it leaves them (movedNotice.ts; review, Oct 30 2026).
+  useEffect(() => {
+    const onMoved = (e: Event) => {
+      toast.info('Not on your list any more', String((e as CustomEvent).detail?.message || 'The owner moved this to someone else.'))
+      refreshNow()
+    }
+    window.addEventListener(MOVED_EVENT, onMoved)
+    return () => window.removeEventListener(MOVED_EVENT, onMoved)
   }, [])
 
   // A save the server refused for this login's role: the screen is already put back; say why.
@@ -738,17 +751,22 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       // Started from a site visit ("Save and start the quote" on Today): the saved quote's window opens on the Quotes
       // screen with its Send box (Text it, Email it, Copy link), instead of landing back on Today with no way to it
       // (round 2 review, Oct 26 2026).
-      const toSend = sendAfterSave.current && q.status !== 'SOLD' && !!q.id
+      // A Salesman's quote whose Sales rep is someone else (another Salesman's new customer, the Salesman choice):
+      // the quote is that person's from now on and leaves her list (lib/salesScope.ts, Oct 29 2026), so no window
+      // opens to send it from (its Copy link would fail); she is told plainly whose it is (review, Oct 30 2026).
+      const givenAway = signedInRole() === 'sales_rep' && !!q.salesRep?.trim() && !isMyRep(q.salesRep)
+      const toSend = !givenAway && sendAfterSave.current && q.status !== 'SOLD' && !!q.id
       sendAfterSave.current = false
       // The card moves on to the Ready to quote stage (Settings > Pipeline Stages; Estimating to start) when it is
       // still before it, as a visit closed "Ready to quote" does (audit Oct 26 2026: it stayed in Appointment).
       const movedTo = toSend && q.customerId ? applyQuoteSaved(q.customerId) : null
       // Saved over the Quotes page (its New quote buttons, a row's Edit, search): the quote's window opens there too, as
       // after a visit (review Oct 28 2026: the office had to find and click the row after saving).
-      const toOpen = !toSend && active === 'Quotes' && !!q.id
+      const toOpen = !givenAway && !toSend && active === 'Quotes' && !!q.id
       if (toSend || toOpen) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
-      if (toOpen && q.status !== 'SOLD') toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
+      if (givenAway) toast.info(`Quote saved for ${q.salesRep!.trim()}`, `This quote and ${q.customerName?.trim() || 'the customer'} are ${q.salesRep!.trim()}'s now, so they leave your list. ${q.salesRep!.trim()} sends the proposal.`)
+      else if (toOpen && q.status !== 'SOLD') toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
       else if (toSend) toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
       // "Sold, job created" only on the save that sold it; saving an already signed quote again is just stored.
       else toast.info(q.status === 'SOLD' && !wasSold ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
@@ -777,6 +795,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         if (full && !isSlimQuote(full)) { openInBuilder({ ...base, proposal: full.proposal }, signed, opts); return }
         // No signal: a draft never sent opens from the list's copy (its proposal is made again when it is saved).
         if (base.status === 'DRAFT' && !base.shareToken) { openInBuilder(base, signed, opts); return }
+        // Moved to someone else (a Salesman): the app has said so (movedNotice.ts), not a signal problem.
+        const moved = recentMoved()
+        if (moved) { toast.info('This quote is not yours any more', moved); return }
         toast.error('The quote did not load', 'Its proposal as sent has to come from the server. Usually that is weak signal; open it again when you have signal.')
       })
       return
@@ -840,6 +861,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       if (!d?.customerId) return
       const go = (c: ReturnType<typeof getCustomers>[number] | null | undefined) => {
         if (c) { openQuoteFor(c, { address: d.address, notes: d.notes, repair: d.repair, reuseDraft: d.reuseDraft }); sendAfterSave.current = !!d.fromVisit }
+        // A Salesman's customer moved to someone else: not a loading problem (review, Oct 30 2026).
+        else if (signedInRole() === 'sales_rep') toast.info('Quote not opened', 'This customer is not on your list any more (the owner gave them to another Salesman), so you can\'t start a quote for them. Ask the office.')
         else toast.error('Quote not opened', 'This customer did not load on this device. Reload the app, then start the quote from the customer page.')
       }
       const c = getCustomers().find(x => x.id === d.customerId)

@@ -364,6 +364,16 @@ function reloadQuotes() { lastSync = null; void refreshQuotes() }
 /** When this list was last read from the server (the server's own clock). */
 let lastSync: string | null = null
 
+/** Drop every quote not in `ids` (none waiting to be sent); how many went. Not a list: nothing. */
+function keepOnly(ids: unknown, waiting: (id: string) => boolean): number {
+  if (!Array.isArray(ids)) return 0
+  const keep = new Set(ids as string[])
+  const before = cache.length + archivedCache.length
+  cache = cache.filter(q => keep.has(q.id) || waiting(q.id))
+  archivedCache = archivedCache.filter(q => keep.has(q.id) || waiting(q.id))
+  return before - cache.length - archivedCache.length
+}
+
 /**
  * Read the list again (the server changes some on its own: a customer
  * accepting online). Only what changed since the last read comes back, so it
@@ -395,8 +405,10 @@ export async function refreshQuotes(): Promise<void> {
       archivedCache = [...arch.values()]
     }
   } else { cache = rows.map(fromApi); void loadArchivedQuotes() }
+  // A Salesman's small refresh says which quotes are still hers (keepOnly): one moved to someone else leaves this copy.
+  const dropped = keepOnly(r.json.keepOnly, id => hasPending(`quote:${id}`))
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
-  if (!r.json.partial || rows.length) { reapply('quote.'); emit() }
+  if (!r.json.partial || rows.length || dropped) { reapply('quote.'); emit() }
   // A quote a screen has open came back as the list's slim copy: read it whole again.
   for (const id of wanted.keys()) if (isSlimQuote(cache.find(q => q.id === id))) void loadFullQuote(id)
 }

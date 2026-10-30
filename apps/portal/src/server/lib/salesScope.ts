@@ -49,6 +49,7 @@
  * payments) ask salesScopeOf(req) themselves.
  */
 
+import crypto from 'crypto'
 import prisma from './prisma.js'
 import { staffRoleOf } from './costRedact.js'
 import { verifyStaffBearer } from './secrets.js'
@@ -63,6 +64,8 @@ export interface SalesScope {
   directContactIds: Set<string>
   /** Customers whose Sales rep names someone else (as read): a card of the Salesman's left on one does not show. */
   elsewhereContactIds?: Set<string>
+  /** Those customers' Salesman, by customer id (an appointment of hers on one says whose the customer is now). */
+  elsewhereRep?: Map<string, string>
   /** Quotes and jobs read whose Sales rep names someone else: a card of her customer for one of them (a deal moved away) does not show. */
   elsewhereQuoteIds?: Set<string>
   elsewhereJobIds?: Set<string>
@@ -126,9 +129,10 @@ export function buildSalesScope(input: {
   const direct = new Set<string>()
   // Customers whose rep names someone else: a card or visit of the Salesman's left on one does not bring it in.
   const elsewhere = new Set<string>()
+  const elsewhereRep = new Map<string, string>()
   for (const c of input.contacts) {
     if (enteredAndKept(s, c) || isMine(s, c.salesRep)) direct.add(c.id)
-    else if (!blankRep(c.salesRep)) elsewhere.add(c.id)
+    else if (!blankRep(c.salesRep)) { elsewhere.add(c.id); elsewhereRep.set(c.id, c.salesRep!.trim()) }
   }
   for (const k of input.cards) if (k.customerId && !elsewhere.has(k.customerId) && isMine(s, k.assignedRep)) direct.add(k.customerId)
   for (const a of input.appointments) if (!elsewhere.has(a.crmContactId) && (a.assignedToUserId === input.userId || isMine(s, a.assignedTo))) direct.add(a.crmContactId)
@@ -155,7 +159,7 @@ export function buildSalesScope(input: {
   const madeQuoteIds = new Set(input.quotes.filter(q => q.ownerId === input.userId).map(q => q.id))
   const madeContactIds = new Set(input.contacts.filter(c => c.ownerId === input.userId).map(c => c.id))
   for (const q of input.quotes) if (q.ownerId === input.userId && q.crmContactId) madeContactIds.add(q.crmContactId)
-  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, elsewhereQuoteIds: elsewhereQuotes, elsewhereJobIds: elsewhereJobs, madeQuoteIds, madeContactIds, contactIds, quoteIds, jobIds }
+  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, elsewhereRep, elsewhereQuoteIds: elsewhereQuotes, elsewhereJobIds: elsewhereJobs, madeQuoteIds, madeContactIds, contactIds, quoteIds, jobIds }
 }
 
 /** Rows whose rep could be one of these names (a cheap first cut; sameName decides). */
@@ -262,6 +266,12 @@ export function inSalesScope(kind: SalesKind, s: SalesScope, item: any): boolean
   }
 }
 
+/** A short fingerprint of what the Salesman's board shows by (changes when a customer, quote or job enters or leaves her scope). */
+export function scopeKey(s: SalesScope): string {
+  const part = (x?: Set<string>) => [...(x ?? [])].sort().join(',')
+  return crypto.createHash('sha1').update([s.contactIds, s.quoteIds, s.jobIds, s.elsewhereContactIds, s.elsewhereQuoteIds, s.elsewhereJobIds].map(part).join('|')).digest('base64url').slice(0, 16)
+}
+
 /** Is a card id one of the Salesman's cards on this board? */
 export function cardInScope(s: SalesScope, leads: any[], cardId: string): boolean {
   const card = (Array.isArray(leads) ? leads : []).find(l => l?.id === cardId)
@@ -272,6 +282,18 @@ export function cardInScope(s: SalesScope, leads: any[], cardId: string): boolea
 const NOT_IDS = new Set(['sync', 'notes', 'geo', 'team', 'share', 'cards', 'board', 'column', 'search', 'pages', 'words', 'archived', 'milestones', 'sold-quote', 'salesmen'])
 
 const notFound = (res: any) => res.status(404).json({ success: false, error: 'Not found' })
+
+/**
+ * A customer, quote or job that is there but whose Salesman names someone else (the owner moved it, or her quote
+ * for another Salesman's customer): the 404 says so, with only that person's name, so her open screen says "The
+ * owner moved this to Sam" instead of "check the connection" (review, Oct 30 2026). Null: not there, or deleted.
+ */
+export function movedAnswer(s: Pick<SalesScope, 'names'>, row: { salesRep?: string | null; deletedAt?: Date | string | null } | null | undefined): Record<string, unknown> | null {
+  const rep = typeof row?.salesRep === 'string' ? row.salesRep.trim() : ''
+  if (!row || row.deletedAt || !rep || isMine(s, rep)) return null
+  return { success: false, code: 'MOVED', movedTo: rep, error: `The owner moved this to ${rep}. It is off your list now.` }
+}
+const notFoundOrMoved = (res: any, s: SalesScope, row: any) => { const m = movedAnswer(s, row); if (m) res.status(404).json(m); else notFound(res) }
 
 const MODEL: Record<Exclude<SalesKind, 'pipeline'>, (id: string, accountId: string) => Promise<any>> = {
   contacts: (id, accountId) => prisma.crmContact.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, deletedAt: true } }),
@@ -302,22 +324,46 @@ export function salesScoped(kind: SalesKind) {
       if (!known) {
         // Not in the scope as read: the record itself may say it is the Salesman's (made a moment ago).
         const row = await MODEL[kind](first, scope.accountId).catch(() => null)
-        if (!row || !inSalesScope(kind, scope, row)) { notFound(res); return }
+        if (!row || !inSalesScope(kind, scope, row)) { notFoundOrMoved(res, scope, kind === 'appointments' ? null : row); return }
       }
     }
     if (!first && req.method === 'POST' && typeof req.body?.id === 'string' && kind !== 'pipeline') {
       const row = await MODEL[kind](req.body.id, scope.accountId).catch(() => null)
-      if (row && !inSalesScope(kind, scope, row)) { notFound(res); return }
+      if (row && !inSalesScope(kind, scope, row)) { notFoundOrMoved(res, scope, kind === 'appointments' ? null : row); return }
     }
+    // The board answers "unchanged" by its version; the Salesman's cards also change when her scope does (a deal
+    // moved away): a scope she has not seen yet sends the board (routes/pipeline.ts reads salesScopeChanged).
+    const key = kind === 'pipeline' ? scopeKey(scope) : ''
+    if (kind === 'pipeline' && req.method === 'GET' && req.query?.scope !== key) req.salesScopeChanged = true
     const json = res.json.bind(res)
     res.json = (body: any) => {
       if (!body || typeof body !== 'object') return json(body)
       // The list itself (what hangs off one record, its notes or history, was checked by its id above).
-      if (!first && Array.isArray(body.data)) return json({ ...body, data: body.data.filter((x: any) => inSalesScope(kind, scope, x)) })
+      if (!first && Array.isArray(body.data)) {
+        const data = body.data.filter((x: any) => inSalesScope(kind, scope, x))
+        // A small refresh (?since=) carries only rows changed since; a row that left her scope (moved to someone
+        // else) is simply not in it. `keepOnly`: every id of hers of this kind, so the phone drops the rest of its
+        // copy (review, Oct 30 2026: her open lists kept moved rows until a full reload). Her own ids only.
+        const own = kind === 'contacts' ? scope.contactIds : kind === 'quotes' ? scope.quoteIds : kind === 'jobs' ? scope.jobIds : null
+        if (body.partial === true && own) return json({ ...body, data, keepOnly: [...new Set([...own, ...data.map((x: any) => x?.id).filter(Boolean)])] })
+        if (kind === 'appointments') {
+          // Her appointment with a customer she cannot open (the customer is someone else's now): it says so.
+          const marked = data.map((a: any) => (a?.crmContactId && !scope.contactIds.has(a.crmContactId) ? { ...a, customerNotYours: scope.elsewhereRep?.get(a.crmContactId) ?? '' } : a))
+          // A small refresh: one that left her (moved to someone else with its customer) goes as a removal, its id only.
+          if (body.partial === true) {
+            const kept = new Set(data.map((x: any) => x?.id))
+            const left = body.data.filter((x: any) => x?.id && !kept.has(x.id)).map((x: any) => ({ id: x.id, deletedAt: new Date().toISOString() }))
+            return json({ ...body, data: [...marked, ...left] })
+          }
+          return json({ ...body, data: marked })
+        }
+        return json({ ...body, data })
+      }
       if (kind === 'pipeline' && body.data && typeof body.data === 'object' && (Array.isArray(body.data.leads) || Array.isArray(body.data.archivedLeads))) {
         const keep = (list: unknown) => (Array.isArray(list) ? list.filter((x: any) => inSalesScope('pipeline', scope, x)) : list)
-        return json({ ...body, data: { ...body.data, leads: keep(body.data.leads), archivedLeads: keep(body.data.archivedLeads) } })
+        return json({ ...body, scopeKey: key, data: { ...body.data, leads: keep(body.data.leads), archivedLeads: keep(body.data.archivedLeads) } })
       }
+      if (kind === 'pipeline' && body.unchanged) return json({ ...body, scopeKey: key })
       return json(body)
     }
     next()
@@ -358,8 +404,9 @@ export async function refusedOutsideSalesScope(req: any, res: any, refs: Refs): 
     const v = refs[kind]
     return (Array.isArray(v) ? v : [v]).filter((x): x is string => typeof x === 'string' && x.length > 0).map(id => ({ kind, id }))
   })
+  let outside: { kind: SalesRefKind; id: string } | null = null
   const allIn = async (s: SalesScope) => {
-    for (const { kind, id } of named) if (!(await idInSalesScope(kind, s, id))) return false
+    for (const n of named) if (!(await idInSalesScope(n.kind, s, n.id))) { outside = n; return false }
     return true
   }
   if (await allIn(scope)) return false
@@ -367,7 +414,9 @@ export async function refusedOutsideSalesScope(req: any, res: any, refs: Refs): 
   forgetScope(scope.userId)
   const fresh = await scopeFor(scope.userId, scope.accountId)
   if (fresh && await allIn(fresh)) return false
-  notFound(res)
+  const o = outside as { kind: SalesRefKind; id: string } | null
+  const row = o ? await MODEL[o.kind](o.id, scope.accountId).catch(() => null) : null
+  notFoundOrMoved(res, fresh ?? scope, row)
   return true
 }
 
