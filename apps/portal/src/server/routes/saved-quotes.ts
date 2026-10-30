@@ -43,7 +43,7 @@ import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE, keepPrices } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
 import { scheduleAfterSigning, termsDepositOf } from '../lib/contractBilling.js'
-import { customerDollarsFrom } from '../lib/customerDollars.js'
+import { customerDollarsFrom, noDepositCancellationFrom } from '../lib/customerDollars.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
 import { stampQuoteTerms } from '../lib/contractTerms.js'
@@ -241,7 +241,7 @@ router.get('/:id/deposit-terms', requireUser, requireAccount, async (req: any, r
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
-    res.json({ success: true, data: termsDepositOf(q, await customerDollarsFrom(q.accountId)) })
+    res.json({ success: true, data: termsDepositOf(q, await customerDollarsFrom(q.accountId), await noDepositCancellationFrom(q.accountId)) })
   } catch (err) {
     console.error('[saved-quotes] deposit terms error:', err)
     res.status(500).json({ success: false, error: 'Failed to read the deposit' })
@@ -684,7 +684,7 @@ function forCustomer<T extends Record<string, any>>(q: T) {
 
 /** The customer's copy and the deposit its Payment Terms say (lib/contractBilling.ts termsDepositOf), as the proposal link says it. */
 async function shownToCustomer<T extends Record<string, any> & { accountId: string; proposal: unknown }>(q: T) {
-  return { ...forCustomer(q), depositTerms: termsDepositOf(q, await customerDollarsFrom(q.accountId)) }
+  return { ...forCustomer(q), depositTerms: termsDepositOf(q, await customerDollarsFrom(q.accountId), await noDepositCancellationFrom(q.accountId)) }
 }
 
 // ── Public accept by share token (no auth) ──

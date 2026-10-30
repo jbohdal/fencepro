@@ -19,7 +19,7 @@ import { quoteWarranty, installDateOf, type OptionWarranty } from './warranties.
 import { pricingModule } from './estimates.js'
 import { acceptedOnUpdate } from './warrantyUpdates.js'
 import { depositOf, pricedWholeDollar, shownDollarCents, customerDepositCents } from './paymentMath.js'
-import { quoteOnCustomerDollars } from './customerDollars.js'
+import { quoteOnCustomerDollars, quoteOnNoDepositCancellation } from './customerDollars.js'
 import { termsOn, companyAddress, type Term } from './contractTerms.js'
 import { plainIp } from './signedDocuments.js'
 import { workKindOf } from './installDays.js'
@@ -291,7 +291,8 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
     signature: sig ? Buffer.from(sig[1], 'base64') : null,
     signedRecord: record,
     // Only the terms frozen on the proposal: what the customer read and signed.
-    terms: shownDollars ? m.termsAsAsked(frozen, p.depositPct) : frozen,
+    // No deposit: the Cancellation Policy's no deposit sentence, unless signed before that rule (lib/customerDollars.ts).
+    terms: shownDollars ? m.termsAsAsked(frozen, p.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : frozen,
     kind: p.kind === 'repair' || p.kind === 'move' ? p.kind : workKindOf(q.work) === 'new' ? null : workKindOf(q.work) as 'move' | 'repair',
   })
 }

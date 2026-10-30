@@ -92,15 +92,15 @@ describe('the phone and the server read a quote\'s deposit the same', () => {
   ]
   test.each(cases)('%s', (_name, proposal) => {
     const unsigned = { proposal, status: 'SENT', acceptedAt: null, soldAt: null }
-    expect(depositTermsOf(unsigned)).toEqual(termsDepositOf(unsigned, from))
+    expect(depositTermsOf(unsigned)).toEqual(termsDepositOf(unsigned, from, from))
   })
 
   test('signed before the rules: as signed; after: the proposal\'s', () => {
     const old = { proposal: proposalAt(0), status: 'SOLD', soldAt: new Date('2026-10-20T15:00:00Z'), acceptedAt: null }
-    expect(termsDepositOf(old, from)).toEqual({ asSigned: true, depositPct: null })
+    expect(termsDepositOf(old, from, from)).toEqual({ asSigned: true, depositPct: null, cancellationAsSigned: true })
     const now = { ...old, soldAt: new Date('2026-10-29T21:00:00Z') }
-    expect(termsDepositOf(now, from)).toEqual({ asSigned: false, depositPct: null })
-    expect(termsDepositOf({ ...now, proposal: proposalAt(30) }, from)).toEqual({ asSigned: false, depositPct: 30 })
+    expect(termsDepositOf(now, from, from)).toEqual({ asSigned: false, depositPct: null })
+    expect(termsDepositOf({ ...now, proposal: proposalAt(30) }, from, from)).toEqual({ asSigned: false, depositPct: 30 })
   })
 
   test('only the stock sentence changes; words typed in its place stay', () => {
@@ -108,6 +108,9 @@ describe('the phone and the server read a quote\'s deposit the same', () => {
     expect(sectionsAsAsked(typed, { asSigned: false, depositPct: null })).toEqual(typed)
     const out = sectionsAsAsked(DEFAULT_CONTRACT_SECTIONS, { asSigned: false, depositPct: null })
     expect(out.find(s => s.key === 'payment_terms')!.body).toBe(`${NONE} We accept cash, check, ACH, and major credit cards.`)
-    expect(out.filter(s => s.key !== 'payment_terms')).toEqual(DEFAULT_CONTRACT_SECTIONS.filter(s => s.key !== 'payment_terms'))
+    // No deposit: Cancellation Policy's stock sentence too (contractCancelNoDeposit.test.ts); nothing else.
+    expect(out.find(s => s.key === 'cancellation')!.body).toMatch(/^Once materials are ordered, their cost is non-refundable\. /)
+    const others = (s: { key: string }) => s.key !== 'payment_terms' && s.key !== 'cancellation'
+    expect(out.filter(others)).toEqual(DEFAULT_CONTRACT_SECTIONS.filter(others))
   })
 })
