@@ -62,6 +62,15 @@ const GATE_KEYS = new Set<PickRepairKey>(['rehangGate', 'replaceGate'])
 /** Gate widths offered by name where a style's gates go by width (chain link): walk 4, 5, 6 ft; double 8, 10, 12 ft. */
 const WALK_WIDTHS = [4, 5, 6], DBL_WIDTHS = [8, 10, 12]
 
+/**
+ * Picked "Add a section / gate" lines are switched off for now (review Oct 30
+ * 2026): when signed they replace the job's yard drawing with a plain run
+ * list, so the crew packet loses the site plan and gate positions. Until they
+ * keep the drawing, sections and gates are added with "Change the yard
+ * drawing", which prices the same and keeps the plan.
+ */
+export const OFFER_ADD_PICKS = false
+
 /** "add:section", "add:walk" or "add:walk:5", "add:double:10": the words for an added piece. */
 function addLabel(piece: 'section' | 'walk' | 'double', width: number | null): string {
   if (piece === 'section') return 'Add a section'
@@ -73,6 +82,7 @@ function addLabel(piece: 'section' | 'walk' | 'double', width: number | null): s
 export function pickOf(source: string, inventory: InvItem[]): { pick: ChangeOrderPick; label: string } | null {
   const [kind, key, gate] = String(source || '').split(':')
   if (kind === 'add') {
+    if (!OFFER_ADD_PICKS) return null
     if (key !== 'section' && key !== 'walk' && key !== 'double') return null
     if (key === 'section' && gate !== undefined) return null
     const width = gate === undefined ? null : Number(gate)
@@ -142,13 +152,15 @@ export function pickList(cfg: AppConfig, inventory: InvItem[], input: PickInput,
   }
   const job = jobOf(cfg, input)
   // Sections and gates added, first: by width where the style's gates go by width (chain link), else one walk and one double gate.
-  one('add:section', 'repair', ADD_HINT.section)
-  const kit = workKit(c.style)
-  const byWidth = !!kit && (['walkGate5', 'walkGate6', 'dblGate10', 'dblGate12'] as const).some(k => kit.kits[k]?.length)
-  if (byWidth) {
-    for (const w of WALK_WIDTHS) one(`add:walk:${w}`, 'repair', ADD_HINT.walk)
-    for (const w of DBL_WIDTHS) one(`add:double:${w}`, 'repair', ADD_HINT.double)
-  } else { one('add:walk', 'repair', ADD_HINT.walk); one('add:double', 'repair', ADD_HINT.double) }
+  if (OFFER_ADD_PICKS) {
+    one('add:section', 'repair', ADD_HINT.section)
+    const kit = workKit(c.style)
+    const byWidth = !!kit && (['walkGate5', 'walkGate6', 'dblGate10', 'dblGate12'] as const).some(k => kit.kits[k]?.length)
+    if (byWidth) {
+      for (const w of WALK_WIDTHS) one(`add:walk:${w}`, 'repair', ADD_HINT.walk)
+      for (const w of DBL_WIDTHS) one(`add:double:${w}`, 'repair', ADD_HINT.double)
+    } else { one('add:walk', 'repair', ADD_HINT.walk); one('add:double', 'repair', ADD_HINT.double) }
+  }
   for (const k of PICK_REPAIR_KEYS) {
     const hint = k === 'pullPost' ? 'Pull labor and disposal per post (Settings → Moves and Repairs)' : REPLACE_HINT[k] ?? REPAIR_HINT[k]
     if (GATE_KEYS.has(k)) { one(`repair:${k}:walk`, 'repair', hint); one(`repair:${k}:double`, 'repair', hint) }

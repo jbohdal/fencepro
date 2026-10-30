@@ -25,6 +25,7 @@ import { calculateQuote, type QuoteStyle, type QuoteCalcInput } from '../../web/
 import { estimateConfig, changeOrderPickPriceFor } from '../../web/src/estimate'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import type { PricingSettings } from '../../web/src/pricingEngine'
+import { OFFER_ADD_PICKS } from '../../web/src/changeOrderPicks'
 
 const cfg = estimateConfig(null)
 const STYLES = { vinyl: "WV-ND 6'x8' Privacy", aluminum: 'Alum - DS - Emily - 48', chainLink: "CL - 5' Galv" } as const
@@ -146,7 +147,7 @@ describe('what stays and what changed', () => {
     const r = priceChangeOrderPick(common(V, SUB_FOOT), { kind: 'repair', key: 'resetPost' }, 1)
     expect(r.costFactor).toBe(0.5)
   })
-  test('the server\'s pick price is the same line, the job\'s gates passed through', () => {
+  test.skipIf(!OFFER_ADD_PICKS)('the server\'s pick price is the same line, the job\'s gates passed through', () => {
     const data = { config: { pricing: { ...SUB_FOOT, overheadPct: 30 }, moveRepair: { repairProfitPct: 20, minimumJobCents: 35000 } }, inventory: [], kits: Object.values(STYLES).map(n => ({ ...builtInKitSet(n)!, id: `t_${n}`, styleName: n, builtIn: false, roundUp: [] })) } as never
     const via = changeOrderPickPriceFor(data, { fenceStyle: STYLES.chainLink, hasSalesman: false, walkGates: 1, dblGates: 0 }, 'add:walk:5', 1)!
     expect(via.label).toBe('Add a 5 ft walk gate')

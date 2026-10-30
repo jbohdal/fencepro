@@ -24,6 +24,7 @@ import type { FenceStyle } from '../../web/src/configStore'
 import type { PricingSettings } from '../../web/src/pricingEngine'
 import { calculateQuote, type QuoteStyle, type QuoteCalcInput } from '../../web/src/quoteCalc'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
+import { OFFER_ADD_PICKS } from '../../web/src/changeOrderPicks'
 
 const PRICING: PricingSettings = {
   manHourRate: 25, commissionSalesman: 0.1, commissionNonSalesman: 0, tearOutFence: 13.5, tearOutGate: 27,
@@ -133,7 +134,7 @@ describe('change orders on a wood job: wood parts, wood labor', () => {
     expect(add('double', 1, PRICING, { walkGates: 1, dblGates: 1 }).pullSheet.some(i => i.item === 'Drop Rod, 48", Black')).toBe(false)
   })
 
-  test('priced as a new quote is (the style\'s Target Margin, whole dollars); the server pick price is the same', () => {
+  test.skipIf(!OFFER_ADD_PICKS)('priced as a new quote is (the style\'s Target Margin, whole dollars); the server pick price is the same', () => {
     const r = add('section', 2)
     expect(r.costCents).toBe(r.materialCents + r.laborCents + r.disposalCents)
     expect(r.priceCents % 100).toBe(0)

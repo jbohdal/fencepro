@@ -18,6 +18,7 @@ import { pickList, pickPrice, pickOf } from '../../web/src/changeOrderPicks'
 import { estimateConfig } from '../../web/src/estimate'
 import type { QuoteStyle } from '../../web/src/quoteCalc'
 import type { PricingSettings } from '../../web/src/pricingEngine'
+import { OFFER_ADD_PICKS } from '../../web/src/changeOrderPicks'
 
 const WV = "WV-ND 6'x6' Privacy"
 const PRICING: PricingSettings = {
@@ -100,7 +101,7 @@ describe('the list', () => {
     { id: 'free', name: '*Vinyl section price', unitCost: 0 },
   ]
   const nd = cfg.fenceStyles.find(s => /ND/.test(s.name) && !s.woodBase)!.name
-  test('sections and gates to add first, then every repair item (gates twice) and every Inventory item in use with a cost', () => {
+  test.skipIf(!OFFER_ADD_PICKS)('sections and gates to add first, then every repair item (gates twice) and every Inventory item in use with a cost', () => {
     const l = pickList(cfg, inv, { fenceStyle: nd, hasSalesman: false }, 30)
     expect(l.noStyle).toBe(false)
     expect(l.items.filter(i => i.group === 'repair').map(i => i.source)).toEqual([
@@ -117,7 +118,7 @@ describe('the list', () => {
       'Add a section', 'Add a 4 ft walk gate', 'Add a 5 ft walk gate', 'Add a 6 ft walk gate', 'Add an 8 ft double gate', 'Add a 10 ft double gate', 'Add a 12 ft double gate',
     ])
   })
-  test('an unknown style or source prices nothing', () => {
+  test.skipIf(!OFFER_ADD_PICKS)('an unknown style or source prices nothing', () => {
     expect(pickList(cfg, inv, { fenceStyle: 'No such style', hasSalesman: false }, 30)).toMatchObject({ noStyle: true, items: [] })
     expect(pickOf('repair:rehangGate', inv)).toBeNull()
     expect(pickOf('add:fence', inv)).toBeNull()

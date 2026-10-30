@@ -32,6 +32,7 @@ import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { pdfText } from './pdfText'
+import { OFFER_ADD_PICKS } from '../../web/src/changeOrderPicks'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
 describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follows (dev database)', { timeout: 90_000 }, async () => {
@@ -344,7 +345,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(page2.text).toContain('data-co-new-contract>$6,500.00')
   })
 
-  test('picked "Add a section" × 2 and "Add a walk gate", signed: the job follows as a drawing would; a second gate never pays the once per job gate parts again; voided, the job goes back', async () => {
+  test.skipIf(!OFFER_ADD_PICKS)('picked "Add a section" × 2 and "Add a walk gate", signed: the job follows as a drawing would; a second gate never pays the once per job gate parts again; voided, the job goes back', async () => {
     const CL = "CL - 5' Galv"
     const { quoteId, jobId } = await signedJob()
     // A chain link job (its kits have once per job gate parts): 112 ft = 12 sections at 10 ft.
