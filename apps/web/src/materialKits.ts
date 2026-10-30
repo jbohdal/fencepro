@@ -353,6 +353,17 @@ export function withoutBellStandIns(set: Pick<KitSet, 'styleName'>, parts: KitPa
   return parts.filter(p => !standIn.has(p.part))
 }
 
+/**
+ * The note after a style's name in Inventory > Material Kits: " (no parts
+ * list)" when it has no kit set, " (archived)" when every set it has is
+ * archived (the four Oct 19 "Wood Privacy" styles, review Oct 30 2026), else
+ * nothing.
+ */
+export function kitStyleNote(sets: Array<Pick<KitSet, 'archived'>>): string {
+  if (!sets.length) return ' (no parts list)'
+  return sets.every(s => s.archived) ? ' (archived)' : ''
+}
+
 /** Each kit times how many the job has, added up per part; rounded up once per job where the set says so. */
 export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
   const counts = withGatePosts(set, counts0)
