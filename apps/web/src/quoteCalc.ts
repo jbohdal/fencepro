@@ -13,6 +13,7 @@ import {
   calculateMixedMaterialsDetailed,
   totalMaterialCost,
   sectionWidthForStyle,
+  type AddedTo,
   type GateWidths,
   type MaterialResult,
   type RailWidth,
@@ -75,6 +76,13 @@ export interface QuoteCalcInput {
   pricing: PricingSettings
   overrides?: QuotePricingOverrides
   optimizer: RailOptimizerSettings
+  /**
+   * Pieces added to a sold job that has these gates (a change order line,
+   * moveRepair.ts priceAddedPieces): no once per job parts, nothing rounded up
+   * (materialCalculator.ts addedCounts), and the parts are counted even with
+   * no section (a gate on its own).
+   */
+  addedTo?: AddedTo | null
 }
 
 export interface QuoteCalc {
@@ -172,11 +180,12 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
   const sections = perRunSections.reduce((s, n) => s + n, 0)
 
   let materials: MaterialResult = { items: [], warnings: [] }
-  if (style && sections > 0) {
+  if (style && (sections > 0 || input.addedTo)) {
     const jobParts = {
       corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates,
       tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates,
       ...(input.extraLinePosts ? { extraLinePosts: input.extraLinePosts } : {}),
+      ...(input.addedTo ? { addedTo: input.addedTo } : {}),
     }
     materials = isAuto
       ? calculateMixedMaterialsDetailed({
@@ -293,12 +302,13 @@ function woodQuote(input: QuoteCalcInput, style: QuoteStyle, base: QuoteStyle): 
   const width = sectionWidthForStyle(style.name, style.panelWidth)
   const perRunSections = input.runs.map(r => (Number.isFinite(r.ft) && r.ft > 0 ? sectionsForRun(r.ft, width) : 0))
   const sections = perRunSections.reduce((t, n) => t + n, 0)
-  const materials: MaterialResult = sections > 0
+  const materials: MaterialResult = sections > 0 || input.addedTo
     ? calculateMaterialsDetailed({
         fenceStyle: style.name, runs: filled, corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates,
         tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates, sectionWidth: width,
         ...(input.extraLinePosts ? { extraLinePosts: input.extraLinePosts } : {}),
         ...(input.gateWidths ? { gateWidths: input.gateWidths } : {}),
+        ...(input.addedTo ? { addedTo: input.addedTo } : {}),
       })
     : { items: [], warnings: [] }
   const materialCost = totalMaterialCost(materials.items)

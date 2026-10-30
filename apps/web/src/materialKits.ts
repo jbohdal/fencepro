@@ -365,7 +365,8 @@ export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
       totals.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost })
     }
   }
-  const up = new Set(set.roundUp)
+  // Pieces added to a sold job (counts.exact): nothing rounded up, the share these pieces use.
+  const up = new Set(counts.exact ? [] : set.roundUp)
   return [...totals].map(([part, t]) => {
     const exact = Math.round(t.qty * 1e6) / 1e6
     return { part, qty: up.has(part) ? Math.ceil(exact) : exact, fallbackCost: t.cost }
@@ -406,7 +407,7 @@ export function linesFromKitSetJobLot(set: KitSet, counts0: KitCounts, lot: Styl
       else { const was = unc.get(p.part); unc.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost }) }
     }
   }
-  const up = new Set(set.roundUp)
+  const up = new Set(counts.exact ? [] : set.roundUp)
   const exact = (q: number) => Math.round(q * 1e6) / 1e6
   const lines: KitLine[] = []
   for (const part of new Set([...unc.keys(), ...cov.keys()])) {
