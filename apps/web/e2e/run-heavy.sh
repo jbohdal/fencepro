@@ -89,8 +89,9 @@ trap 'exit 130' INT TERM
 # or the public site checks (those have their own rules, see README.md).
 # The reviewers' hand run checks need settings `all` cannot give (a sent quote's id, office and Salesman cookies, their
 # own server): run each by hand with the settings in its header (sent-tiers, small-fixes-1028, review-1028-fixes,
-# review-1028-office).
-NOT_SUITES=" lib devOnly photoTiles signal sharedLock live-readonly perf-phone godaddy-embed real-site-embed widget-draw-public iphone-safari two-browser-sync intake sent-tiers small-fixes-1028 review-1028-fixes review-1028-office "
+# review-1028-office, audit-47-48 (the four role cookies), board-moves-round2 (DRAWN_JOB, REPAIR_JOB), salesman-choice and
+# salesman-choice-booking (the owner's, a Salesman's and the office's TOKEN and COOKIE)).
+NOT_SUITES=" lib devOnly photoTiles signal sharedLock live-readonly perf-phone godaddy-embed real-site-embed widget-draw-public iphone-safari two-browser-sync intake sent-tiers small-fixes-1028 review-1028-fixes review-1028-office audit-47-48 board-moves-round2 salesman-choice salesman-choice-booking "
 all_suites() {
   for f in "$HERE"/*.mjs; do
     n="$(basename "$f" .mjs)"
