@@ -190,4 +190,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('quotes saved at old prices are r
     expect(price.json.code).toBe('QUOTE_LOCKED')
     expect((await prisma.savedQuote.findUnique({ where: { id: sold.id } })).finalPrice).toBe(5350)
   })
+  test('a Sent (or Lost) quote is never moved back to Draft by a plain save; Draft picked on it (backToDraft) does', async () => {
+    for (const was of ['SENT', 'LOST']) {
+      const q = await prisma.savedQuote.create({ data: { accountId, ...quote({ status: was, customerName: `E2E ${tag} ${was} draft` }), runs: [80], pullSheet: [], shareToken: was === 'SENT' ? `t-${tag}-${was}` : null } })
+      // The phone's older copy (opened before Copy link made it Sent) saves with Draft selected.
+      const plain = await call('PATCH', `/api/saved-quotes/${q.id}`, { ...quote({ status: 'DRAFT', customerName: `E2E ${tag} ${was} draft` }), notes: 'from an old copy', pricingStamp: await stampNow() })
+      expect(plain.status).toBe(200)
+      expect(plain.json.data.status).toBe(was)
+      expect(plain.json.data.notes).toBe('from an old copy')
+      // Draft picked on it on purpose.
+      const back = await call('PATCH', `/api/saved-quotes/${q.id}`, { status: 'DRAFT', backToDraft: true })
+      expect(back.status).toBe(200)
+      expect(back.json.data.status).toBe('DRAFT')
+    }
+  })
 })

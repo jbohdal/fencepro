@@ -87,6 +87,8 @@ export interface SavedQuote {
   priceRequest?: QuoteJobRequest
   /** The copy of the price data the quote builder priced it with (pricingFreshness.ts); sent with the save, never saved. */
   pricingStamp?: string
+  /** Back to Draft picked on a sent quote (sent with that save only): without it the server keeps a sent quote Sent. */
+  backToDraft?: boolean
 }
 
 const fmt = (n: number) =>
@@ -536,7 +538,8 @@ export default function QuotesPage({
   function handleStatusChange(id: string, status: SavedQuote['status']) {
     const quote = localQuotes.find(q => q.id === id)
     const wasSold = quote?.status === 'SOLD'
-    updateQuote(id, { status })
+    // Back to Draft picked here on a sent quote says so; otherwise the server keeps a sent quote Sent.
+    updateQuote(id, { status, ...(status === 'DRAFT' && quote && quote.status !== 'DRAFT' ? { backToDraft: true } : {}) })
     if (selectedQuote?.id === id) setSelectedQuote({ ...selectedQuote, status })
 
     // When changing TO sold: create job + offer to pull inventory

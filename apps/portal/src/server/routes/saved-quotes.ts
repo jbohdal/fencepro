@@ -365,6 +365,9 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       const fields = lockedChanges(existing, data)
       if (fields.length) { refuseLocked(res, fields, existing); return }
     }
+    // A sent (or lost) quote goes back to Draft only when Draft was picked on it (backToDraft): a save from a copy
+    // read before it was sent (the quote builder opened on the phone's older copy) keeps it as it is (#58 review).
+    if (data.status === 'DRAFT' && (existing.status === 'SENT' || existing.status === 'LOST') && req.body?.backToDraft !== true) delete data.status
     // An unsent quote repriced at prices the server no longer has, or put on a fence not available for quoting
     // now: refused, the phone reprices and asks first (broken list #58). Sent and signed quotes are not checked.
     const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, existing)
