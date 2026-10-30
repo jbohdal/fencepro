@@ -44,7 +44,7 @@ function Spans({ text }: { text: string }) {
 
 /** The details, as simple markdown drawn with React elements (nothing in it is run or treated as HTML). */
 export function MessageBody({ text }: { text: string }) {
-  if (!text.trim()) return <p className="text-sm text-gray-500">No more details: the title says it all.</p>
+  if (!text.trim()) return <p className="text-sm text-gray-500" data-code-body>No more details: the title says it all.</p>
   return (
     <div className="space-y-3 text-[15px] leading-relaxed text-gray-900 break-words" data-code-body>
       {mdBlocks(text).map((b, i) => {
