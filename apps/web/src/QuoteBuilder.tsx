@@ -32,7 +32,8 @@ import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser, currentUser } from './crmAuth'
 import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
-import { getQuotes } from './quoteStore'
+import { getQuotes, quoteStillMine } from './quoteStore'
+import { saveGate, gatedOnce } from './movedGate'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
@@ -118,6 +119,7 @@ const fmt = (n: number) =>
 function SaveModal({
   onSave,
   onCancel,
+  stillMine,
   initialCustomerName,
   initialCustomerId,
   initialAddress = '',
@@ -137,6 +139,12 @@ function SaveModal({
     leadTemp: number
   }) => void
   onCancel: () => void
+  /**
+   * Asked before a customer is made or picked (a Salesman's quote the owner moved meanwhile: false, and the app has
+   * said "The owner moved this to <name>" once and closed the builder). Review, Oct 30 2026: New Customer made a
+   * customer before the save found the quote was moved.
+   */
+  stillMine?: () => Promise<boolean>
   initialCustomerName: string
   initialCustomerId?: string
   /** The property this quote is for (it can differ from the customer's main address). */
@@ -198,7 +206,17 @@ function SaveModal({
 
   // Save tapped twice before the window closes: saved once.
   const submitted = useRef(false)
+  // Asked first (a moved quote: no customer is made or picked; movedGate.ts), then saved once.
+  // The newest submit and check (this render's form), called through refs so the once-guard is made one time.
+  const latest = useRef({ submitNow, stillMine })
+  latest.current = { submitNow, stillMine }
+  const gated = useRef(gatedOnce(() => (latest.current.stillMine ? latest.current.stillMine() : Promise.resolve(true)), () => latest.current.submitNow()))
   function handleSubmit() {
+    if (submitted.current) return
+    void gated.current()
+  }
+
+  function submitNow() {
     if (submitted.current) return
     const onto = mode === 'search' ? selectedCustomer : mode === 'new' && firstName.trim() && onFile.kind === 'attach' ? onFile.to : null
     if (onto) {
@@ -602,6 +620,14 @@ export default function QuoteBuilder({
     listStylePhotos().then(list => setPhotoIds(Object.fromEntries(list.map(p => [p.styleName, p.id])))).catch(() => {})
   }, [])
   const [showSaveModal, setShowSaveModal] = useState(false)
+  // A Salesman's saved quote: is it still hers? Asked when the Save window would open and again before it makes a
+  // customer (review, Oct 30 2026). Moved: the app says "The owner moved this to <name>" once and closes the builder.
+  const salesmanCheck = signedInRole() === 'sales_rep' && !!init?.id
+  const stillMineNow = saveGate({ isSalesman: signedInRole() === 'sales_rep', quoteId: init?.id, check: quoteStillMine })
+  const openSave = async () => {
+    if (!(await stillMineNow())) { setShowSaveModal(false); return }
+    setShowSaveModal(true)
+  }
   // Signed (Sold or accepted): the price is locked, changes go on a change order. Sent: the price the customer saw.
   const signedQuote = !!init?.id && isSignedQuote({ status: init.status, acceptedAt: init.acceptedAt, soldAt: init.soldAt })
   const sentQuote = !!init?.id && !signedQuote && init.status === 'SENT'
@@ -2142,7 +2168,7 @@ export default function QuoteBuilder({
               )}
               <button
                 disabled={!canSave}
-                onClick={() => setShowSaveModal(true)}
+                onClick={() => void openSave()}
                 className={signedQuote ? 'btn btn-secondary w-full min-h-[48px]' : 'btn btn-primary btn-lg w-full'}
               >
                 {signedQuote ? 'Save notes and customer details only' : init?.id ? 'Update quote' : 'Save quote'}
@@ -2204,7 +2230,7 @@ export default function QuoteBuilder({
                   <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary min-h-[52px] px-3 text-base font-semibold flex-1 min-w-0 whitespace-nowrap md:flex-none md:min-w-[160px]" data-co-make>Make change order</button>
                 </div>
               ) : step === 'price' ? (
-                <button disabled={!canSave} onClick={() => setShowSaveModal(true)} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
+                <button disabled={!canSave} onClick={() => void openSave()} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
               ) : (
                 <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-bar-next>{barNextLabel}</button>
               )}
@@ -2251,6 +2277,7 @@ export default function QuoteBuilder({
           initialStatus={init?.status ?? 'DRAFT'}
           initialNotes={[init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
           onCancel={() => setShowSaveModal(false)}
+          stillMine={salesmanCheck ? stillMineNow : undefined}
           onSave={handleSave}
         />
       )}
