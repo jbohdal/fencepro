@@ -12,7 +12,7 @@
  * - What is still missing before it can be finished.
  */
 
-import { REPAIR_ITEMS, REPAIR_LABEL, workSummary, type WorkWordsInput } from './workWords.js'
+import { REPAIR_ITEMS, REPAIR_LABEL, workSummary, chargedRepairItems, type WorkWordsInput } from './workWords.js'
 
 export type WalkCategory = 'vinyl' | 'chain_link' | 'aluminum'
 export const WALK_CATEGORIES: WalkCategory[] = ['vinyl', 'chain_link', 'aluminum']
@@ -76,7 +76,8 @@ export function categoryForStyle(style: string | null | undefined): WalkCategory
  */
 export function workChecklist(work: WorkWordsInput | null | undefined, styleList: TemplateItem[]): TemplateItem[] {
   if (work?.type === 'repair') {
-    const items = work.repair?.items ?? {}
+    // The concrete footer count only with no dig old posts (workWords.ts chargedRepairItems).
+    const items = chargedRepairItems(work.repair)
     const n = (k: keyof typeof items) => Math.max(0, Math.round(Number(items[k]) || 0))
     const gate = work.repair?.gateKind === 'double' ? 'double gate' : 'gate'
     const out: TemplateItem[] = REPAIR_ITEMS.filter(k => k !== 'haulDebris' && k !== 'footerDisposal' && n(k) > 0)

@@ -53,7 +53,7 @@ import { isQuotable } from './styleAvailability'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
-  REPAIR_ITEMS, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
+  REPAIR_ITEMS, chargedRepairItems, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
@@ -946,7 +946,7 @@ export default function QuoteBuilder({
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
   const canSave = !!styleId && (internal || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
     : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
-    : REPAIR_ITEMS.some(k => (repairIn.items[k] ?? 0) > 0))
+    : REPAIR_ITEMS.some(k => (chargedRepairItems(repairIn)[k] ?? 0) > 0))
 
   // A yard shape just picked opens on its first side.
   useEffect(() => {
@@ -2140,7 +2140,7 @@ export default function QuoteBuilder({
             <p className="text-xs font-semibold text-gray-600 truncate tabular-nums" data-bar-facts>
               {step === 'yard' && entry === 'layout' && yard
                 ? `${sidesDone} of ${sidesOn} sides · ${totalFootage} ft · ${effCorners} corner, ${effEnds} end`
-                : work ? (jobType === 'move' ? `Move ${Math.round(moveIn.oldFt)} ft → ${totalFootage} ft · ${work.sections} sections` : `Repair · ${REPAIR_ITEMS.reduce((t, k) => t + (repairIn.items[k] ?? 0), 0)} items`)
+                : work ? (jobType === 'move' ? `Move ${Math.round(moveIn.oldFt)} ft → ${totalFootage} ft · ${work.sections} sections` : `Repair · ${REPAIR_ITEMS.reduce((t, k) => t + (chargedRepairItems(repairIn)[k] ?? 0), 0)} items`)
                 : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
             <div className={`flex items-center gap-2 mt-1 ${signedQuote ? 'flex-wrap md:flex-nowrap' : ''}`}>

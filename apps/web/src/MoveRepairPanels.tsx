@@ -9,7 +9,7 @@ import { useState } from 'react'
 import SitePlan from './SitePlan'
 import type { LayoutResult, YardLayout } from './yardLayout'
 import {
-  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices, oldPostCostLine, OLD_POSTS_BUTTON, OLD_POSTS_QUESTION,
+  REPAIR_ITEMS, REPAIR_LABEL, REPAIR_HINT, WHAT_HAPPENED, starterNote, starterOffer, isStarterItem, oldLine as oldLineFacts, workWidth, repairPartChoices, oldPostCostLine, OLD_POSTS_BUTTON, OLD_POSTS_QUESTION, FOOTER_DIG_SET_REASON, footerCounts,
   type JobType, type MoveInputs, type RepairInputs, type MoveDraft, type RepairDraft, type MoveRepairSettings, type PostRateKey, type RepairItemKey, type WorkResult, type PostType,
 } from './moveRepair'
 import type { QuoteStyle } from './quoteCalc'
@@ -31,12 +31,12 @@ export function JobTypePicker({ value, onChange }: { value: JobType; onChange: (
   )
 }
 
-function Stepper({ value, onChange, label, min = 0 }: { value: number; onChange: (n: number) => void; label: string; min?: number }) {
+function Stepper({ value, onChange, label, min = 0, disabled = false }: { value: number; onChange: (n: number) => void; label: string; min?: number; disabled?: boolean }) {
   return (
-    <div className="flex items-center gap-1 shrink-0" data-stepper={label}>
-      <button type="button" aria-label={`One less ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
-      <span className="w-8 text-center text-lg font-bold tabular-nums" data-stepper-value>{value}</span>
-      <button type="button" aria-label={`One more ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold" onClick={() => onChange(value + 1)}>+</button>
+    <div className={`flex items-center gap-1 shrink-0 ${disabled ? 'opacity-50' : ''}`} data-stepper={label}>
+      <button type="button" aria-label={`One less ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={disabled || value <= min} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+      <span className={`w-8 text-center text-lg font-bold tabular-nums ${disabled ? 'line-through' : ''}`} data-stepper-value>{value}</span>
+      <button type="button" aria-label={`One more ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={disabled} onClick={() => onChange(value + 1)}>+</button>
     </div>
   )
 }
@@ -223,16 +223,25 @@ export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates,
         <Toggle data="debris-cleared" label="Tree and debris cleared before we start" hint="Or add Haul away debris below" on={!!repair.debrisCleared} onChange={v => set({ debrisCleared: v })} />
       )}
       <div className="space-y-1" data-repair-items>
-        {REPAIR_ITEMS.map(k => (
-          <div key={k} className={`flex items-center justify-between gap-2 rounded-lg bg-white border px-3 py-2 ${isStarterItem(repair.what, k) && qty(k) > 0 ? 'border-orange-400' : 'border-gray-200'}`} data-repair-item={k} data-repair-item-starter={isStarterItem(repair.what, k) && qty(k) > 0 ? 'yes' : undefined}>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-900">{REPAIR_LABEL[k]}</p>
-              {isStarterItem(repair.what, k) && qty(k) > 0 && <p className="text-xs font-semibold text-orange-700">Added by "{WHAT_HAPPENED[repair.what].label}"</p>}
-              <p className="text-xs text-gray-500" data-repair-hint={k}>{REPAIR_HINT[k]}</p>
+        {REPAIR_ITEMS.map(k => {
+          // The concrete footer: no dig old posts only; dig set old posts (the style's, or picked) turn it off and say why.
+          const off = k === 'footerDisposal' && !footerCounts(repair.postType)
+          return (
+            <div key={k} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${off ? 'bg-gray-50' : 'bg-white'} ${isStarterItem(repair.what, k) && qty(k) > 0 ? 'border-orange-400' : 'border-gray-200'}`} data-repair-item={k} data-repair-item-starter={isStarterItem(repair.what, k) && qty(k) > 0 ? 'yes' : undefined} data-repair-item-off={off ? 'yes' : undefined}>
+              <div className="min-w-0">
+                <p className={`text-sm font-semibold ${off ? 'text-gray-500' : 'text-gray-900'}`}>{REPAIR_LABEL[k]}</p>
+                {isStarterItem(repair.what, k) && qty(k) > 0 && <p className="text-xs font-semibold text-orange-700">Added by "{WHAT_HAPPENED[repair.what].label}"</p>}
+                {off ? (
+                  <>
+                    <p className="text-xs font-semibold text-gray-700" data-repair-item-off-reason>{FOOTER_DIG_SET_REASON}{qty(k) > 0 ? `: the ${qty(k)} entered ${qty(k) === 1 ? 'is' : 'are'} not charged` : ''}.</p>
+                    <button type="button" className="text-xs font-semibold text-orange-700 underline min-h-[44px]" onClick={() => set({ postType: 'nd' })} data-repair-footer-nd>Old posts are no dig? Tap here</button>
+                  </>
+                ) : <p className="text-xs text-gray-500" data-repair-hint={k}>{REPAIR_HINT[k]}</p>}
+              </div>
+              <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} disabled={off} />
             </div>
-            <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} />
-          </div>
-        ))}
+          )
+        })}
       </div>
       {qty('repairSection') > 0 && choices.length > 0 && (
         <div className="rounded-lg bg-white border border-gray-200 p-3" data-repair-parts>
@@ -259,11 +268,11 @@ export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates,
           ))}
         </div>
       )}
+      {(qty('resetPost') > 0 || qty('replacePost') > 0 || qty('footerDisposal') > 0) && (
+        <PostTypePick label={OLD_POSTS_QUESTION} note={oldPostsNote} cost={postRates && (qty('resetPost') > 0 || qty('replacePost') > 0) ? oldPostCostLine(postRates) : null} value={repair.postType} onChange={v => set({ postType: v })} />
+      )}
       {(qty('resetPost') > 0 || qty('replacePost') > 0) && (
-        <>
-          <PostTypePick label={OLD_POSTS_QUESTION} note={oldPostsNote} cost={postRates ? oldPostCostLine(postRates) : null} value={repair.postType} onChange={v => set({ postType: v })} />
-          <Toggle label="New post caps" hint="Off: the old caps are reused" on={repair.newPostCaps} onChange={v => set({ newPostCaps: v })} data="new-caps" />
-        </>
+        <Toggle label="New post caps" hint="Off: the old caps are reused" on={repair.newPostCaps} onChange={v => set({ newPostCaps: v })} data="new-caps" />
       )}
       {yard && layoutResult && runSections.some(n => n > 0) && (
         <div data-repair-plan>
