@@ -17,6 +17,13 @@
 //      builder picks it up by itself (focus / its 30 second check): the price
 //      on screen moves back and the line says so, before anything is tapped.
 //   4. A save sent on the old stamp straight to the server: 409 PRICES_CHANGED.
+//   5. The same second (reviewer, Oct 29): the owner saves Settings and a part's
+//      cost while the phone's check still says nothing changed, and a Settings
+//      change on the phone cannot go (refused). The server sends the save back
+//      (409); the phone reads the prices again anyway, opens the quote repriced
+//      and asks; "Save at $X" saves it (never stuck).
+//   6. Copy link (Sent) without a reload, then Edit: it opens as Sent (no draft
+//      line, Sent picked), and Update quote keeps it Sent on the server.
 //
 // Shared dev data (Inventory) is changed, so it takes turns (sharedLock.mjs)
 // and puts the part's cost back exactly as it was. Its quote and customer are
@@ -54,7 +61,7 @@ const money = cents => `$${(cents / 100).toLocaleString('en-US', { minimumFracti
 const tag = Date.now().toString(36).slice(-5)
 const NAME = `E2E Stale Prices ${tag}`
 const contactId = crypto.randomUUID(), quoteId = crypto.randomUUID()
-let part = null, originalCost = null
+let part = null, originalCost = null, settingsTouched = false, originalStaleMonths
 
 /** The owner saves a part's cost (Inventory), as the app does: on the record's current version. */
 async function setCost(id, unitCost) {
@@ -62,6 +69,19 @@ async function setCost(id, unitCost) {
     const inv = (await call('GET', '/api/inventory-state')).json.data
     const items = inv.items.map(x => (x.id === id ? { ...x, unitCost } : x))
     const r = await call('PUT', '/api/inventory-state', { items, bundles: inv.bundles, locations: inv.locations, stockLevels: inv.stockLevels, transactions: inv.transactions, baseVersion: inv.version })
+    if (r.status < 300) return true
+    await sleep(500)
+  }
+  return false
+}
+
+/** The owner saves a Settings value that counts for prices (Settings > Pricing: price age warning months). */
+async function setStaleMonths(v) {
+  for (let i = 0; i < 5; i++) {
+    const b = (await call('GET', '/api/business-state')).json.data
+    const pricing = { ...(b.config?.pricing ?? {}) }
+    if (v === undefined) delete pricing.priceStaleMonths; else pricing.priceStaleMonths = v
+    const r = await call('PATCH', '/api/business-state', { config: { ...b.config, pricing }, baseVersion: b.version })
     if (r.status < 300) return true
     await sleep(500)
   }
@@ -97,7 +117,8 @@ try {
   check('set up: a new Draft quote', c.status < 300 && d.status < 300, `${c.status} ${d.status}`)
 
   // ── The app already open, on a phone ──
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  // No service worker: the same-second case below steps into the app's own requests (a worker would answer them first).
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: 'block' })
   const u = new URL(API)
   await ctx.addCookies([{ name: 'ezbiz_staff', value: COOKIE, domain: u.hostname, path: '/api', httpOnly: true, secure: false, sameSite: 'Strict' }])
   const errors = [], quoteSaves = []
@@ -125,9 +146,9 @@ try {
   const raised = Math.round((originalCost + 3) * 100) / 100
   check('the owner raises the part\'s cost (Inventory save)', await setCost(part.id, raised), `${part.name}: $${originalCost} → $${raised}`)
   await page.locator('[data-save-open]').first().click()
-  await page.waitForSelector('[data-save-submit]', { timeout: 10000 })
-  await page.locator('[data-save-submit]').click()
+  // Checked before the Save window opens: nothing (a new customer included) is made before the price is confirmed.
   const dialog = await until(async () => (await page.locator('[data-price-recheck="confirm"]').count()) ? page.locator('[data-price-recheck="confirm"]') : null, 20000)
+  check('the check comes before the Save window (no customer made yet)', !!dialog && (await page.locator('[data-save-submit]').count()) === 0)
   const nowCents = await barCents()
   const lineText = dialog ? (await dialog.locator('[data-price-recheck-line]').innerText()).trim() : ''
   check('Save does not save the old price: the new price is shown to confirm', !!dialog && nowCents > before
@@ -135,7 +156,11 @@ try {
   const savedEarly = (await call('GET', `/api/saved-quotes/${quoteId}`)).json.data
   check('nothing saved before the confirm', Math.round(savedEarly.finalPrice * 100) === Math.round(template.finalPrice * 100), `${savedEarly.finalPrice}`)
   await shot(page, '2-confirm.png')
+  const btn = dialog ? (await dialog.locator('[data-price-recheck-save]').innerText()).trim() : ''
+  check('the button says the new price', btn === `Continue at ${money(nowCents)}`, btn)
   if (dialog) await dialog.locator('[data-price-recheck-save]').click()
+  await page.waitForSelector('[data-save-submit]', { timeout: 10000 })
+  await page.locator('[data-save-submit]').click()
   const saved = await until(async () => { const q = (await call('GET', `/api/saved-quotes/${quoteId}`)).json.data; return Math.round(q.finalPrice * 100) === nowCents ? q : null }, 30000)
   check('confirmed: the server has the new price', !!saved, saved ? money(Math.round(saved.finalPrice * 100)) : 'not saved')
   check('no save was refused on the way (no 409)', !quoteSaves.some(s => / 409$/.test(s)), quoteSaves.join(', '))
@@ -161,6 +186,75 @@ try {
   const st = (await call('GET', '/api/quote-pricing/stamp')).json.data
   const stale = await call('PATCH', `/api/saved-quotes/${quoteId}`, { runs: [...(template.runs ?? []), 10], finalPrice: saved?.finalPrice + 400, pricingStamp: 'old.old.old' })
   check('a save on an old stamp is refused by the server (409 PRICES_CHANGED), nothing saved', stale.status === 409 && stale.json.code === 'PRICES_CHANGED' && stale.json.stamp === st?.stamp, `${stale.status} ${stale.json.code}`)
+
+  // ── 5. The same second: the phone's check says nothing changed, the server says it did; Settings stuck on the phone ──
+  await open()
+  const base5 = await barCents()
+  let settingsRefused = 0, ownerSaved = null
+  const settingsSaves = []
+  // A Settings change on this phone that cannot go (refused every time, as the reviewer's stuck pull sheet entry was).
+  await page.route('**/api/business-state**', r => {
+    if (r.request().method() !== 'PATCH') return r.continue()
+    settingsRefused++
+    return r.fulfill({ status: 404, contentType: 'application/json', body: '{"success":false,"error":"Not found"}' })
+  })
+  originalStaleMonths = (await call('GET', '/api/business-state')).json.data.config?.pricing?.priceStaleMonths
+  // The same second: the phone's checks found nothing changed, and the owner's Settings and Inventory saves land
+  // just before the quote's save reaches the server. The answer is let through as it is.
+  await page.route('**/api/saved-quotes/**', async r => {
+    if (r.request().method() !== 'PATCH') return r.continue()
+    if (ownerSaved === null) {
+      settingsTouched = true
+      ownerSaved = await setStaleMonths((originalStaleMonths ?? 6) + 1) && await setCost(part.id, Math.round((originalCost + 3) * 100) / 100)
+    }
+    return r.continue()
+  })
+  const onQuoteSave = resp => { if (resp.request().method() === 'PATCH' && new URL(resp.url()).pathname.startsWith('/api/saved-quotes/')) settingsSaves.push(resp.status()) }
+  page.on('response', onQuoteSave)
+  await page.locator('[data-save-open]').first().click()
+  await page.waitForSelector('[data-save-submit]', { timeout: 10000 })
+  await page.locator('[data-save-submit]').click()
+  const asked = await until(async () => (await page.locator('[data-price-recheck="confirm"]').count()) ? page.locator('[data-price-recheck="confirm"]') : null, 40000)
+  if (!asked) await shot(page, '5-no-dialog.png')
+  const now5 = asked ? await barCents() : 0
+  const line5 = asked ? (await asked.locator('[data-price-recheck-line]').innerText()).trim() : ''
+  check('the owner saved Settings and a part\'s cost the same second', ownerSaved === true)
+  check('the server sent the save back (409 PRICES_CHANGED) while a Settings change was stuck on the phone', settingsSaves[0] === 409 && settingsRefused > 0, `quote saves ${settingsSaves.join(',')}, Settings refused ${settingsRefused}x`)
+  check('the phone read the prices again anyway, opened the quote repriced and asks', !!asked && now5 > base5 && line5 === `Prices changed since you opened this quote. It is now ${money(now5)} (was ${money(base5)}).`, line5 || 'no dialog')
+  await shot(page, '5-sent-back.png')
+  if (asked) await asked.locator('[data-price-recheck-save]').click()
+  const saved5 = await until(async () => { const q = (await call('GET', `/api/saved-quotes/${quoteId}`)).json.data; return Math.round(q.finalPrice * 100) === now5 ? q : null }, 30000)
+  check('"Save at" saved it at the new price: not stuck (the next save went through)', !!saved5, `${saved5 ? money(Math.round(saved5.finalPrice * 100)) : 'not saved'}; quote saves ${settingsSaves.join(',')}`)
+  await page.unroute('**/api/business-state**').catch(() => {})
+  await page.unroute('**/api/saved-quotes/**').catch(() => {})
+  await setStaleMonths(originalStaleMonths); settingsTouched = false
+  await setCost(part.id, originalCost)
+
+  // ── 6. Copy link (Sent) without a reload, then Edit ──
+  if (page) await page.close().catch(() => {})
+  page = await ctx.newPage()
+  page.on('pageerror', e => errors.push(String(e).slice(0, 300)))
+  page.on('dialog', dl => dl.accept().catch(() => {}))
+  await page.route('**/api/automations/trigger', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }))
+  await page.goto(`${APP}/quotes?qv=${quoteId}`)
+  await page.waitForSelector('[data-proposal-copy]', { timeout: 40000 })
+  await page.locator('[data-proposal-copy]').click()
+  const sentOnServer = await until(async () => ((await call('GET', `/api/saved-quotes/${quoteId}`)).json.data?.status === 'SENT' ? true : null), 20000)
+  check('Copy link: the quote is Sent on the server', !!sentOnServer)
+  await page.locator('[data-quote-actions] button', { hasText: /^Edit$/ }).first().click()
+  await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 })
+  await sleep(2000)
+  const asSent = await page.locator('[data-step-panel="price"]').innerText().catch(() => '')
+  check('Edit opens it as Sent: the customer\'s price as sent, no draft "prices changed" line', /as sent/i.test(asSent) && (await page.locator('[data-quote-price-changed-banner]').count()) === 0)
+  await page.locator('[data-save-open]').first().click()
+  await page.waitForSelector('[data-save-submit]', { timeout: 10000 })
+  const picked = await page.locator('button.bg-gray-900', { hasText: /^(DRAFT|SENT|SOLD|LOST)$/ }).first().innerText().catch(() => '')
+  check('the Save window has Sent picked', picked.trim() === 'SENT', picked)
+  await page.locator('[data-save-submit]').click()
+  await sleep(3000)
+  const after6 = await until(async () => { const q = (await call('GET', `/api/saved-quotes/${quoteId}`)).json.data; return q?.status ? q : null }, 10000)
+  check('Update quote keeps it Sent on the server', after6?.status === 'SENT', after6?.status)
+
   check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '))
   await ctx.close()
 } catch (e) {
@@ -168,6 +262,7 @@ try {
 } finally {
   await browser.close().catch(() => {})
   try {
+    if (settingsTouched) { await setStaleMonths(originalStaleMonths); check('the Settings value is back as it was', (await call('GET', '/api/business-state')).json.data.config?.pricing?.priceStaleMonths === originalStaleMonths) }
     if (part && originalCost != null) {
       const now = (await call('GET', '/api/inventory-state')).json.data.items.find(i => i.id === part.id)
       if (now?.unitCost !== originalCost) await setCost(part.id, originalCost)
