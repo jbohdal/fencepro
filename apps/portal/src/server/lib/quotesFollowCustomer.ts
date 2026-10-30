@@ -30,10 +30,11 @@
  *     moved in the audit log (by the route).
  *   - Who sees them: every remembered Salesman scope is forgotten by the
  *     caller (salesScope.ts forgetAllScopes): the new Salesman has the quotes
- *     on the next request, the old one no longer does unless the old one made
- *     the quote (a Salesman's own quote stays in the Salesman's scope, as
- *     ever). What each phone held is still put back on its next save
- *     (salesServed.ts, salesScopeRecords.ts).
+ *     on the next request, the old one no longer does, even a quote the old
+ *     one wrote (Jonathan, Oct 29 2026: "Christa's quotes after a move:
+ *     unsold ones leave her list. Signed ones she sold stay with her."; the
+ *     rep on a quote decides, lib/salesScope.ts). What each phone held is
+ *     still put back on its next save (salesServed.ts, salesScopeRecords.ts).
  *   - An older copy saved afterwards (a phone or tab that read the quote
  *     before the move) does not take the quote back: quoteRepKept below.
  */

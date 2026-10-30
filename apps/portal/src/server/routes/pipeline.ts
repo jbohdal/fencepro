@@ -106,7 +106,8 @@ router.get('/', async (req: any, res) => {
     const found = await prisma.pipelineState.findUnique({ where: { accountId } })
     // ?version=<n>: the board has not changed since that version, so nothing needs sending.
     const known = Number(req.query.version)
-    if (found && Number.isInteger(known) && found.version === known) { res.json({ success: true, unchanged: true, version: found.version }); return }
+    // (A Salesman whose scope changed since her last read gets the board: lib/salesScope.ts salesScoped.)
+    if (found && Number.isInteger(known) && found.version === known && !req.salesScopeChanged) { res.json({ success: true, unchanged: true, version: found.version }); return }
     const p = found ?? await findOrCreate(
       () => prisma.pipelineState.findUnique({ where: { accountId } }),
       () => prisma.pipelineState.create({ data: { accountId, leads: [], stages: [] } }),

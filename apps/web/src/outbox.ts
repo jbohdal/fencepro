@@ -320,11 +320,14 @@ async function pump() {
       // Refused for this login's role: never sent again. The change leaves the
       // phone, the screen goes back to the server's copy, and the reason is shown.
       // Or a signed quote's price (409 QUOTE_LOCKED): it stays as signed; the change goes on a change order.
-      if ((r.status === 403 && r.code === 'NOT_ALLOWED') || (r.status === 409 && r.code === 'QUOTE_LOCKED')) {
-        const message = r.status === 409 && r.error ? r.error : plainError(403, r.error, handler.what?.(op) ?? 'This change').message
+      // Or (a Salesman) the record was moved to someone else (404 MOVED, "The owner moved this to Sam"): never sent
+      // again, said in those words (review, Oct 30 2026: it was sent again and again as a connection problem).
+      if ((r.status === 403 && r.code === 'NOT_ALLOWED') || (r.status === 409 && r.code === 'QUOTE_LOCKED') || (r.status === 404 && r.code === 'MOVED')) {
+        const message = (r.status === 409 || r.code === 'MOVED') && r.error ? r.error : plainError(403, r.error, handler.what?.(op) ?? 'This change').message
         await drop(op)
         try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }
-        try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ }
+        // A MOVED one is said once by the app already (movedNotice.ts): no second "Not saved".
+        if (r.code !== 'MOVED') { try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ } }
         try { window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data')) } catch { /* no window (tests) */ }
         emit()
         continue

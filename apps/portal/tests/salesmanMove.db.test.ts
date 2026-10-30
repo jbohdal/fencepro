@@ -231,24 +231,32 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect((await prisma.crmContact.findUnique({ where: { id: id.cara } }))!.salesRep).toBe(OLIVE())
   })
 
-  test('scope follows: Sam has the moved quotes and the job; Sally no longer has them, except the quote she wrote; her older copy saves without taking it back', async () => {
+  test('scope follows: Sam has the moved quotes and the job; Sally no longer has them, not even the quote she wrote; her older copy neither saves nor takes it back', async () => {
     expect(await sees(tok.sam, 'saved-quotes', id.qOpen)).toBe(true)
     expect(await sees(tok.sam, 'saved-quotes', id.qSigned)).toBe(true)
     expect(await sees(tok.sam, 'saved-jobs', id.job)).toBe(true)
     expect(await sees(tok.sally, 'saved-quotes', id.qOpen)).toBe(false)
     expect(await sees(tok.sally, 'saved-quotes', id.qSigned)).toBe(false)
     expect(await sees(tok.sally, 'saved-jobs', id.job)).toBe(false)
-    // The quote Sally wrote, moved to Sam: Sam has it, and so does Sally (she made it, the Oct 28 rule).
+    // The quote Sally wrote, moved to Sam: Sam has it; Sally no longer does (Jonathan, Oct 29 2026: "unsold ones
+    // leave her list"; the rep decides, not who wrote it).
+    const before = (await quoteOf(id.qSallyOwn))!
     expect((await call('POST', `/api/saved-quotes/${id.qSallyOwn}/salesman`, tok.owner, { to: id.sam })).status).toBe(200)
     expect(await sees(tok.sam, 'saved-quotes', id.qSallyOwn)).toBe(true)
-    expect(await sees(tok.sally, 'saved-quotes', id.qSallyOwn)).toBe(true)
-    // Her phone's older copy (read before the move) saves her notes; the Salesman stays Sam.
+    expect(await sees(tok.sally, 'saved-quotes', id.qSallyOwn)).toBe(false)
+    const list = await call('GET', '/api/saved-quotes', tok.sally)
+    expect(list.json.data.map((q: any) => q.id)).not.toContain(id.qSallyOwn)
+    // Her phone's older copy (read before the move) is a 404 (the app reloads its list); nothing changes, the Salesman stays Sam.
     const s = await call('PATCH', `/api/saved-quotes/${id.qSallyOwn}`, tok.sally, { ...sallyStaleOwn, notes: 'called her back' })
-    expect(s.status).toBe(200)
+    expect(s.status).toBe(404)
+    // A create naming it (a retried create) is a 404 too: it is not brought back.
+    expect((await call('POST', '/api/saved-quotes', tok.sally, { ...sallyStaleOwn, id: id.qSallyOwn, notes: 'again' })).status).toBe(404)
     const q = (await quoteOf(id.qSallyOwn))!
-    expect([q.salesRep, q.notes, q.finalPrice]).toEqual([SAM(), 'called her back', 4000])
-    // Sally reads the History (no money in it) but has no control: the server refuses her.
-    expect((await call('POST', `/api/saved-quotes/${id.qSallyOwn}/salesman`, tok.sally, { to: id.sally })).status).toBe(403)
+    expect([q.salesRep, q.notes, q.finalPrice]).toEqual([SAM(), before.notes, 4000])
+    // Sally has no control: the server refuses her, on a quote that is no longer hers (404) and on one that is (403).
+    expect((await call('POST', `/api/saved-quotes/${id.qSallyOwn}/salesman`, tok.sally, { to: id.sally })).status).toBe(404)
+    expect((await call('POST', `/api/saved-quotes/${id.qDoraSold}/salesman`, tok.sally, { to: id.sally })).status).toBe(403)
+    expect((await quoteOf(id.qSallyOwn))!.salesRep).toBe(SAM())
   })
 
   test('the customer page\'s Change still works for the owner (D3): Dora\'s open quote and its commission go to Sam; the sold one stays Sally\'s', async () => {

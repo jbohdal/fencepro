@@ -82,3 +82,36 @@ export async function moveCallbacks(accountId: string, contactId: string, to: Ca
   if (moved.length) { try { requestCalendarSync(accountId) } catch { /* never affects the assign */ } }
   return moved
 }
+
+/**
+ * The customer's UPCOMING visits (an estimate or any other booking that is not a call back, not done, cancelled or
+ * a no show, starting from now on) that were with the Salesman the customer is moving FROM go to the person it
+ * moves to (review, Oct 30 2026: Christa's estimate for a customer moved away stayed on her Today with a Call
+ * button, and she could not open the customer). The owner's call, to be confirmed by Jonathan; as D7 moves the
+ * call backs. Visits with anyone else (an installer, the owner) and past ones stay as they are.
+ */
+export async function moveUpcomingVisits(accountId: string, contactId: string, from: CallbackPerson | null, fromName: string, to: CallbackPerson, now = new Date()): Promise<string[]> {
+  const was = fromName.replace(/\s+/g, ' ').trim()
+  if (!from && !was) return []
+  const name = to.name.replace(/\s+/g, ' ').trim()
+  const moved: string[] = []
+  const rows = await prisma.appointment.findMany({
+    where: {
+      accountId, crmContactId: contactId, type: { not: 'call_back' }, deletedAt: null, archivedAt: null,
+      status: { in: [...OPEN_CALLBACK_STATUSES] }, startAt: { gte: now },
+    },
+    select: { id: true, version: true, assignedToUserId: true, assignedTo: true },
+  })
+  for (const a of rows) {
+    const withOld = (from && a.assignedToUserId === from.id) || (!a.assignedToUserId && !!was && sameName(a.assignedTo, was)) || (!!was && sameName(a.assignedTo, was) && a.assignedToUserId !== to.id)
+    if (!withOld || a.assignedToUserId === to.id) continue
+    const done = await prisma.appointment.updateMany({
+      where: { id: a.id, version: a.version, status: { in: [...OPEN_CALLBACK_STATUSES] } },
+      data: { assignedTo: name, assignedToUserId: to.id, version: { increment: 1 } },
+    })
+    if (done.count === 1) { moved.push(a.id); forgetScope(a.assignedToUserId) }
+  }
+  if (moved.length) { forgetScope(to.id); try { requestCalendarSync(accountId) } catch { /* never affects the assign */ } }
+  return moved
+}
+

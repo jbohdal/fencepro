@@ -280,7 +280,7 @@ export function getJobByQuoteId(quoteId: string): Job | null {
 export async function fetchJob(id: string): Promise<{ ok: true; job: Job } | { ok: false; notFound: boolean; error: string }> {
   const r = await sendJson('GET', `/api/saved-jobs/${encodeURIComponent(id)}`)
   if (r.result.ok && r.json?.data) return { ok: true, job: fromApi(r.json.data as SavedJobRecord) }
-  if (r.status === 404) return { ok: false, notFound: true, error: 'This job is not one of yours, or it was deleted.' }
+  if (r.status === 404) return { ok: false, notFound: true, error: r.json?.code === 'MOVED' && typeof r.json.error === 'string' ? r.json.error : 'This job is not one of yours, or it was deleted.' }
   return { ok: false, notFound: false, error: r.status === 0 ? 'No signal. Try again when the phone has signal.' : r.json?.error || 'Could not open the job. Try again.' }
 }
 
@@ -646,6 +646,15 @@ export async function refreshJobs(): Promise<void> {
       archivedCache = [...arch.values()]
     }
   } else { cache = rows.map(fromApi); void loadArchivedJobs() }
+  // A Salesman's small refresh says which are still hers (keepOnly): one that left her (moved to someone else) leaves this copy.
+  let dropped = 0
+  if (Array.isArray(r.json.keepOnly)) {
+    const keep = new Set(r.json.keepOnly as string[])
+    const before = cache.length + archivedCache.length
+    cache = cache.filter(x => keep.has(x.id) || hasPending(`job:${x.id}`))
+    archivedCache = archivedCache.filter(x => keep.has(x.id) || hasPending(`job:${x.id}`))
+    dropped = before - cache.length - archivedCache.length
+  }
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
-  if (!r.json.partial || rows.length) { reapply('job.'); emit() }
+  if (!r.json.partial || rows.length || dropped) { reapply('job.'); emit() }
 }

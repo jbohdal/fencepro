@@ -142,9 +142,13 @@ export function createVersionedFlusher<T>(opts: {
     get: opts.get, apply: opts.apply,
     save: async (state, v, base) => {
       const r = await opts.save(state, v, base)
-      if (r.status === 'saved') serverCopy = state
+      if (r.status === 'saved') serverCopy = r.server !== undefined ? JSON.parse(JSON.stringify(r.server ?? null)) : state
       if (r.status === 'refused' && r.server !== undefined) serverCopy = JSON.parse(JSON.stringify(r.server ?? null))
       return r
+    },
+    onLeftOut: leftOut => {
+      try { window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data')) } catch {}
+      toast.info(`${opts.name} saved`, `${leftOut === 1 ? 'One entry was' : `${leftOut} entries were`} for a customer or quote that is no longer yours, so it was left as it is. Everything else is saved.`)
     },
     onMerged: ({ problems, overlap }) => {
       // A screen holding its own copy of this record needs to read it again.
@@ -220,6 +224,10 @@ export async function versionedSave<T>(url: string, method: 'PUT' | 'PATCH', bod
     }
     if (!res.ok || !json?.success) return { status: 'failed' }
     const version = typeof json.version === 'number' ? json.version : json.data?.version
-    return typeof version === 'number' ? { status: 'saved', version } : { status: 'failed' }
+    if (typeof version !== 'number') return { status: 'failed' }
+    // Part of the save was not this login's to send (a Salesman's entry for a customer no longer hers): saved
+    // without it; the answer is the copy as saved, which becomes this copy.
+    if (typeof json.leftOut === 'number' && json.leftOut > 0 && 'data' in json) return { status: 'saved', version, server: pick(json.data), leftOut: json.leftOut }
+    return { status: 'saved', version }
   } catch { return { status: 'failed' } }
 }

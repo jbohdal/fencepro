@@ -17,7 +17,7 @@ import { POButton } from './PurchaseOrder'
 import { pullFromInventory, getLocations } from './inventoryStore'
 import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
-import { getQuotes, updateQuote } from './quoteStore'
+import { getQuotes, getArchivedQuotes, updateQuote } from './quoteStore'
 import { averageMargin } from './quoteStats'
 import { quoteMarginTone } from './moneyLoad'
 import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
@@ -523,6 +523,13 @@ export default function QuotesPage({
   const [pullLocationId, setPullLocationId] = useState('')
   const [pullResult, setPullResult]     = useState<string | null>(null)
   const [localQuotes, setLocalQuotes] = useState<SavedQuote[]>(() => getQuotes())
+
+  // A quote that left this login's lists (a Salesman's moved to someone else): its window closes with it (review, Oct 30 2026).
+  useEffect(() => {
+    const check = () => setSelectedQuote(cur => (cur && cur.id && !getQuotes().some(x => x.id === cur.id) && !getArchivedQuotes().some(x => x.id === cur.id) ? null : cur))
+    window.addEventListener('fencepro:quotes:updated', check)
+    return () => window.removeEventListener('fencepro:quotes:updated', check)
+  }, [])
 
   // Live-refresh when quotes are saved from anywhere else (in-process or other tab)
   useEffect(() => {

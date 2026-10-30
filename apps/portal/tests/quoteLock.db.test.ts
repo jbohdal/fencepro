@@ -50,7 +50,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     accountId, ownerId: userId, customerName: 'E2E Quote Lock Test', customerPhone: '3525550177', fenceStyle: "WV-ND 6'x8' Privacy", runs: [80], sections: 10,
     corners: 0, ends: 2, walkGates: 1, materialCost: 265, laborCost: 240, tearOutCost: 0, totalCOGS: 505, finalPrice: 1000, gmPct: 0.495,
     pullSheet: [{ item: 'E2E Lock Post', qty: 11, unitCost: 13.5, total: 148.5 }], pricing: { laborMode: 'subcontractor' },
-    layout: { yard, runSections: [10] }, status, salesRep: 'E2E Rep',
+    layout: { yard, runSections: [10] }, status, salesRep: REP,
     proposal: { version: 1, planSvg: '<svg/>', footageFt: 80, depositPct: 50, recommended: 0, options: [
       { label: 'White', fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: 1000, perFoot: 12.5, sections: 10, snapshot: { materialCost: 265, laborCost: 240, tearOutCost: 0, totalCOGS: 505, gmPct: 0.495, pullSheet: [], runSections: [10] } },
       { label: 'Tan', fenceStyle: "TV-ND 6'x8' Privacy", finalPrice: 1200, perFoot: 15, sections: 10, snapshot: { materialCost: 365, laborCost: 240, tearOutCost: 0, totalCOGS: 605, gmPct: 0.45, pullSheet: [], runSections: [10] } },
@@ -58,10 +58,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     ...extra,
   })
 
+  let REP = ''
   beforeAll(async () => {
     const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
     accountId = user.crmAccountId!
     userId = user.id
+    // The rep is the login every token here names: the rep on a quote or job decides the Salesman's scope (Oct 29 2026).
+    REP = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
     const sign = (role: string) => jwt.sign({ sub: user.id, email: user.email, role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, secret, { expiresIn: '10m' })
     owner = sign('super_admin')
     salesman = sign('sales_rep')

@@ -8,3 +8,6 @@ export function splitOnLastSpace(full: string | null | undefined): { firstName: 
   const at = s.lastIndexOf(' ')
   return at < 0 ? { firstName: s, lastName: '' } : { firstName: s.slice(0, at), lastName: s.slice(at + 1) }
 }
+
+/** A name's possessive: "AUD Sales'" for a name ending in s, else "Christa Feagin's" (review, Oct 30 2026). */
+export const possessive = (name: string): string => (/s$/i.test(name.trim()) ? `${name.trim()}'` : `${name.trim()}'s`)

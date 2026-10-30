@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import { assignLead, loadLead, type AssignChoice } from './leadAssign'
 import { useOwnerChangesSalesman } from './salesmanChoice'
+import { changeWords } from './salesmanWords'
 
 /** The words under a Salesman that this login cannot change. */
 export const OWNER_ONLY_WORDS = 'Only the owner can change the Salesman.'
@@ -43,13 +44,7 @@ export default function SalesmanOnCustomer({ customerId, salesRep }: { customerI
     setBusy(false)
     if (!r.ok) { setError(r.error); return }
     setOpen(false)
-    const was = current && !sameName(current, r.assignedTo) ? current : ''
-    const n = r.quotesMoved
-    // Open quotes (and their commission) go with the customer; sold ones stay with whoever sold them (portal lib/quotesFollowCustomer.ts).
-    const quotes = n ? ` ${n === 1 ? 'Their open quote is' : `Their ${n} open quotes are`} ${r.assignedTo}'s now too; sold jobs stay with whoever sold them.` : ''
-    setDone(was
-      ? `${r.assignedTo} is the Salesman now and sees this customer.${quotes} ${was} no longer does, unless ${was} made one of their quotes or has a visit booked with them.`
-      : `${r.assignedTo} is the Salesman.${quotes}`)
+    setDone(changeWords({ to: r.assignedTo, was: r.was || (current && !sameName(current, r.assignedTo) ? current : ''), customer: r.customerName || 'this customer', quotesMoved: r.quotesMoved, visitsMoved: r.visitsMoved ?? 0, wasKeeps: r.wasKeeps ?? 0 }))
   }
 
   return (

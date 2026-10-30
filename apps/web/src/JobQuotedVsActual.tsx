@@ -9,6 +9,7 @@
  * (routes/job-costing.ts).
  */
 
+import { recentMoved } from './movedNotice'
 import { useEffect, useState, useCallback } from 'react'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { useCan } from './permissions'
@@ -45,7 +46,7 @@ export default function JobQuotedVsActual({ jobId }: { jobId: string }) {
         {data?.takeoff && <span className="text-xs text-gray-500">Install {data.takeoff.installDate}</span>}
       </div>
       {data === undefined && <p className="text-xs text-gray-500">Loading…</p>}
-      {data === null && <p className="text-xs text-red-700">Could not load the job cost. Check the connection.</p>}
+      {data === null && <p className="text-xs text-red-700">{recentMoved() ?? 'Could not load the job cost. Check the connection.'}</p>}
       {data && <Body d={data} />}
     </div>
   )

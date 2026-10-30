@@ -261,10 +261,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     expect(after.jobChecklists[ids.jOther]).toEqual(stored.jobChecklists[ids.jOther])
     expect(after.jobChecklists[ids.jMine][0].isComplete).toBe(true)
 
-    // An entry for another customer, or a change to a hidden one: refused, or the stored one kept.
-    const sneaky = await call('PATCH', '/api/business-state', sales, { pendingOrders: [...saved.json.data.pendingOrders, { id: `${tag}-so-sneak`, customerId: ids.cOther, status: 'pending', items: [] }], baseVersion: saved.json.data.version })
-    expect(sneaky.status).toBe(404)
-    const forged = await call('PATCH', '/api/business-state', sales, { pendingOrders: [...saved.json.data.pendingOrders, { id: `${tag}-so-other1`, customerId: ids.cMine, status: 'cancelled', items: [] }], baseVersion: saved.json.data.version })
+    // An entry for another customer, or a change to a hidden one: left out of the save (the rest goes through,
+    // Oct 30 2026: refusing the whole save left it stuck on the phone), or the stored one kept.
+    const sneaky = await call('PATCH', '/api/business-state', sales, { pendingOrders: [...saved.json.data.pendingOrders.map((x: any) => x.id === `${tag}-so-mine` ? { ...x, notes: 'sent with a sneak' } : x), { id: `${tag}-so-sneak`, customerId: ids.cOther, status: 'pending', items: [] }], baseVersion: saved.json.data.version })
+    expect(sneaky.status).toBe(200)
+    expect(sneaky.json.leftOut).toBe(1)
+    expect(JSON.stringify(sneaky.json.data)).not.toContain(ids.cOther)
+    const afterSneak = await prisma.businessState.findUnique({ where: { accountId } }) as any
+    expect(afterSneak.pendingOrders.some((x: any) => x.id === `${tag}-so-sneak`)).toBe(false)
+    expect(afterSneak.pendingOrders.find((x: any) => x.id === `${tag}-so-mine`).notes).toBe('sent with a sneak')
+    const forged = await call('PATCH', '/api/business-state', sales, { pendingOrders: [...sneaky.json.data.pendingOrders, { id: `${tag}-so-other1`, customerId: ids.cMine, status: 'cancelled', items: [] }], baseVersion: sneaky.json.data.version })
     expect(forged.status).toBe(200)
     const after2 = await prisma.businessState.findUnique({ where: { accountId } }) as any
     expect(after2.pendingOrders.find((x: any) => x.id === `${tag}-so-other1`)).toEqual(stored.pendingOrders[0])
@@ -316,9 +322,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const again = (await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'fencepro_customer_activity' } } }))!.value
     expect(JSON.stringify(again)).toBe(JSON.stringify(after))
 
-    // An entry for another customer: refused, nothing saved.
+    // An entry for another customer: left out (the answer is her copy as saved), nothing of it saved.
     const sneaky = await call('PUT', '/api/kv/fencepro_customer_activity', sales, { value: [{ id: `${tag}-a-sneak`, customerId: ids.cOther, body: 'x', at: '2026-10-28T13:00:00Z' }, ...r2.json.data.fencepro_customer_activity], baseVersion: same.json.version })
-    expect(sneaky.status).toBe(404)
+    expect(sneaky.status).toBe(200)
+    expect(sneaky.json.leftOut).toBe(1)
+    expect(idsOf(sneaky.json.data)).toEqual([`${tag}-a-new`, `${tag}-a-mine`])
     const stillSame = (await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'fencepro_customer_activity' } } }))!.value
     expect(JSON.stringify(stillSame)).toBe(JSON.stringify(after))
 
@@ -341,9 +349,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const rows = await prisma.$queryRawUnsafe<Array<{ id: string; t: string }>>(`SELECT e->>'id' AS id, e::text AS t FROM "AccountKeyValue" k, jsonb_array_elements(k.value) e WHERE k."accountId" = $1 AND k.key = $2`, accountId, key)
     return new Map(rows.map(r => [r.id, r.t]))
   }
-  /** The office gives Otto (the other customer) to the Salesman, or takes him back. */
+  /** The owner gives Otto (the other customer) to the Salesman, or takes him back: the customer, his quote and his job (the rep on each decides, Oct 29 2026). */
   const giveOtto = async (toSalesman: boolean) => {
-    await prisma.crmContact.update({ where: { id: ids.cOther }, data: { salesRep: toSalesman ? `Sally ${tag}` : `Olive ${tag}` } })
+    const salesRep = toSalesman ? `Sally ${tag}` : `Olive ${tag}`
+    await prisma.crmContact.update({ where: { id: ids.cOther }, data: { salesRep } })
+    await prisma.savedQuote.update({ where: { id: ids.qOther }, data: { salesRep } })
+    await prisma.savedJob.update({ where: { id: ids.jOther }, data: { salesRep } })
     forgetScope(salesId)   // the scope is read again at the save (as after its few seconds of memory)
   }
   /** A fresh record: two pull sheets and a Sales Order of Otto's, one of each of Mina's; job costing and activity for both. */

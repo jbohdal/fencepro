@@ -235,13 +235,19 @@ export async function refreshPipelineNow(): Promise<void> {
   await reloadPipeline()
 }
 
+/** The Salesman's scope the board was last read under (server lib/salesScope.ts scopeKey); '' for everyone else. */
+let scopeKey = ''
+
 /** Read the board again (the server moves cards on its own: a customer accepting online). This phone's waiting changes stay on top. */
 export async function refreshPipeline(): Promise<void> {
   if (!hydrated || timer) return
   // Only the version is compared first: an unchanged board costs almost nothing to check.
-  const r = await sendJson('GET', `/api/pipeline?version=${version}&shape=table`)
+  // A Salesman's board also changes when her scope does (a deal moved away): the server says so by its scopeKey.
+  const r = await sendJson('GET', `/api/pipeline?version=${version}&shape=table${scopeKey ? `&scope=${encodeURIComponent(scopeKey)}` : ''}`)
   if (!r.result.ok || r.json?.unchanged || !r.json?.data || timer) return
-  if (typeof r.json.data.version === 'number' && r.json.data.version <= version) return
+  const newScope = typeof r.json.scopeKey === 'string' && r.json.scopeKey !== scopeKey
+  if (typeof r.json.scopeKey === 'string') scopeKey = r.json.scopeKey
+  if (!newScope && typeof r.json.data.version === 'number' && r.json.data.version <= version) return
   version = typeof r.json.data.version === 'number' ? r.json.data.version : version
   cache = withPending(pick(r.json.data))
   base = clone(cache)

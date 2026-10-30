@@ -1,0 +1,514 @@
+/**
+ * What the Salesman sees after the owner moves her work (Jonathan, Oct 29
+ * 2026: "Christa's quotes after a move: unsold ones leave her list. Signed
+ * ones she sold stay with her."). lib/salesScope.ts: the rep on a quote or
+ * job decides; a customer stays on her list only through something still hers.
+ *
+ * Against the dev database (DEV_DB=1; refuses any other), on a throwaway
+ * company, through the same middleware order as index.ts, with the owner's
+ * real moves (the customer page's Change, lib/leadAssign.ts with
+ * lib/quotesFollowCustomer.ts; one quote or job, lib/salesmanMove.ts):
+ *
+ *   1. the owner moves a customer with her unsold and signed quotes;
+ *   2. the owner moves a single unsold quote of hers;
+ *   3. the owner moves her signed quote (and its job);
+ *   4. her phone read the business record and the activity before the moves
+ *      and saves after them, at the same time as the office: every entry of
+ *      the customers she no longer sees stays byte for byte, and nothing she
+ *      lost comes back.
+ */
+
+import 'dotenv/config'
+import crypto from 'crypto'
+import express from 'express'
+import jwt from 'jsonwebtoken'
+import type { AddressInfo } from 'net'
+import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+
+const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
+
+describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the owner moves her work (dev database)', { timeout: 120_000 }, async () => {
+  const { default: prisma } = await import('../src/server/lib/prisma.js')
+  const { salesScoped } = await import('../src/server/lib/salesScope.js')
+  const { default: contacts } = await import('../src/server/routes/crm-contacts.js')
+  const { default: quotes } = await import('../src/server/routes/saved-quotes.js')
+  const { default: jobs } = await import('../src/server/routes/saved-jobs.js')
+  const { default: leadAssign } = await import('../src/server/routes/lead-assign.js')
+  const { default: followUps } = await import('../src/server/routes/follow-ups.js')
+  const { default: business } = await import('../src/server/routes/business-state.js')
+  const { default: kv } = await import('../src/server/routes/kv.js')
+  const { default: pipeline } = await import('../src/server/routes/pipeline.js')
+  const { default: appointments } = await import('../src/server/routes/appointments.js')
+  const { resolveSecret } = await import('../src/server/lib/secrets.js')
+  const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
+  const tag = `sam-${crypto.randomUUID().slice(0, 8)}`
+  let accountId = '', base = ''
+  const tok: Record<string, string> = {}
+  const id: Record<string, string> = {}
+  let server: ReturnType<express.Express['listen']>
+  const SALLY = () => `Sally ${tag}`, SAM = () => `Sam ${tag}`, OLIVE = () => `Olive ${tag}`
+
+  beforeAll(async () => {
+    accountId = (await prisma.crmAccount.create({ data: { name: `Test ${tag}`, status: 'active' } })).id
+    const user = async (key: string, firstName: string, role: string) => {
+      const u = await prisma.crmUser.create({ data: { email: `${tag}-${firstName.toLowerCase()}@example.invalid`, firstName, lastName: tag, role, status: 'active', crmAccountId: accountId, passwordHash: 'x' } as any })
+      id[key] = u.id
+      tok[key] = jwt.sign({ sub: u.id, email: u.email, role, crmAccountId: accountId }, secret, { expiresIn: '10m' })
+    }
+    await user('owner', 'Olive', 'super_admin')
+    await user('office', 'Opal', 'office_staff')
+    await user('sally', 'Sally', 'sales_rep')
+    await user('sam', 'Sam', 'sales_rep')
+
+    const contact = (firstName: string, salesRep: string, ownerId: string) => prisma.crmContact.create({ data: { accountId, firstName, lastName: tag, ownerId, salesRep, phone: `35255${String(Math.floor(Math.random() * 1e5)).padStart(5, '0')}` } }).then(c => c.id)
+    const quote = (data: any) => prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', salesRep: SALLY(), ownerId: id.sally, finalPrice: 8000, totalCOGS: 4500, gmPct: 0.3, hasSalesman: true, ...data } }).then(q => q.id)
+    // Cleo: Sally's customer, entered by Sally: a draft and a sent quote she wrote, and a signed one with its job.
+    id.cleo = await contact('Cleo', SALLY(), id.sally)
+    id.qCleoDraft = await quote({ crmContactId: id.cleo, customerName: `Cleo ${tag}`, status: 'DRAFT' })
+    id.qCleoSent = await quote({ crmContactId: id.cleo, customerName: `Cleo ${tag}`, status: 'SENT' })
+    id.qCleoSigned = await quote({ crmContactId: id.cleo, customerName: `Cleo ${tag}`, status: 'SOLD', soldAt: new Date(), finalPrice: 9000 })
+    id.jCleo = (await prisma.savedJob.create({ data: { accountId, quoteId: id.qCleoSigned, crmContactId: id.cleo, customerName: `Cleo ${tag}`, salesRep: SALLY(), quotePrice: 9000, contractValue: 9000, gmPct: 0.3 } })).id
+    // Dina: Sally's customer with one unsold quote (the owner moves only the quote).
+    id.dina = await contact('Dina', SALLY(), id.sally)
+    id.qDina = await quote({ crmContactId: id.dina, customerName: `Dina ${tag}`, status: 'SENT' })
+    // Fay: the owner's customer; Sally sold her fence (the owner moves the signed quote and its job).
+    id.fay = await contact('Fay', OLIVE(), id.owner)
+    id.qFay = await quote({ crmContactId: id.fay, customerName: `Fay ${tag}`, status: 'SOLD', soldAt: new Date(), ownerId: id.owner, finalPrice: 12000 })
+    id.jFay = (await prisma.savedJob.create({ data: { accountId, quoteId: id.qFay, crmContactId: id.fay, customerName: `Fay ${tag}`, salesRep: SALLY(), quotePrice: 12000, contractValue: 12000, gmPct: 0.3 } })).id
+    // Mina: Sally's, untouched by any move. Otto: the owner's, never Sally's.
+    id.mina = await contact('Mina', SALLY(), id.sally)
+    id.qMina = await quote({ crmContactId: id.mina, customerName: `Mina ${tag}`, status: 'DRAFT' })
+    id.otto = await contact('Otto', OLIVE(), id.owner)
+    id.qOtto = await quote({ crmContactId: id.otto, customerName: `Otto ${tag}`, status: 'SOLD', soldAt: new Date(), ownerId: id.owner, salesRep: OLIVE() })
+    // Sally's open card on Cleo, and a won card of hers on Fay.
+    await prisma.pipelineState.create({ data: { accountId, stages: [], leads: [
+      { id: `${tag}-k-cleo`, stage: 'new_lead', firstName: 'Cleo', lastName: tag, customerId: id.cleo, quoteId: id.qCleoDraft, assignedRep: SALLY() },
+      { id: `${tag}-k-fay`, stage: 'won', firstName: 'Fay', lastName: tag, customerId: id.fay, quoteId: id.qFay, assignedRep: SALLY() },
+    ] } as any })
+
+    // Cleo's visits: an estimate with Sally next week, one with Sally last week (done), and one with the owner next week.
+    const day = (n: number) => new Date(Date.now() + n * 86400_000)
+    const visit = (data: any) => prisma.appointment.create({ data: { accountId, crmContactId: id.cleo, type: 'estimate', address: '1 Cleo Way', ...data } }).then(a => a.id)
+    id.vUpcoming = await visit({ startAt: day(7), endAt: day(7), assignedTo: SALLY(), assignedToUserId: id.sally, status: 'scheduled' })
+    id.vPast = await visit({ startAt: day(-7), endAt: day(-7), assignedTo: SALLY(), assignedToUserId: id.sally, status: 'completed', completedAt: day(-7) })
+    id.vOwner = await visit({ type: 'install', startAt: day(8), endAt: day(8), assignedTo: OLIVE(), assignedToUserId: id.owner, status: 'scheduled' })
+
+    // The company-wide records: entries of every customer (other customers' payments and invoices in them).
+    const per = (c: string, q: string, j?: string) => ({ customerId: id[c], quoteId: id[q], ...(j ? { jobId: id[j] } : {}), customerName: `${c} ${tag}` })
+    await prisma.businessState.create({ data: { accountId,
+      invoices: [
+        { id: `${tag}-inv-cleo`, ...per('cleo', 'qCleoSigned', 'jCleo'), totalCents: 900000, status: 'sent', lineItems: [{ d: 'fence', c: 900000 }] },
+        { id: `${tag}-inv-fay`, ...per('fay', 'qFay', 'jFay'), totalCents: 1200000, status: 'paid', lineItems: [] },
+        { id: `${tag}-inv-otto`, ...per('otto', 'qOtto'), totalCents: 445700, status: 'paid', lineItems: [] },
+        { id: `${tag}-inv-mina`, ...per('mina', 'qMina'), totalCents: 500000, status: 'draft', lineItems: [] },
+      ],
+      payments: [
+        { id: `${tag}-pay-cleo`, customerId: id.cleo, invoiceId: `${tag}-inv-cleo`, amountCents: 450000, paymentMethod: 'check' },
+        { id: `${tag}-pay-fay`, customerId: id.fay, invoiceId: `${tag}-inv-fay`, amountCents: 1200000, paymentMethod: 'card' },
+        { id: `${tag}-pay-otto`, invoiceId: `${tag}-inv-otto`, amountCents: 445700, paymentMethod: 'cash' },
+      ],
+      pullSheets: [
+        { id: `${tag}-ps-cleo-draft`, ...per('cleo', 'qCleoDraft'), versionNumber: 1, versionSnapshot: [{ sku: 'WV6', qty: 14 }] },
+        { id: `${tag}-ps-cleo-signed`, ...per('cleo', 'qCleoSigned', 'jCleo'), versionNumber: 1, versionSnapshot: [{ sku: 'WV6', qty: 20 }] },
+        { id: `${tag}-ps-dina`, ...per('dina', 'qDina'), versionNumber: 1 },
+        { id: `${tag}-ps-fay`, ...per('fay', 'qFay', 'jFay'), versionNumber: 1 },
+        { id: `${tag}-ps-mina`, ...per('mina', 'qMina'), versionNumber: 1 },
+      ],
+      pendingOrders: [
+        { id: `${tag}-so-cleo`, ...per('cleo', 'qCleoSigned', 'jCleo'), status: 'pending', items: [{ itemName: 'Post', qty: 21 }], notes: 'cleo' },
+        { id: `${tag}-so-fay`, ...per('fay', 'qFay', 'jFay'), status: 'ordered', items: [], notes: 'fay' },
+        { id: `${tag}-so-mina`, ...per('mina', 'qMina'), status: 'pending', items: [], notes: 'mina' },
+      ],
+      jobChecklists: { [id.jCleo]: [{ id: 'm1', label: 'Permit', isComplete: true }], [id.jFay]: [{ id: 'm2', label: 'Permit', isComplete: false }] },
+      config: { company: { name: tag } },
+    } as any })
+    await prisma.accountKeyValue.createMany({ data: [
+      { accountId, key: 'fencepro_customer_activity', value: [
+        { id: `${tag}-ac-cleo`, customerId: id.cleo, body: 'Called Cleo', at: '2026-10-29T10:00:00Z', kind: 'note', actor: 'Sally' },
+        { id: `${tag}-ac-fay`, customerId: id.fay, body: 'Fay paid', at: '2026-10-29T09:30:00Z', kind: 'payment', actor: 'Olive' },
+        { id: `${tag}-ac-dina`, customerId: id.dina, body: 'Called Dina', at: '2026-10-29T09:00:00Z', kind: 'note', actor: 'Sally' },
+        { id: `${tag}-ac-otto`, customerId: id.otto, body: 'Otto paid', at: '2026-10-28T09:00:00Z', kind: 'payment', actor: 'Olive' },
+      ] as any },
+      { accountId, key: 'fencepro_jobcosting', value: [
+        { id: `${tag}-jc-cleo-draft`, quoteId: id.qCleoDraft, laborCents: 120000, materialCents: 340000 },
+        { id: `${tag}-jc-dina`, quoteId: id.qDina, laborCents: 60000, materialCents: 100000 },
+        { id: `${tag}-jc-mina`, quoteId: id.qMina, laborCents: 50000, materialCents: 90000 },
+      ] as any },
+    ] })
+
+    const app = express(); app.use(express.json({ limit: '10mb' }))
+    app.use('/api/crm-contacts', salesScoped('contacts')); app.use('/api/saved-jobs', salesScoped('jobs')); app.use('/api/saved-quotes', salesScoped('quotes'))
+    app.use('/api/crm-contacts', contacts); app.use('/api/saved-jobs', jobs); app.use('/api/saved-quotes', quotes)
+    app.use('/api/lead-assign', leadAssign); app.use('/api/follow-ups', followUps)
+    app.use('/api/business-state', business); app.use('/api/kv', kv)
+    app.use('/api/pipeline', salesScoped('pipeline')); app.use('/api/pipeline', pipeline)
+    app.use('/api/appointments', salesScoped('appointments')); app.use('/api/appointments', appointments)
+    server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+  afterAll(async () => {
+    server?.close()
+    if (!accountId) return
+    const users = (await prisma.crmUser.findMany({ where: { crmAccountId: accountId }, select: { id: true } })).map(x => x.id)
+    await prisma.crmContactNote.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.cardFollowUp.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.appointment.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.accountKeyValue.deleteMany({ where: { accountId } })
+    await prisma.businessState.deleteMany({ where: { accountId } })
+    await prisma.jobQuotedCost.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.pipelineState.deleteMany({ where: { accountId } })
+    await prisma.savedJob.deleteMany({ where: { accountId } })
+    await prisma.savedQuote.deleteMany({ where: { accountId } })
+    await prisma.customerPossibleMatch.deleteMany({ where: { accountId } }).catch(() => {})
+    await prisma.crmContact.deleteMany({ where: { accountId } })
+    await prisma.crmAuditLog.deleteMany({ where: { userId: { in: users } } }).catch(() => {})
+    await prisma.crmUser.deleteMany({ where: { crmAccountId: accountId } })
+    await prisma.crmAccount.delete({ where: { id: accountId } }).catch(() => {})
+  })
+
+  const call = async (method: string, p: string, token: string, body?: unknown) => {
+    const r = await fetch(`${base}${p}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined })
+    return { status: r.status, json: await r.json().catch(() => null) as any }
+  }
+  const idsOf = (list: any[]) => (Array.isArray(list) ? list.map(x => x.id) : [])
+  /** Exactly what Sally's phone has: her customers, quotes and jobs (lists), each also checked opened by id. */
+  const sallySees = async () => {
+    const [c, q, j] = await Promise.all([call('GET', '/api/crm-contacts', tok.sally), call('GET', '/api/saved-quotes', tok.sally), call('GET', '/api/saved-jobs', tok.sally)])
+    const mine = (list: any[]) => idsOf(list).filter(x => Object.values(id).includes(x))
+    const name = (x: string) => Object.entries(id).find(([, v]) => v === x)![0]
+    const out = { customers: mine(c.json.data).map(name).sort(), quotes: mine(q.json.data).map(name).sort(), jobs: mine(j.json.data).map(name).sort() }
+    // Opened by id: the same answer as the lists.
+    for (const [kind, path, keys] of [['customers', 'crm-contacts', ['cleo', 'dina', 'fay', 'mina', 'otto']], ['quotes', 'saved-quotes', ['qCleoDraft', 'qCleoSent', 'qCleoSigned', 'qDina', 'qFay', 'qMina', 'qOtto']], ['jobs', 'saved-jobs', ['jCleo', 'jFay']]] as const) {
+      for (const k of keys) {
+        // A customer by its notes (the History); a quote or job by itself.
+        const r = await call('GET', `/api/${path}/${id[k]}${path === 'crm-contacts' ? '/notes' : ''}`, tok.sally)
+        expect([k, r.status]).toEqual([k, (out as any)[kind].includes(k) ? 200 : 404])
+      }
+    }
+    return out
+  }
+  const businessRows = async (col: string) => {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string; t: string }>>(`SELECT e->>'id' AS id, e::text AS t FROM "BusinessState" b, jsonb_array_elements(b."${col}") e WHERE b."accountId" = $1`, accountId)
+    return new Map(rows.map(r => [r.id, r.t]))
+  }
+  const checklistsRaw = async () => (await prisma.$queryRawUnsafe<Array<{ t: string }>>(`SELECT b."jobChecklists"::text AS t FROM "BusinessState" b WHERE b."accountId" = $1`, accountId))[0]?.t
+  const kvRows = async (key: string) => {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string; t: string }>>(`SELECT e->>'id' AS id, e::text AS t FROM "AccountKeyValue" k, jsonb_array_elements(k.value) e WHERE k."accountId" = $1 AND k.key = $2`, accountId, key)
+    return new Map(rows.map(r => [r.id, r.t]))
+  }
+
+  // The phone's copies, read before any move; and when and under which scope her lists were read.
+  let phoneBiz: any, phoneKv: any
+  let since = '', board0: { version: number; scopeKey: string } = { version: 0, scopeKey: '' }
+  let stored: Record<string, Map<string, string>> = {}
+  let storedChecklists = ''
+
+  test('before: Sally sees her customers, the quotes she wrote and the jobs she sold; never Otto', async () => {
+    expect(await sallySees()).toEqual({
+      customers: ['cleo', 'dina', 'fay', 'mina'],
+      quotes: ['qCleoDraft', 'qCleoSent', 'qCleoSigned', 'qDina', 'qFay', 'qMina'],
+      jobs: ['jCleo', 'jFay'],
+    })
+    since = (await call('GET', '/api/saved-quotes', tok.sally)).json.serverTime
+    const b = (await call('GET', '/api/pipeline', tok.sally)).json
+    board0 = { version: b.data.version, scopeKey: b.scopeKey }
+    expect(typeof b.scopeKey).toBe('string')
+    // Unchanged board, same scope: "unchanged".
+    expect((await call('GET', `/api/pipeline?version=${board0.version}&scope=${board0.scopeKey}`, tok.sally)).json.unchanged).toBe(true)
+    phoneBiz = (await call('GET', '/api/business-state', tok.sally)).json.data
+    phoneKv = (await call('GET', '/api/kv', tok.sally)).json
+    expect(idsOf(phoneBiz.invoices)).toEqual([`${tag}-inv-cleo`, `${tag}-inv-fay`, `${tag}-inv-mina`])
+    expect(idsOf(phoneKv.data.fencepro_customer_activity)).toEqual([`${tag}-ac-cleo`, `${tag}-ac-fay`, `${tag}-ac-dina`])
+    for (const col of ['invoices', 'payments', 'pullSheets', 'pendingOrders']) stored[col] = await businessRows(col)
+    stored.activity = await kvRows('fencepro_customer_activity')
+    stored.jobcosting = await kvRows('fencepro_jobcosting')
+    storedChecklists = (await checklistsRaw())!
+  })
+
+  test('1. the owner moves Cleo to Sam: her unsold quotes leave Sally\'s list (even the ones she wrote); the signed one and its job stay, and keep Cleo on her list', async () => {
+    const r = await call('POST', `/api/lead-assign/${id.cleo}`, tok.owner, { to: id.sam, replace: true })
+    expect(r.status).toBe(200)
+    expect(r.json.data.quotesMoved).toBe(2)
+    // The owner's message says what happened: Sally keeps Cleo by the signed quote; the open quotes and the visit went.
+    expect(r.json.data).toMatchObject({ was: SALLY(), wasKeeps: 1, visitsMoved: 1, customerName: `Cleo ${tag}` })
+    const { changeWords } = await import('../../web/src/salesmanWords')
+    expect(changeWords({ to: SAM(), was: SALLY(), customer: `Cleo ${tag}`, quotesMoved: 2, visitsMoved: 1, wasKeeps: 1 }))
+      .toBe(`${SAM()} is the Salesman of Cleo ${tag} now. ${SALLY()} keeps Cleo ${tag} because of the signed quote; the 2 open quotes and the visit went to ${SAM()}.`)
+    expect(await sallySees()).toEqual({
+      customers: ['cleo', 'dina', 'fay', 'mina'],
+      quotes: ['qCleoSigned', 'qDina', 'qFay', 'qMina'],
+      jobs: ['jCleo', 'jFay'],
+    })
+    // Nothing of the moved quotes reaches her phone: not the price, the cost or the margin.
+    const list = JSON.stringify((await call('GET', '/api/saved-quotes', tok.sally)).json)
+    for (const k of ['qCleoDraft', 'qCleoSent']) expect(list).not.toContain(id[k])
+    // Sam has them.
+    for (const k of ['qCleoDraft', 'qCleoSent']) expect((await call('GET', `/api/saved-quotes/${id[k]}`, tok.sam)).status).toBe(200)
+    // Her open quote window: "The owner moved this to Sam", not a bare 404 (the app says it instead of "check the connection").
+    const gone = await call('GET', `/api/saved-quotes/${id.qCleoDraft}`, tok.sally)
+    expect([gone.status, gone.json.code, gone.json.movedTo, gone.json.movedId]).toEqual([404, 'MOVED', SAM(), id.qCleoDraft])
+    expect(gone.json.error).toBe(`The owner moved this to ${SAM()}. It is off your list now.`)
+    expect(JSON.stringify(gone.json)).not.toMatch(/finalPrice|totalCOGS/)
+    // Saving her open copy of it: the same answer (the phone's outbox drops it and says so).
+    const customersBefore = await prisma.crmContact.count({ where: { accountId } })
+    const notesBefore = (await prisma.savedQuote.findUnique({ where: { id: id.qCleoDraft } }))!.notes
+    const save = await call('PATCH', `/api/saved-quotes/${id.qCleoDraft}`, tok.sally, { notes: 'from her open window' })
+    expect([save.status, save.json.code]).toEqual([404, 'MOVED'])
+    // Nothing saved, no customer made.
+    expect((await prisma.savedQuote.findUnique({ where: { id: id.qCleoDraft } }))!.notes).toBe(notesBefore)
+    expect(await prisma.crmContact.count({ where: { accountId } })).toBe(customersBefore)
+    // Her open list's small refresh: keepOnly names what is still hers, so the moved quotes leave it.
+    const delta = await call('GET', `/api/saved-quotes?since=${encodeURIComponent(since)}`, tok.sally)
+    expect(delta.json.partial).toBe(true)
+    expect(delta.json.keepOnly).toEqual(expect.arrayContaining([id.qCleoSigned, id.qDina, id.qFay, id.qMina]))
+    for (const k of ['qCleoDraft', 'qCleoSent', 'qOtto']) expect(delta.json.keepOnly).not.toContain(id[k])
+    // The board: her scope moved on, so the same version is sent again (not "unchanged").
+    const b = await call('GET', `/api/pipeline?version=${board0.version}&scope=${board0.scopeKey}`, tok.sally)
+    expect(b.json.unchanged).toBeUndefined()
+    expect(b.json.scopeKey).not.toBe(board0.scopeKey)
+
+    // The upcoming estimate with Sally went to Sam with the customer (the owner's call, Oct 30 2026); the past one and
+    // the owner's install stayed. The History says so.
+    const v = async (k: string) => (await prisma.appointment.findUnique({ where: { id: id[k] } }))!
+    expect([(await v('vUpcoming')).assignedToUserId, (await v('vUpcoming')).assignedTo]).toEqual([id.sam, SAM()])
+    expect((await v('vPast')).assignedToUserId).toBe(id.sally)
+    expect((await v('vOwner')).assignedToUserId).toBe(id.owner)
+    const notes = await prisma.crmContactNote.findMany({ where: { crmContactId: id.cleo } })
+    expect(notes.some(n => /The upcoming visit went with it\./.test(n.body))).toBe(true)
+    // Her appointments: Cleo is still hers (the signed quote), so she still sees Cleo's visits, the estimate now with Sam.
+    const appts = (await call('GET', '/api/appointments', tok.sally)).json.data as any[]
+    expect(appts.find(a => a.id === id.vUpcoming)?.assignedTo).toBe(SAM())
+    expect(appts.find(a => a.id === id.vPast)?.customerNotYours).toBeUndefined()
+    // Cleo's open card (for the draft, now Sam's) left Sally's board with it, price and all; her won card on Fay is still there.
+    const board = await call('GET', '/api/pipeline', tok.sally)
+    expect(board.status).toBe(200)
+    const cards = [...(board.json.data.leads ?? []), ...(board.json.data.archivedLeads ?? [])].map((k: any) => k.id)
+    expect(cards).not.toContain(`${tag}-k-cleo`)
+    expect(cards).toContain(`${tag}-k-fay`)
+  })
+
+  test('2. the owner moves Dina\'s unsold quote to Sam: it leaves Sally; Dina (still her customer) stays', async () => {
+    const r = await call('POST', `/api/saved-quotes/${id.qDina}/salesman`, tok.owner, { to: id.sam })
+    expect(r.status).toBe(200)
+    expect(await sallySees()).toEqual({
+      customers: ['cleo', 'dina', 'fay', 'mina'],
+      quotes: ['qCleoSigned', 'qFay', 'qMina'],
+      jobs: ['jCleo', 'jFay'],
+    })
+  })
+
+  test('3. the owner moves Fay\'s signed quote to Sam (its commission with it): the quote, its job and Fay leave Sally; her won card on Fay is not shown; Fay\'s History is a 404', async () => {
+    expect((await call('POST', `/api/saved-jobs/${id.jFay}/salesman`, tok.owner, { to: id.sam })).json.code).toBe('CONFIRM_SIGNED')
+    expect((await call('POST', `/api/saved-jobs/${id.jFay}/salesman`, tok.owner, { to: id.sam, confirm: true })).status).toBe(200)
+    expect(await sallySees()).toEqual({
+      customers: ['cleo', 'dina', 'mina'],
+      quotes: ['qCleoSigned', 'qMina'],
+      jobs: ['jCleo'],
+    })
+    expect((await call('GET', `/api/follow-ups/history?customerId=${id.fay}`, tok.sally)).status).toBe(404)
+    expect((await call('GET', `/api/follow-ups/history?customerId=${id.cleo}`, tok.sally)).status).toBe(200)
+    expect((await call('GET', `/api/follow-ups/history?cardId=${tag}-k-fay`, tok.sally)).status).toBe(404)
+    const board = await call('GET', '/api/pipeline', tok.sally)
+    expect([...(board.json.data.leads ?? []), ...(board.json.data.archivedLeads ?? [])].map((k: any) => k.id)).not.toContain(`${tag}-k-fay`)
+  })
+
+  test('4. her phone\'s save, built on its copy from before the moves, at the same time as the office\'s: every entry she no longer sees stays byte for byte; the office\'s change lands', async () => {
+    // Sally's phone saves its whole copy: the invoices and payments as it read them (it cannot change billing; Fay's
+    // invoice and payment are on its copy, Otto's are not), a new pull sheet for Mina, a note on every Sales Order it
+    // holds (Fay's, no longer hers, too), Cleo's draft's pull sheet left out, and only Cleo's job milestones (Fay's left out).
+    const newPs = { id: `${tag}-ps-mina2`, customerId: id.mina, quoteId: id.qMina, customerName: `mina ${tag}`, versionNumber: 2 }
+    const sallyPatch = (d: any) => ({
+      invoices: d.invoices,
+      payments: d.payments,
+      pullSheets: [newPs, ...d.pullSheets.filter((x: any) => x.id !== `${tag}-ps-cleo-draft`)],
+      pendingOrders: d.pendingOrders.map((x: any) => ({ ...x, notes: 'from the phone' })),
+      jobChecklists: { [id.jCleo]: [{ id: 'm1', label: 'Permit', isComplete: false }] },
+    })
+    expect(idsOf(phoneBiz.payments)).toEqual([`${tag}-pay-cleo`, `${tag}-pay-fay`])
+    expect(Object.keys(phoneBiz.jobChecklists).sort()).toEqual([id.jCleo, id.jFay].sort())
+    // The office, on a fresh copy: marks Otto's invoice and Fay's Sales Order.
+    const officeRead = (await call('GET', '/api/business-state', tok.office)).json.data
+    const officePatch = {
+      invoices: officeRead.invoices.map((x: any) => x.id === `${tag}-inv-otto` ? { ...x, note: 'office' } : x),
+      pendingOrders: officeRead.pendingOrders.map((x: any) => x.id === `${tag}-so-fay` ? { ...x, status: 'received' } : x),
+      baseVersion: officeRead.version,
+    }
+    const [a, b] = await Promise.all([call('PATCH', '/api/business-state', tok.sally, { ...sallyPatch(phoneBiz), baseVersion: phoneBiz.version }), call('PATCH', '/api/business-state', tok.office, officePatch)])
+    // Both read the same version: one saves, the other is handed the newer copy (409).
+    expect([a.status, b.status].sort()).toEqual([200, 409])
+    // The one refused puts its change on the 409's copy and saves again (web versionedDoc.ts).
+    if (b.status === 409) {
+      const d = b.json.data
+      const r = await call('PATCH', '/api/business-state', tok.office, {
+        invoices: d.invoices.map((x: any) => x.id === `${tag}-inv-otto` ? { ...x, note: 'office' } : x),
+        pendingOrders: d.pendingOrders.map((x: any) => x.id === `${tag}-so-fay` ? { ...x, status: 'received' } : x),
+        baseVersion: b.json.version,
+      })
+      expect(r.status).toBe(200)
+    }
+    if (a.status === 409) {
+      const d = a.json.data
+      const r = await call('PATCH', '/api/business-state', tok.sally, { ...sallyPatch(d), baseVersion: a.json.version })
+      expect(r.status).toBe(200)
+    }
+    const now: Record<string, Map<string, string>> = {}
+    for (const col of ['invoices', 'payments', 'pullSheets', 'pendingOrders']) now[col] = await businessRows(col)
+    // Every entry of a customer, quote or job Sally no longer has (Fay; Cleo's moved draft) and of Otto: byte for byte.
+    const gone = new RegExp(`-(fay|otto|cleo-draft)$`)
+    for (const col of ['invoices', 'payments', 'pullSheets', 'pendingOrders']) {
+      for (const [k, t] of stored[col]) {
+        if (!gone.test(k)) continue
+        if (k === `${tag}-inv-otto`) { expect(JSON.parse(now[col].get(k)!).note).toBe('office'); continue }
+        if (k === `${tag}-so-fay`) { expect(JSON.parse(now[col].get(k)!).status).toBe('received'); continue }
+        expect([col, k, now[col].get(k)]).toEqual([col, k, t])
+      }
+    }
+    // The office's change to Otto: only the note added, the rest as stored.
+    expect({ ...JSON.parse(now.invoices.get(`${tag}-inv-otto`)!), note: undefined }).toEqual({ ...JSON.parse(stored.invoices.get(`${tag}-inv-otto`)!), note: undefined })
+    // Every invoice and payment of every customer: as stored (only the office's note on Otto's).
+    for (const col of ['invoices', 'payments']) {
+      expect([...now[col].keys()]).toEqual([...stored[col].keys()])
+      for (const [k, t] of stored[col]) if (k !== `${tag}-inv-otto`) expect([col, k, now[col].get(k)]).toEqual([col, k, t])
+    }
+    expect(JSON.parse(now.pendingOrders.get(`${tag}-so-fay`)!).notes).toBe('fay')
+    // Fay's job milestones: hers no more, kept exactly.
+    const lists = JSON.parse((await checklistsRaw())!)
+    expect(lists[id.jFay]).toEqual(JSON.parse(storedChecklists)[id.jFay])
+    expect(lists[id.jCleo]).toEqual([{ id: 'm1', label: 'Permit', isComplete: false }])
+    // Fay's Sales Order: the office's change, not the phone's note.
+    expect(JSON.parse(now.pendingOrders.get(`${tag}-so-fay`)!)).toEqual({ ...JSON.parse(stored.pendingOrders.get(`${tag}-so-fay`)!), status: 'received' })
+    // What is still hers took her change: Mina's new pull sheet, Cleo's signed Sales Order.
+    expect(now.pullSheets.has(`${tag}-ps-mina2`)).toBe(true)
+    expect(JSON.parse(now.pendingOrders.get(`${tag}-so-cleo`)!).notes).toBe('from the phone')
+    // Pull sheets are only ever added to: Cleo's draft's stays (and it is not hers to remove anyway).
+    expect(now.pullSheets.get(`${tag}-ps-cleo-draft`)).toBe(stored.pullSheets.get(`${tag}-ps-cleo-draft`))
+  })
+
+  test('4. kv across the moves: activity of Fay and job costing of the moved quotes stay byte for byte; her own entries take her change', async () => {
+    const note = { id: `${tag}-ac-mina`, customerId: id.mina, body: 'Sent Mina the quote', at: '2026-10-29T12:00:00Z', kind: 'quote', actor: 'Sally' }
+    const ac = await call('PUT', '/api/kv/fencepro_customer_activity', tok.sally, { value: [note], baseVersion: phoneKv.versions.fencepro_customer_activity })
+    expect(ac.status).toBe(200)
+    const ac1 = await kvRows('fencepro_customer_activity')
+    for (const [k, t] of stored.activity) expect([k, ac1.get(k)]).toEqual([k, t])
+    expect(ac1.has(`${tag}-ac-mina`)).toBe(true)
+    // Job costing: the phone clears its list. Cleo's draft and Dina's quote moved: their lines stay; Mina's (hers) goes.
+    const jc = await call('PUT', '/api/kv/fencepro_jobcosting', tok.sally, { value: [], baseVersion: phoneKv.versions.fencepro_jobcosting })
+    expect(jc.status).toBe(200)
+    const jc1 = await kvRows('fencepro_jobcosting')
+    expect(jc1.get(`${tag}-jc-cleo-draft`)).toBe(stored.jobcosting.get(`${tag}-jc-cleo-draft`))
+    expect(jc1.get(`${tag}-jc-dina`)).toBe(stored.jobcosting.get(`${tag}-jc-dina`))
+    expect(jc1.has(`${tag}-jc-mina`)).toBe(false)
+  })
+
+  test('her phone after the moves: the next load has none of what left, with no error; saving that copy again changes nothing of theirs and brings nothing back', async () => {
+    const biz = await call('GET', '/api/business-state', tok.sally)
+    expect(biz.status).toBe(200)
+    const all = JSON.stringify(biz.json.data)
+    expect(all).not.toContain(id.fay)
+    expect(all).not.toContain(id.qCleoDraft)
+    expect(all).not.toContain(id.otto)
+    expect(Object.keys(biz.json.data.jobChecklists)).toEqual([id.jCleo])
+    const k = await call('GET', '/api/kv', tok.sally)
+    expect(idsOf(k.json.data.fencepro_customer_activity).sort()).toEqual([`${tag}-ac-cleo`, `${tag}-ac-dina`, `${tag}-ac-mina`].sort())
+    expect(idsOf(k.json.data.fencepro_jobcosting)).toEqual([])
+    const before = { inv: await businessRows('invoices'), ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders'), ac: await kvRows('fencepro_customer_activity') }
+    const d = biz.json.data
+    const again = await call('PATCH', '/api/business-state', tok.sally, { invoices: d.invoices, payments: d.payments, pullSheets: d.pullSheets, pendingOrders: d.pendingOrders, jobChecklists: d.jobChecklists, baseVersion: d.version })
+    expect(again.status).toBe(200)
+    const kv2 = await call('PUT', '/api/kv/fencepro_customer_activity', tok.sally, { value: k.json.data.fencepro_customer_activity, baseVersion: k.json.versions.fencepro_customer_activity })
+    expect(kv2.status).toBe(200)
+    expect(await businessRows('invoices')).toEqual(before.inv)
+    expect(await businessRows('pullSheets')).toEqual(before.ps)
+    expect(await businessRows('pendingOrders')).toEqual(before.so)
+    expect(await kvRows('fencepro_customer_activity')).toEqual(before.ac)
+    // An entry for a customer that left her (Fay: the owner's, not one she entered) is left out, never saved.
+    const sneak = await call('PUT', '/api/kv/fencepro_customer_activity', tok.sally, { value: [{ id: `${tag}-ac-sneak`, customerId: id.fay, body: 'x', at: '2026-10-29T13:00:00Z', kind: 'note' }, ...k.json.data.fencepro_customer_activity], baseVersion: kv2.json.version })
+    expect(sneak.status).toBe(200)
+    expect(sneak.json.leftOut).toBe(1)
+    expect((await kvRows('fencepro_customer_activity')).has(`${tag}-ac-sneak`)).toBe(false)
+    // The moved quotes and job stay Sam's; nothing Sally did brought one back.
+    const reps = await prisma.savedQuote.findMany({ where: { id: { in: [id.qCleoDraft, id.qCleoSent, id.qDina, id.qFay] } }, select: { salesRep: true } })
+    expect(reps.map(r => r.salesRep)).toEqual([SAM(), SAM(), SAM(), SAM()])
+    expect((await prisma.savedJob.findUnique({ where: { id: id.jFay } }))!.salesRep).toBe(SAM())
+    expect(await sallySees()).toEqual({ customers: ['cleo', 'dina', 'mina'], quotes: ['qCleoSigned', 'qMina'], jobs: ['jCleo'] })
+  })
+
+  test('the owner moves Cleo\'s signed quote too: Cleo leaves Sally entirely (nothing of hers keeps the customer)', async () => {
+    expect((await call('POST', `/api/saved-quotes/${id.qCleoSigned}/salesman`, tok.owner, { to: id.sam, confirm: true })).status).toBe(200)
+    // Her lists' small refresh drops Cleo, her quotes and her job; nothing else of hers.
+    const keep = async (path: string) => (await call('GET', `${path}?since=${encodeURIComponent(since)}`, tok.sally)).json.keepOnly as string[]
+    const [kc, kq, kj] = [await keep('/api/crm-contacts'), await keep('/api/saved-quotes'), await keep('/api/saved-jobs')]
+    expect(kc).not.toContain(id.cleo); expect(kc).toEqual(expect.arrayContaining([id.dina, id.mina]))
+    expect(kq).not.toContain(id.qCleoSigned); expect(kq).toContain(id.qMina)
+    expect(kj).not.toContain(id.jCleo)
+    // Her past visit with Cleo stays on her calendar, and says why she cannot open the customer.
+    const past = ((await call('GET', '/api/appointments', tok.sally)).json.data as any[]).find(a => a.id === id.vPast)
+    expect(past.customerNotYours).toBe(SAM())
+    // The job and the signed quote: "moved to Sam".
+    expect((await call('GET', `/api/saved-jobs/${id.jCleo}`, tok.sally)).json.code).toBe('MOVED')
+    expect(await sallySees()).toEqual({ customers: ['dina', 'mina'], quotes: ['qMina'], jobs: [] })
+    expect((await call('GET', `/api/follow-ups/history?customerId=${id.cleo}`, tok.sally)).status).toBe(404)
+    const k = await call('GET', '/api/kv', tok.sally)
+    expect(idsOf(k.json.data.fencepro_customer_activity).sort()).toEqual([`${tag}-ac-dina`, `${tag}-ac-mina`].sort())
+  })
+
+  // ── Lost data, reviewer Oct 30 2026: a save carrying an entry not hers was refused whole (404), stuck in the
+  // phone's outbox, and her later saves behind it never reached the server. ────────────────────────────────────
+
+  /** The app's way: PATCH; on a 409 put the change on the newer copy (here: its own lists added) and save again. */
+  const appSave = async (lists: (d: any) => Record<string, unknown>, baseCopy: any) => {
+    let r = await call('PATCH', '/api/business-state', tok.sally, { ...lists(baseCopy), baseVersion: baseCopy.version })
+    for (let i = 0; r.status === 409 && i < 4; i++) r = await call('PATCH', '/api/business-state', tok.sally, { ...lists(r.json.data), baseVersion: r.json.version })
+    return r
+  }
+
+  test('the Salesman choice: her quote for Sam\'s new customer saves its pull sheet (200), which she does not read back; her own Tia\'s pull sheet lands after it', async () => {
+    // As the quote's Save does: the new customer with Sam as Salesman, then the quote (its Sales rep: the customer's).
+    const c = await call('POST', '/api/crm-contacts', tok.sally, { firstName: 'Nora', lastName: tag, phone: '3525550444', salesRep: SAM() })
+    expect(c.status).toBeLessThan(300)
+    id.nora = c.json.data.id
+    expect((await prisma.crmContact.findUnique({ where: { id: id.nora } }))!.salesRep).toBe(SAM())
+    const q = await call('POST', '/api/saved-quotes', tok.sally, { runs: [100], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.nora, customerName: `Nora ${tag}`, salesRep: SAM(), finalPrice: 7000, status: 'DRAFT' })
+    expect(q.status).toBeLessThan(300)
+    id.qNora = q.json.data.id
+    expect((await prisma.savedQuote.findUnique({ where: { id: id.qNora } }))!.ownerId).toBe(id.sally)
+    // Her phone links the pull sheet (web billingStore linkPullSheetToCustomer): one business record save.
+    const read = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const psNora = { id: `${tag}-ps-nora`, customerId: id.nora, quoteId: id.qNora, customerName: `Nora ${tag}`, versionNumber: 1 }
+    const r = await appSave(d => ({ pullSheets: [psNora, ...d.pullSheets] }), read)
+    expect(r.status).toBe(200)
+    expect(r.json.leftOut).toBeUndefined()
+    expect((await businessRows('pullSheets')).has(`${tag}-ps-nora`)).toBe(true)
+    // Written, not read back: Nora is Sam's.
+    expect(JSON.stringify((await call('GET', '/api/business-state', tok.sally)).json.data)).not.toContain(id.nora)
+    // Then her own new customer Tia: the pull sheet link reaches the server.
+    id.tia = (await call('POST', '/api/crm-contacts', tok.sally, { firstName: 'Tia', lastName: tag, phone: '3525550445', salesRep: SALLY() })).json.data.id
+    id.qTia = (await call('POST', '/api/saved-quotes', tok.sally, { runs: [80], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.tia, customerName: `Tia ${tag}`, salesRep: SALLY(), finalPrice: 5000, status: 'DRAFT' })).json.data.id
+    const read2 = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const psTia = { id: `${tag}-ps-tia`, customerId: id.tia, quoteId: id.qTia, customerName: `Tia ${tag}`, versionNumber: 1 }
+    expect((await appSave(d => ({ pullSheets: [psTia, ...d.pullSheets] }), read2)).status).toBe(200)
+    expect((await businessRows('pullSheets')).has(`${tag}-ps-tia`)).toBe(true)
+  })
+
+  test('after a move: the phone\'s stuck save (an entry for the owner\'s customer, built on a copy the server no longer knows) goes through on the next try with that entry left out; her later save lands', async () => {
+    const before = { ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders') }
+    // The stuck copy: a Sales Order for Fay (the owner's now) and a note on Mina's, on a base the server forgot (a restart).
+    const old = (await call('GET', '/api/business-state', tok.sally)).json.data
+    const { forgetHandedOut } = await import('../src/server/lib/salesServed.js')
+    forgetHandedOut()
+    const stuck = (d: any) => ({ pendingOrders: [{ id: `${tag}-so-stuck`, customerId: id.fay, quoteId: id.qFay, status: 'pending', items: [] }, ...d.pendingOrders.map((x: any) => x.id === `${tag}-so-mina` ? { ...x, notes: 'mina, from the stuck save' } : x)] })
+    const r = await appSave(stuck, old)
+    expect(r.status).toBe(200)
+    expect(r.json.leftOut).toBe(1)
+    const so = await businessRows('pendingOrders')
+    expect(so.has(`${tag}-so-stuck`)).toBe(false)
+    expect(JSON.parse(so.get(`${tag}-so-mina`)!).notes).toBe('mina, from the stuck save')
+    for (const [k, t] of before.so) if (!k.endsWith('-so-mina')) expect([k, so.get(k)]).toEqual([k, t])
+    // The answer is her copy as saved (no Fay): the app takes it, so the entry is not sent again. Her next save lands.
+    expect(JSON.stringify(r.json.data)).not.toContain(id.fay)
+    const later = await appSave(d => ({ pullSheets: [{ id: `${tag}-ps-mina3`, customerId: id.mina, quoteId: id.qMina, versionNumber: 3 }, ...d.pullSheets] }), r.json.data)
+    expect(later.status).toBe(200)
+    expect(later.json.leftOut).toBeUndefined()
+    expect((await businessRows('pullSheets')).has(`${tag}-ps-mina3`)).toBe(true)
+    for (const [k, t] of before.ps) expect([k, (await businessRows('pullSheets')).get(k)]).toEqual([k, t])
+  })
+})

@@ -12,6 +12,7 @@
  * office only).
  */
 
+import { noteMoved } from './movedNotice'
 import { registerKind, enqueue, allOps, type Op } from './outbox'
 import { sendJson, API_ORIGIN } from './syncHttp'
 import { fetchWithAuth } from './crmAuth'
@@ -226,6 +227,8 @@ export interface JobCost {
 
 export async function loadJobCost(jobId: string): Promise<JobCost | null> {
   const r = await fetchWithAuth(`${API_ORIGIN}/api/job-costing/job/${encodeURIComponent(jobId)}`).catch(() => null)
+  // A job moved to someone else: its "The owner moved this" is read before the screen shows the failure.
+  if (r && r.status === 404) noteMoved(await r.json().catch(() => null))
   if (!r?.ok) return null
   return (await r.json())?.data ?? null
 }

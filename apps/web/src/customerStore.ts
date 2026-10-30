@@ -162,8 +162,17 @@ export async function refreshCustomers(): Promise<void> {
       archivedCache = [...arch.values()]
     }
   } else { cache = rows.map(fromApi); void loadArchivedCustomers() }
+  // A Salesman's small refresh says which are still hers (keepOnly): one that left her (moved to someone else) leaves this copy.
+  let dropped = 0
+  if (Array.isArray(r.json.keepOnly)) {
+    const keep = new Set(r.json.keepOnly as string[])
+    const before = cache.length + archivedCache.length
+    cache = cache.filter(x => keep.has(x.id) || hasPending(`customer:${x.id}`))
+    archivedCache = archivedCache.filter(x => keep.has(x.id) || hasPending(`customer:${x.id}`))
+    dropped = before - cache.length - archivedCache.length
+  }
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
-  if (!r.json.partial || rows.length) { reapply('customer.'); emit() }
+  if (!r.json.partial || rows.length || dropped) { reapply('customer.'); emit() }
 }
 
 /** Read the whole list again: a change was refused, so the screen goes back to what the server has. */

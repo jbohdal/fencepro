@@ -44,7 +44,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     accountId, customerName: 'E2E Job Costing Test', fenceStyle: "WV-ND 6'x8' Privacy", runs: [40, 40], sections: 10,
     materialCost: 265, laborCost: 240, tearOutCost: 0, totalCOGS: 505, finalPrice: 1000, gmPct: 0.495, pullSheet: sheet,
     // Made by the login every token here names: the Salesman's own quote and job (lib/salesScope.ts).
-    pricing: { laborMode: 'subcontractor', subUnit: 'section' }, status, salesRep: 'E2E Rep', ownerId: userId, ...extra,
+    pricing: { laborMode: 'subcontractor', subUnit: 'section' }, status, salesRep: REP, ownerId: userId, ...extra,
   })
   const quotedRows = (quoteId: string) => prisma.jobQuotedCost.findMany({ where: { quoteId } })
   /** Every key in a JSON answer, at any depth. */
@@ -54,10 +54,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     return out
   }
 
+  let REP = ''
   beforeAll(async () => {
     const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: 'super_admin' }, orderBy: { createdAt: 'asc' } }))!
     accountId = user.crmAccountId!
     userId = user.id
+    // The rep is the login every token here names: the rep on a quote or job decides the Salesman's scope (Oct 29 2026).
+    REP = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
     const sign = (role: string) => jwt.sign({ sub: user.id, email: user.email, role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, secret, { expiresIn: '10m' })
     owner = sign('super_admin')
     installer = sign('field_crew')
@@ -100,7 +103,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     const rows = await quotedRows(q.id)
     expect(rows).toHaveLength(1)
     const r = rows[0]
-    expect([r.signedVia, r.priceCents, r.materialCents, r.laborCents, r.tearOutCents, r.totalCents, r.sections, r.footage, r.salesRep]).toEqual(['share', 100000, 26500, 24000, 0, 50500, 10, 80, 'E2E Rep'])
+    expect([r.signedVia, r.priceCents, r.materialCents, r.laborCents, r.tearOutCents, r.totalCents, r.sections, r.footage, r.salesRep]).toEqual(['share', 100000, 26500, 24000, 0, 50500, 10, 80, REP])
     expect((r.lines as any[]).map(l => [l.part, l.qty, l.unitCostCents, l.totalCostCents])).toEqual([['E2E Job Costing Post', 10, 1350, 13500], ['E2E Job Costing Concrete', 20, 650, 13000]])
     expect(r.labor).toMatchObject({ mode: 'sub', subUnit: 'section', subUnits: 10 })
   })
@@ -132,7 +135,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
 
   test('takeoff: the installer sees quantities only and cannot approve; the owner approves and the cost is frozen', async () => {
     const quoteId = ids.quotes[1]
-    const job = await prisma.savedJob.create({ data: { accountId, quoteId, customerName: 'E2E Job Costing Test', fenceStyle: "WV-ND 6'x8' Privacy", sections: 10, status: 'in_progress', contractValue: 1000, quotePrice: 1000, salesRep: 'E2E Rep', scheduledDate: '2026-10-14' } as any })
+    const job = await prisma.savedJob.create({ data: { accountId, quoteId, customerName: 'E2E Job Costing Test', fenceStyle: "WV-ND 6'x8' Privacy", sections: 10, status: 'in_progress', contractValue: 1000, quotePrice: 1000, salesRep: REP, scheduledDate: '2026-10-14' } as any })
     ids.jobs.push(job.id)
     const tid = `e2e-jc-${crypto.randomUUID().slice(0, 8)}`
     const answers: unknown[] = []

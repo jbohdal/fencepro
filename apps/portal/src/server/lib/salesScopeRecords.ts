@@ -13,8 +13,14 @@
  *          Every other entry (hidden now, hidden when the phone read it, or
  *          given to the Salesman since) is put back exactly as stored, in its
  *          place, before saving. The Salesman's save can add or change only
- *          entries within the scope; one sent for a customer, job or quote
- *          outside it is refused (404, as for a record that is not there).
+ *          entries within the scope, plus add a new one for a quote she wrote
+ *          or a customer she entered (her pull sheet for a quote she just
+ *          wrote for another Salesman's customer). Any other entry sent for a
+ *          customer, job or quote outside it is left out of the save (counted
+ *          in `leftOut`; the stored one, if any, stays as it is), and the rest
+ *          of the save goes through. Before Oct 30 2026 such a save was
+ *          refused whole (404): the phone kept sending it, and her later saves,
+ *          merged into it, never reached the server (reviewer, Oct 30).
  *
  * Entries tied to no customer, job or quote (settings, the catalog, company
  * config, a stock purchase order) are kept as they are. Every other login is
@@ -58,6 +64,19 @@ export function visibleList(s: SalesScope, list: unknown, also?: (e: Record<stri
 
 const idOf = (e: unknown): string | null => (isObj(e) ? str(e.id) ?? str(e.token) : null)
 
+/**
+ * A new entry outside the scope that the Salesman's phone may still add: every customer, job and quote it names is
+ * in the scope, or is a quote she wrote or a customer she entered (written, never read back). No job outside it.
+ */
+export function addableOutside(s: SalesScope, e: unknown): boolean {
+  if (!isObj(e)) return false
+  let made = false
+  for (const k of CONTACT_REFS) { const id = str(e[k]); if (id && !s.contactIds.has(id)) { if (!s.madeContactIds?.has(id)) return false; made = true } }
+  for (const k of JOB_REFS) { const id = str(e[k]); if (id && !s.jobIds.has(id)) return false }
+  for (const k of QUOTE_REFS) { const id = str(e[k]); if (id && !s.quoteIds.has(id)) { if (!s.madeQuoteIds?.has(id)) return false; made = true } }
+  return made
+}
+
 export class OutsideScopeError extends Error {
   status = 404
   constructor() { super('Not found') }
@@ -76,8 +95,8 @@ export interface MergeOptions {
   keepRemoved?: boolean
 }
 
-/** A merged list, and the entries of the phone's own now in it (the phone's copy after the save). */
-export interface Merged { value: unknown; accepted: Set<string> }
+/** A merged list, the entries of the phone's own now in it (the phone's copy after the save), and how many it sent were left out. */
+export interface Merged { value: unknown; accepted: Set<string>; leftOut: number }
 
 /**
  * The list to save for the Salesman: what the Salesman sent, with every entry
@@ -91,7 +110,9 @@ export interface Merged { value: unknown; accepted: Set<string> }
  * copy of this version handed to the Salesman; and, with keepRemoved, any one
  * left out. An entry sent with the id of one the phone may not touch is not
  * the Salesman's to change: the stored one stays. A new or changed entry
- * outside the scope throws OutsideScopeError.
+ * outside the scope is left out (`leftOut`), the stored one staying as it is,
+ * except a new one addableOutside. Throws OutsideScopeError only for a list
+ * sent as something else (cleared) when not every stored entry may go.
  */
 export function mergeListWithKeys(s: SalesScope, saved: unknown, incoming: unknown, opts: MergeOptions = {}): Merged {
   const before = Array.isArray(saved) ? saved : []
@@ -103,8 +124,9 @@ export function mergeListWithKeys(s: SalesScope, saved: unknown, incoming: unkno
   if (!Array.isArray(incoming)) {
     // Not a list (cleared, or another shape): only when every stored entry may be removed.
     if (!before.every(removable)) throw new OutsideScopeError()
-    return { value: incoming, accepted: new Set() }
+    return { value: incoming, accepted: new Set(), leftOut: 0 }
   }
+  const storedIds = new Set(before.map(idOf).filter((x): x is string => !!x))
   const keptIds = new Set<string>()
   const keptContent = new Map<string, number>()
   for (const e of before) {
@@ -114,6 +136,8 @@ export function mergeListWithKeys(s: SalesScope, saved: unknown, incoming: unkno
     else { const k = entryKey(e); keptContent.set(k, (keptContent.get(k) ?? 0) + 1) }
   }
   const sent: unknown[] = []
+  const leftOutKeys = new Set<string>()
+  let leftOut = 0
   for (const e of incoming) {
     const id = idOf(e)
     if (id && keptIds.has(id)) continue
@@ -121,12 +145,17 @@ export function mergeListWithKeys(s: SalesScope, saved: unknown, incoming: unkno
       const k = entryKey(e), n = keptContent.get(k) ?? 0
       if (n > 0) { keptContent.set(k, n - 1); continue }
     }
-    // A new or changed entry for someone else's customer, job or quote.
-    if (entryPlace(s, e) === 'out') throw new OutsideScopeError()
+    // A new or changed entry for someone else's customer, job or quote: left out (the stored one stays), unless a
+    // new one for a quote she wrote or a customer she entered.
+    if (entryPlace(s, e) === 'out' && !(!(id && storedIds.has(id)) && addableOutside(s, e))) {
+      leftOut++
+      leftOutKeys.add(entryKey(e))
+      continue
+    }
     sent.push(e)
   }
   const present = new Set(sent.map(entryKey))
-  const kept = (e: unknown) => untouchable(e) || (!present.has(entryKey(e)) && !removable(e))
+  const kept = (e: unknown) => untouchable(e) || leftOutKeys.has(entryKey(e)) || (!present.has(entryKey(e)) && !removable(e))
   // Put each kept entry back after the nearest entry before it that is still there.
   const out = [...sent]
   const position = new Map<string, number>()
@@ -144,7 +173,7 @@ export function mergeListWithKeys(s: SalesScope, saved: unknown, incoming: unkno
     const at = id ? position.get(id) : undefined
     if (at !== undefined) lastAnchor = at
   }
-  return { value: out, accepted: present }
+  return { value: out, accepted: present, leftOut }
 }
 
 /** mergeListWithKeys, the list only. */
@@ -175,10 +204,11 @@ export function mergeByKeyWithKeys(s: SalesScope, saved: unknown, incoming: unkn
   const removable = (k: string) => !untouchable(k) && had.sure.has(`key:${k}`)
   if (!isObj(incoming)) {
     if (!Object.keys(before).every(removable)) throw new OutsideScopeError()
-    return { value: incoming, accepted: new Set() }
+    return { value: incoming, accepted: new Set(), leftOut: 0 }
   }
   const out: Record<string, unknown> = {}
   const accepted = new Set<string>()
+  let leftOut = 0
   for (const [k, v] of Object.entries(before)) {
     if (untouchable(k)) out[k] = v
     else if (k in incoming) { out[k] = incoming[k]; accepted.add(`key:${k}`) }
@@ -186,11 +216,12 @@ export function mergeByKeyWithKeys(s: SalesScope, saved: unknown, incoming: unkn
   }
   for (const [k, v] of Object.entries(incoming)) {
     if (k in out || k in before) continue
-    if (!mine(k)) throw new OutsideScopeError()
+    // Someone else's job or quote: left out.
+    if (!mine(k)) { leftOut++; continue }
     out[k] = v
     accepted.add(`key:${k}`)
   }
-  return { value: out, accepted }
+  return { value: out, accepted, leftOut }
 }
 
 /** mergeByKeyWithKeys, the object only. */
@@ -241,23 +272,26 @@ export function businessHanded(view: unknown): Map<string, Set<string>> {
  * built on). `accepted`: per list sent, the phone's entries now in it.
  * Throws OutsideScopeError.
  */
-export function salesBusinessPatch(s: SalesScope, saved: Record<string, unknown> | null, patch: Record<string, unknown>, had: Had): { patch: Record<string, unknown>; accepted: Map<string, Set<string>> } {
+export function salesBusinessPatch(s: SalesScope, saved: Record<string, unknown> | null, patch: Record<string, unknown>, had: Had): { patch: Record<string, unknown>; accepted: Map<string, Set<string>>; leftOut: number } {
   const out: Record<string, unknown> = { ...patch }
   const accepted = new Map<string, Set<string>>()
+  let leftOut = 0
   const hiddenInv = hiddenInvoiceIds(s, saved?.invoices)
   for (const k of BUSINESS_LISTS) {
     if (out[k] === undefined) continue
     const m = mergeListWithKeys(s, saved?.[k], out[k], { hidden: k === 'payments' ? onHiddenInvoice(hiddenInv) : undefined, had: hadList(had, k), keepRemoved: BUSINESS_ADD_ONLY.has(k) })
     out[k] = m.value
     accepted.set(k, m.accepted)
+    leftOut += m.leftOut
   }
   for (const k of BUSINESS_BY_KEY) {
     if (out[k] === undefined) continue
     const m = mergeByKeyWithKeys(s, saved?.[k], out[k], hadList(had, k))
     out[k] = m.value
     accepted.set(k, m.accepted)
+    leftOut += m.leftOut
   }
-  return { patch: out, accepted }
+  return { patch: out, accepted, leftOut }
 }
 
 // ── The key-value store ─────────────────────────────────────────────────────
@@ -304,8 +338,8 @@ export function salesKvView(s: SalesScope, key: string, value: unknown): unknown
  * on). `accepted`: the phone's entries now in it (null: not a per customer key).
  * Throws OutsideScopeError.
  */
-export function salesKvValue(s: SalesScope, key: string, saved: unknown, value: unknown, had: Had): { value: unknown; accepted: Set<string> | null } {
-  if (!KV_PER_CUSTOMER.has(key)) return { value, accepted: null }
+export function salesKvValue(s: SalesScope, key: string, saved: unknown, value: unknown, had: Had): { value: unknown; accepted: Set<string> | null; leftOut: number } {
+  if (!KV_PER_CUSTOMER.has(key)) return { value, accepted: null, leftOut: 0 }
   const m = mergeListWithKeys(s, saved, value, { had: hadList(had, KV_LIST), keepRemoved: KV_ADD_ONLY.has(key) })
-  return { value: m.value, accepted: m.accepted }
+  return { value: m.value, accepted: m.accepted, leftOut: m.leftOut }
 }
