@@ -125,8 +125,13 @@ export type RepriceOutcome =
   | { kind: 'confirm'; line: string }
   | { kind: 'gone'; line: string }
 
-export function repriceOutcome(was: number, now: number, fence: { name: string; available: boolean }): RepriceOutcome {
-  if (!fence.available) return { kind: 'gone', line: `${fence.name || 'This fence'} is not available for quoting now (it was switched off or its prices were removed). Pick another fence, then save.` }
+/** The one sentence for a fence taken off quoting, on the Price step and in the save's dialog alike. */
+export function fenceOffLine(name: string, why?: string | null): string {
+  return `${name || 'This fence'} is off for quoting now (${why || 'switched off in Settings, or its prices were removed'}). Pick another fence.`
+}
+
+export function repriceOutcome(was: number, now: number, fence: { name: string; available: boolean; why?: string | null }): RepriceOutcome {
+  if (!fence.available) return { kind: 'gone', line: fenceOffLine(fence.name, fence.why) }
   if (samePrice(was, now)) return { kind: 'save' }
   return { kind: 'confirm', line: `Prices changed since you opened this quote. It is now ${priceText(now)} (was ${priceText(was)}).` }
 }

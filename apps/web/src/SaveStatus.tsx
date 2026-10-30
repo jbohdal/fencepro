@@ -11,6 +11,7 @@ import { Check, CloudOff, Loader2, AlertTriangle, CloudUpload, X } from 'lucide-
 import { subscribe, outboxVersion, statusOf, allOps, retry, discard, hasSignal, isDurable, type RecordStatus, type Op } from './outbox'
 import { waitingCount, uploadAll, MEDIA_EVENT } from './mediaStore'
 import { BackClose } from './nav'
+import { QUOTE_REPRICE_OPEN_EVENT } from './quoteStore'
 
 /** Re-render when anything in the outbox changes. */
 export function useOutbox(): number {
@@ -53,6 +54,12 @@ export function SyncBadge() {
   useOutbox()
   const [photos, setPhotos] = useState(0)
   const [open, setOpen] = useState(false)
+  // Try again on a quote sent back for new prices opens it repriced: the list makes way for it (#58 review).
+  useEffect(() => {
+    const close = () => setOpen(false)
+    window.addEventListener(QUOTE_REPRICE_OPEN_EVENT, close)
+    return () => window.removeEventListener(QUOTE_REPRICE_OPEN_EVENT, close)
+  }, [])
   useEffect(() => {
     const read = () => { waitingCount().then(setPhotos).catch(() => {}) }
     read()

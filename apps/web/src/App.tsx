@@ -563,6 +563,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [quoteForChange, setQuoteForChange] = useState(false)
   // Opened because the server sent its save back for new prices (#58): it reprices and asks before saving.
   const [quoteReprice, setQuoteReprice] = useState(false)
+  // "Quote stored" said for each save, by quote: taken back when the server sends that save back (only the price
+  // dialog is shown then, #58 review).
+  const storedToasts = useRef(new globalThis.Map<string, string>())
   const [jobs, setJobs]                 = useState<Job[]>(getJobs)
   // Back to a screen puts its scroll back; a new screen starts at the top.
   const pageScroll = useRef<HTMLDivElement | null>(null)
@@ -752,12 +755,19 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       // Saved over the Quotes page (its New quote buttons, a row's Edit, search): the quote's window opens there too, as
       // after a visit (review Oct 28 2026: the office had to find and click the row after saving).
       const toOpen = !toSend && active === 'Quotes' && !!q.id
-      if (toSend || toOpen) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
+      // Once the quote builder (and its Save window or price dialog) has closed and taken its own history entries
+      // with it: navigating while they were still open left the builder's entry under the new screen, and the
+      // builder opened again over the saved quote's window (#58 review: a blank quote after saving).
+      const savedId = q.id
+      if (toSend || toOpen) setTimeout(() => navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(savedId)}`), 0)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
-      if (toOpen && q.status !== 'SOLD') toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
-      else if (toSend) toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
+      let storedToast: string | null = null
+      if (toOpen && q.status !== 'SOLD') storedToast = toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
+      else if (toSend) storedToast = toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
       // "Sold, job created" only on the save that sold it; saving an already signed quote again is just stored.
-      else toast.info(q.status === 'SOLD' && !wasSold ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
+      else storedToast = toast.info(q.status === 'SOLD' && !wasSold ? 'Quote sold, job created' : 'Quote stored', 'Sending it now. The quote shows Saved once it has gone through; with no signal it waits on this phone and goes by itself.')
+
+      if (storedToast && q.id) storedToasts.current.set(q.id, storedToast)
 
       // Sync to customer portal — surface errors
       syncQuote(q).catch((err: any) => {
@@ -812,11 +822,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     const onReprice = (e: Event) => {
       const d = (e as CustomEvent).detail as { id?: string; label?: string; code?: string } | undefined
       if (!d?.id) return
+      const said = storedToasts.current.get(d.id)
+      if (said) { toast.dismiss(said); storedToasts.current.delete(d.id) }
       void checkPricing().then(() => {
         const q = getQuoteById(d.id!)
         if (!q) return
         if (showQuoteRef.current) {
-          toast.error('Not saved', `${d.label || 'A quote'}: ${d.code === 'STYLE_NOT_QUOTABLE' ? 'its fence is not available for quoting now' : 'prices changed since it was priced'}. Close this quote, then tap Try again on it to see the new price.`)
+          toast.error('Not saved', `${d.label || 'A quote'}: ${d.code === 'STYLE_NOT_QUOTABLE' ? 'its fence is not available for quoting now' : 'prices changed since it was priced'}. Close this quote, then tap ⚠ at the top and Try again on it to see the new price.`)
           return
         }
         setQuoteReprice(true)

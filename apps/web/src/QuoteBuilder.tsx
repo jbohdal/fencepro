@@ -19,7 +19,7 @@ import { customersMatching, decideNewCustomer, contactToAdd, quoteDraftAddress, 
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
 import { BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
-import { checkPricing, heldPricingStamp, repriceOutcome, draftPriceLine, priceText, samePrice, PRICING_CHANGED_EVENT } from './pricingFreshness'
+import { checkPricing, heldPricingStamp, repriceOutcome, draftPriceLine, priceText, samePrice, fenceOffLine, PRICING_CHANGED_EVENT } from './pricingFreshness'
 import { getRailOptimizerConfig } from './configStore'
 import { sourcePicker } from './optionListsStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
@@ -34,7 +34,7 @@ import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser, currentUser } from './crmAuth'
 import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
-import { getQuotes, QUOTE_REPRICE_EVENT } from './quoteStore'
+import { getQuotes, QUOTE_REPRICE_EVENT, serverSavedPrice } from './quoteStore'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
@@ -111,6 +111,10 @@ interface SavedCustomer {
   leadSource: string
   salesRep: string
 }
+
+/** Why a style is off for quoting, in words (the Price step and the save's dialog say the same). */
+const offReason = (s: { isActive?: boolean; quotable?: boolean; held?: string } | null | undefined): string | null =>
+  !s ? null : s.isActive === false || s.quotable === false ? 'switched off in Settings' : s.held || null
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
@@ -663,8 +667,7 @@ export default function QuoteBuilder({
     if (!styleId || style) return null
     const s = cfg.fenceStyles.find(x => x.id === styleId)
     if (!s) return null
-    const why = s.isActive === false || s.quotable === false ? 'switched off in Settings' : s.held ? s.held : 'not available for quoting'
-    return `${optionLabel(s.name)} is off for quoting now (${why}). Pick another fence.`
+    return fenceOffLine(optionLabel(s.name), offReason(s))
   })()
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
@@ -915,8 +918,11 @@ export default function QuoteBuilder({
   // from JobNimbus is priced from its parts on purpose, so it is not compared).
   // A quote that never reached the server (its first save was sent back for new prices) was not "saved": since it was opened.
   const neverSaved = !!init?.id && pendingFor(`quote:${init.id}`).some(o => o.kind === 'quote.create')
+  // A save the server sent back left this phone's copy at the refused price: the saved one is the server's.
+  const sentBack = !!init?.id && pendingFor(`quote:${init.id}`).some(o => o.redo)
+  const savedPrice = (sentBack && init?.id ? serverSavedPrice(init.id) : undefined) ?? init?.finalPrice ?? 0
   const draftLine = !pricesStand && !!init?.id && init.status === 'DRAFT' && oldPrice == null && !fenceChanged && !!style && (internal || !!sv)
-    ? draftPriceLine(init.finalPrice ?? 0, adjPrice, neverSaved ? 'opened' : 'saved') : null
+    ? draftPriceLine(savedPrice, adjPrice, neverSaved ? 'opened' : 'saved') : null
   const repricedLine = !draftLine && !pricesStand && repriced ? `Prices changed while this quote was open. It is now ${priceText(adjPrice)} (was ${priceText(repriced.was)}).` : null
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
   // Help that prevents bad quotes: plain warnings, never a block.
@@ -1205,7 +1211,10 @@ export default function QuoteBuilder({
   // A save held back because the prices changed: priced again with the new data, then saved as it is (same price),
   // or shown with the new price to confirm, or stopped (the fence is no longer available for quoting).
   const [recheck, setRecheck] = useState<{ data: Parameters<typeof handleSave>[0] | null; was: number; styleName: string; asked: boolean } | null>(null)
-  const recheckOutcome = recheck ? repriceOutcome(recheck.was, adjPrice, { name: recheck.styleName, available: !!style && isQuotable(style) || (!!style && style.name === init?.fenceStyle) }) : null
+  const recheckOutcome = recheck ? repriceOutcome(recheck.was, adjPrice, {
+    name: recheck.styleName, available: !!style && isQuotable(style) || (!!style && style.name === init?.fenceStyle),
+    why: offReason(style ?? cfg.fenceStyles.find(x => x.id === styleId) ?? null),
+  }) : null
   useEffect(() => {
     if (!recheck || recheck.asked || !recheckOutcome) return
     if (recheckOutcome.kind === 'save') {
@@ -1334,7 +1343,7 @@ export default function QuoteBuilder({
             {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
             {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
-            {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
+            {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({priceText(init!.finalPrice)} then, {priceText(adjPrice)} now).</p>}
             {(draftLine || repricedLine) && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-price-changed-banner>{draftLine || repricedLine}</p>}
           </div>
           <div className="flex items-center gap-3">
@@ -2367,7 +2376,7 @@ export default function QuoteBuilder({
               </>
             ) : (
               <>
-                <p className="text-base font-bold text-gray-900" data-quote-sent-message>{(() => { const now = Number((pending.quote as any)?.finalPrice ?? adjPrice); return Math.round(now * 100) !== Math.round((init?.finalPrice ?? 0) * 100) ? <>The price changed since this was sent (sent at {fmt(init!.finalPrice)}, saving now would make it {fmt(now)}). </> : null })()}
+                <p className="text-base font-bold text-gray-900" data-quote-sent-message>{(() => { const now = Number((pending.quote as any)?.finalPrice ?? adjPrice); return Math.round(now * 100) !== Math.round((init?.finalPrice ?? 0) * 100) ? <>The price changed since this was sent (sent at {priceText(init!.finalPrice)}, saving now would make it {priceText(now)}). </> : null })()}
                   {pending.changes?.length
                     ? <>Prices on the customer's proposal would change ({pending.changes.slice(0, 3).map(c => `${c.name}: ${c.wasCents == null ? 'not on it' : fmt(c.wasCents / 100)} then, ${c.nowCents == null ? 'gone' : fmt(c.nowCents / 100)} now`).join('; ')}{pending.changes.length > 3 ? `; ${pending.changes.length - 3} more` : ''}). </>
                     : null}
@@ -2391,7 +2400,7 @@ export default function QuoteBuilder({
             <p className="text-base font-bold text-gray-900" data-price-recheck-line>{recheckOutcome.line}</p>
             {recheckOutcome.kind === 'confirm' ? (
               <div className="flex flex-col gap-2">
-                <button type="button" className="btn btn-primary min-h-[48px]" onClick={saveRepriced} data-price-recheck-save>{recheck.data ? 'Save' : 'Continue'} at {priceText(adjPrice)}</button>
+                <button type="button" className="btn btn-primary min-h-[48px]" onClick={saveRepriced} data-price-recheck-save>Save at {priceText(adjPrice)}</button>
                 <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setRecheck(null)} data-price-recheck-back>Back to the quote</button>
               </div>
             ) : (

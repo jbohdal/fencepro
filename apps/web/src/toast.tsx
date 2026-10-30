@@ -33,10 +33,11 @@ function emit() {
   for (const l of listeners) l(current)
 }
 
-function push(kind: ToastKind, title: string, body?: string, ttlMs: number = toastMs(kind, title, body)) {
+function push(kind: ToastKind, title: string, body?: string, ttlMs: number = toastMs(kind, title, body)): string {
   const msg: ToastMessage = { id: uid(), kind, title, body, ttlMs }
   current = [...current, msg]
   emit()
+  return msg.id
   // Its time starts when it is on screen (one at a time; ToastContainer), so none goes unseen.
 }
 

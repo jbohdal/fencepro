@@ -8,7 +8,7 @@
 import { describe, test, expect, beforeEach } from 'vitest'
 import {
   _resetPricingForTests, notePricingPart, registerPricingReload, heldPricingStamp, changedPricingParts, checkPricing,
-  repriceOutcome, draftPriceLine, priceText, samePrice, isServerStamp, type ServerStamp,
+  repriceOutcome, draftPriceLine, priceText, samePrice, isServerStamp, fenceOffLine, type ServerStamp,
 } from '../../web/src/pricingFreshness'
 import { _resetForTests, startOutbox, registerKind, enqueue, allOps, statusOf, retry, type Op, type OutboxStorage, type SendResult } from '../../web/src/outbox'
 import { businessPart, inventoryPart, tierPart, joinStamp, canonical } from '../src/server/lib/pricingStamp'
@@ -89,7 +89,12 @@ describe('reprice before save', () => {
   test('every price removed (the fence is off for quoting): nothing is saved, pick another fence', () => {
     const r = repriceOutcome(5350, 0, { name: '8 ft White Vinyl Privacy', available: false })
     expect(r.kind).toBe('gone')
-    expect((r as { line: string }).line).toBe('8 ft White Vinyl Privacy is not available for quoting now (it was switched off or its prices were removed). Pick another fence, then save.')
+    expect((r as { line: string }).line).toBe('8 ft White Vinyl Privacy is off for quoting now (switched off in Settings, or its prices were removed). Pick another fence.')
+  })
+
+  test('a fence off for quoting: one sentence, with its reason, on the Price step and in the dialog', () => {
+    expect(fenceOffLine('6 ft panels, no dig', 'switched off in Settings')).toBe('6 ft panels, no dig is off for quoting now (switched off in Settings). Pick another fence.')
+    expect(repriceOutcome(5350, 0, { name: '6 ft panels, no dig', available: false, why: 'switched off in Settings' })).toEqual({ kind: 'gone', line: fenceOffLine('6 ft panels, no dig', 'switched off in Settings') })
   })
 
   test('a draft opened after a price change says so; unchanged, it says nothing', () => {

@@ -33,7 +33,13 @@ let archivedCache: SavedQuote[] = []
 let initPromise: Promise<void> | null = null
 let hydrated = false
 
+/** Each quote's price as the server last had it (a refused save leaves the phone's copy at the refused price). */
+const serverPrices = new Map<string, number>()
+/** The price the server last saved for this quote; undefined when it never reached the server. */
+export function serverSavedPrice(id: string): number | undefined { return serverPrices.get(id) }
+
 function fromApi(r: SavedQuoteRecord): SavedQuote {
+  if (r?.id && typeof r.finalPrice === 'number') serverPrices.set(r.id, r.finalPrice)
   return {
     id: r.id,
     customerId: r.crmContactId || undefined,
