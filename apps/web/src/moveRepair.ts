@@ -26,10 +26,10 @@
  * REPAIR: a price list per style, each item made from kits plus labor
  *   (labor = the sub rate per section, post or gate × the item's multiplier).
  *
- * Wood (wood.ts) moves and repairs are priced on its white vinyl style and
- * their material and labor are multiplied by the Wood factor (the repair
- * rates; Jonathan, Oct 30 2026). A new wood fence is not: its material is its
- * own wood kit from Inventory (quoteCalc.ts woodQuote).
+ * Wood (wood.ts) moves and repairs: the material is the wood style's own kit
+ * from Inventory, as a new wood fence's is (quoteCalc.ts woodQuote); the labor
+ * and repair rates are the White Vinyl style's × the Wood factor (Jonathan,
+ * Oct 30 2026: "The 15% is for wood labor and repair rates only"): woodWork.
  */
 
 import { calculatePrice, resolveSubRate, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
@@ -725,10 +725,13 @@ export const isStarterItem = (what: RepairInputs['what'], k: RepairItemKey) => (
 
 /** The parts a "Repair a section" can use:the section kit (and its per foot share), with full quantities. */
 export function repairPartChoices(style: QuoteStyle): Array<{ part: string; qty: number }> {
-  const kit = workKit(style.woodBase ?? style)
+  // Wood: its own wood kit's section parts (the old privacy rows with no kit in use: their vinyl style's, as before).
+  const own = style.woodBase ? { ...style, woodBase: undefined, woodFactor: undefined } : style
+  const at = workKit(own) ? own : style.woodBase ?? style
+  const kit = workKit(at)
   if (!kit) return []
   const chain = style.category === 'Chainlink' || style.category === 'Commercial'
-  return [...sectionParts(kit, workWidth(style.woodBase ?? style), chain, true)].map(([part, qty]) => ({ part, qty: Math.round(qty * 1000) / 1000 }))
+  return [...sectionParts(kit, workWidth(at), chain, true)].map(([part, qty]) => ({ part, qty: Math.round(qty * 1000) / 1000 }))
 }
 
 export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
@@ -879,25 +882,50 @@ function price(c: WorkCommon, type: 'move' | 'repair', acc: Acc, t: { materialCe
 }
 
 /**
- * Wood: the same work priced on the white vinyl style, then material and labor
- * × the Wood factor, each total rounded to the cent once. Disposal (pull and
- * haul away) is not a wood rate and stays as it is. The pull sheet names the
- * wood parts at $0.
+ * Wood moves, repairs and change order lines (Jonathan, Oct 30 2026: "The 15%
+ * is for wood labor and repair rates only"):
+ *
+ *   material   the same work on the wood style itself: its own wood kit
+ *              (wood.ts) priced from Inventory, the real wood parts on the
+ *              pull sheet at their prices, as a new wood quote prices them
+ *   labor      the same work's labor on the White Vinyl style (woodBase, the
+ *              repair rates and multipliers included) × the Wood factor,
+ *              rounded to the cent once
+ *   disposal   pulling and hauling old posts, debris, footers: as on vinyl
+ *              (not a wood rate)
+ *
+ * then priced as the work is (finish → price: the minimum job price on a
+ * repair or move quote, extra hours and flat labor added back as they are).
+ *
+ * A wood style with no kit in use (the Oct 19 privacy rows, their kits
+ * archived) has no wood parts to price from, so it keeps the old way: the
+ * White Vinyl material × the Wood factor as one money line, the vinyl parts
+ * named as wood at $0 for the crew. Never $0 material by accident.
  */
 function woodWork(c: WorkCommon, run: (c: WorkCommon) => WorkResult): WorkResult {
   const base = c.style.woodBase!
+  const own: QuoteStyle = { ...c.style, woodBase: undefined, woodFactor: undefined }
+  const ownKit = !!workKit(own)
   const f = typeof c.style.woodFactor === 'number' && c.style.woodFactor > 0 ? c.style.woodFactor : c.settings.woodFactorPct / 100
   const o = c.overrides ?? {}
   // Vinyl rates only: no extra hours, no flat labor, no typed price (those are added back below as they are).
-  const v = run({ ...c, extraLaborHrs: 0, style: { ...base, margin: c.style.margin }, overrides: { ...o, finalPrice: undefined, laborCost: undefined } })
-  const materialCents = Math.round(v.materialCents * f)
+  const rates = { ...c, extraLaborHrs: 0, overrides: { ...o, finalPrice: undefined, laborCost: undefined } }
+  const v = run({ ...rates, style: { ...base, margin: c.style.margin } })
+  // The wood parts: the same work on the wood style itself; only its material is used.
+  const w = ownKit ? run({ ...rates, style: own }) : null
+  const materialCents = w ? w.materialCents : Math.round(v.materialCents * f)
   const woodLaborCents = Math.round(v.laborCents * f)
   const pct = Math.round(f * 1000) / 10
-  const lines: CostLine[] = [
-    ...v.lines,
-    { key: 'woodMaterial', label: `Wood factor ${pct}% on materials`, kind: 'material', cents: materialCents - v.materialCents, math: `${usd(v.materialCents / 100)} vinyl materials × ${pct}% = ${usd(materialCents / 100)}` },
-    { key: 'woodLabor', label: `Wood factor ${pct}% on labor`, kind: 'labor', cents: woodLaborCents - v.laborCents, math: `${usd(v.laborCents / 100)} vinyl labor × ${pct}% = ${usd(woodLaborCents / 100)}` },
-  ]
+  const lines: CostLine[] = w
+    ? [
+        ...w.lines.filter(l => l.kind === 'material'),
+        ...v.lines.filter(l => l.kind !== 'material'),
+      ]
+    : [
+        ...v.lines,
+        { key: 'woodMaterial', label: `Wood factor ${pct}% on materials`, kind: 'material', cents: materialCents - v.materialCents, math: `${usd(v.materialCents / 100)} vinyl materials × ${pct}% = ${usd(materialCents / 100)}` },
+      ]
+  lines.push({ key: 'woodLabor', label: w ? `Wood labor: ${pct}% of the White Vinyl labor` : `Wood factor ${pct}% on labor`, kind: 'labor', cents: woodLaborCents - v.laborCents, math: `${usd(v.laborCents / 100)} vinyl labor × ${pct}% = ${usd(woodLaborCents / 100)}` })
   let laborCents = woodLaborCents
   const mhRate = Number(c.pricing.manHourRate) || 0
   if (c.extraLaborHrs) { const x = Math.round(c.extraLaborHrs * mhRate * 100); lines.push({ key: 'extraHours', label: 'Extra hours', kind: 'labor', cents: x, math: `${c.extraLaborHrs} hr × ${usd(mhRate)}` }); laborCents += x }
@@ -906,13 +934,20 @@ function woodWork(c: WorkCommon, run: (c: WorkCommon) => WorkResult): WorkResult
     laborCents = Math.round(o.laborCost * 100)
     lines.push({ key: 'flatLabor', label: 'Labor (flat, typed on the quote)', kind: 'labor', cents: laborCents, math: 'typed' })
   }
-  const missing = v.warnings.find(w => /^No rate per/.test(w))
-  const acc: Acc = { lines, warnings: v.warnings.filter(w => w !== missing), missingRates: [], missingParts: new Set(), pull: new Map() }
-  const r = price(c, v.type, acc, { materialCents, laborCents, disposalCents: v.disposalCents }, null, v.description, v.crew, v.needs811, v.sections, v.footage, v.manHours, c.settings)
+  // Rate warnings come from the vinyl work (the labor), part warnings from the wood work (the material).
+  const rateWords = /^No rate per/
+  const missing = v.warnings.find(x => rateWords.test(x))
+  const rest = w ? w.warnings.filter(x => !rateWords.test(x)) : v.warnings.filter(x => x !== missing)
+  const acc: Acc = { lines, warnings: rest, missingRates: [], missingParts: new Set(), pull: new Map() }
+  const src = w ?? v
+  const r = price(c, v.type, acc, { materialCents, laborCents, disposalCents: v.disposalCents }, null, src.description, src.crew, src.needs811, src.sections, src.footage, src.manHours, c.settings)
   if (missing) r.warnings.unshift(missing)
-  // The wood parts by name for the crew (wood.ts names), never priced; the wood material as one money line.
-  r.pullSheet = mergeItems(v.pullSheet.map(i => ({ ...i, item: woodPartName(i.item), unitCost: 0, total: 0, costSource: 'wood' as const })))
-  r.pullSheet.push({ item: `Wood material: ${(base as { label?: string }).label || base.name} material × ${pct}%`, qty: 1, unitCost: materialCents / 100, total: materialCents / 100, costSource: 'wood', moneyOnly: true })
+  if (w) r.pullSheet = w.pullSheet
+  else {
+    // The old way: the vinyl parts named as wood for the crew (wood.ts names), never priced; the wood material as one money line.
+    r.pullSheet = mergeItems(v.pullSheet.map(i => ({ ...i, item: woodPartName(i.item), unitCost: 0, total: 0, costSource: 'wood' as const })))
+    r.pullSheet.push({ item: `Wood material: ${(base as { label?: string }).label || base.name} material × ${pct}%`, qty: 1, unitCost: materialCents / 100, total: materialCents / 100, costSource: 'wood', moneyOnly: true })
+  }
   r.wood = { factor: f, vinylMaterialCents: v.materialCents, vinylLaborCents: v.laborCents, base: base.name }
   return r
 }
@@ -951,7 +986,7 @@ function mergeItems(items: LineItem[]): LineItem[] {
  * price, flat labor or slider: a line is priced on its own, at Settings today.
  *
  * A wood job (Jonathan, Oct 30 2026: "Change orders on wood jobs: use the
- * wood parts and wood pricing, not vinyl +15%"): woodChangeOrder below.
+ * wood parts and wood pricing, not vinyl +15%"): woodWork (the wood kit's parts, White Vinyl labor × the Wood factor).
  *
  * `job` is the job as it is now: its gates (once per job gate parts are not
  * charged again) and the rail optimizer settings (auto mix styles).
@@ -970,7 +1005,7 @@ export interface AddedJob { walkGates: number; dblGates: number; optimizer?: Rai
 export function priceChangeOrderPick(c: WorkCommon, pick: ChangeOrderPick, qty: number, job: AddedJob = { walkGates: 0, dblGates: 0 }): WorkResult {
   const n = Math.max(1, Math.round(Number(qty) || 1))
   const cc: WorkCommon = { ...c, settings: { ...c.settings, minimumJobCents: 0 }, overrides: {}, extraLaborHrs: 0, priceAdjust: 0 }
-  // Sections and gates, added or replaced: as a new quote prices them (a wood style with no kit in use keeps the old way, woodChangeOrder).
+  // Sections and gates, added or replaced: as a new quote prices them (a wood style with no kit in use keeps the old way, woodWork).
   const pieces: AddedPieces | null = pick.kind === 'add'
     ? { sections: pick.piece === 'section' ? n : 0, walkGates: pick.piece === 'walk' ? n : 0, dblGates: pick.piece === 'double' ? n : 0, ...(pick.widthFt ? { gateWidthFt: pick.widthFt } : {}), replace: false }
     : pick.kind === 'repair' && pick.key === 'replaceSection' ? { sections: n, walkGates: 0, dblGates: 0, replace: true }
@@ -980,58 +1015,16 @@ export function priceChangeOrderPick(c: WorkCommon, pick: ChangeOrderPick, qty: 
   if (pick.kind === 'add') {
     // A wood style with no kit in use: the old way, as its Replace a section / Replace a gate.
     const r: RepairInputs = { what: 'other', items: { [pick.piece === 'section' ? 'replaceSection' : 'replaceGate']: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.piece === 'double' ? 'double' : 'walk', debrisCleared: true }
-    return woodChangeOrder(cc, x => priceRepair(x, r))
+    return woodWork(cc, x => priceRepair(x, r))
   }
   if (pick.kind === 'repair' && pick.key !== 'pullPost') {
     const r: RepairInputs = { what: 'other', items: { [pick.key]: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.gateKind === 'double' ? 'double' : 'walk', debrisCleared: true }
-    // A wood job: wood parts and wood labor (woodChangeOrder), not the repair quote's White Vinyl × the Wood factor.
-    if (cc.style.woodBase) return woodChangeOrder(cc, x => priceRepair(x, r))
+    // A wood job: wood parts and wood labor (woodWork).
+    if (cc.style.woodBase) return woodWork(cc, x => priceRepair(x, r))
     return priceRepair(cc, r)
   }
-  if (cc.style.woodBase) return woodChangeOrder(cc, w => pickInner(w, pick, n))
+  if (cc.style.woodBase) return woodWork(cc, w => pickInner(w, pick, n))
   return pickInner(cc, pick, n)
-}
-
-/**
- * A change order line on a wood job (Jonathan, Oct 30 2026: "use the wood
- * parts and wood pricing, not vinyl +15%"):
- *
- *   material   the wood style's own kit (wood.ts) priced from Inventory, the
- *              same parts and prices a new wood quote uses for those pieces
- *              (a section kit, a gate kit, a post kit); a part picked from
- *              the catalog at its Inventory cost, nothing added
- *   labor      wood labor: the same line's labor on the White Vinyl style
- *              (woodBase) × the Wood factor, as wood install labor is
- *   disposal   pulling and hauling old posts, debris: as on vinyl
- *
- * then priced as every change order line is (finish → price). Moves and
- * repair quotes are not this: they stay White Vinyl × the Wood factor
- * (woodWork). A wood style with no kit in use (the Oct 19 privacy rows, their
- * kits archived) has no wood parts to price from: its lines stay as they were
- * priced (woodWork), so a line is never $0 material by accident.
- */
-function woodChangeOrder(c: WorkCommon, run: (c: WorkCommon) => WorkResult): WorkResult {
-  const base = c.style.woodBase!
-  const own = { ...c.style, woodBase: undefined, woodFactor: undefined }
-  if (!workKit(own)) return woodWork(c, run)
-  const f = typeof c.style.woodFactor === 'number' && c.style.woodFactor > 0 ? c.style.woodFactor : c.settings.woodFactorPct / 100
-  const pct = Math.round(f * 1000) / 10
-  // The wood parts: the line on the wood style itself (its own kit and Inventory); its labor is not used.
-  const w = run({ ...c, style: own })
-  // The labor and disposal: the line on the White Vinyl style.
-  const v = run({ ...c, style: { ...base, margin: c.style.margin } })
-  const woodLaborCents = Math.round(v.laborCents * f)
-  const lines: CostLine[] = [
-    ...w.lines.filter(l => l.kind === 'material'),
-    ...v.lines.filter(l => l.kind !== 'material'),
-    { key: 'woodLabor', label: `Wood labor: ${pct}% of the White Vinyl labor`, kind: 'labor', cents: woodLaborCents - v.laborCents, math: `${usd(v.laborCents / 100)} vinyl labor × ${pct}% = ${usd(woodLaborCents / 100)}` },
-  ]
-  const rateWords = /^No rate per/
-  const warnings = [...new Set([...w.warnings.filter(x => !rateWords.test(x)), ...v.warnings.filter(x => rateWords.test(x))])]
-  const acc: Acc = { lines, warnings, missingRates: [], missingParts: new Set(), pull: new Map() }
-  const r = price(c, w.type, acc, { materialCents: w.materialCents, laborCents: woodLaborCents, disposalCents: v.disposalCents }, null, w.description, w.crew, w.needs811, w.sections, w.footage, w.manHours, c.settings)
-  r.pullSheet = w.pullSheet
-  return r
 }
 
 /**

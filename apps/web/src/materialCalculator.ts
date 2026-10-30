@@ -363,7 +363,7 @@ export interface LineItem {
   costSource?: 'inventory' | 'builtin' | 'jobLot' | 'wood'
   /** A job lot piece price line (section, post, gate): money only, not a part to pull or order. */
   jobLotPiece?: boolean
-  /** Money only, not a part to pull or order: a wood move or repair's material (white vinyl × the Wood factor, moveRepair.ts woodWork), and quotes saved before Oct 30 2026. Parts named for the crew there are listed at $0 ('wood'). */
+  /** Money only, not a part to pull or order: the material of a move or repair on a wood style with no wood kit in use (the Oct 19 privacy rows: white vinyl × the Wood factor, moveRepair.ts woodWork), and quotes saved before Oct 30 2026. Parts named for the crew there are listed at $0 ('wood'). */
   moneyOnly?: boolean
 }
 

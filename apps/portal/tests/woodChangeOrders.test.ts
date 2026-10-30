@@ -7,7 +7,8 @@
  *     priceAddedPieces): the wood style's own kit and Inventory, labor = the
  *     White Vinyl install labor × the Wood factor, the style's Target Margin;
  *   - a catalog part is its Inventory cost, nothing added;
- *   - repair quotes and moves on wood stay White Vinyl × the Wood factor;
+ *   - repair quotes and moves on wood: the wood kit's parts, labor (the
+ *     repair rates) White Vinyl × the Wood factor;
  *   - an Oct 19 privacy job (no wood kit in use) keeps the old way.
  */
 
@@ -147,11 +148,14 @@ describe('change orders on a wood job: wood parts, wood labor', () => {
     expect(r.laborCents).toBe(0)
   })
 
-  test('repair quotes on wood stay White Vinyl × the Wood factor', () => {
+  test('repair quotes on wood: the wood kit\'s parts, the repair labor White Vinyl × the Wood factor (Oct 30 2026: "The 15% is for wood labor and repair rates only")', () => {
     const inputs = { what: 'other' as const, items: { replaceSection: 2 }, postType: 'ds' as const, newPostCaps: false, gateKind: 'walk' as const, debrisCleared: true }
     const rep = priceRepair(common(ST), inputs)
     const v = priceRepair(common(WOOD_LABOR_FROM), inputs)
-    expect(rep.materialCents).toBe(Math.round(v.materialCents * 1.15))
+    expect(rep.materialCents).toBe(newQuoteMaterialCents({ section: 2 }))
+    expect(rep.materialCents).toBe(14284)
+    expect(rep.laborCents).toBe(Math.round(v.laborCents * 1.15))
+    expect(rep.pullSheet.some(i => i.moneyOnly || /Vinyl|62-1\/4/.test(i.item))).toBe(false)
     expect(rep.wood?.base).toBe(WOOD_LABOR_FROM)
   })
 
