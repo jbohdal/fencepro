@@ -35,7 +35,7 @@ const fmt = (n: number) =>
 const CATEGORIES = [
   'Tear Out', 'Vinyl White', 'Vinyl Tan',
   'Chainlink Galv', 'Chainlink Black', 'Chainlink Green',
-  'Commercial', 'Agricultural', 'Aluminum', 'Misc',
+  'Commercial', 'Agricultural', 'Aluminum', 'Wood', 'Misc',
 ]
 
 const TXN_TYPE_LABELS: Record<TransactionType, string> = {
@@ -182,6 +182,8 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
   // stays put while its name is edited and files into place on save.
   const [filedNames, setFiledNames]         = useState<Map<string, string>>(new Map())
   const [collapsed, setCollapsed]           = useState<Set<string>>(new Set())
+  // Archived items (a removed color's parts, the white vinyl parts once renamed as wood) are kept, not shown unless asked.
+  const [showArchived, setShowArchived]     = useState(false)
   // ?price=unconfirmed (the Finish setup card's "Confirm Inventory prices") opens with that filter.
   const [priceFilter, setPriceFilter]       = useState<PriceFilter>(() => {
     const p = new URLSearchParams(window.location.search).get('price') as PriceFilter | null
@@ -210,8 +212,10 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
     const age = ageOf(i)
     const matchAge = priceFilter === 'all' || (priceFilter === 'check' ? age !== 'fresh' : age === priceFilter)
     const matchOnly = !onlyIds || onlyIds.includes(i.id)
-    return matchCat && matchText && matchAge && matchOnly
+    const matchArchived = showArchived || i.status !== 'archived'
+    return matchCat && matchText && matchAge && matchOnly && matchArchived
   })
+  const archivedCount = items.filter(i => i.status === 'archived').length
   const groups = sortBy === 'priceAge'
     ? (filtered.length ? [{ key: 'Oldest price first', items: [...filtered].sort(compareByPriceAge) }] : [])
     : groupCatalog(filtered, filedNames, CATEGORIES)
@@ -360,6 +364,12 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
         </select>
       </div>
 
+      {archivedCount > 0 && (
+        <p className="text-xs text-gray-500 mb-3" data-archived-items>
+          {showArchived ? `Showing ${archivedCount} archived item${archivedCount === 1 ? '' : 's'} (not used by any kit in use).` : `${archivedCount} archived item${archivedCount === 1 ? '' : 's'} hidden.`}{' '}
+          <button className="text-orange-600 underline" onClick={() => setShowArchived(v => !v)} data-show-archived>{showArchived ? 'Hide them' : 'Show them'}</button>
+        </p>
+      )}
       {onlyIds && (
         <div className="flex flex-wrap items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mb-4 text-sm text-amber-900" data-only-items>
           <span>Showing the {onlyIds.length} part{onlyIds.length === 1 ? '' : 's'} from the quote whose price needs a look.</span>

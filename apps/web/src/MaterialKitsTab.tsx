@@ -164,7 +164,7 @@ export default function MaterialKitsTab() {
 
   const status = (s: KitSet) => (s.builtIn ? 'Built in (from the old parts list)' : !s.styleName ? 'Copy, not in use' : s.archived ? 'Archived' : 'In use')
   const inventory = useMemo(() => getInventory(), [])
-  const matches = search.trim() ? inventory.filter(i => i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 8) : []
+  const matches = search.trim() ? inventory.filter(i => i.status !== 'archived' && i.name.toLowerCase().includes(search.toLowerCase())).slice(0, 8) : []
 
   return (
     <div className="space-y-5" data-material-kits>

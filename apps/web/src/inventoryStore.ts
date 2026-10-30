@@ -160,7 +160,8 @@ export interface InventoryItem {
   category: string
   supplier?: string
   unitOfMeasure?: string
-  status?: 'active' | 'inactive' | 'discontinued'
+  /** 'archived': kept, never deleted, hidden from the Catalog list unless asked (a removed color's parts; the white vinyl parts once renamed as wood, Oct 30 2026). */
+  status?: 'active' | 'inactive' | 'discontinued' | 'archived'
   /** Made by Settings → Fence styles for a color or choice added there ("vinyl:color:clay"); removed with it. */
   madeFor?: string
   /** $0 on purpose: a part whose cost is in a section kit or piece price ("*Vinyl, Chai Gray, Section, 6x8", "8 ft tall section price"). Never asked for a price. */
