@@ -251,7 +251,9 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
   const footage = Math.round(runs.reduce((s, n) => s + n, 0))
   const requested = String(pricing.laborMode ?? ctx.pricing.laborMode ?? 'hourly')
   const flat = typeof pricing.laborCost === 'number'
-  const subUnit = (pricing.subUnit ?? ctx.pricing.subUnit) === 'section' ? 'section' : 'foot'
+  // The unit travels with the rate (pricingEngine.subUnitOf, Oct 30 2026): the quote's own only when picked on it or with its own rate.
+  const ownUnit = pricing.subUnitPicked === true || pos(pricing.subRate) !== undefined
+  const subUnit = ((ownUnit ? pricing.subUnit : undefined) ?? ctx.pricing.subUnit) === 'section' ? 'section' : 'foot'
   const laborMode: QuotedLabor['mode'] = flat || work ? 'flat' : requested === 'subcontractor' ? 'sub' : 'crew'
   const materialCents = toCents(q.materialCost)
   const laborCents = toCents(q.laborCost)

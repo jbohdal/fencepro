@@ -86,7 +86,10 @@ export interface StylePricing {
 /** Per quote overrides. Anything left undefined falls back to style, then Settings. */
 export interface QuotePricingOverrides {
   laborMode?: LaborMode
+  /** The unit the sub is paid per. Read only with subUnitPicked or the quote's own subRate (subUnitOf). */
   subUnit?: SubUnit
+  /** "Paid per" was picked by hand on this quote: it keeps its unit when Settings change (Oct 30 2026). */
+  subUnitPicked?: boolean
   subRate?: number
   /** Flat labor dollars for this quote; replaces the calculated labor. */
   laborCost?: number
@@ -295,6 +298,31 @@ export function resolveSubRate(
     ?? 0
 }
 
+/**
+ * The unit a quote's sub is paid per (Jonathan, Oct 30 2026): the rate and the
+ * unit travel together. A quote with no sub rate of its own follows Settings
+ * for both, whatever unit it was saved with; it keeps its own unit only when
+ * "Paid per" was picked on it (subUnitPicked) or it has its own typed rate (a
+ * rate means nothing without its unit).
+ */
+export function subUnitOf(o: Pick<QuotePricingOverrides, 'subUnit' | 'subUnitPicked' | 'subRate'> | null | undefined, pricing: Pick<PricingSettings, 'subUnit'>): SubUnit {
+  return (keepsOwnSubUnit(o) ? o?.subUnit : undefined) ?? pricing.subUnit ?? 'foot'
+}
+
+/**
+ * "Paid per" as the quote builder opens a quote: a new quote, or one with no
+ * unit of its own, on Settings' unit; one picked on it or with its own rate on
+ * its saved unit. `picked` says whether it was picked by hand.
+ */
+export function subUnitOnOpen(saved: Pick<QuotePricingOverrides, 'subUnit' | 'subUnitPicked' | 'subRate'> | null | undefined, pricing: Pick<PricingSettings, 'subUnit'>): { unit: SubUnit; picked: boolean; own: boolean } {
+  return { unit: subUnitOf(saved, pricing), picked: saved?.subUnitPicked === true, own: keepsOwnSubUnit(saved) }
+}
+
+/** Does a quote keep the sub unit saved on it (picked on it, or with its own rate)? Else it follows Settings. */
+export function keepsOwnSubUnit(o: Pick<QuotePricingOverrides, 'subUnitPicked' | 'subRate'> | null | undefined): boolean {
+  return o?.subUnitPicked === true || pos(o?.subRate) !== undefined
+}
+
 export function calculatePrice(input: PriceInputs): PriceResult {
   const { style, pricing } = input
   const o = input.overrides ?? {}
@@ -324,7 +352,7 @@ export function calculatePrice(input: PriceInputs): PriceResult {
 
   // ── Labor ──
   const requestedMode: LaborMode = o.laborMode ?? pricing.laborMode ?? 'hourly'
-  const subUnit: SubUnit = o.subUnit ?? pricing.subUnit ?? 'foot'
+  const subUnit: SubUnit = subUnitOf(o, pricing)
   let laborMode: PriceResult['laborMode'] = requestedMode
   let subRate = 0
   let laborCost: number

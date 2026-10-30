@@ -132,7 +132,7 @@ export function makeRunCost(
   pricing: PricingSettings,
   overrides?: QuotePricingOverrides,
 ): RunCostFn {
-  const laborChoice: QuotePricingOverrides = { laborMode: overrides?.laborMode, subUnit: overrides?.subUnit, subRate: overrides?.subRate }
+  const laborChoice: QuotePricingOverrides = { laborMode: overrides?.laborMode, subUnit: overrides?.subUnit, subUnitPicked: overrides?.subUnitPicked, subRate: overrides?.subRate }
   return (ft, rail) => {
     const items = calculateMixedMaterialsDetailed({
       ...kind,
@@ -280,7 +280,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 function woodQuote(input: QuoteCalcInput, style: QuoteStyle, base: QuoteStyle): QuoteCalc {
   const f = typeof style.woodFactor === 'number' && style.woodFactor > 0 ? style.woodFactor : 1.15
   const o = input.overrides ?? {}
-  const laborChoice: QuotePricingOverrides = { laborMode: o.laborMode, subUnit: o.subUnit, subRate: o.subRate }
+  const laborChoice: QuotePricingOverrides = { laborMode: o.laborMode, subUnit: o.subUnit, subUnitPicked: o.subUnitPicked, subRate: o.subRate }
   const v = calculateQuote({
     ...input, style: base, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
     overrides: laborChoice,

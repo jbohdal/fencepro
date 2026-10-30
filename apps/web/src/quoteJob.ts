@@ -18,7 +18,7 @@ import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
   type JobType, type MoveInputs, type RepairInputs, type SavedWork, type WorkResult,
 } from './moveRepair'
-import { cleanOverrides, adjustedPrice, roundsToWholeDollar, type QuotePricingOverrides } from './pricingEngine'
+import { cleanOverrides, adjustedPrice, roundsToWholeDollar, subUnitOf, type QuotePricingOverrides } from './pricingEngine'
 import { isQuotable } from './styleAvailability'
 import type { AppConfig, FenceStyle } from './configStore'
 
@@ -224,6 +224,8 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
 
   const pricing = cleanOverrides({
     ...req.overrides,
+    // The unit the sub was paid per on this price (it follows Settings unless picked on the quote or with its own rate).
+    ...(req.overrides.subUnit !== undefined ? { subUnit: subUnitOf(req.overrides, cfg.pricing) } : {}),
     ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}),
     overheadPct,
     ...wholeDollarRecord(req.overrides, roundingCents),

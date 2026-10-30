@@ -30,7 +30,7 @@
  * are multiplied by the Wood factor.
  */
 
-import { calculatePrice, resolveSubRate, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
+import { calculatePrice, resolveSubRate, subUnitOf, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
 import { kitSetFor, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
@@ -261,7 +261,7 @@ export function styleRates(style: QuoteStyle, pricing: PricingSettings, o: Quote
     tearOutGateText: `haul away ${usd(haulGate)} + tear out ${usd(tg)}${mode === 'subcontractor' ? ` + sub tear out ${usd(subTG)}` : ''}`,
   }
   if (mode === 'subcontractor') {
-    const unit = o.subUnit ?? pricing.subUnit ?? 'foot'
+    const unit = subUnitOf(o, pricing)
     const rate = resolveSubRate(style, pricing, o.subRate)
     const per = rate > 0 ? (unit === 'section' ? rate : rate * width) : null
     const g = (v: unknown) => (Number(v) > 0 ? Number(v) : null)

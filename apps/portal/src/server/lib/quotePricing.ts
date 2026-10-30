@@ -25,7 +25,7 @@ type Json = any
 
 /** The price choices a limited login may set on a quote; every other choice stays as saved. */
 // The ± dollar adjustment is a price choice like the slider: the engine never lets it take the price under cost.
-const PRICE_CHOICES = ['laborMode', 'subUnit', 'priceMethod', 'pricePerFoot', 'finalPrice', 'priceAdjustmentCents', 'showDiscountOnProposal'] as const
+const PRICE_CHOICES = ['laborMode', 'subUnit', 'subUnitPicked', 'priceMethod', 'pricePerFoot', 'finalPrice', 'priceAdjustmentCents', 'showDiscountOnProposal'] as const
 /** The cost choices kept from the saved quote. */
 const COST_CHOICES = ['subRate', 'laborCost', 'costFactor', 'commissionPct', 'commissionMode'] as const
 

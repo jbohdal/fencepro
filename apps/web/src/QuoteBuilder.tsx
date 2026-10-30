@@ -4,7 +4,7 @@ import { splitOnLastSpace } from './personName'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
-import { resolveSubRate, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
+import { resolveSubRate, subUnitOf, subUnitOnOpen, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
@@ -581,7 +581,12 @@ export default function QuoteBuilder({
   // Pricing choices for this quote. A saved quote reopens with the choices it
   // was saved with; a new quote starts from Settings → Pricing.
   const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
-  const [subUnit, setSubUnit]           = useState<SubUnit>(initPricing.subUnit ?? cfg.pricing.subUnit ?? 'foot')
+  // The sub's "Paid per" travels with the rate (Oct 30 2026, subUnitOf): a quote with no rate of its own follows
+  // Settings for both; it keeps its own unit when "Paid per" was picked on it, or with its own typed rate.
+  const subOpen = subUnitOnOpen(initPricing, cfg.pricing)
+  const initOwnUnit = subOpen.own
+  const [subUnitPicked, setSubUnitPicked] = useState(subOpen.picked)
+  const [subUnit, setSubUnit]           = useState<SubUnit>(subOpen.unit)
   const [subRateStr, setSubRateStr]     = useState(initPricing.subRate != null ? String(initPricing.subRate) : '')
   const [laborFlatStr, setLaborFlatStr] = useState(initPricing.laborCost != null ? String(initPricing.laborCost) : '')
   const [priceMethod, setPriceMethod]   = useState<PriceMethod>(initPricing.priceMethod ?? cfg.pricing.priceMethod ?? 'cost_factor')
@@ -661,7 +666,7 @@ export default function QuoteBuilder({
   // Back, the close button and closing the tab ask before it is dropped.
   const workRef = useRef('')
   workRef.current = JSON.stringify([customerName, styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
-    typedGateWidths, laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
+    typedGateWidths, laborMode, subUnit, subUnitPicked, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, voiceNotes, jobType, move, repair, offerNewFence, offerMoveAsIs])
   const startWork = useRef<string | null>(null)
   useEffect(() => { const t = setTimeout(() => { startWork.current = workRef.current }, 400); return () => clearTimeout(t) }, [])
   const dirty = () => startWork.current !== null && workRef.current !== startWork.current
@@ -718,9 +723,12 @@ export default function QuoteBuilder({
   // Everything about sections, the 6 ft / 8 ft choice per run, the pull sheet,
   // labor, cost and price comes out of quoteCalc, driven by Settings, the
   // style, Inventory prices and the choices on this quote.
+  // A rate typed here goes with the unit shown (Settings', unless picked); the saved own rate keeps the saved unit.
+  const subUnitNow = subUnitOf({ subUnit, subUnitPicked, subRate: initOwnUnit ? numOrUndef(subRateStr) : undefined }, cfg.pricing)
   const pricingOverrides: QuotePricingOverrides = {
     laborMode,
-    subUnit: laborMode === 'subcontractor' ? subUnit : undefined,
+    subUnit: laborMode === 'subcontractor' ? subUnitNow : undefined,
+    subUnitPicked: laborMode === 'subcontractor' && subUnitPicked ? true : undefined,
     subRate: laborMode === 'subcontractor' ? numOrUndef(subRateStr) : undefined,
     laborCost: numOrUndef(laborFlatStr),
     priceMethod,
@@ -935,7 +943,7 @@ export default function QuoteBuilder({
   // What the price is worked out from (the unsaved work, less the customer's name and notes), as it settled when
   // opened: a held style's quote may save only when none of it changed.
   const priceInputs = JSON.stringify([styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
-    typedGateWidths, laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, jobType, move, repair, offerNewFence, offerMoveAsIs])
+    typedGateWidths, laborMode, subUnit, subUnitPicked, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, jobType, move, repair, offerNewFence, offerMoveAsIs])
   const openPriceInputs = useRef<string | null>(null)
   useEffect(() => { const t = setTimeout(() => { openPriceInputs.current = priceInputsRef.current }, 400); return () => clearTimeout(t) }, [])
   const priceInputsRef = useRef(priceInputs)
@@ -1813,7 +1821,7 @@ export default function QuoteBuilder({
                   </div>
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">Paid per</label>
-                    <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={subUnit} onChange={e => setSubUnit(e.target.value as SubUnit)}>
+                    <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" value={subUnitNow} onChange={e => { setSubUnit(e.target.value as SubUnit); setSubUnitPicked(true) }}>
                       <option value="foot">Foot</option>
                       <option value="section">Section</option>
                     </select>
