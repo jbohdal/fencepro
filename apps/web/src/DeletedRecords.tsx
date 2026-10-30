@@ -63,6 +63,10 @@ const KIND: Record<string, [string, string]> = {
   'business.pendingOrders': ['materials order', 'materials orders'], 'business.pullSheets': ['pull sheet', 'pull sheets'],
   // A Sales Order a deletion marked Cancelled (lib/deletion.ts); a restore puts it back as it was.
   'business.pendingOrders.cancelled': ['Sales Order cancelled', 'Sales Orders cancelled'],
+  // What a deletion closed out (portal lib/closeOut.ts); a restore reopens them.
+  'contract.cancelled': ['contract cancelled', 'contracts cancelled'], 'task.cancelled': ['task cancelled', 'tasks cancelled'],
+  'appointment.cancelled': ['appointment cancelled', 'appointments cancelled'], 'permit.cancelled': ['permit cancelled', 'permits cancelled'],
+  'notification.read': ['notice marked read', 'notices marked read'], jobSteps: ['job\'s steps taken off', 'jobs\' steps taken off'],
   'business.statements': ['statement', 'statements'], cardFollowUp: ['follow up', 'follow ups'], pendingTouch: ['pending call', 'pending calls'],
   'inventory.stockLevels': ['stock count', 'stock counts'],
   crmContact: ['customer', 'customers'], customerPossibleMatch: ['possible match', 'possible matches'],
