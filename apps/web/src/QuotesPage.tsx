@@ -519,7 +519,10 @@ export default function QuotesPage({
   const nav = useNav()
   useEffect(() => {
     const qv = nav.params.get('qv') ?? takeOpenedParam('qv')
-    if (!qv || selectedQuote?.id === qv) return
+    // Not while a quote builder is open over it (Edit: the builder's address keeps the window's ?qv= under its own
+    // ?quote=); its window opens again when the builder closes and Back lands on it (#58 review: the window reopened
+    // over the builder, and a save then left a blank quote open).
+    if (!qv || selectedQuote?.id === qv || nav.params.has('quote')) return
     const q = getQuotes().find(x => x.id === qv)
     if (q) setSelectedQuote(q as SavedQuote)
   }, [nav])  // eslint-disable-line react-hooks/exhaustive-deps

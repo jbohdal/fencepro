@@ -210,6 +210,23 @@ function openLayer(l: Layer) {
   whenSettled(() => {
     if (!l.mounted || l.gone || layers.includes(l)) return
     const st = state()
+    // A window closing in the same moment this one opens (a price check's dialog giving way to the Save window; the
+    // Save window giving way to "Keep the sent prices"): this one takes over its entry. Pushed on top instead, the
+    // closing one could not take its entry back (a window is open above it), and that left-over entry later sent a
+    // Back one step too far, reopening the quote under it (#58 review: a blank New quote after saving).
+    // Only a popup without an address (a dialog, the Save window): a window with one (a quote's window giving way
+    // to its quote builder on Edit) keeps its entry, so Back opens it again.
+    const closing = st ? layers.find(x => !x.mounted && !x.gone && x.entryI === st.i && !x.params) : undefined
+    if (st && closing) {
+      closing.gone = true
+      layers.splice(layers.indexOf(closing), 1)
+      l.depth = layers.length + 1
+      layers.push(l)
+      l.entryI = st.i
+      write('replace', { ...st, ez: 1, i: st.i, depth: l.depth, layer: l.key, addressed: !!l.params }, urlWith(l.params))
+      emit()
+      return
+    }
     l.depth = layers.length + 1
     layers.push(l)
     // Back or Forward landed on this window's own entry and its screen reopened it.
