@@ -60,7 +60,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranties per option (dev datab
   const GBB = () => [
     opt('Good', 'good', "WV-DS 6'x8' Privacy", 9000),
     opt('Better', 'better', "WV-ND 6'x8' Privacy", 10000),
-    opt('Best', 'best', 'wood/sb/6/ds/8', 11000),
+    opt('Best', 'best', 'wood/sb/6/premium/ds/8', 11000),
   ]
 
   beforeAll(async () => {
@@ -74,7 +74,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranties per option (dev datab
     const { planWoodRealKits } = await import('../../web/src/wood')
     const wood = planWoodRealKits({ fenceStyles: (src!.config as any).fenceStyles, fenceCatalog: (src!.config as any).fenceCatalog, items: [], kits: [] })
     await prisma.businessState.create({ data: { accountId, config: { fenceStyles: wood.state.fenceStyles, fenceCatalog: wood.state.fenceCatalog } as any } })
-    await prisma.inventoryState.create({ data: { accountId, items: wood.state.items.map(i => ({ ...i, unitCost: i.unitCost || 2 })) as any, kits: wood.state.kits as any, bundles: [], locations: [], stockLevels: [], transactions: [] } })
+    await prisma.inventoryState.create({ data: { accountId, items: wood.state.items.map(i => ({ ...i, unitCost: i.unitCost || 0.05 })) as any, kits: wood.state.kits as any, bundles: [], locations: [], stockLevels: [], transactions: [] } })
     contactId = (await prisma.crmContact.create({ data: { accountId, firstName: 'E2E', lastName: 'Warranty Test', phone: '3525550188', serviceAddress: '9 Warranty Test Way, Ocala, FL' } })).id
     owner = jwt.sign({ sub: user.id, email: user.email, role: 'super_admin', firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, secret, { expiresIn: '10m' })
     const app = express()

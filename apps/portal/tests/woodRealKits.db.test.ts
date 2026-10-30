@@ -5,9 +5,10 @@
  * copy of live: the Oct 19 renamed vinyl parts and kits, wood switched off
  * by hand as Jonathan did on live):
  *   - archives (never deletes) every renamed part and the four old kits;
- *   - adds the three real wood styles (Stockade, Board on Board, Shadow
- *     Box), their kits and their new parts ($0, the steel gate frame $350),
- *     reusing concrete and the drop rod;
+ *   - adds the six real wood styles (Stockade, Board on Board, Shadow Box ×
+ *     PT Pine, Alta Premium pickets), their kits and their 12 new parts at
+ *     Jonathan's costs (the self-tapping screw $0), reusing concrete and the
+ *     drop rod;
  *   - adds them to the choice tree, archives wood's Privacy, No dig and 6 ft
  *     panel choices and turns wood back on;
  *   - runs once, even twice at the same moment; a second start changes nothing;
@@ -40,6 +41,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('real wood kits start-up step (de
       wood.quotable = false
       for (const d of wood.dims) for (const o of d.options) delete o.archived
       wood.dims[0].options = wood.dims[0].options.filter((o: any) => o.key === 'privacy')
+      wood.dims = wood.dims.filter((d: any) => d.key !== 'picket')
+      wood.nameTemplate = 'Wood {style}, {height} tall, {width}, {install}'
     }
     cfg.fenceStyles = cfg.fenceStyles.filter((s: any) => !/^wood\/(stockade|bob|sb)\//.test(s.name))
     const items = (srcInv.items as any[]).filter(i => i.madeFor !== 'wood-real')
@@ -69,26 +72,28 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('real wood kits start-up step (de
     const out = (a ?? b)!
     expect(out.archivedItems.sort()).toEqual(oldItems.map(i => i.name).sort())
     expect(out.archivedKits).toHaveLength(4)
-    const STYLES = ['wood/stockade/6/ds/8', 'wood/bob/6/ds/8', 'wood/sb/6/ds/8']
+    const STYLES = ['stockade', 'bob', 'sb'].flatMap(k => ['pine', 'premium'].map(g => `wood/${k}/6/${g}/ds/8`))
     expect(out.addedStyles).toEqual(STYLES)
     expect(out.addedKits).toEqual(STYLES)
-    expect(out.addedItems).toHaveLength(13)
-    expect(out.catalog).toHaveLength(7)
+    expect(out.addedItems).toHaveLength(12)
+    expect(out.catalog).toHaveLength(9)
 
     const inv = await prisma.inventoryState.findUnique({ where: { accountId } })
     const items = inv.items as any[], kits = inv.kits as any[]
     // Nothing deleted: every item and kit that was there is still there.
     for (const i of before.items) expect(items.filter(x => x.id === i.id)).toHaveLength(1)
     for (const k of before.kits) expect(kits.filter(x => x.id === k.id)).toHaveLength(1)
-    expect(items).toHaveLength(before.items.length + 13)
+    expect(items).toHaveLength(before.items.length + 12)
     expect(items.filter(i => i.madeFor === 'wood').every(i => i.status === 'archived')).toBe(true)
     expect(kits.filter(k => k.madeFor === 'wood').every(k => k.archived === true)).toBe(true)
     const added = items.filter(i => i.madeFor === 'wood-real')
     expect(added.map(i => i.name)).toEqual(out.addedItems)
-    expect(added.every(i => i.unitCost === (/Steel Gate Frame/.test(i.name) ? 350 : 0) && i.category === 'Wood' && i.status === 'active')).toBe(true)
+    expect(added.every(i => i.category === 'Wood' && i.status === 'active')).toBe(true)
+    expect(Object.fromEntries(added.map(i => [i.name, i.unitCost]))).toMatchObject({ "Wood, PT Rail, 2x4x8'": 5.23, 'Wood, Steel Gate Frame (hinges included)': 375.27, 'Wood, Screw, Self-Tapping, Picket to Steel Gate Frame': 0 })
+    expect(added.filter(i => i.unitCost > 0).every(i => i.priceUpdatedAt === '2026-10-30' && i.priceImported === false)).toBe(true)
     for (const key of ['stockade', 'bob', 'sb']) {
-      const real = kits.find(k => k.id === `kit_wood_real_${key}_6_ds_8`)
-      expect(real.styleName).toBe(`wood/${key}/6/ds/8`)
+      const real = kits.find(k => k.id === `kit_wood_real_${key}_6_premium_ds_8`)
+      expect(real.styleName).toBe(`wood/${key}/6/premium/ds/8`)
       expect(real.kits.gatePost).toEqual([{ part: "Wood, PT Post, Gate, 6x6x8'", qty: 1, fallbackCost: 0 }, { part: 'Misc, Concrete', qty: 2, fallbackCost: 0 }])
     }
     // Concrete and the drop rod reused, at their prices.
@@ -101,7 +106,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('real wood kits start-up step (de
     expect(wood.dims.find((d: any) => d.key === 'install').options.find((o: any) => o.key === 'nd').archived).toBe(true)
     expect(wood.dims.find((d: any) => d.key === 'width').options.find((o: any) => o.key === '6').archived).toBe(true)
     expect(wood.dims.find((d: any) => d.key === 'style').options.map((o: any) => [o.key, !!o.archived])).toEqual([['privacy', true], ['stockade', false], ['bob', false], ['sb', false]])
-    expect(cfg.fenceStyles.filter((s: any) => /^wood\//.test(s.name))).toHaveLength(7)
+    expect(wood.dims.map((d: any) => d.key)).toEqual(['style', 'height', 'picket', 'install', 'width'])
+    expect(cfg.fenceStyles.filter((s: any) => /^wood\//.test(s.name))).toHaveLength(10)
     expect(cfg.fenceStyles.filter((s: any) => STYLES.includes(s.name)).every((s: any) => s.woodOf === "WV-DS 6'x8' Privacy")).toBe(true)
 
     expect(await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: WOOD_REAL_KEY } } })).toBeTruthy()
@@ -117,7 +123,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('real wood kits start-up step (de
     const { heldPriceRefusal } = await import('../src/server/lib/heldStylePrice.js')
     const m: any = await pricingModule()
     const d = await dataFor(accountId)
-    for (const n of ['wood/stockade/6/ds/8', 'wood/bob/6/ds/8', 'wood/sb/6/ds/8']) expect(m.heldStyleReason(d, n)).toBe('Wood is waiting for prices on 10 parts in Inventory')
+    for (const k of ['stockade', 'bob', 'sb']) for (const g of ['pine', 'premium']) expect(m.heldStyleReason(d, `wood/${k}/6/${g}/ds/8`)).toBe('Wood is waiting for prices on 1 part in Inventory')
     expect(m.heldStyleReason(d, 'wood/privacy/6/nd/6')).toMatch(/Privacy is archived/)
     // The sent quote, as saved (505174a0 on dev, a copy of live's), read only.
     const sent = await prisma.savedQuote.findUnique({ where: { id: '505174a0-32bd-4146-944e-960919c93a96' } })
@@ -126,11 +132,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('real wood kits start-up step (de
     expect(refused?.held).toMatch(/Privacy is archived/)
     expect(await heldPriceRefusal(accountId, { ...saved, notes: 'Called back' }, saved as any)).toBeNull()
 
-    // Every new part priced in Inventory: available for quoting, no other step.
+    // The screw priced in Inventory (a test price): all six available for quoting, no other step.
     const inv = await prisma.inventoryState.findUnique({ where: { accountId } })
-    await prisma.inventoryState.update({ where: { accountId }, data: { items: (inv.items as any[]).map(i => (i.madeFor === 'wood-real' ? { ...i, unitCost: 1.25 } : i)), version: { increment: 1 } } })
+    await prisma.inventoryState.update({ where: { accountId }, data: { items: (inv.items as any[]).map(i => (/Self-Tapping/.test(i.name) && i.madeFor === 'wood-real' ? { ...i, unitCost: 0.05 } : i)), version: { increment: 1 } } })
     const d2 = await dataFor(accountId)
-    expect(m.heldStyleReason(d2, 'wood/stockade/6/ds/8')).toBeNull()
-    expect(m.estimateStyles(d2.config, d2).filter((s: any) => /^wood\//.test(s.name)).map((s: any) => s.name)).toEqual(['wood/stockade/6/ds/8', 'wood/bob/6/ds/8', 'wood/sb/6/ds/8'])
+    expect(m.heldStyleReason(d2, 'wood/stockade/6/pine/ds/8')).toBeNull()
+    expect(m.estimateStyles(d2.config, d2).filter((s: any) => /^wood\//.test(s.name)).map((s: any) => s.name)).toEqual(['stockade', 'bob', 'sb'].flatMap(k => ['pine', 'premium'].map(g => `wood/${k}/6/${g}/ds/8`)))
   })
 })
