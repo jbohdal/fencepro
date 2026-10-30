@@ -17,7 +17,12 @@ import { estimateConfig } from '../../web/src/estimate'
 import { calculateQuote, type QuoteCalcInput } from '../../web/src/quoteCalc'
 import { setMaterialPriceSource, priceSourceFromMap, legacyCalculateMaterialsDetailed, TALL_VINYL_SECTION, type LineItem } from '../../web/src/materialCalculator'
 import { setSavedKitSets, kitSetFor, clearBuiltInKits } from '../../web/src/materialKits'
-import { DEFAULT_CATALOG, tallPricesMissing, type InvItem } from '../../web/src/fenceCatalog'
+import { DEFAULT_CATALOG, tallPricesMissing, pickerState, offWords, type InvItem } from '../../web/src/fenceCatalog'
+import { applyTallPrices, shownCents, tallKey } from '../../web/src/tallVinylPriceSave'
+import { resolveTiers, type TierSet } from '../../web/src/tiers'
+import { estimate, onHoldStyles } from '../../web/src/estimate'
+import { widgetStyles } from '../../web/src/widgetPricing'
+import { isNotQuotable, notQuotableMessage, notQuotableReason } from '../src/server/lib/estimates'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
 import { isQuotable } from '../../web/src/styleAvailability'
 import { planTallVinylParts } from '../../web/src/tallVinylParts'
@@ -83,10 +88,10 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     for (const [name] of W8) {
       const s = cfg.fenceStyles.find(x => x.name === name)!
       expect(isQuotable(s), name).toBe(false)
-      expect(s.held).toBe('8 ft tall is priced by the piece: enter its section and post prices in Settings → Price List')
+      expect(s.held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
     }
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250 } })
-    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall is priced by the piece: enter its post price in Settings → Price List')
+    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
     expect(tallPricesMissing({ pieceCents: { section: 41250, post: 0 } })).toEqual(['post'])
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500, pricedOn: '2026-10-21' } })
     expect(isQuotable(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!)).toBe(true)
@@ -138,5 +143,102 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     for (const n of plan.added) expect(plan.items.find(i => i.name === n)).toMatchObject({ unitCost: 0, status: 'active', includedIn: '8 ft tall section price', category: 'Vinyl White' })
     expect(plan.items.slice(0, items.length)).toEqual(items)
     expect(planTallVinylParts({ fenceStyles: styles(), items: plan.items, kits: [] }).added).toEqual([])
+  })
+})
+
+/**
+ * Oct 29, 2026: "8 ft tall vinyl is still off for quoting even though I
+ * entered prices." His prices were in Inventory; 8 ft tall is priced only
+ * from Settings → Price List → 8 ft tall vinyl ("I'll enter prices in
+ * Settings"), where live has none yet. Every place that says it is off says
+ * which price is missing and where it goes; the Settings save turns it on.
+ */
+describe('C. typed in Settings: the save, and every place says what is missing', () => {
+  const W8 = ["WV-ND 8'x6' Privacy", "WV-ND 8'x8' Privacy", "WV-DS 8'x6' Privacy", "WV-DS 8'x8' Privacy"]
+  const TALL = (cfg: ReturnType<typeof setup>) => cfg.fenceStyles.filter(s => W8.includes(s.name))
+
+  test('the screen\'s save puts the typed dollars on each fence in integer cents, dated; blank stays blank', () => {
+    const cfg = setup()
+    for (const n of W8) expect([shownCents(cfg.fenceStyles.find(s => s.name === n)!.pieceCents?.section), shownCents(cfg.fenceStyles.find(s => s.name === n)!.pieceCents?.post)]).toEqual(['', ''])
+    const typed = { [tallKey("WV-ND 8'x6' Privacy", 'section')]: '$412.50', [tallKey("WV-ND 8'x6' Privacy", 'post')]: '65',
+      [tallKey("WV-DS 8'x8' Privacy", 'section')]: '450' }
+    const r = applyTallPrices(cfg.fenceStyles, TALL(cfg), typed, '2026-10-29')
+    expect(r.bad).toEqual([])
+    const by = (n: string) => r.fenceStyles.find(s => s.name === n)!
+    expect(by("WV-ND 8'x6' Privacy").pieceCents).toEqual({ section: 41250, post: 6500, pricedOn: '2026-10-29' })
+    expect(by("WV-DS 8'x8' Privacy").pieceCents).toEqual({ section: 45000, post: null, pricedOn: '2026-10-29' })
+    expect(by("WV-ND 8'x8' Privacy").pieceCents).toBeUndefined()
+    // Everything else passes through as it was (the same objects).
+    for (const s of cfg.fenceStyles.filter(s => !W8.includes(s.name))) expect(by(s.name)).toBe(s)
+    expect(applyTallPrices(cfg.fenceStyles, TALL(cfg), { [tallKey("WV-ND 8'x6' Privacy", 'post')]: 'abc' }, '2026-10-29').bad).toEqual(["WV-ND 8'x6' Privacy"])
+
+    // Read back: on at once with both prices; one price only says which is missing.
+    const after = estimateConfig({ fenceStyles: r.fenceStyles, fenceCatalog: DEFAULT_CATALOG } as any)
+    const a = (n: string) => after.fenceStyles.find(s => s.name === n)!
+    expect(isQuotable(a("WV-ND 8'x6' Privacy"))).toBe(true)
+    expect(a("WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
+    expect(a("WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+  })
+
+  test('the quote builder picker says why 8 ft is off, in sight, and tells the Salesman to ask Jonathan', () => {
+    const cfg = setup()
+    const row = (c: ReturnType<typeof setup>) => pickerState(c.fenceStyles, DEFAULT_CATALOG, 'vinyl', { style: 'privacy' }, isQuotable).find(r => r.dim.key === 'height')!
+    const eight = row(cfg).options.find(o => o.opt.key === '8')!
+    expect(eight.state).toBe('held')
+    expect(eight.why).toEqual(['8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl'])
+    expect(offWords(eight.opt.label, eight.why!, false)).toBe('8 ft is off: 8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl (ask Jonathan).')
+    expect(offWords(eight.opt.label, eight.why!, true)).toBe('8 ft is off: 8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl.')
+    // 6 ft is on and says nothing.
+    expect(row(cfg).options.find(o => o.opt.key === '6')).toEqual(expect.objectContaining({ state: 'ok' }))
+    expect(row(cfg).options.find(o => o.opt.key === '6')!.why).toBeUndefined()
+    // Different fences missing different prices: each reason once.
+    const some = setup({ "WV-ND 8'x6' Privacy": { section: 41250 }, "WV-ND 8'x8' Privacy": { section: 41250 } })
+    expect(row(some).options.find(o => o.opt.key === '8')!.why!.sort()).toEqual([
+      '8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl',
+      '8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl',
+    ])
+    // One priced: 8 ft is on.
+    const one = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
+    expect(row(one).options.find(o => o.opt.key === '8')!.state).toBe('ok')
+  })
+
+  test('the server and the website: an unpriced 8 ft fence is "call us for a price on 8 ft tall fence", never commercial; staff hear why', () => {
+    const cfg = setup()
+    const data = { config: { fenceStyles: styles(), fenceCatalog: DEFAULT_CATALOG } as any, inventory: Object.entries(INV).map(([name, unitCost], i) => ({ id: `i${i}`, name, unitCost })) as any, kits: [] }
+    let err: unknown
+    try { estimate(data, { fenceStyle: "WV-ND 8'x8' Privacy", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 }) } catch (e) { err = e }
+    expect(isNotQuotable(err)).toBe(true)
+    expect(notQuotableMessage(err)).toBe('Call us for a price on 8 ft tall fence')
+    expect(notQuotableMessage(err)).not.toMatch(/commercial|industrial/i)
+    expect(notQuotableReason(err)).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    // The website never offers it (only what is available for quoting), nor lists it with commercial and industrial.
+    expect(widgetStyles(cfg).some(s => /8'x[68]'/.test(s.name))).toBe(false)
+    expect(onHoldStyles(data.config).styles.some(s => /8'x[68]'/.test(s.name))).toBe(false)
+    // Commercial and industrial, switched off, still say so.
+    const onHold = { ...data, config: { ...data.config, fenceStyles: styles().map(s => s.name === "CL - Com 6'" ? { ...s, quotable: false } : s) } }
+    expect(onHold.config.fenceStyles.some((s: FenceStyle) => s.quotable === false)).toBe(true)
+    let comErr: unknown
+    try { estimate(onHold, { fenceStyle: "CL - Com 6'", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 }) } catch (e) { comErr = e }
+    expect(notQuotableMessage(comErr)).toBe('Call us for commercial and industrial fencing')
+    // Priced: estimated.
+    const priced = { ...data, config: { ...data.config, fenceStyles: styles({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } }) } }
+    expect(estimate(priced, { fenceStyle: "WV-ND 8'x8' Privacy", runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 }).sections).toBe(13)
+  })
+
+  test('the Price step: a width that is not priced is said, never "prices lower"', () => {
+    const set: Pick<TierSet, 'category' | 'tiers' | 'popular'> = { category: 'Vinyl', popular: null as any, tiers: [
+      { key: 'good', name: 'Good', install: 'same', width: 'cheapest', color: 'same', text: '' } as any,
+    ] }
+    // Only 8 x 8 priced: the tier uses it, and says 8 x 6 is not priced yet (and why).
+    let cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
+    let t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]
+    expect(t.widthFt).toBe(8)
+    expect(t.otherWidth).toBeNull()
+    expect(t.otherWidthHeld).toEqual({ widthFt: 6, held: '8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl' })
+    // Both priced: compared as before.
+    cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 }, "WV-ND 8'x6' Privacy": { section: 30000, post: 6500 } })
+    t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]
+    expect(t.otherWidth).not.toBeNull()
+    expect(t.otherWidthHeld).toBeUndefined()
   })
 })

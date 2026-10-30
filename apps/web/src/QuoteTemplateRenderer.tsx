@@ -14,6 +14,7 @@ import { workSummary, sectionsCell } from './moveRepair'
 import QuotePlan, { quoteHasPlan } from './QuotePlan'
 import { useState } from 'react'
 import { getContractSections } from './contractStore'
+import { sectionsAsAsked, depositTermsOf, type DepositTerms } from './contractTerms'
 import type { SavedQuote } from './QuotesPage'
 import { getTemplate, type QuoteTemplate, type TemplateKey, type QuotePresentation } from './quoteTemplatesStore'
 import { getConfig } from './configStore'
@@ -31,7 +32,10 @@ function readContract() {
   return getContractSections()
 }
 
-export interface QuoteWithPresentation extends SavedQuote, QuotePresentation {}
+export interface QuoteWithPresentation extends SavedQuote, QuotePresentation {
+  /** The deposit its Payment Terms say, as the server sent it (contractTerms.ts DepositTerms); worked out the same way until then. */
+  depositTerms?: DepositTerms | null
+}
 
 interface RenderProps {
   quote: QuoteWithPresentation
@@ -57,7 +61,9 @@ function useComputedFields(quote: QuoteWithPresentation) {
   const company = readCompany()
   // The warranty of this quote's option (frozen on its proposal, warranties.ts) in place of the one Contract Templates warranty.
   const own = signedOptionWarranty(quote as any)
-  const contractSections = readContract().map((s: any) => s.key === 'warranty' && own?.from === 'option'
+  // Payment Terms say this proposal's deposit, as the customer's link and the contract do (Oct 29 2026, D2): never
+  // Settings' stock "A 50% deposit" for a proposal that asks 30% or none.
+  const contractSections = sectionsAsAsked(readContract(), quote.depositTerms ?? depositTermsOf(quote)).map((s: any) => s.key === 'warranty' && own?.from === 'option'
     ? { ...s, title: `Warranty: ${own.warranty.name}`, body: own.warranty.text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)).replace(/\n/g, '<br>') }
     : s)
   const totalFootage = (quote.runs || []).reduce((s, n) => s + n, 0)

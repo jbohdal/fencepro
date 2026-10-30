@@ -53,7 +53,7 @@ import { isQuotable } from './styleAvailability'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
-  REPAIR_ITEMS, repairLines, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
+  REPAIR_ITEMS, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
@@ -609,8 +609,9 @@ export default function QuoteBuilder({
   useEffect(() => { if (signedQuote && init?.id) void refreshChangeOrders(init.id) }, [signedQuote, init?.id])
   // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
   const [jobType, setJobType] = useState<JobType>(init?.work?.type ?? 'new')
-  const [move, setMove] = useState<Omit<MoveInputs, 'oldPostType'> & { oldPostType?: PostType }>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
-  const [repair, setRepair] = useState<Omit<RepairInputs, 'postType'> & { postType?: PostType }>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
+  // The old posts' method stays blank (it follows the style) until picked by hand; a saved quote opens with the one it saved.
+  const [move, setMove] = useState<MoveDraft>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
+  const [repair, setRepair] = useState<RepairDraft>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
   const [offerNewFence, setOfferNewFence] = useState<boolean>(!!init?.work?.newFence?.offered)
   const [offerMoveAsIs, setOfferMoveAsIs] = useState<boolean>(true)
 
@@ -710,8 +711,10 @@ export default function QuoteBuilder({
   // ── Move or repair inputs, and the tier set (the server needs them too) ──
   const mr = moveRepairSettings(cfg)
   const stylePostType: PostType = style ? postTypeOf(style) : 'nd'
-  const moveIn: MoveInputs = { ...move, oldPostType: move.oldPostType ?? stylePostType }
-  const repairIn: RepairInputs = { ...repair, postType: repair.postType ?? stylePostType }
+  const moveOldPosts = oldPostsMethod(move.oldPostType, stylePostType)
+  const repairOldPosts = oldPostsMethod(repair.postType, stylePostType)
+  const moveIn: MoveInputs = { ...move, oldPostType: moveOldPosts.type }
+  const repairIn: RepairInputs = { ...repair, postType: repairOldPosts.type }
   // Good, Better, Best: the tier set for this style's category (Settings → Good Better Best),
   // priced from the same layout, no taps needed. A quote already sent keeps the
   // tiers it was sent with unless "Use current tiers" is tapped.
@@ -912,7 +915,9 @@ export default function QuoteBuilder({
   // A color priced by the piece: whose job lot quote, from when, and whether that quote is old.
   const jobLot = style?.jobLot
   const jobLotOld = !!jobLot && !jobLot.kit && !jobLot.tall && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
-  const quoteWarnings = work ? [
+  // A hand picked old posts' method that differs from the style: said here too, not only on the Style step.
+  const oldPostsWarning = oldPostsCheck(jobType, moveOldPosts, repairOldPosts, repairIn.items)
+  const quoteWarnings = [...(oldPostsWarning ? [oldPostsWarning] : []), ...(work ? [
     ...(style && jobType === 'move' ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout && jobType === 'move' ? gateChecks(yard) : []),
     ...work.warnings,
@@ -927,7 +932,7 @@ export default function QuoteBuilder({
     ...(style ? priced.notes : []),
     ...[internal && style && sections > 0 ? marginCheck(showCommission ? priced.gmPct : (priced.price > 0 ? (priced.grossMargin + priced.commissionAmt) / priced.price : 0), cfg.margins?.good ?? 0.34, priced.price) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
-  ]
+  ])]
 
   function addRun() { setRuns(r => [...r, { ft: '', rail: 'auto' }]) }
   function removeRun(i: number) { setRuns(r => r.filter((_, idx) => idx !== i)) }
@@ -1551,13 +1556,13 @@ export default function QuoteBuilder({
             </div>
 
             {jobType === 'move' && (
-              <MovePanel style={style} move={moveIn} setMove={fn => setMove(m => fn({ ...m, oldPostType: m.oldPostType ?? stylePostType }))}
-                defaultPostType={stylePostType} defaultDamagePct={style ? damagePctFor(mr, style.name) : mr.damagePctDefault}
+              <MovePanel style={style} move={moveIn} setMove={setMove} oldPostsNote={moveOldPosts.note}
+                defaultPostType={stylePostType}defaultDamagePct={style ? damagePctFor(mr, style.name) : mr.damagePctDefault}
                 newLine={{ walkGates: effWalk, dblGates: effDbl, footage: totalFootage, sections: work?.sections ?? 0 }}
                 yard={fromLayout ? yard : null} layoutResult={layoutResult} runSections={calc.perRunSections} widthFt={widthFt} />
             )}
             {jobType === 'repair' && (
-              <RepairPanel style={style} repair={repairIn} setRepair={fn => setRepair(r => fn({ ...r, postType: r.postType ?? stylePostType }))}
+              <RepairPanel style={style} repair={repairIn} setRepair={setRepair} oldPostsNote={repairOldPosts.note} postRates={internal ? mr : null}
                 yard={fromLayout ? yard : null} layoutResult={layoutResult} runSections={calc.perRunSections} widthFt={widthFt} />
             )}
 
@@ -1783,7 +1788,8 @@ export default function QuoteBuilder({
                         <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
                         {t.spec.text && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{t.spec.text}</p>}
                         {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{!sent && t.widthFt && t.option ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
-                        {!sent && !folded && t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
+                        {!sent && !folded && t.widthFt && t.otherWidth && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard ({t.otherWidth.widthFt} ft wide: {fmt(t.otherWidth.price)}).</p>}
+                        {!sent && !folded && t.widthFt && !t.otherWidth && t.otherWidthHeld && <p className="text-xs text-amber-700" data-tier-width-held>Priced with {t.widthFt} ft wide panels: {t.otherWidthHeld.widthFt} ft wide is not priced yet ({t.otherWidthHeld.held}).</p>}
                         {!sent && t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
                         {(() => {
                           // An offered option with a green part still priced from Black: its price may be low too (the main one says so above).

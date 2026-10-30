@@ -19,6 +19,7 @@ import {
   type SavedQuoteRecord,
 } from './savedQuotesApi'
 import { getConfig } from './configStore'
+import type { DepositTerms } from './contractTerms'
 
 function loadCompanyInfo(): any {
   return getConfig().company || { name: 'Getter Done Fence', phone: '', email: '' }
@@ -59,7 +60,9 @@ function recordToSavedQuote(r: SavedQuoteRecord): SavedQuote & QuotePresentation
     date: r.date,
     notes: r.notes,
     leadTemp: r.leadTemp,
-  } as SavedQuote & QuotePresentation
+    // The deposit its Payment Terms say, as the server sent it with the customer's copy (QuoteTemplateRenderer).
+    depositTerms: r.depositTerms ?? null,
+  } as SavedQuote & QuotePresentation & { depositTerms: DepositTerms | null }
 }
 
 export default function PublicQuotePage({ token }: { token: string }) {

@@ -8,11 +8,14 @@
 // 1. Settings > Team: a Direct phone typed in the Edit window is saved as 10
 //    digits and shown (352) 555 0142.
 // 2. Booked for a rep with a Direct phone: the confirmation shown, the "Text
-//    it" link and the calendar invite give that rep's first name and number;
-//    the text starts "Getter Done Fence: Hi Kristi," and ends "Reply STOP to opt out."
-// 3. Booked for an owner-type login: his name and his phone.
-// 4. Booked for a rep with no phone: the company number (352) 789 4314, and a
-//    warning on the Booked window.
+//    it" link and the calendar invite give that rep's first name and the
+//    office line from Settings > Company, never the rep's own number (#30,
+//    Oct 29 2026); the text starts "Getter Done Fence: Hi Kristi," and ends
+//    "Reply STOP to opt out."
+// 3. Booked for an owner-type login: his name and the office line.
+// 4. Booked for a rep with no phone: the office line too, and no warning (the
+//    default texts never give a Direct phone). An edited template that uses
+//    {rep_phone} gives the rep's number, and the warning shows for no phone.
 // 5. Settings > Messages on the desktop: the estimate text edited, the live
 //    preview follows, saved; the phone then books and gets the edited words
 //    (from the server). Reset to default on the phone; the desktop then gets
@@ -216,13 +219,16 @@ async function teamDirectPhone(s) {
   await s.shot('team-direct-phone')
 }
 
-function checkDefault(tag, who, r, first, phone) {
-  const expected = `Getter Done Fence: Hi Kristi, this is ${first} with Getter Done Fence. You're all set for your fence estimate on ${WHEN}. If anything changes, call or text me directly at ${phone}. Reply STOP to opt out.`
-  check(`${tag}: ${who}: the confirmation has ${first}'s name and ${phone}`, r.text === expected, r.text)
+/** The default booking texts (#30): the person's first name, and the office line, never their own phone. */
+function checkDefault(tag, who, r, first, ownPhone) {
+  const phone = COMPANY_PHONE
+  const expected = `Getter Done Fence: Hi Kristi, this is ${first} with Getter Done Fence. You're all set for your fence estimate on ${WHEN}. If anything changes, call or text our office at ${phone}. Reply STOP to opt out.`
+  check(`${tag}: ${who}: the confirmation has ${first}'s name and the office line ${phone}`, r.text === expected, r.text)
+  if (ownPhone) check(`${tag}: ${who}: not the person's own phone ${ownPhone}`, !r.text.includes(ownPhone) && !r.ics.includes(ownPhone), r.text)
   check(`${tag}: ${who}: "Text it" sends the same words`, r.smsBody === r.text, r.smsBody)
   check(`${tag}: ${who}: the email has the subject and the same words, without the text-only parts`,
     r.mail.includes(encodeURIComponent('Your fence estimate with Getter Done Fence')) && decodeURIComponent(r.mail).includes(`Hi Kristi, this is ${first}`) && !decodeURIComponent(r.mail).includes('Reply STOP'), r.mail.slice(0, 160))
-  check(`${tag}: ${who}: the calendar invite's description gives ${first} and ${phone}`, r.ics.includes(`DESCRIPTION:Your fence estimate with Getter Done Fence. Questions or changes: call or text ${first} at ${phone}.`), (r.ics.match(/DESCRIPTION:.*/) || [''])[0])
+  check(`${tag}: ${who}: the calendar invite's description gives the office line ${phone}`, r.ics.includes(`DESCRIPTION:Your fence estimate with Getter Done Fence. Questions or changes: call or text our office at ${phone}.`), (r.ics.match(/DESCRIPTION:.*/) || [''])[0])
 }
 
 async function desktopRun(browser) {
@@ -237,8 +243,10 @@ async function desktopRun(browser) {
   checkDefault(s.tag, 'owner-type login', owner, 'Testowner', '(352) 555 0101')
 
   const none = await book(s, full(REPS.nophone), 'booked-no-phone')
-  checkDefault(s.tag, 'rep with no phone', none, 'Testnophone', COMPANY_PHONE)
-  check(`${s.tag}: rep with no phone: a warning on the Booked window`, String(none.warning).includes(`has no Direct phone saved in Settings > Team, so the text gives the company number, ${COMPANY_PHONE}`), none.warning)
+  checkDefault(s.tag, 'rep with no phone', none, 'Testnophone', null)
+  // The default texts give the office line for everyone, so a missing Direct phone changes nothing here: no warning.
+  // (With an edited template that uses {rep_phone}, the phone run checks the warning.)
+  check(`${s.tag}: rep with no phone: no warning (the default texts give the office line)`, none.warning === '', none.warning)
 
   // Settings > Messages: edit, live preview, save.
   await s.page.goto(`${APP}/settings?tab=messages`)
@@ -298,7 +306,7 @@ async function teamFollowsLogins(desk, browser) {
 
   const booked = await book(desk, L, 'booked-leaver')
   check(`${desk.tag}: picked, the dialog shows the login's Direct phone`, booked.personPhone === 'Direct (352) 555 0177', booked.personPhone)
-  check(`${desk.tag}: the confirmation gives that login's name and phone`, booked.text.includes('this is Testleaver') && booked.text.includes('(352) 555 0177'), booked.text)
+  check(`${desk.tag}: the confirmation gives that login's name and the office line`, booked.text.includes('this is Testleaver') && booked.text.includes(COMPANY_PHONE) && !booked.text.includes('(352) 555 0177'), booked.text)
   const apptId = sql(`select id from "CrmAppointment" where "crmContactId" = '${contactId}' and "assignedToUserId" = '${ids.leaver}'`)
   check(`${desk.tag}: the appointment keeps the login and the name`, !!apptId && sql(`select "assignedTo" from "CrmAppointment" where id = '${apptId}'`) === L)
 

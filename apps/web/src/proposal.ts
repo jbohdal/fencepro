@@ -13,6 +13,7 @@ import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCal
 import type { LineItem } from './materialCalculator'
 import type { TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
+import { askedDepositPct } from './contractTerms'
 import { styleLabel, styleChoicesOf } from './fenceCatalog'
 import type { SavedWork, WorkResult } from './moveRepair'
 
@@ -265,7 +266,7 @@ export function buildProposal(args: {
     included: includedFacts({ footageFt, corners: input.corners, ends: input.ends, walkGates: input.walkGates, dblGates: input.dblGates, tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates }),
     includedNote: settings.included?.trim() ?? '',
     warranty: args.warranty,
-    depositPct: settings.depositPct && settings.depositPct > 0 ? settings.depositPct : 0,
+    depositPct: askedDepositPct(settings.depositPct) ?? 0,  // 0% or blank: none (Oct 29 2026, D2), as the link and the contract read it
     depositNote: settings.depositNote?.trim() ?? '',
     financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
     tierPrefs: args.tierPrefs,
@@ -337,7 +338,7 @@ export function buildWorkProposal(args: {
     included: [args.description],
     includedNote: settings.included?.trim() ?? '',
     warranty: args.warranty,
-    depositPct: settings.depositPct && settings.depositPct > 0 ? settings.depositPct : 0,
+    depositPct: askedDepositPct(settings.depositPct) ?? 0,  // 0% or blank: none (Oct 29 2026, D2), as the link and the contract read it
     depositNote: settings.depositNote?.trim() ?? '',
     financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
     recommended: 0,

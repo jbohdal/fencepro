@@ -346,7 +346,7 @@ export function tallPricesMissing(s: Pick<FenceStyle, 'pieceCents'>): Array<'sec
 
 /** Why an 8 ft tall style is held back, in words. */
 export function tallHeldReason(missing: Array<'section' | 'post'>): string {
-  return `8 ft tall is priced by the piece: enter its ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'} in Settings → Price List`
+  return `8 ft tall needs its ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'} in Settings → Price List → 8 ft tall vinyl`
 }
 
 /** An 8 ft tall style's piece prices, in dollars, as a job lot the material kits price with. */
@@ -596,7 +596,7 @@ export type OptionState = 'ok' | 'held' | 'none'
  * the choices before it: 'ok' (a style available for quoting exists), 'held'
  * (it exists but is not available for quoting) or 'none' (no such fence).
  */
-export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCatalog, material: string, sel: Record<string, string>, isOk: (s: S) => boolean): Array<{ dim: ChoiceDim; options: Array<{ opt: ChoiceOption; state: OptionState }> }> {
+export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCatalog, material: string, sel: Record<string, string>, isOk: (s: S) => boolean): Array<{ dim: ChoiceDim; options: Array<{ opt: ChoiceOption; state: OptionState; why?: string[] }> }> {
   const m = materialOf(catalog, material)
   if (!m) return []
   const mine = styles.map(s => ({ s, sc: styleChoicesOf(s) })).filter(x => x.sc?.material === material)
@@ -607,10 +607,18 @@ export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCat
       dim,
       options: dim.options.filter(opt => !opt.archived || sel[dim.key] === opt.key).map(opt => {
         const here = fits.filter(x => x.sc!.choices[dim.key] === opt.key)
-        return { opt, state: (here.some(x => isOk(x.s)) ? 'ok' : here.length ? 'held' : 'none') as OptionState }
+        const state = (here.some(x => isOk(x.s)) ? 'ok' : here.length ? 'held' : 'none') as OptionState
+        // Why it is off, in words (each different reason once): "8 ft tall needs its post price in Settings → …".
+        const why = state === 'held' ? [...new Set(here.map(x => x.s.held || (x.s.quotable === false ? 'switched off in Settings → Fence Styles' : '')).filter(Boolean))] : []
+        return { opt, state, ...(why.length ? { why } : {}) }
       }),
     }
   })
+}
+
+/** Why a picker choice is off, in words: "8 ft is off: 8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl (ask Jonathan)." */
+export function offWords(label: string, why: string[], canPrice: boolean): string {
+  return `${label} is off: ${why.join('; ')}${canPrice ? '' : ' (ask Jonathan)'}.`
 }
 
 /** The style the choices name, if every choice is made. */

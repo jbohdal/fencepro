@@ -18,7 +18,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import { updateQuote, getQuoteById } from './quoteStore'
 import { markQuoteSold, markQuoteLost } from './signedContractFlow'
-import { issueShareToken } from './savedQuotesApi'
+import { issueShareToken, getDepositTerms } from './savedQuotesApi'
+import type { DepositTerms } from './contractTerms'
 import { proposalUrl } from './proposal'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { toast } from './toast'
@@ -388,6 +389,15 @@ export default function QuoteDetailDrawer({
 function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresentation; onChange?: () => void }) {
   const [active, setActive] = useState<TemplateKey>(((quote as any).templateKey as TemplateKey) || getDefaultTemplateKey())
   const [previewOpen, setPreviewOpen] = useState(false)
+  // The deposit its Payment Terms say, from the server, as the customer's link says it (read each time the Preview
+  // opens: the proposal's deposit may have changed). Until it is in, or with no signal, the same rule here.
+  const [depositTerms, setDepositTerms] = useState<DepositTerms | null>(null)
+  useEffect(() => {
+    if (!previewOpen) return
+    let live = true
+    void getDepositTerms(quote.id).then(d => { if (live && d) setDepositTerms(d) })
+    return () => { live = false }
+  }, [previewOpen, quote.id, quote.proposal])
 
   function saveTemplate(key: TemplateKey) {
     setActive(key)
@@ -433,7 +443,7 @@ function TemplatePicker({ quote, onChange }: { quote: SavedQuote & QuotePresenta
           </div>
           <div className="flex-1 overflow-y-auto bg-gray-200" onClick={e => e.stopPropagation()}>
             <div className="bg-white my-4 mx-auto max-w-4xl shadow-xl">
-              <QuoteTemplateRenderer quote={quote as any} template={TEMPLATES[active]} interactive={false} />
+              <QuoteTemplateRenderer quote={{ ...(quote as any), depositTerms }} template={TEMPLATES[active]} interactive={false} />
             </div>
           </div>
         </div>

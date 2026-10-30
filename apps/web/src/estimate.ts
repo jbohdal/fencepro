@@ -13,6 +13,7 @@ import { setMaterialPriceSource, inventoryPriceSource, type LineItem, type GateW
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
+import { isTallVinyl, styleChoicesOf } from './fenceCatalog'
 import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequest } from './quoteJob'
 import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
 import type { YardLayout } from './yardLayout'
@@ -193,7 +194,7 @@ export function widgetQuoteFor(data: EstimateData, yard: YardLayout, fenceStyle:
   const style = widgetStyles(cfg).find(s => s.name === fenceStyle)
   if (!style) {
     const named = cfg.fenceStyles.find(s => s.name === fenceStyle && s.isActive !== false)
-    if (named && !isQuotable(named)) throw new NotQuotableError(named.name)
+    if (named && !isQuotable(named)) throw new NotQuotableError(named)
     throw new Error(`Unknown fence style: ${fenceStyle}`)
   }
   return priceForStyle(cfg, estimateOverheadPct(cfg), yard, style, priceAdjust)
@@ -211,11 +212,28 @@ export function onHoldStyles(saved: Partial<AppConfig> | null): { styles: Array<
   return { styles: cfg.fenceStyles.filter(isOnHold).map(s => ({ name: s.name, category: s.category })), phone: cfg.company?.phone || '' }
 }
 
-/** Thrown for a style that is not available for quoting: the message is what the customer is told. */
+/**
+ * What a customer is told for a style that cannot be quoted. Commercial and
+ * industrial are on hold (switched off): "Call us for commercial and
+ * industrial fencing". A fence held back only because its prices are not in
+ * yet (8 ft tall vinyl waiting for its Settings prices, Oct 29, 2026) is not
+ * commercial: "Call us for a price on 8 ft tall fence".
+ */
+export function notQuotableMessage(s: Pick<FenceStyle, 'quotable' | 'held' | 'name' | 'material' | 'choices'>): string {
+  if (s.quotable === false) return NOT_QUOTABLE_MESSAGE
+  return isTallVinyl(styleChoicesOf(s as FenceStyle)) ? 'Call us for a price on 8 ft tall fence' : 'Call us for a price on this fence'
+}
+
+/** Thrown for a style that is not available for quoting: the message is what the customer is told; `held` is why (for staff). */
 export class NotQuotableError extends Error {
   readonly code = 'not_quotable'
   readonly fenceStyle: string
-  constructor(fenceStyle: string) { super(NOT_QUOTABLE_MESSAGE); this.fenceStyle = fenceStyle }
+  readonly held: string
+  constructor(style: FenceStyle) {
+    super(notQuotableMessage(style))
+    this.fenceStyle = style.name
+    this.held = style.quotable === false ? 'switched off in Settings → Fence Styles' : (style.held ?? '')
+  }
 }
 
 /**
@@ -227,7 +245,7 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
   useData(data)
   const cfg = estimateConfig(data.config)
   const named = cfg.fenceStyles.find(s => s.name === job.fenceStyle && s.isActive !== false)
-  if (named && !isQuotable(named) && !opts.preview) throw new NotQuotableError(named.name)
+  if (named && !isQuotable(named) && !opts.preview) throw new NotQuotableError(named)
   const held = named && !isQuotable(named) ? [`Preview only, not available for quoting: ${named.held || (named.quotable === false ? 'turned off' : 'held')}.`] : []
   const style = named
   if (!style) throw new Error(`Unknown fence style: ${job.fenceStyle}`)

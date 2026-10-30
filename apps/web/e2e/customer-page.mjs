@@ -104,11 +104,13 @@ async function run(s) {
   const addr = head.locator('[data-customer-address]')
   check(`${kind}: the header shows the full property address`, (await addr.innerText()).includes(ADDRESS), await addr.innerText())
   check(`${kind}: tapping the address opens maps`, /^https:\/\/www\.google\.com\/maps\//.test(await addr.getAttribute('href') || ''), await addr.getAttribute('href'))
-  check(`${kind}: the header shows the phone (a tel: link), email, rep and lead source`,
+  // The rep reads "Salesman: <name>" (the Salesman choice, c22f948, Oct 29 2026; it read "Rep:" before).
+  check(`${kind}: the header shows the phone (a tel: link), email, Salesman and lead source`,
     (await head.locator('[data-customer-header-phone]').getAttribute('href'))?.startsWith('tel:')
     && (await head.locator('[data-customer-email]').innerText()) === 'redesign.e2e@example.com'
-    && (await head.locator('[data-customer-rep]').innerText()).includes('Rep:')
-    && (await head.locator('[data-customer-source]').count()) === 1)
+    && (await head.locator('[data-customer-rep]').innerText()) === 'Salesman: E2E Rep'
+    && (await head.locator('[data-customer-source]').count()) === 1,
+    await head.locator('[data-customer-rep]').innerText().catch(() => 'no Salesman shown'))
   const bar = s.phone ? page.locator('[data-customer-actions]') : head
   // A phone: all six in the bar at the bottom. A computer: five in the header on one line, Navigate under More.
   const actions = s.phone ? ['new-quote', 'call', 'text', 'navigate', 'book', 'edit'] : ['new-quote', 'call', 'text', 'book', 'edit']

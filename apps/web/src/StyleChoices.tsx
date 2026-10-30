@@ -8,7 +8,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FenceStyle } from './configStore'
-import { pickerState, styleChoicesOf, styleForChoices, type FenceCatalog, type OptionState } from './fenceCatalog'
+import { offWords, pickerState, styleChoicesOf, styleForChoices, type FenceCatalog, type OptionState } from './fenceCatalog'
+import { roleCan, signedInRole } from './permissions'
 
 export default function StyleChoices({ styles, catalog, value, onChange, isOk }: {
   /** Every style turned on (the picker greys the ones not available for quoting). */
@@ -21,6 +22,8 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
   isOk: (s: FenceStyle) => boolean
 }) {
   const current = styles.find(s => s.id === value)
+  // Who can enter prices reads where; anyone else is told to ask Jonathan.
+  const canPrice = roleCan(signedInRole(), 'prices.change')
   const fromStyle = () => {
     const sc = current ? styleChoicesOf(current) : null
     return sc ? { material: sc.material, sel: { ...sc.choices } } : null
@@ -98,27 +101,32 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
           ))}
         </div>
       </div>
-      {rows.map(({ dim, options }) => (
+      {rows.map(({ dim, options }) => {
+        // Choices that are off say why, in sight (a phone has no hover): "8 ft is off: 8 ft tall needs its post price in Settings → …".
+        const offLines = options.filter(o => o.state === 'held' && o.why?.length).map(o => ({ key: o.opt.key, text: offWords(o.opt.label, o.why!, canPrice) }))
+        return (
         <div key={dim.key}>
           <p className="text-xs font-semibold text-gray-500 mb-2">{dim.label}</p>
           <div className="flex flex-wrap gap-2">
-            {options.map(({ opt, state }) => {
+            {options.map(({ opt, state, why }) => {
               const on = sel[dim.key] === opt.key
               return (
                 <button key={opt.key} type="button" disabled={state !== 'ok' && !on} aria-pressed={on}
                   data-choice-dim={dim.key} data-choice-key={opt.key} data-choice-state={state}
-                  title={state === 'held' ? 'Not available for quoting (Settings → Fence styles)' : state === 'none' ? 'There is no such fence' : undefined}
+                  title={state === 'held' ? (why?.length ? offWords(opt.label, why, canPrice) : 'Not available for quoting (Settings → Fence styles)') : state === 'none' ? 'There is no such fence' : undefined}
                   className={chip(state, on)} onClick={() => settle(material, { ...sel, [dim.key]: opt.key }, { dim: dim.key, label: opt.label })}>
                   {opt.label}{state === 'held' && !on ? <span className="ml-1 text-[10px] uppercase">off</span> : null}
                 </button>
               )
             })}
           </div>
+          {offLines.map(l => <p key={l.key} className="mt-1.5 text-xs text-amber-800" data-choice-off-why={`${dim.key}:${l.key}`}>{l.text}</p>)}
           {changedNote?.dim === dim.key && (
             <p ref={noteRef} className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changedNote.text}</p>
           )}
         </div>
-      ))}
+        )
+      })}
       {current && (
         <p className="text-sm font-semibold text-gray-900" data-style-plain-name>{current.label || current.name}</p>
       )}

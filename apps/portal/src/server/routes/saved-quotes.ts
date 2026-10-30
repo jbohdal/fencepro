@@ -42,7 +42,8 @@ import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE, keepPrices } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
-import { scheduleAfterSigning } from '../lib/contractBilling.js'
+import { scheduleAfterSigning, termsDepositOf } from '../lib/contractBilling.js'
+import { customerDollarsFrom } from '../lib/customerDollars.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
 import { stampQuoteTerms } from '../lib/contractTerms.js'
@@ -229,6 +230,21 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
   } catch (err) {
     console.error('[saved-quotes] read error:', err)
     res.status(500).json({ success: false, error: 'Failed to read quote' })
+  }
+})
+
+// ── The deposit its Payment Terms say (the quote window's Preview reads as the customer's link) ──
+router.get('/:id/deposit-terms', requireUser, requireAccount, async (req: any, res) => {
+  try {
+    const q = await prisma.savedQuote.findUnique({ where: { id: req.params.id }, select: { accountId: true, deletedAt: true, proposal: true, acceptedAt: true, soldAt: true, status: true } })
+    if (!q || q.accountId !== req.user.crmAccountId || q.deletedAt) {
+      res.status(404).json({ success: false, error: 'Quote not found' })
+      return
+    }
+    res.json({ success: true, data: termsDepositOf(q, await customerDollarsFrom(q.accountId)) })
+  } catch (err) {
+    console.error('[saved-quotes] deposit terms error:', err)
+    res.status(500).json({ success: false, error: 'Failed to read the deposit' })
   }
 })
 
@@ -646,7 +662,7 @@ router.get('/share/:token', async (req: any, res) => {
         viewCount: { increment: 1 },
       },
     })
-    res.json({ success: true, data: forCustomer(q) })
+    res.json({ success: true, data: await shownToCustomer(q) })
   } catch (err) {
     console.error('[saved-quotes] share read error:', err)
     res.status(500).json({ success: false, error: 'Failed to read quote' })
@@ -664,6 +680,11 @@ function forCustomer<T extends Record<string, any>>(q: T) {
   // A move or repair: only what kind of job it is (its cost lines stay inside).
   const jobType = work && typeof work === 'object' && typeof (work as any).type === 'string' ? (work as any).type : null
   return { ...rest, proposal, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0, work: jobType ? { type: jobType } : null }
+}
+
+/** The customer's copy and the deposit its Payment Terms say (lib/contractBilling.ts termsDepositOf), as the proposal link says it. */
+async function shownToCustomer<T extends Record<string, any> & { accountId: string; proposal: unknown }>(q: T) {
+  return { ...forCustomer(q), depositTerms: termsDepositOf(q, await customerDollarsFrom(q.accountId)) }
 }
 
 // ── Public accept by share token (no auth) ──
@@ -685,7 +706,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
       return
     }
     if (q.acceptedAt) {
-      res.json({ success: true, data: forCustomer(q) })
+      res.json({ success: true, data: await shownToCustomer(q) })
       return
     }
     // Only while still unaccepted: two taps at once are one acceptance (the first name and signature stand).
@@ -709,7 +730,7 @@ router.post('/share/:token/accept', async (req: any, res) => {
     await scheduleAfterSigning(updated.accountId, updated.id, 'accepted', { userId: null, name: `${data.name} (customer, quote link)` })
     // The signed contract, stored once (when the quote has a proposal to build it from).
     await fileSignedContract(updated.id).catch(err => console.error('[saved-quotes] signed contract file:', err))
-    res.json({ success: true, data: forCustomer(updated) })
+    res.json({ success: true, data: await shownToCustomer(updated) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] accept error:', err)

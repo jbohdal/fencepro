@@ -56,7 +56,7 @@ const stamp = Date.now().toString(36).slice(-6)
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 const plus = (d, n) => { const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10) }
 const W = {
-  a: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Manny', last: `E2E Truth ${stamp}`, phone: '3525550171', addr: '1301 SE Silver Springs Pl, Ocala, FL 34471', price: 7113.83, jobId: '' },
+  a: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Manny', last: `E2E Truth ${stamp}`, phone: '3525550171', addr: '1301 SE Silver Springs Pl, Ocala, FL 34471', price: 7113.83, jobId: '' },  // billed $7,114 (whole dollar, D1 Oct 29 2026): deposit $3,557, final $3,557
   b: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Bea', last: `E2E Truth ${stamp}`, phone: '3525550172', addr: '4411 SE 31st St, Ocala, FL 34480', price: 3223.0, jobId: '' },
   // C: a quote sent, the card in First Contact; the office marks it Sold in the app.
   c: { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), first: 'Cal', last: `E2E Truth ${stamp}`, phone: '3525550173', addr: '9020 SW 103rd Ln, Ocala, FL 34481', price: 2945.0, jobId: '' },
@@ -126,8 +126,8 @@ try {
   check('phone: the job page opens', await openJob(ph, W.a.jobId))
   await sleep(1200)
   const fin = await until(async () => { const t = await ph.page.locator('[data-job-payment-status]').textContent(); return /Deposit/.test(t || '') ? t : null })
-  check('phone: Financial says the deposit is due (from the payment schedule), not "Not invoiced yet"', !!fin && /^Deposit \$3,556\.92 due \d{2}\/\d{2}\/\d{4}$/.test(fin.trim()) && !(await ph.page.content()).includes('Not invoiced yet'), fin)
-  check('phone: Payments shows the same deposit left', (await ph.page.locator('[data-payment-schedule] [data-invoice="deposit"] [data-invoice-balance]').first().getAttribute('data-invoice-balance')) === '355692')
+  check('phone: Financial says the deposit is due (from the payment schedule), not "Not invoiced yet"', !!fin && /^Deposit \$3,557\.00 due \d{2}\/\d{2}\/\d{4}$/.test(fin.trim()) && !(await ph.page.content()).includes('Not invoiced yet'), fin)
+  check('phone: Payments shows the same deposit left', (await ph.page.locator('[data-payment-schedule] [data-invoice="deposit"] [data-invoice-balance]').first().getAttribute('data-invoice-balance')) === '355700')
   const call1 = ph.page.locator('[data-job-call]')
   // Text: framed "Getter Done Fence: Hi Manny, " ... "Reply STOP to opt out." and only with a yes on record (recorded in setup).
   const textHref = await until(async () => ph.page.locator('[data-job-text]').getAttribute('href'))
@@ -192,7 +192,7 @@ try {
   await pc.page.locator('[data-job-open-customer]').click()
   const onCustomer = await until(async () => pc.page.url().includes(`/customers/${W.a.contactId}`))
   check('computer: Open customer profile opens the customer page', !!onCustomer, pc.page.url())
-  const billing = await until(async () => { await pc.page.locator('[data-customer-tab="billing"]').click(); return (await pc.page.locator('[data-invoice="deposit"] [data-invoice-balance]').first().getAttribute('data-invoice-balance')) === '355692' })
+  const billing = await until(async () => { await pc.page.locator('[data-customer-tab="billing"]').click(); return (await pc.page.locator('[data-invoice="deposit"] [data-invoice-balance]').first().getAttribute('data-invoice-balance')) === '355700' })
   check('computer: the customer\'s Billing shows the same deposit due', !!billing)
 
   // ── The Complete stage button (job B) ──
@@ -215,7 +215,7 @@ try {
   check('computer: Job Started comes from the install (not started before its first crew day)', (await pc.page.locator('[data-milestone="started"]').getAttribute('data-milestone-done')) === 'no')
   sql(`UPDATE "ContractInvoice" SET "dueDate" = ${lit(plus(today, -5))} WHERE "jobId" = ${lit(W.a.jobId)} AND kind = 'deposit'`)
   await pc.page.goto(`${APP}/billing`)
-  const ar = await until(async () => { const v = Number(await pc.page.locator('[data-ar-overdue]').getAttribute('data-ar-overdue')); return v >= 355692 ? v : null }, 30000)
+  const ar = await until(async () => { const v = Number(await pc.page.locator('[data-ar-overdue]').getAttribute('data-ar-overdue')); return v >= 355700 ? v : null }, 30000)
   check('Billing: Accounts Receivable counts the overdue deposit from the payment schedule', !!ar && (await pc.page.locator(`[data-ar-row="${nameOf(W.a)}"]`).count()) === 1, String(ar))
   await pc.page.locator('button:text-is("Overdue")').click()
   const od = await until(async () => (await pc.page.locator('[data-overdue-invoice]').filter({ hasText: nameOf(W.a) }).count()) === 1)
@@ -273,10 +273,10 @@ try {
   sql(`UPDATE "SavedJob" SET "scheduledDate" = ${lit(plus(today, -2))}, "scheduledEndDate" = ${lit(plus(today, -1))} WHERE id = ${lit(W.a.jobId)}`)
   const sig = n => `'{"name":"${n}","role":"Homeowner","signedAt":"${new Date().toISOString()}"}'::jsonb`
   sql(`INSERT INTO "Walkthrough" (id, "accountId", "jobId", status, items, photos, "homeownerSig", "repSig", "signedAt", "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 'open', '[]', '[]', ${sig('Manny')}, ${sig('Jonathan')}, now(), now(), now() FROM "SavedJob" WHERE id = ${lit(W.a.jobId)}`)
-  const p1 = await call('POST', '/api/payments', { id: `e2etruth${stamp}a`, jobId: W.a.jobId, amountCents: 355692, method: 'check', checkNumber: '101' })
+  const p1 = await call('POST', '/api/payments', { id: `e2etruth${stamp}a`, jobId: W.a.jobId, amountCents: 355700, method: 'check', checkNumber: '101' })
   const mid = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
   check('close out: the deposit alone leaves the job where it is', p1.status === 201 && mid.status === 'staging', mid.status)
-  const p2 = await call('POST', '/api/payments', { id: `e2etruth${stamp}b`, jobId: W.a.jobId, amountCents: 355691, method: 'check', checkNumber: '102' })
+  const p2 = await call('POST', '/api/payments', { id: `e2etruth${stamp}b`, jobId: W.a.jobId, amountCents: 355700, method: 'check', checkNumber: '102' })
   const done = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
   // Round 2 (Oct 26): Complete, and the balance being zero, on to Paid by itself.
   check('close out: signed and paid in full: Complete then Paid by itself', p2.status === 201 && done.status === 'paid' && done.opsStage === 'paid' && done.paymentStatus === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(done.completedDate || ''), `${done.status} ${done.opsStage} ${done.paymentStatus}`)

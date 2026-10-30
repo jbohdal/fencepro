@@ -111,6 +111,23 @@ export function isNotQuotable(err: unknown): boolean {
   return !!err && typeof err === 'object' && (err as { code?: unknown }).code === 'not_quotable'
 }
 
+/**
+ * What the customer is told for that style (web estimate.ts notQuotableMessage):
+ * commercial and industrial on hold, or "Call us for a price on 8 ft tall
+ * fence" for one whose prices are not in yet. Never says commercial for a
+ * fence that is not.
+ */
+export function notQuotableMessage(err: unknown): string {
+  const m = (err as { message?: unknown } | null)?.message
+  return typeof m === 'string' && m ? m : NOT_QUOTABLE_MESSAGE
+}
+
+/** For staff: why the style is held ("8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl"). */
+export function notQuotableReason(err: unknown): string {
+  const held = (err as { held?: unknown } | null)?.held
+  return typeof held === 'string' && held ? held : notQuotableMessage(err)
+}
+
 let loaded: Promise<EstimateModule> | null = null
 /** The web pricing code (bundled in the build, the source in development). */
 export function pricingModule(): Promise<EstimateModule> { return pricing() }

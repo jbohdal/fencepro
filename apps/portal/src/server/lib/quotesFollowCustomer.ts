@@ -93,6 +93,7 @@ export async function openQuotesOf(accountId: string, contactId: string) {
   if (!quotes.length) return []
   const ids = quotes.map(q => q.id)
   // A quote with a quoted cost saved at signing, or a job made from it, was sold (lib/everSold.ts) whatever its status says.
+  // all rows: a job made from the quote marks it sold even if the job was deleted later, so it stays with whoever sold it.
   const [costs, jobs] = await Promise.all([
     prisma.jobQuotedCost.findMany({ where: { accountId, quoteId: { in: ids } }, select: { quoteId: true } }),
     prisma.savedJob.findMany({ where: { accountId, quoteId: { in: ids } }, select: { quoteId: true } }),

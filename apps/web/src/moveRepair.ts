@@ -614,13 +614,65 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
 
 export const REPAIR_HINT: Record<RepairItemKey, string> = {
   resetPost: 'Pull it, new post and setting material, rehang the sections on it',
-  replacePost: 'New post and setting material; dig set adds the concrete pull and disposal',
+  replacePost: 'New post and setting material; the old post is pulled and hauled away',
   repairSection: 'New pickets or rails only, reuse what is good',
   replaceSection: 'A whole new section',
   rehangGate: 'New hinges and latch',
   replaceGate: 'The whole gate kit',
   haulDebris: 'At the tear out rate per section',
   footerDisposal: 'Per post: haul off the concrete footer',
+}
+
+/**
+ * What pulling and hauling one old post costs us, for people who see costs:
+ * pull + haul summed per install method, read from Settings > Moves and
+ * Repairs (never typed in here, so a rate change shows). These are our costs,
+ * not the customer's charge, and the line says so (review Oct 29 2026: the
+ * old "no dig $10.00 + $10.00" read as a price). Shown once, with the old
+ * posts' pick. Since Oct 29 2026 no dig posts are charged too, not only dig set ones.
+ */
+export function oldPostCostLine(s: Pick<MoveRepairSettings, PostRateKey>): string {
+  const sum = (a: number | null, b: number | null) => (a === null || b === null ? 'not set' : wholeOrCents(a + b))
+  return `Our cost per old post (pull + haul): no dig ${sum(s.pullNdLaborCents, s.pullNdDisposalCents)}, dig set ${sum(s.pullDsLaborCents, s.pullDsDisposalCents)}`
+}
+const wholeOrCents = (c: number) => (c % 100 === 0 ? `$${c / 100}` : usd(c / 100))
+
+/** A move or repair being entered: the old posts' method is blank until picked by hand (or loaded from a saved quote). */
+export type MoveDraft = Omit<MoveInputs, 'oldPostType'> & { oldPostType?: PostType }
+export type RepairDraft = Omit<RepairInputs, 'postType'> & { postType?: PostType }
+
+const METHOD_WORD: Record<PostType, string> = { nd: 'No dig', ds: 'Dig set' }
+
+/** The old posts' buttons: how the old posts are set. */
+export const OLD_POSTS_BUTTON: Record<PostType, string> = { nd: 'No dig (pipe and donut)', ds: 'Dig set (concrete)' }
+export const OLD_POSTS_QUESTION = 'How are the old posts set?'
+
+/**
+ * How the OLD posts come out (what pulling and hauling them is priced at).
+ * Not picked by hand: the style's install method, so a style change moves it
+ * too (review Oct 29 2026: a No dig start switched to Dig set kept pricing the
+ * old posts as no dig, $16 a post too cheap in cost). Picked by hand, or saved with
+ * the quote: that pick stays, and a note says when it differs from the style.
+ */
+export function oldPostsMethod(picked: PostType | null | undefined, styleType: PostType): { type: PostType; byHand: boolean; note: string | null } {
+  if (picked !== 'nd' && picked !== 'ds') return { type: styleType, byHand: false, note: null }
+  return {
+    type: picked, byHand: true,
+    note: picked === styleType ? null : `Old posts are ${METHOD_WORD[picked]}, new fence is ${METHOD_WORD[styleType]}. Is that right?`,
+  }
+}
+
+/**
+ * The old posts' note again on the Price step's "Check before you quote" box
+ * (review Oct 29 2026: the style is changed at the top of the Style step, the
+ * old posts' pick and its note sit several screens down, so a mismatch was easy
+ * to miss). A move always pulls old posts; a repair only with a post item on it.
+ */
+export function oldPostsCheck(jobType: JobType, move: { note: string | null }, repair: { note: string | null }, repairItems: RepairInputs['items']): string | null {
+  const note = jobType === 'move' ? move.note
+    : jobType === 'repair' && ((repairItems.resetPost ?? 0) > 0 || (repairItems.replacePost ?? 0) > 0) ? repair.note
+    : null
+  return note ? `${note} Change it on the Style step, under "${OLD_POSTS_QUESTION}"` : null
 }
 
 /** What each "What happened?" answer starts the list with. */
