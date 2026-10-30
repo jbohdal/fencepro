@@ -28,8 +28,10 @@
  *     (by the route).
  *   - Who sees it: every remembered Salesman scope is forgotten; the new
  *     Salesman has the quote and its job on the next request, the old one
- *     no longer does unless the old one made the quote or the customer is
- *     still the old one's (lib/salesScope.ts).
+ *     no longer does, even if the old one wrote it or the customer is still
+ *     the old one's: the rep on a quote or job decides (lib/salesScope.ts,
+ *     Oct 29 2026). What the old one's phone held is put back on its next
+ *     save (lib/salesServed.ts).
  */
 
 import prisma from './prisma.js'
@@ -126,7 +128,7 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
     return true
   })
   if (!changed) return { ok: false, status: 409, code: 'CHANGED', error: 'The Salesman on this quote was changed a moment ago. Look at it again.' }
-  // The new Salesman has it on the next request; the old one no longer does (unless they made it).
+  // The new Salesman has it on the next request; the old one no longer does (the rep decides).
   forgetAllScopes()
   return { ok: true, already: false, moved }
 }

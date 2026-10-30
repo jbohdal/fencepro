@@ -41,8 +41,10 @@ describe('the Salesman\'s scope', () => {
     expect(scope.contactIds.has('c-other')).toBe(false)
   })
 
-  test('quotes: made by or assigned to the Salesman, and every quote of the Salesman\'s own customers', () => {
-    expect([...scope.quoteIds].sort()).toEqual(['q-assigned', 'q-mine', 'q-owner-on-my-customer'])
+  test('quotes: the rep decides; a quote with no rep is hers when she wrote it or its customer is hers', () => {
+    expect([...scope.quoteIds].sort()).toEqual(['q-assigned', 'q-mine'])
+    // A quote whose rep names someone else is theirs, even on the Salesman's own customer (Oct 29 2026).
+    expect(scope.quoteIds.has('q-owner-on-my-customer')).toBe(false)
     // A customer brought in by one assigned quote does not bring that customer's other quotes.
     expect(scope.quoteIds.has('q-owner-on-assigned-customer')).toBe(false)
     expect(scope.quoteIds.has('q-other')).toBe(false)
@@ -75,6 +77,49 @@ describe('the Salesman\'s scope', () => {
     expect([...given.contactIds].sort()).toEqual(['c-entered-blank', 'c-entered-mine'])
     expect(inSalesScope('contacts', given, { id: 'x', ownerId: me, salesRep: 'Sam Other' })).toBe(false)
     expect(inSalesScope('contacts', given, { id: 'y', ownerId: me, salesRep: null })).toBe(true)
+  })
+
+  test('after a move (Jonathan, Oct 29 2026): unsold quotes leave her list; signed ones whose rep is still her stay, with their customer', () => {
+    // Cleo was the Salesman's; the owner moved her to Sam: the open quotes went with her (D3), the sold one and its job stayed.
+    const moved = buildSalesScope({
+      ...base,
+      contacts: [
+        { id: 'c-cleo', ownerId: me, salesRep: 'Sam Other' },
+        { id: 'c-dan', ownerId: me, salesRep: 'Sam Other' },
+        { id: 'c-eve', ownerId: 'u-owner', salesRep: 'Christa Feagin' },
+      ],
+      quotes: [
+        { id: 'q-cleo-draft', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-cleo' },
+        { id: 'q-cleo-sold', ownerId: me, salesRep: 'Christa Feagin', crmContactId: 'c-cleo' },
+        { id: 'q-dan-draft', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-dan' },
+        { id: 'q-dan-sold-moved', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-dan' },
+        { id: 'q-eve-draft-moved', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-eve' },
+        { id: 'q-eve-sold', ownerId: 'u-owner', salesRep: 'Christa', crmContactId: 'c-eve' },
+      ],
+      jobs: [
+        { id: 'j-cleo', quoteId: 'q-cleo-sold', crmContactId: 'c-cleo', salesRep: 'Christa Feagin' },
+        { id: 'j-dan-moved', quoteId: 'q-dan-sold-moved', crmContactId: 'c-dan', salesRep: 'Sam Other' },
+      ],
+      // A finished card and a past visit of hers left on Dan: neither keeps him.
+      cards: [{ customerId: 'c-dan', assignedRep: 'Christa' }],
+      appointments: [{ crmContactId: 'c-dan', assignedToUserId: me, assignedTo: 'Christa Feagin' }],
+    })
+    expect([...moved.quoteIds].sort()).toEqual(['q-cleo-sold', 'q-eve-sold'])
+    expect([...moved.jobIds]).toEqual(['j-cleo'])
+    // Cleo stays through her sold quote; Dan (everything moved) leaves; Eve is hers.
+    expect([...moved.contactIds].sort()).toEqual(['c-cleo', 'c-eve'])
+    expect(moved.directContactIds.has('c-cleo')).toBe(false)
+    // One record opened by id: the rep on it decides, not who wrote it.
+    expect(inSalesScope('quotes', moved, { id: 'q-cleo-draft', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-cleo' })).toBe(false)
+    expect(inSalesScope('quotes', moved, { id: 'q-cleo-sold', ownerId: me, salesRep: 'Christa Feagin', crmContactId: 'c-cleo' })).toBe(true)
+    // Moved since the scope was read: out at once.
+    expect(inSalesScope('quotes', moved, { id: 'q-cleo-sold', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-cleo' })).toBe(false)
+    expect(inSalesScope('jobs', moved, { id: 'j-cleo', quoteId: 'q-cleo-sold', crmContactId: 'c-cleo', salesRep: 'Sam Other' })).toBe(false)
+    expect(inSalesScope('jobs', moved, { id: 'j-dan-moved', quoteId: 'q-dan-sold-moved', crmContactId: 'c-dan', salesRep: 'Sam Other' })).toBe(false)
+    // Her card left on Dan is not shown; one on Cleo (still on her list) is.
+    expect(inSalesScope('pipeline', moved, { id: 'k-dan', customerId: 'c-dan', assignedRep: 'Christa' })).toBe(false)
+    expect(inSalesScope('pipeline', moved, { id: 'k-cleo', customerId: 'c-cleo', assignedRep: 'Sam Other' })).toBe(true)
+    expect(inSalesScope('contacts', moved, { id: 'c-dan', ownerId: me, salesRep: 'Sam Other' })).toBe(false)
   })
 
   test('names: full or first, any case or spacing; never someone else\'s', () => {

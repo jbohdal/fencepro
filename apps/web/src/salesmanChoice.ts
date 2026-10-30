@@ -92,9 +92,10 @@ export function useSalesmen(): { list: SalesmanList | null; failed: boolean } {
 
 /**
  * What the choice says under it, before saving. The Salesman who gives a
- * customer to someone else stops seeing them (portal lib/salesScope.ts),
- * except on a quote the Salesman made: the quote keeps its customer on the
- * Salesman's list.
+ * customer to someone else stops seeing them (portal lib/salesScope.ts); on
+ * the quote's New Customer the quote's Sales rep is that person too, and the
+ * rep on a quote decides who sees it (Oct 29 2026), so the quote and the
+ * customer both leave the Salesman's list.
  */
 export function choiceWords(picked: string, opts: { onQuote?: boolean; role?: string | null; preselect?: string } = {}): string {
   const name = picked.trim()
@@ -104,7 +105,7 @@ export function choiceWords(picked: string, opts: { onQuote?: boolean; role?: st
   if (isOfficeStart(name, role, opts.preselect)) return ''
   if (role === 'sales_rep') {
     return opts.onQuote
-      ? `${name} becomes this customer's Salesman and the quote's Sales rep. You still see this quote and customer, because you made the quote.`
+      ? `${name} becomes this customer's Salesman and the quote's Sales rep. Once saved, this quote and customer leave your list, and only the owner can change it back.`
       : `${name} becomes the Salesman. Once saved, this customer leaves your list, and only the owner can change it back.`
   }
   return `${name} sees this customer as soon as it is saved.`

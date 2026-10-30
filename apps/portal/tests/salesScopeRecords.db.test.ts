@@ -341,9 +341,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const rows = await prisma.$queryRawUnsafe<Array<{ id: string; t: string }>>(`SELECT e->>'id' AS id, e::text AS t FROM "AccountKeyValue" k, jsonb_array_elements(k.value) e WHERE k."accountId" = $1 AND k.key = $2`, accountId, key)
     return new Map(rows.map(r => [r.id, r.t]))
   }
-  /** The office gives Otto (the other customer) to the Salesman, or takes him back. */
+  /** The owner gives Otto (the other customer) to the Salesman, or takes him back: the customer, his quote and his job (the rep on each decides, Oct 29 2026). */
   const giveOtto = async (toSalesman: boolean) => {
-    await prisma.crmContact.update({ where: { id: ids.cOther }, data: { salesRep: toSalesman ? `Sally ${tag}` : `Olive ${tag}` } })
+    const salesRep = toSalesman ? `Sally ${tag}` : `Olive ${tag}`
+    await prisma.crmContact.update({ where: { id: ids.cOther }, data: { salesRep } })
+    await prisma.savedQuote.update({ where: { id: ids.qOther }, data: { salesRep } })
+    await prisma.savedJob.update({ where: { id: ids.jOther }, data: { salesRep } })
     forgetScope(salesId)   // the scope is read again at the save (as after its few seconds of memory)
   }
   /** A fresh record: two pull sheets and a Sales Order of Otto's, one of each of Mina's; job costing and activity for both. */

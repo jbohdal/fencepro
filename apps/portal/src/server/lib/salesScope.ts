@@ -5,25 +5,35 @@
  * manager and office are unchanged. The rule (docs/DECISIONS.md, "Salesman
  * scope"):
  *
- *   The Salesman's own customers ("direct"): customers the Salesman entered
- *   (ownerId) while their Sales rep is blank or the Salesman (a customer the
- *   Salesman gave to someone else, or that the owner or office moved to
- *   someone else, is that person's: Oct 28 2026, the Salesman choice),
- *   customers whose Sales rep is the Salesman, the customer on a
- *   pipeline card whose rep is the Salesman, and the customer of an
- *   appointment booked with the Salesman.
+ *   The Salesman's own customers ("direct"): customers whose Sales rep is
+ *   the Salesman; customers the Salesman entered (ownerId) while their Sales
+ *   rep is blank (a customer the Salesman gave to someone else, or that the
+ *   owner or office moved to someone else, is that person's: Oct 28 2026,
+ *   the Salesman choice); and, while the customer's Sales rep is blank or
+ *   the Salesman, the customer on a pipeline card whose rep is the Salesman
+ *   and the customer of an appointment booked with the Salesman (a card or
+ *   visit left behind on a customer moved to someone else does not keep it).
  *
- *   Quotes: quotes the Salesman made (ownerId), quotes whose Sales rep is the
- *   Salesman, and every quote of a direct customer.
+ *   Quotes, sold or not, and jobs: the rep on the record decides (Jonathan,
+ *   Oct 29 2026, after a move: "Christa's quotes after a move: unsold ones
+ *   leave her list. Signed ones she sold stay with her."). A quote or job
+ *   whose Sales rep is the Salesman is hers; one whose Sales rep names
+ *   someone else is not, whoever wrote it and whoever the customer's
+ *   Salesman is. A moved quote (lib/quotesFollowCustomer.ts, a customer's
+ *   open quotes follow the customer; lib/salesmanMove.ts, the owner moves one
+ *   quote or job, its commission with it) leaves her the moment it moves; a
+ *   sold quote whose rep is still her stays hers, and brings its customer,
+ *   after the customer moves. Only a quote with no rep falls back to who
+ *   wrote it (ownerId) or a direct customer; a job with no rep to its quote
+ *   in scope or a direct customer.
  *
  *   Customers in scope: the direct ones, plus the customer of every quote and
  *   job in scope (a quote assigned to the Salesman brings its customer in;
- *   that customer's other quotes stay out).
+ *   that customer's other quotes stay out). A customer stays only through
+ *   something still hers.
  *
- *   Jobs: jobs whose Sales rep is the Salesman, the job of a quote in scope,
- *   and every job of a direct customer.
- *
- *   Pipeline cards: the card's rep is the Salesman, or its customer is in scope.
+ *   Pipeline cards: its customer is in scope, or the card's rep is the
+ *   Salesman and its customer (if any) is not someone else's.
  *   Appointments: booked with the Salesman, or with a customer in scope.
  *
  * "Is the Salesman" by name: the login's first and last name, or the first
@@ -49,6 +59,8 @@ export interface SalesScope {
   names: string[]
   /** Customers the Salesman entered or is the rep of, or has a card or appointment with. */
   directContactIds: Set<string>
+  /** Customers whose Sales rep names someone else (as read): a card of the Salesman's left on one does not show. */
+  elsewhereContactIds?: Set<string>
   contactIds: Set<string>
   quoteIds: Set<string>
   jobIds: Set<string>
@@ -59,6 +71,21 @@ export const isSalesman = (role: string | null | undefined): boolean => role ===
 /** Is this rep name the Salesman? */
 export function isMine(s: Pick<SalesScope, 'names'>, rep: unknown): boolean {
   return typeof rep === 'string' && s.names.some(n => sameName(n, rep))
+}
+
+const blankRep = (rep: unknown): boolean => typeof rep !== 'string' || !rep.trim()
+
+/** A quote is the Salesman's while its rep is the Salesman; with no rep, when the Salesman wrote it or its customer is direct. */
+export function quoteIsMine(s: Pick<SalesScope, 'names' | 'userId' | 'directContactIds'>, q: { ownerId?: string | null; salesRep?: string | null; crmContactId?: string | null }): boolean {
+  if (!blankRep(q.salesRep)) return isMine(s, q.salesRep)
+  return q.ownerId === s.userId || (!!q.crmContactId && s.directContactIds.has(q.crmContactId))
+}
+
+/** A job is the Salesman's while its rep is the Salesman; with no rep, when its quote is in scope or its customer is direct. */
+export function jobIsMine(s: Pick<SalesScope, 'names' | 'directContactIds' | 'quoteIds'>, j: { quoteId?: string | null; salesRep?: string | null; crmContactId?: string | null }): boolean {
+  if (!blankRep(j.salesRep)) return isMine(s, j.salesRep)
+  if (j.quoteId && s.quoteIds.has(j.quoteId)) return true
+  return !!j.crmContactId && s.directContactIds.has(j.crmContactId)
 }
 
 /**
@@ -85,26 +112,33 @@ export function buildSalesScope(input: {
 }): SalesScope {
   const s = { names: input.names, userId: input.userId }
   const direct = new Set<string>()
-  for (const c of input.contacts) if (enteredAndKept(s, c) || isMine(s, c.salesRep)) direct.add(c.id)
-  for (const k of input.cards) if (k.customerId && isMine(s, k.assignedRep)) direct.add(k.customerId)
-  for (const a of input.appointments) if (a.assignedToUserId === input.userId || isMine(s, a.assignedTo)) direct.add(a.crmContactId)
+  // Customers whose rep names someone else: a card or visit of the Salesman's left on one does not bring it in.
+  const elsewhere = new Set<string>()
+  for (const c of input.contacts) {
+    if (enteredAndKept(s, c) || isMine(s, c.salesRep)) direct.add(c.id)
+    else if (!blankRep(c.salesRep)) elsewhere.add(c.id)
+  }
+  for (const k of input.cards) if (k.customerId && !elsewhere.has(k.customerId) && isMine(s, k.assignedRep)) direct.add(k.customerId)
+  for (const a of input.appointments) if (!elsewhere.has(a.crmContactId) && (a.assignedToUserId === input.userId || isMine(s, a.assignedTo))) direct.add(a.crmContactId)
 
   const quoteIds = new Set<string>()
   const contactIds = new Set<string>(direct)
+  const sq = { ...s, directContactIds: direct }
   for (const q of input.quotes) {
-    if (q.ownerId === input.userId || isMine(s, q.salesRep) || (q.crmContactId && direct.has(q.crmContactId))) {
+    if (quoteIsMine(sq, q)) {
       quoteIds.add(q.id)
       if (q.crmContactId) contactIds.add(q.crmContactId)
     }
   }
   const jobIds = new Set<string>()
+  const sj = { ...sq, quoteIds }
   for (const j of input.jobs) {
-    if (isMine(s, j.salesRep) || (j.quoteId && quoteIds.has(j.quoteId)) || (j.crmContactId && direct.has(j.crmContactId))) {
+    if (jobIsMine(sj, j)) {
       jobIds.add(j.id)
       if (j.crmContactId) contactIds.add(j.crmContactId)
     }
   }
-  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, contactIds, quoteIds, jobIds }
+  return { userId: input.userId, accountId: input.accountId, names: input.names, directContactIds: direct, elsewhereContactIds: elsewhere, contactIds, quoteIds, jobIds }
 }
 
 /** Rows whose rep could be one of these names (a cheap first cut; sameName decides). */
@@ -133,8 +167,12 @@ export async function salesScope(userId: string, accountIdIn?: string | null): P
       WHERE p."accountId" = ${accountId} AND jsonb_typeof(l) = 'object' AND l->>'assignedRep' ILIKE ${'%' + first + '%'}` : Promise.resolve([]),
     prisma.appointment.findMany({ where: { accountId, deletedAt: null, OR: [{ assignedToUserId: userId }, ...(first ? [{ assignedTo: { contains: first, mode: 'insensitive' as const } }] : [])] }, select: { crmContactId: true, assignedToUserId: true, assignedTo: true } }),
   ])
+  // The rep of each customer a card or visit names (one moved to someone else is not brought in by them).
+  const loaded = new Set(contacts.map(c => c.id))
+  const linked = [...new Set([...cardRows.map(k => k.customerId), ...appointments.map(a => a.crmContactId)].filter((x): x is string => !!x && !loaded.has(x)))]
+  const linkedContacts = linked.length ? await prisma.crmContact.findMany({ where: { accountId, deletedAt: null, id: { in: linked } }, select: { id: true, ownerId: true, salesRep: true } }) : []
   // First the Salesman's own customers; then every quote of theirs, then the jobs of the quotes in scope.
-  const base = { userId, accountId, names, contacts, cards: cardRows, appointments }
+  const base = { userId, accountId, names, contacts: [...contacts, ...linkedContacts], cards: cardRows, appointments }
   const direct = [...buildSalesScope({ ...base, quotes: [], jobs: [] }).directContactIds]
   const customerQuotes = direct.length ? await prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, crmContactId: { in: direct } }, select: { id: true, ownerId: true, salesRep: true, crmContactId: true } }) : []
   const ownIds = new Set(ownQuotes.map(q => q.id))
@@ -195,10 +233,11 @@ export function inSalesScope(kind: SalesKind, s: SalesScope, item: any): boolean
   if (!item || typeof item !== 'object') return false
   switch (kind) {
     case 'contacts': return s.contactIds.has(item.id) || enteredAndKept(s, item) || isMine(s, item.salesRep)
-    case 'quotes': return s.quoteIds.has(item.id) || item.ownerId === s.userId || isMine(s, item.salesRep) || (!!item.crmContactId && s.directContactIds.has(item.crmContactId))
-    case 'jobs': return s.jobIds.has(item.id) || isMine(s, item.salesRep) || (!!item.quoteId && s.quoteIds.has(item.quoteId)) || (!!item.crmContactId && s.directContactIds.has(item.crmContactId))
+    // The record's own rep decides (a quote or job moved to someone else since the scope was read is out).
+    case 'quotes': return blankRep(item.salesRep) ? (s.quoteIds.has(item.id) || quoteIsMine(s, item)) : isMine(s, item.salesRep)
+    case 'jobs': return blankRep(item.salesRep) ? (s.jobIds.has(item.id) || jobIsMine(s, item)) : isMine(s, item.salesRep)
     case 'appointments': return item.assignedToUserId === s.userId || isMine(s, item.assignedTo) || (!!item.crmContactId && s.contactIds.has(item.crmContactId))
-    case 'pipeline': return isMine(s, item.assignedRep) || (!!item.customerId && s.contactIds.has(item.customerId))
+    case 'pipeline': return (!!item.customerId && s.contactIds.has(item.customerId)) || (isMine(s, item.assignedRep) && !(item.customerId && s.elsewhereContactIds?.has(item.customerId)))
   }
 }
 

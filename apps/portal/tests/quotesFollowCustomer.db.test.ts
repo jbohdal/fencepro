@@ -168,12 +168,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     }
   })
 
-  test('scope: Sam has the moved quotes on the next request; Sally no longer has the draft (she keeps the one she made, as ever)', async () => {
+  test('scope: Sam has the moved quotes on the next request; Sally no longer has them, not even the one she wrote; she keeps the ones still hers', async () => {
     expect(await seesQuote(sam, id.qDraft)).toBe(true)
     expect(await seesQuote(sam, id.qSentBySally)).toBe(true)
     expect(await seesQuote(sally, id.qDraft)).toBe(false)
-    expect(await seesQuote(sally, id.qSentBySally)).toBe(true)
+    // Jonathan, Oct 29 2026: "Christa's quotes after a move: unsold ones leave her list. Signed ones she sold stay with her."
+    expect(await seesQuote(sally, id.qSentBySally)).toBe(false)
     expect(await seesQuote(sally, id.qHank)).toBe(true)
+    for (const k of ['qSold', 'qAccepted', 'qWithJob', 'qLost']) expect([k, await seesQuote(sally, id[k])]).toEqual([k, true])
   })
 
   test('older copies saved afterwards keep everything else but never take a quote back to Sally', async () => {
@@ -182,14 +184,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     expect(o.status).toBe(200)
     let q = (await quoteRows()).get(id.qDraft)!
     expect([q.salesRep, q.notes, q.finalPrice]).toEqual([SAM(), 'gate on the left', PRICE])
-    // Sally's phone: the draft is not hers any more (404, nothing saved); the quote she made saves, with Sam kept.
+    // Sally's phone: neither the draft nor the quote she wrote is hers any more (404, nothing saved, Sam kept).
     expect((await call('PATCH', `/api/saved-quotes/${id.qDraft}`, sally, { ...sallyStaleDraft, notes: 'sally was here' })).status).toBe(404)
     expect((await quoteRows()).get(id.qDraft)!.notes).toBe('gate on the left')
-    const s = await call('PATCH', `/api/saved-quotes/${id.qSentBySally}`, sally, { salesRep: SALLY(), notes: 'called her back' })
-    expect(s.status).toBe(200)
+    const sentBefore = (await quoteRows()).get(id.qSentBySally)!
+    const s = await call('PATCH', `/api/saved-quotes/${id.qSentBySally}`, sally, { ...sallyStaleSent, salesRep: SALLY(), notes: 'called her back' })
+    expect(s.status).toBe(404)
     q = (await quoteRows()).get(id.qSentBySally)!
-    expect([q.salesRep, q.notes, q.finalPrice]).toEqual([SAM(), 'called her back', 5000])
-    void sallyStaleSent
+    expect([q.salesRep, q.notes, q.finalPrice]).toEqual([SAM(), sentBefore.notes, 5000])
   })
 
   test('what the phones held is put back: Sally\'s empty save and Sam\'s older copy leave the draft\'s job costing line byte for byte', async () => {
