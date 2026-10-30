@@ -836,6 +836,7 @@ function PipelineCard({
       onClick={onClick}
       className={`relative bg-white rounded-xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-shadow cursor-pointer p-3 group select-none ${faded ? 'opacity-20' : ''}`}
       style={{ borderLeft: `4px solid ${hex}` }}
+      data-card-id={lead.id}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="min-w-0 flex-1">

@@ -180,9 +180,7 @@ try {
   check('New Lead saved: street, city, state and ZIP', c3?.serviceAddress === '17008 SE 60th St, Ocklawaha, FL 32179' && c3?.city === 'Ocklawaha' && c3?.state === 'FL' && c3?.zip === '32179', JSON.stringify(c3 && { a: c3.serviceAddress, city: c3.city, state: c3.state, zip: c3.zip }))
 
   // ── 5. The website instant quote ──
-  // A widget draft saved earlier on this browser (the shared emulator) reopens at the photo step;
-  // start this check from the address, as a new visitor would.
-  await page.context().clearCookies({ name: 'ezq_draft' }).catch(() => {})
+  // Every visit starts at the address (the widget keeps nothing in the browser since Oct 29 2026).
   await page.goto(`${APP}/p/quote/`, { waitUntil: 'domcontentloaded' })
   const w = page.locator('[data-w-address]')
   await w.waitFor({ timeout: 30000 })

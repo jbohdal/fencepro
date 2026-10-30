@@ -12,14 +12,16 @@
 //   cd apps/web && pnpm -s build
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev token> node e2e/text-consent.mjs
 //
-// The website quotes are real dev leads (as in widget-draw.mjs), each from a
-// draft saved at the price step so no drawing is needed. Removes every
-// customer, card, quote and draft it made.
+// The website quotes are real dev leads (as in widget-draw.mjs): the customer
+// walks to the name and phone (e2e/widgetSteps.mjs; nothing is saved before
+// them, so there is no draft to start from). Removes every customer, card and
+// quote it made.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // makes customers, cards and quotes: takes turns with the other tests that change shared data
 import { chromium, webkit } from 'playwright'
 import { execFileSync } from 'child_process'
 import crypto from 'crypto'
+import { toContactStep } from './widgetSteps.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -118,15 +120,14 @@ try {
     await ctx.route(`${WIDGET}/**`, async rt => { try { await rt.fulfill({ response: await rt.fetch({ url: rt.request().url().replace(WIDGET, APP) }) }) } catch { /* page closed */ } })
     // No outside photo service needed: the price step shows no photo.
     await ctx.route(/USGS|arcgis|gis\.ocalafl/, rt => rt.fulfill({ status: 404, body: '' }))
-    // A draft saved at the price step (address, drawing and fence picked), as a customer's would be.
-    const d = await (await fetch(`${API}/p/quote/api/draft`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: null, data: { step: 3, address: ADDRESS, at, drawing, pick, fenceStyle: null } }) })).json()
-    made.drafts.push(d.id)
     const page = await ctx.newPage()
     const errors = []
     page.on('pageerror', e => errors.push(String(e).slice(0, 300)))
     const popups = []
     ctx.on('page', pg => popups.push(pg))
-    await page.goto(`${WIDGET}/p/quote/?draft=${d.id}`)
+    await page.goto(`${WIDGET}/p/quote/`)
+    // The address, the fence drawn on the photo and vinyl picked, as a customer does.
+    await toContactStep(page, { tap: true })
     const label = page.locator('[data-w-text-consent]').first()
     await label.waitFor({ timeout: 30000 })
     const words = (await label.textContent()).replace(/\s+/g, ' ').trim()
@@ -145,6 +146,8 @@ try {
     const sent = page.waitForResponse(res => res.url().includes('/p/quote/api/submit'), { timeout: 30000 })
     await page.locator('[data-w-send]').click()
     const res = await sent
+    // The visit's id the page sent (kept in its memory only): the lead's key.
+    const d = { id: String(res.request().postDataJSON()?.draftId || '').replace(/[^A-Za-z0-9_-]/g, '') }
     await page.locator('[data-w-sent]').waitFor({ timeout: 30000 })
     check(`widget (${checked ? 'checked' : 'unchecked'}): the quote is sent`, res.status() === 201, String(res.status()))
     const lead = psql(`select "crmContactId" from "IntakeLead" where source='ez_quote' and "sourceRef"='${d.id}'`)
