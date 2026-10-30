@@ -13,8 +13,10 @@
  *                       (per section while Settings pays per foot) and no
  *                       rate is typed on it (Oct 30 2026);
  *   PRICES_CHANGED      it was priced on an older copy of the price data than
- *                       the server's now (lib/pricingStamp.ts): the phone
- *                       reloads the prices, reprices and asks before saving.
+ *                       the server's now (lib/pricingStamp.ts), or at an
+ *                       Overhead % other than the one in use now
+ *                       (lib/liveOverhead.ts; a saved quote's own stays): the
+ *                       phone reloads the prices, reprices and asks before saving.
  *
  * Never refused for this: a sent, shared, sold or signed quote (its saved
  * prices stand: lib/quoteLock.ts and the kept sent prices in
@@ -29,6 +31,7 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
 import { currentPricingStamp } from './pricingStamp.js'
+import { overheadInUseFor } from './liveOverhead.js'
 import { isSignedQuote, lockedChanges } from './quoteLock.js'
 import { proposalSent } from './ownTier.js'
 
@@ -118,7 +121,23 @@ export async function checkQuotePrices(accountId: string, body: Json, data: Json
   if (!sent) return { kind: 'unstamped' }
   const now = await currentPricingStamp(accountId)
   if (sent !== now.stamp) return { kind: 'refuse', code: PRICES_CHANGED_CODE, error: PRICES_CHANGED_MESSAGE, stamp: now.stamp }
+  if (!(await atOverheadInUse(accountId, data, existing))) return { kind: 'refuse', code: PRICES_CHANGED_CODE, error: PRICES_CHANGED_MESSAGE, stamp: now.stamp }
   return { kind: 'ok' }
+}
+
+/**
+ * Priced at the Overhead % in use now (lib/liveOverhead.ts), or at the one the
+ * saved quote keeps. A phone that worked live overhead out from its own jobs
+ * (a Salesman's: her jobs only) priced at the typed 30% while the owner's was
+ * at the live 36.9%, and the save was taken (Oct 30 2026). A quote that does
+ * not say what it was priced at is left alone.
+ */
+export async function atOverheadInUse(accountId: string, data: Json, existing: Json | null): Promise<boolean> {
+  const priced = data?.pricing?.overheadPct
+  if (typeof priced !== 'number' || !Number.isFinite(priced)) return true
+  const same = (a: unknown) => typeof a === 'number' && Math.abs(a - priced) < 0.05
+  if (same(existing?.pricing?.overheadPct)) return true
+  return same(await overheadInUseFor(accountId))
 }
 
 /** The 409 for a refused save; nothing is saved. */

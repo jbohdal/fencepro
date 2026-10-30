@@ -45,7 +45,7 @@ describe('business state: parts left out when asked', () => {
   test('every answer of the route (read, save, refused, stale) goes through it', () => {
     const r = code(portal('routes/business-state.ts'))
     // (The read also says which copy of the price data it is: pricingPart, lib/pricingStamp.ts; a save, what it left out.)
-    expect(r).toMatch(/res\.json\(\{ success: true, data: leanState\(s, omittedParts\(req\.query\)\)(, pricingPart: businessPart\(s\.config, s\.budget\))? \}\)/)
+    expect(r).toMatch(/res\.json\(\{ success: true, data: leanState\(s, omittedParts\(req\.query\)\)(, pricingPart: businessPart\(s\.config, (s\.budget|livePct)\)(, overheadNow)?)? \}\)/)
     expect(r).toMatch(/res\.json\(\{ success: true, data: leanState\(s, omit\)(, \.\.\.\(leftOut \? \{ leftOut \} : \{\}\))? \}\)/)
     expect(r).toMatch(/refuse\(res, refused, \{ data: leanState\(saved, omit\)/)
     // Stale twice, and the Salesman's save built on a copy the server did not hand out (lib/salesServed.ts).

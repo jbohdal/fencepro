@@ -20,6 +20,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { restoreCosts } from './costRedact.js'
+import { withLiveOverhead } from './liveOverhead.js'
 
 type Json = any
 
@@ -44,7 +45,8 @@ export async function dataFor(accountId: string) {
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),
   ])
   return {
-    config: (b?.config ?? null) as Json,
+    // With the live Overhead % in use (lib/liveOverhead.ts): the figure every phone prices with.
+    config: (b?.config ? await withLiveOverhead(accountId, b.config) : null) as Json,
     inventory: (Array.isArray(inv?.items) ? inv!.items : []) as Json[],
     kits: (Array.isArray(inv?.kits) ? inv!.kits : []) as Json[],
   }

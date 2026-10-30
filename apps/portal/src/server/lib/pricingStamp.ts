@@ -11,7 +11,8 @@
  *              Pricing with overhead and margins, move and repair, the 6 / 8 ft
  *              optimizer...), without the parts that never change a price
  *              (company details, appointments, voice, words on the proposal...),
- *              and the budget's overhead while live overhead is on;
+ *              and the live Overhead % in use while live overhead is on
+ *              (lib/liveOverhead.ts: from the budget and every job);
  *   inventory  every part's price and status, and the material kits (not the
  *              stock counts, dates or bar codes);
  *   tiers      the Good Better Best sets.
@@ -28,6 +29,7 @@
 
 import crypto from 'crypto'
 import prisma from './prisma.js'
+import { overheadNowFor, liveOverheadPctFor, type OverheadNow } from './liveOverhead.js'
 
 type Json = any
 
@@ -51,13 +53,17 @@ export function canonical(v: unknown): string {
 
 const short = (text: string) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 12)
 
-/** Settings' price-bearing part. `budget`: the business state's budget (its overhead counts while live overhead is on). */
-export function businessPart(config: unknown, budget?: unknown): string {
+/**
+ * Settings' price-bearing part. `liveOverheadPct`: the live Overhead % in use
+ * (lib/liveOverhead.ts; worked out from the budget and every job, so it moves
+ * when either does), counted while live overhead is on.
+ */
+export function businessPart(config: unknown, liveOverheadPct?: number | null): string {
   const c = config && typeof config === 'object' && !Array.isArray(config) ? config as Record<string, unknown> : {}
   const kept: Record<string, unknown> = {}
   for (const k of Object.keys(c)) if (!NOT_PRICE_SETTINGS.has(k)) kept[k] = c[k]
   const live = !!(c.pricing as Json)?.liveOverhead?.on
-  const overhead = live && budget && typeof budget === 'object' ? (budget as Json).overhead ?? null : null
+  const overhead = live && typeof liveOverheadPct === 'number' ? liveOverheadPct : null
   return short(canonical({ config: kept, overhead }))
 }
 
@@ -91,7 +97,7 @@ export interface PricingStamp {
 export const joinStamp = (p: { business: string; inventory: string; tiers: string }) => `${p.business}.${p.inventory}.${p.tiers}`
 
 /** Per company: the versions last seen and the parts worked out from them. */
-const cache = new Map<string, { business: { v: number; part: string } | null; inventory: { v: number; part: string } | null; tiers: { key: string; part: string } | null }>()
+const cache = new Map<string, { business: { v: number; now: OverheadNow; part: string } | null; inventory: { v: number; part: string } | null; tiers: { key: string; part: string } | null }>()
 
 /**
  * The company's current stamp. Reads only the versions; a part is worked out
@@ -106,9 +112,11 @@ export async function currentPricingStamp(accountId: string): Promise<PricingSta
   const held = cache.get(accountId) ?? { business: null, inventory: null, tiers: null }
   const bv = b?.version ?? -1, iv = inv?.version ?? -1
   const tkey = sets.map(s => `${s.id}:${s.version}`).join(',')
-  if (!held.business || held.business.v !== bv) {
-    const row = bv < 0 ? null : await prisma.businessState.findUnique({ where: { accountId }, select: { config: true, budget: true, version: true } })
-    held.business = { v: row?.version ?? -1, part: businessPart(row?.config ?? null, row?.budget ?? null) }
+  // Live overhead moves with the jobs too, not only with this record's version (lib/liveOverhead.ts, held 30 s).
+  const now = await overheadNowFor(accountId)
+  if (!held.business || held.business.v !== bv || held.business.now !== now) {
+    const row = bv < 0 ? null : await prisma.businessState.findUnique({ where: { accountId }, select: { config: true, version: true } })
+    held.business = { v: row?.version ?? -1, now, part: businessPart(row?.config ?? null, await liveOverheadPctFor(accountId, row?.config ?? null)) }
   }
   if (!held.inventory || held.inventory.v !== iv) {
     const row = iv < 0 ? null : await prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true, version: true } })
