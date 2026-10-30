@@ -344,6 +344,54 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     expect(page2.text).toContain('data-co-new-contract>$6,500.00')
   })
 
+  test('picked "Add a section" × 2 and "Add a walk gate", signed: the job follows as a drawing would; a second gate never pays the once per job gate parts again; voided, the job goes back', async () => {
+    const CL = "CL - 5' Galv"
+    const { quoteId, jobId } = await signedJob()
+    // A chain link job (its kits have once per job gate parts): 112 ft = 12 sections at 10 ft.
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { fenceStyle: CL, sections: 12 } })
+    await prisma.savedJob.update({ where: { id: jobId }, data: { fenceStyle: CL, sections: 12 } })
+    const price = async (source: string, qty: number) => (await call(owner, 'GET', `/api/change-orders/pick-price?quoteId=${quoteId}&source=${source}&qty=${qty}`)).json.data
+    const sec = await price('add:section', 2), gate1 = await price('add:walk', 1)
+    const pick = (id: string, p: any, ref: string) => ({ id, description: p.qty > 1 ? `${p.qty} × ${p.label}` : p.label, amountCents: p.priceCents, qty: p.qty, source: { kind: 'repair', ref, label: p.label, fenceStyle: CL, listCents: p.priceCents } })
+    const co = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Two more sections and a gate', lines: [pick('a1', sec, 'add:section'), pick('a2', gate1, 'add:walk')] })
+    expect(co.status).toBe(201)
+    expect(co.json.data.scope).toMatchObject({ footageFt: 20, sections: 2, walkGates: 1 })
+    expect(co.json.data.work).toMatchObject({ footage: 132, sections: 14, walkGates: 1, ends: 4 })
+    expect(co.json.data.totalCents).toBe(sec.priceCents + gate1.priceCents)
+    // Before it is signed the job is as it was.
+    expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.sections).toBe(12)
+    expect((await call(owner, 'POST', `/api/change-orders/${co.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    const job = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([job.sections, job.totalFeet, job.walkGates]).toEqual([14, 132, 1])
+    // The pull sheet the job now has is the new quote engine's for the work with the pieces in it.
+    const { pricingModule } = await import('../src/server/lib/estimates.js')
+    const { dataFor } = await import('../src/server/lib/quotePricing.js')
+    const m = await pricingModule() as any
+    const data = await dataFor(accountId)
+    const req = (ft: number, walk: number, ends: number) => ({ ...request(ft, walk, CL), ends })
+    const was = m.quoteJobFor(data, req(112, 0, 2)).pullSheet, now = m.quoteJobFor(data, req(132, 1, 4)).pullSheet
+    const stored = (await prisma.changeOrder.findUnique({ where: { id: co.json.data.id } }))!.work as any
+    const qty = (sheet: any[], item: string) => sheet.filter(l => l.item === item).reduce((t, l) => t + l.qty, 0)
+    for (const l of now) expect([l.item, qty(stored.pullSheet, l.item)]).toEqual([l.item, qty(now, l.item)])
+    expect(now.some((l: any) => qty(now, l.item) > qty(was, l.item))).toBe(true)
+    // The second walk gate: the job has one now, so the once per job gate parts are not charged again.
+    const gate2 = await price('add:walk', 1)
+    expect(gate2.priceCents).toBeLessThan(gate1.priceCents)
+    const co2 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'One more gate', lines: [pick('b1', gate2, 'add:walk')] })
+    expect(co2.json.data.work).toMatchObject({ walkGates: 2, ends: 6, sections: 14 })
+    expect((await call(owner, 'POST', `/api/change-orders/${co2.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })).status).toBe(200)
+    expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.walkGates).toBe(2)
+    // Signing again changes nothing (once only); voided, the job goes back to one gate.
+    await call(owner, 'POST', `/api/change-orders/${co2.json.data.id}/sign`, { name: 'Pat Customer', signature: SIG })
+    const again = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([again.sections, again.walkGates, again.totalFeet]).toEqual([14, 2, 132])
+    const row2 = (await prisma.changeOrder.findUnique({ where: { id: co2.json.data.id } }))!
+    const voided = await call(owner, 'PATCH', `/api/change-orders/${row2.id}`, { baseVersion: row2.version, status: 'void' })
+    expect(voided.status).toBe(200)
+    const after = (await prisma.savedJob.findUnique({ where: { id: jobId } }))!
+    expect([after.sections, after.walkGates, after.totalFeet]).toEqual([14, 1, 132])
+  })
+
   test('approved verbally (reason required): it counts; the customer copy is not signed until they sign; dig set switches the warranty', async () => {
     const { contactId, jobId } = await signedJob()
     const before = (await call(owner, 'GET', `/api/warranties/job/${jobId}`)).json.data.warranty.name

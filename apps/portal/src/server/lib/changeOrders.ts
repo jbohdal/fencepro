@@ -29,8 +29,11 @@
 import crypto from 'crypto'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
-import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, type StoredWork, type WorkInput } from './changeOrderWork.js'
-import { shapeOf, sameShape, ownChangeWords, ownLineWords } from './changeOrderMerge.js'
+import { Prisma } from '@prisma/client'
+import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
+import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
+import { pricingModule } from './estimates.js'
+import { dataFor } from './quotePricing.js'
 
 /**
  * needs_ok: made by a Salesman (round 2, Oct 26 2026). It waits for the
@@ -464,14 +467,14 @@ function verbalReasonOf(r: string | null | undefined): string {
  * The work after the change, its cost difference and the warranty switch,
  * worked out before the change order is saved (lib/changeOrderWork.ts).
  */
-async function workPart(accountId: string, quoteId: string, input: WorkInput): Promise<Record<string, unknown>> {
+async function workPart(accountId: string, quoteId: string, input: WorkInput, exclude: string | null = null): Promise<Record<string, unknown>> {
   const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q) throw err(404, 'Quote not found')
   if (!workChangeable(q)) return {}
   const priced = await priceWork(accountId, q, input)
   // It starts from the work with every signed and every still open change order's change in it
   // (round 3, Oct 26 2026: a second one drawn from the signed quote dropped the first one's change).
-  const start = await startOfChange(accountId, quoteId)
+  const start = await startOfChange(accountId, quoteId, prisma, exclude)
   const last = start?.steps[start.steps.length - 1]
   let before: any = q
   if (start && last) {
@@ -499,6 +502,54 @@ async function workPart(accountId: string, quoteId: string, input: WorkInput): P
   return out
 }
 
+/**
+ * Sections and gates added by picked lines ("Add a section" × 2, "Add a 5 ft
+ * walk gate"; web changeOrderPicks.ts sources add:section, add:walk[:ft],
+ * add:double[:ft]), each line's quantity. Replace a section / a gate change
+ * no count (the new pieces hang where the old ones were), so they are not here.
+ */
+export function addedPiecesOf(lines: ChangeOrderLine[]): AddedPieces | null {
+  const out: AddedPieces = { sections: 0, walk: [], dbl: [] }
+  for (const l of lines) {
+    if (l.source?.kind !== 'repair' || (l.amountCents ?? 0) < 0) continue
+    const [kind, piece, w] = l.source.ref.split(':')
+    if (kind !== 'add') continue
+    const n = Math.max(1, Math.min(10_000, Math.round(Number(l.qty) || 1)))
+    const width = Number(w) > 0 ? Number(w) : piece === 'double' ? 8 : 4
+    if (piece === 'section') out.sections += n
+    else if (piece === 'walk') for (let i = 0; i < n; i++) out.walk.push(width)
+    else if (piece === 'double') for (let i = 0; i < n; i++) out.dbl.push(width)
+  }
+  return out.sections || out.walk.length || out.dbl.length ? out : null
+}
+
+/**
+ * The work a change order with picked sections or gates leaves (review Oct 30
+ * 2026: they changed the price but never the job, so the pull sheet, crew
+ * packet, crew days and job costing missed them, and a second gate charged
+ * the once per job gate parts again). It is the work as it is now (every
+ * signed and open change order's change in it, startOfChange) with the pieces
+ * added (changeOrderMerge.ts withAddedPieces), kept as the change order's
+ * work exactly as a drawing's is: from then on the job, the pull sheet, the
+ * packet, the sales order and the costs follow it when it is approved, and
+ * nothing when it is voided (applyToJob, rebuildJobWork). Null when the lines
+ * add nothing.
+ */
+async function pickedWork(accountId: string, quoteId: string, lines: ChangeOrderLine[], exclude: string | null = null): Promise<Record<string, unknown> | null> {
+  const add = addedPiecesOf(lines)
+  if (!add) return null
+  const start = await startOfChange(accountId, quoteId, prisma, exclude)
+  if (!start || !workChangeable(start.quote)) return null
+  const m = await pricingModule() as any
+  const width = Number(m.changeOrderSectionWidthFor(await dataFor(accountId), start.shape.fenceStyle)) || 0
+  const drawn = start.shape.yard ? (await deriveFor(accountId))(start.shape.yard, start.shape.fenceStyle)?.gateWidths ?? null : null
+  const shape = withAddedPieces(start.shape, add, width, drawn)
+  const input: WorkInput = { request: requestForShape(shape, start.like), layout: { yard: null, ...(shape.gateWidths ? { gateWidths: shape.gateWidths } : {}) }, planSvg: null }
+  const out = await workPart(accountId, quoteId, input, exclude)
+  if (out.work && typeof out.work === 'object') out.work = { ...(out.work as object), fromPicks: true }
+  return out
+}
+
 /** Make one on a signed quote. Approved at once (verbally, with a reason) updates the job too. */
 export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row & { notice?: string }> {
   if (!(await quoteIsSigned(accountId, c.quoteId))) throw err(409, 'Change orders are for signed quotes. This one is not signed: edit the quote instead.')
@@ -509,7 +560,8 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
   const lines = linesOf({ lines: c.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
   if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
   const verbal = c.status === 'approved' ? verbalReasonOf(c.verbalReason) : null
-  const { notice, ...extra } = c.work ? await workPart(accountId, c.quoteId, c.work) : {} as Record<string, unknown>
+  // A drawing's work; else the work picked sections and gates leave (pickedWork).
+  const { notice, ...extra } = c.work ? await workPart(accountId, c.quoteId, c.work) : (await pickedWork(accountId, c.quoteId, lines)) ?? {} as Record<string, unknown>
   const said = (r: Row) => (typeof notice === 'string' ? Object.assign(r, { notice }) : r)
   for (let attempt = 0; ; attempt++) {
     try {
@@ -577,6 +629,13 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
         data.lines = lines; data.totalCents = totalOf(lines)
         // The lines as shown (shownLines) sent back unchanged are no change either.
         changed = JSON.stringify(lines) !== JSON.stringify(linesOf(cur)) && JSON.stringify(lines) !== JSON.stringify(shownLines(cur))
+        // Picked sections and gates changed: the work they leave is worked out again (a drawing's work stays as drawn).
+        const fromPicks = !cur.work || (typeof cur.work === 'object' && (cur.work as any).fromPicks === true)
+        if (fromPicks && JSON.stringify(addedPiecesOf(lines)) !== JSON.stringify(addedPiecesOf(linesOf(cur)))) {
+          const w = await pickedWork(accountId, cur.quoteId, lines, cur.id)
+          const { notice: _n, ...part } = w ?? {}; void _n
+          Object.assign(data, w ? part : { work: Prisma.DbNull, costDelta: Prisma.DbNull, scope: Prisma.DbNull })
+        }
       }
       if (edit.reason !== undefined) {
         const reason = edit.reason.trim()

@@ -20,6 +20,7 @@ import type { YardLayout } from './yardLayout'
 import { deriveRunsFor } from './changeOrderYard'
 import type { TierSet } from './tiers'
 import { pickList, pickPrice, type PickInput, type PickList } from './changeOrderPicks'
+import { workWidth } from './moveRepair'
 export { importedOldPrice, keepsCents } from './pricingEngine'
 
 export { NOT_QUOTABLE_MESSAGE }
@@ -177,6 +178,13 @@ export function changeOrderPicksFor(data: EstimateData, input: PickInput): PickL
   useData(data)
   const cfg = estimateConfig(data.config)
   return pickList(cfg, data.inventory as never, input, estimateOverheadPct(cfg))
+}
+
+/** The section width a change order's picked sections are added at, for a style (moveRepair.ts workWidth); 0 for an unknown style. */
+export function changeOrderSectionWidthFor(data: EstimateData, fenceStyle: string): number {
+  useData(data)
+  const style = estimateConfig(data.config).fenceStyles.find(s => s.name === fenceStyle)
+  return style ? workWidth(style) : 0
 }
 
 /** One change order pick at a quantity (changeOrderPicks.ts). */

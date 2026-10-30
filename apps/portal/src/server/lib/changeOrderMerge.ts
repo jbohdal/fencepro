@@ -210,6 +210,48 @@ export function applyChange(cur: WorkShape, step: ChangeStep, derive: DeriveRuns
   return { shape: out, conflicts, merged: true }
 }
 
+/** Sections and gates added by picked change order lines ("Add a section", "Add a 5 ft walk gate"): gate widths in feet. */
+export interface AddedPieces { sections: number; walk: number[]; dbl: number[] }
+
+/**
+ * The work with picked sections and gates added (review Oct 30 2026: a picked
+ * "Add a section" or "Add a walk gate" line changed the price but never the
+ * job), counted as the line was priced (web moveRepair.ts priceAddedPieces):
+ *
+ *   sections   the longest run made longer by sections × the section width,
+ *              so it has that many more sections and as many more line posts
+ *              (a job with no run gets a new run with an end post each end)
+ *   a gate     one more walk or double gate, at its width, and 2 more end
+ *              posts (the posts it hangs on, as a drawn gate counts them)
+ *
+ * The result is a run list: a drawing no longer matches it, so the yard is
+ * left out (its gate widths kept, `drawnGateWidths`), the way a change put on
+ * a run list leaves a drawing out (applyChange). Pure.
+ */
+export function withAddedPieces(shape: WorkShape, add: AddedPieces, sectionWidth: number, drawnGateWidths: { walk: number[]; dbl: number[] } | null = null): WorkShape {
+  const out: WorkShape = { ...shape, runs: [...shape.runs], yard: null }
+  const n = Math.max(0, Math.round(add.sections))
+  if (n > 0 && sectionWidth > 0) {
+    if (out.runs.length) {
+      const i = out.runs.reduce((best, f, k) => (f > out.runs[best] ? k : best), 0)
+      out.runs[i] = Math.round((out.runs[i] + n * sectionWidth) * 100) / 100
+    } else {
+      out.runs = [n * sectionWidth]
+      out.ends += 2
+    }
+  }
+  const was = fitWidths(shape.yard ? drawnGateWidths : shape.gateWidths ?? null, shape.walkGates, shape.dblGates)
+    ?? { walk: Array.from({ length: shape.walkGates }, () => 4), dbl: Array.from({ length: shape.dblGates }, () => 8) }
+  const walk = add.walk.filter(w => w > 0), dbl = add.dbl.filter(w => w > 0)
+  out.walkGates = shape.walkGates + walk.length
+  out.dblGates = shape.dblGates + dbl.length
+  out.ends += 2 * (walk.length + dbl.length)
+  const widths = { walk: [...was.walk, ...walk], dbl: [...was.dbl, ...dbl] }
+  const fitted = fitWidths(widths, out.walkGates, out.dblGates)
+  if (fitted) out.gateWidths = fitted; else delete out.gateWidths
+  return out
+}
+
 /** The work after each change in turn, from the signed quote's. */
 export function foldChanges(start: WorkShape, steps: ChangeStep[], derive: DeriveRuns): { shape: WorkShape; after: Array<{ number: number; shape: WorkShape; merged: boolean; conflicts: string[] }> } {
   let cur = start
