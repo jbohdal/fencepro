@@ -13,23 +13,16 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import type { AppConfig, FenceStyle } from './configStore'
+import type { AppConfig } from './configStore'
 import { isTallVinyl, styleChoicesOf, styleLabel, tallPricesMissing } from './fenceCatalog'
 import { TALL_VINYL_SECTION } from './materialCalculator'
 import { isQuotable } from './styleAvailability'
 import { businessDate } from './businessDate'
 import { roleCan, signedInRole } from './permissions'
 import { useSettingsPageSave } from './settingsPageSave'
+import { applyTallPrices, shownCents as shown } from './tallVinylPriceSave'
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
-const shown = (c: number | null | undefined) => (typeof c === 'number' && c > 0 ? (c / 100).toFixed(2) : '')
-/** "$412.50" → 41250 (integer cents); blank → null; anything else → NaN. */
-const toCents = (t: string): number | null => {
-  const s = String(t).replace(/[$,\s]/g, '')
-  if (!s) return null
-  const v = Number(s)
-  return Number.isFinite(v) && v > 0 ? Math.round(v * 100) : NaN
-}
+const inputCls = 'w-full border border-gray-300 rounded-lg px-3 min-h-[44px] text-sm bg-white placeholder:text-gray-400 placeholder:italic focus:outline-none focus:ring-2 focus:ring-orange-400'
 
 export default function TallVinylPrices({ config, onCommit }: {
   config: AppConfig
@@ -50,19 +43,7 @@ export default function TallVinylPrices({ config, onCommit }: {
 
   function save() {
     setError('')
-    const bad: string[] = []
-    const today = businessDate(new Date())
-    const next: FenceStyle[] = config.fenceStyles.map(s => {
-      if (!styles.includes(s)) return s
-      const sec = toCents(typed[`${s.name}|section`] ?? ''), post = toCents(typed[`${s.name}|post`] ?? '')
-      if (Number.isNaN(sec) || Number.isNaN(post)) { bad.push(s.label || styleLabel(s.name)); return s }
-      const was = s.pieceCents ?? {}
-      if ((was.section ?? null) === sec && (was.post ?? null) === post) return s
-      const out: FenceStyle = { ...s }
-      if (sec === null && post === null) delete out.pieceCents
-      else out.pieceCents = { section: sec, post, pricedOn: today }
-      return out
-    })
+    const { fenceStyles: next, bad } = applyTallPrices(config.fenceStyles, styles, typed, businessDate(new Date()), s => s.label || styleLabel(s.name))
     if (bad.length) { setError(`Type a price in dollars (like 412.50) or leave it blank: ${bad.join('; ')}.`); return }
     onCommit({ ...config, fenceStyles: next })
   }
@@ -89,15 +70,16 @@ export default function TallVinylPrices({ config, onCommit }: {
                 <div>
                   <span className="block text-sm font-semibold text-gray-900">{s.label || styleLabel(s.name)}</span>
                   {ok ? <span className="block text-xs text-green-700" data-tall-ready>Available for quoting{s.pieceCents?.pricedOn ? ` · prices from ${s.pieceCents.pricedOn}` : ''}</span>
-                    : <span className="block text-xs text-amber-700" data-tall-held>Not available for quoting{missing.length ? `: enter the ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'}` : s.held ? `: ${s.held}` : ''}</span>}
+                    : <span className="block text-xs text-amber-700" data-tall-held>Not available for quoting{missing.length ? `: the ${missing.join(' and ')} price${missing.length === 1 ? ' is' : 's are'} missing${may ? `, type ${missing.length === 1 ? 'it' : 'them'} below and save` : ' (ask Jonathan)'}` : s.held ? `: ${s.held}` : ''}</span>}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {(['section', 'post'] as const).map(k => (
-                    <label key={k} className="block text-xs text-gray-600">{k === 'section' ? 'Section price' : 'Post price'}
+                    <label key={k} className="block text-xs text-gray-600">{k === 'section' ? 'Section price' : 'Post price (corner, end, line)'}
                       <span className="mt-1 flex items-center gap-1"><span className="text-gray-500">$</span>
-                        <input className={inputCls} inputMode="decimal" placeholder="0.00" disabled={!may} value={typed[`${s.name}|${k}`] ?? ''}
+                        <input className={inputCls} inputMode="decimal" placeholder="Not entered" disabled={!may} value={typed[`${s.name}|${k}`] ?? ''}
                           onChange={e => setTyped(x => ({ ...x, [`${s.name}|${k}`]: e.target.value }))} data-tall-price={`${s.name}|${k}`} />
                       </span>
+                      {missing.includes(k) && <span className="mt-1 block text-xs text-amber-700" data-tall-missing={`${s.name}|${k}`}>Missing</span>}
                     </label>
                   ))}
                 </div>

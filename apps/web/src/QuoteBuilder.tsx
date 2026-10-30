@@ -1788,7 +1788,8 @@ export default function QuoteBuilder({
                         <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
                         {t.spec.text && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{t.spec.text}</p>}
                         {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{!sent && t.widthFt && t.option ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
-                        {!sent && !folded && t.widthFt && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard{t.otherWidth ? ` (${t.otherWidth.widthFt} ft wide: ${fmt(t.otherWidth.price)})` : ''}.</p>}
+                        {!sent && !folded && t.widthFt && t.otherWidth && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard ({t.otherWidth.widthFt} ft wide: {fmt(t.otherWidth.price)}).</p>}
+                        {!sent && !folded && t.widthFt && !t.otherWidth && t.otherWidthHeld && <p className="text-xs text-amber-700" data-tier-width-held>Priced with {t.widthFt} ft wide panels: {t.otherWidthHeld.widthFt} ft wide is not priced yet ({t.otherWidthHeld.held}).</p>}
                         {!sent && t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
                         {(() => {
                           // An offered option with a green part still priced from Black: its price may be low too (the main one says so above).
