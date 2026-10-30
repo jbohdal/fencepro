@@ -1,7 +1,8 @@
 /**
  * Material kits per style. A style's parts are a set of kits: what one
  * section takes (chain link hook ties too), one line / corner / end post, the
- * blank post at the center of a double gate, one walk gate, one double gate,
+ * blank post at the center of a double gate, a gate post (wood: the post each
+ * side of a gate, in place of an end post; withGatePosts), one walk gate, one double gate,
  * each foot of fence (chain link fabric, rail, wire) and once per job. A job's parts are each kit
  * times how many the job has, added up per part; parts marked "rounded up"
  * (rolls of fabric, sticks of rail, bags of ties) are rounded up once per job.
@@ -39,7 +40,7 @@ import {
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
 
 export const KIT_KINDS = [
-  'corner', 'end', 'line', 'blank', 'section', 'section8', 'perFoot', 'perJob', 'walkGate', 'dblGate',
+  'corner', 'end', 'line', 'blank', 'gatePost', 'section', 'section8', 'perFoot', 'perJob', 'walkGate', 'dblGate',
   'walkGate5', 'walkGate6', 'dblGate10', 'dblGate12', 'anyGate', 'anyWalkGate', 'anyDblGate',
 ] as const
 export type KitKind = typeof KIT_KINDS[number]
@@ -60,11 +61,29 @@ export function kitParts(set: Pick<KitSet, 'kits'>, kind: KitKind): KitPart[] {
 export const allWalkGates = (c: KitCounts) => c.walkGate + (c.walkGate5 ?? 0) + (c.walkGate6 ?? 0)
 export const allDblGates = (c: KitCounts) => c.dblGate + (c.dblGate10 ?? 0) + (c.dblGate12 ?? 0)
 
+/**
+ * Gate posts (Oct 30 2026, wood). In this app a gate hangs on end posts: the
+ * job's "End and gate posts" count includes the post on each side of every
+ * gate. A kit set with a gate post kit (wood: a 6x6 post where the fence
+ * takes 4x4) prices those posts from it instead of the end post kit: two per
+ * walk gate and two per double gate (one each side), never more than the
+ * job's end posts. A set with no gate post kit (every vinyl, chain link and
+ * aluminum set today) counts exactly as before. Done here, where kit counts
+ * become parts, so the pull sheet, the order list, the install packet and the
+ * price all read the same posts.
+ */
+export function withGatePosts(set: Pick<KitSet, 'kits'>, counts: KitCounts): KitCounts {
+  if (!set.kits.gatePost?.length) return counts
+  const g = Math.max(0, Math.min(2 * (allWalkGates(counts) + allDblGates(counts)), counts.end))
+  return { ...counts, end: counts.end - g, gatePost: g }
+}
+
 export const KIT_LABEL: Record<KitKind, string> = {
   corner: 'Corner post',
   end: 'End post',
   line: 'Line post',
   blank: 'Blank post (center of a double gate)',
+  gatePost: 'Gate post (each side of a gate, used in place of an end post)',
   section: 'Section',
   section8: 'Section on an 8 ft rail run',
   perFoot: 'Per foot of fence',
@@ -335,7 +354,8 @@ export function withoutBellStandIns(set: Pick<KitSet, 'styleName'>, parts: KitPa
 }
 
 /** Each kit times how many the job has, added up per part; rounded up once per job where the set says so. */
-export function linesFromKitSet(set: KitSet, counts: KitCounts): KitLine[] {
+export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
+  const counts = withGatePosts(set, counts0)
   const totals = new Map<string, { qty: number; cost: number }>()
   for (const kind of KIT_KINDS) {
     const n = counts[kind]
@@ -354,7 +374,7 @@ export function linesFromKitSet(set: KitSet, counts: KitCounts): KitLine[] {
 
 /** Which piece price pays for each kind of kit on a job lot color (per foot and per job parts never are). */
 export const PIECE_OF_KIT: Record<KitKind, keyof StyleJobLot['covers'] | null> = {
-  section: 'section', section8: 'section', corner: 'post', end: 'post', line: 'post', blank: 'post',
+  section: 'section', section8: 'section', corner: 'post', end: 'post', line: 'post', blank: 'post', gatePost: 'post',
   walkGate: 'walkGate', dblGate: 'dblGate', perFoot: null, perJob: null,
   walkGate5: 'walkGate', walkGate6: 'walkGate', dblGate10: 'dblGate', dblGate12: 'dblGate',
   anyGate: null, anyWalkGate: null, anyDblGate: null,
@@ -368,7 +388,8 @@ export const PIECE_OF_KIT: Record<KitKind, keyof StyleJobLot['covers'] | null> =
  * times the price. Coverage is per kit, so a part is charged once: by the
  * piece whose kit it is in when that piece covers it, otherwise by Inventory.
  */
-export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: StyleJobLot): KitLine[] {
+export function linesFromKitSetJobLot(set: KitSet, counts0: KitCounts, lot: StyleJobLot): KitLine[] {
+  const counts = withGatePosts(set, counts0)
   const unc = new Map<string, { qty: number; cost: number }>()
   const cov = new Map<string, number>()
   const covers = Object.fromEntries(Object.entries(lot.covers).map(([k, v]) => [k, new Set((v ?? []).map(normalizeItemName))])) as Record<keyof StyleJobLot['covers'], Set<string>>
@@ -419,7 +440,8 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
     if (leaves && lot.leafWidth !== w) section(lot.leafWidth!, leaves)
   }
   piece('corner post', counts.corner, lot.corner)
-  piece('end post', counts.end, lot.end)
+  // A gate post stands where an end post would (withGatePosts): charged at the end post price.
+  piece('end post', counts.end + (counts.gatePost ?? 0), lot.end)
   piece('line post', counts.line, lot.line)
   piece('gate post (center of a double gate)', counts.blank, lot.blank)
   piece('walk gate', walks, lot.walkGate)

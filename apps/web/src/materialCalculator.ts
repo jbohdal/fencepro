@@ -68,6 +68,11 @@ export interface KitCounts {
   end: number
   /** One blank post at the center of every double gate. */
   blank: number
+  /**
+   * Posts each side of a gate, taken out of `end` where the kit set has a gate
+   * post kit (materialKits.ts withGatePosts; wood). Never set by the counting.
+   */
+  gatePost?: number
   /** Walk gates with no kit of their own width: 4 ft, a typed count (no width), or a width the takeoff sheet has no row for. */
   walkGate: number
   /** Double gates with no kit of their own width: 8 ft, a typed count, or a width with no sheet row. */
@@ -327,7 +332,7 @@ export interface LineItem {
   costSource?: 'inventory' | 'builtin' | 'jobLot' | 'wood'
   /** A job lot piece price line (section, post, gate): money only, not a part to pull or order. */
   jobLotPiece?: boolean
-  /** Money only, not a part to pull or order: wood's material (white vinyl × the Wood factor, wood.ts). Wood parts themselves are listed at $0 ('wood'). */
+  /** Money only, not a part to pull or order: a wood move or repair's material (white vinyl × the Wood factor, moveRepair.ts woodWork), and quotes saved before Oct 30 2026. Parts named for the crew there are listed at $0 ('wood'). */
   moneyOnly?: boolean
 }
 
