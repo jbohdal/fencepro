@@ -112,6 +112,7 @@ import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
 import feedbackRoutes from './routes/feedback.js'
+import codeMessageRoutes from './routes/code-messages.js'
 import followUpRoutes from './routes/follow-ups.js'
 import opsStagesRoutes from './routes/ops-stages.js'
 import pipelineStagesRoutes from './routes/pipeline-stages.js'
@@ -387,6 +388,7 @@ app.use('/api/admin', adminAuditRoutes)
 app.use('/api/cron', cronRoutes)                // Vercel cron jobs
 app.use('/api/portal', portalRoutes)            // Customer portal accounts + activation
 app.use('/api/feedback', feedbackRoutes)        // "Send feedback" from inside the app
+app.use('/api/code-messages', codeMessageRoutes) // Messages from Code: the owner's alone (lib/codeMessages.ts)
 app.use('/api/follow-ups', followUpRoutes)      // Follow ups: calls, answers, next dates (lib/followUps.ts)
 
 // ── Health check (expanded) ──

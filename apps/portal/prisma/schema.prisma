@@ -2735,6 +2735,29 @@ model Feedback {
   @@index([accountId, status])
 }
 
+/// A message from Code (the assistant that builds and deploys EZ Biz) to the
+/// owner, read in the app under "Messages from Code" (lib/codeMessages.ts,
+/// routes/code-messages.ts). Written by scripts/code-message.ts, which also
+/// pushes the one line title to the owner's phone only. Owner only: nobody
+/// else can list or open them.
+model CodeMessage {
+  id         String    @id @default(uuid())
+  accountId  String
+  /// live (a deploy went live) | needs_answer (needs his answer or OK) | failed (a deploy or live data change failed) | info
+  kind       String
+  /// One line: what the push says
+  title      String
+  /// The details, plain text or simple markdown (may be long)
+  body       String    @default("")
+  createdAt  DateTime  @default(now())
+  /// When the owner first opened it; null = unread
+  readAt     DateTime?
+  /// When the owner marked a needs_answer message answered
+  answeredAt DateTime?
+
+  @@index([accountId, createdAt])
+}
+
 // ── Follow ups (docs: lib/followUps.ts) ──
 
 /// One call, text or other touch with a customer and how it went. The id is
