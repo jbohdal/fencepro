@@ -70,7 +70,7 @@ let version = 0
 /** Skip entries whose window is gone, one step at a time in the same direction. */
 let skipping = 0
 
-const LAYER_PARAMS = new Set(['card', 'quote', 'for', 'qv', 'job', 'ticket'])
+const LAYER_PARAMS = new Set(['card', 'quote', 'for', 'qv', 'job', 'ticket', 'msg'])
 
 function state(): EntryState | null {
   const s = window.history.state as EntryState | null

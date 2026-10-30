@@ -25,8 +25,10 @@ const JobPage = lazy(() => import('./JobPage'))
 const AssignLeadPage = lazy(() => import('./AssignLeadPage'))
 const AuditLogPage = lazy(() => import('./AuditLogPage'))
 const FeedbackPage = lazy(() => import('./FeedbackPage'))
+const CodeMessagesPage = lazy(() => import('./CodeMessagesPage'))
+import { startCodeMessageStatus, useCodeMessageStatus, CODE_MESSAGES_PAGE } from './codeMessages'
 import FeedbackButton, { FeedbackOverWindow } from './FeedbackButton'
-import { MessageSquarePlus, PhoneCall } from 'lucide-react'
+import { MessageSquarePlus, MessageSquareText, PhoneCall } from 'lucide-react'
 const SchedulePage = lazy(() => import('./SchedulePage'))
 const ReportsPage = lazy(() => import('./ReportsPage'))
 const MapQuoteBuilder = lazy(() => import('./MapQuoteBuilder'))
@@ -125,6 +127,8 @@ interface NavItem {
   name: string
   icon: LucideIcon
   roles: UserRole[]  // which roles can see this item
+  /** Shown only when the server says this login is the owner (lib/salesmanChoice.ts isOwnerLogin), whatever the role menu says. */
+  ownerOnly?: boolean
 }
 
 interface NavGroup {
@@ -175,6 +179,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Admin',
     items: [
+      // The owner's alone (codeMessages.ts): never another admin, even one switched to the Owner view.
+      { name: CODE_MESSAGES_PAGE, icon: MessageSquareText, roles: ['owner', 'admin'], ownerOnly: true },
       { name: 'Team',           icon: UserCog, roles: ['owner', 'admin'] },
       { name: 'EZ Budget',      icon: Calculator, roles: ['owner', 'admin'] },
       { name: 'Automations',    icon: Zap, roles: ['owner', 'admin'] },
@@ -354,6 +360,8 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     setLoadingData(false)
     // Follow up badges, and this phone's answers still waiting for signal back on screen.
     void startFollowUps()
+    // Messages from Code: the menu line and its unread badge, for the owner (asked of the server; the rest are told no).
+    if (user.role === 'super_admin' || user.role === 'admin') startCodeMessageStatus()
     // Payments waiting on this phone back on screen; receipt numbers set aside for no signal (paymentsStore.ts).
     startPayments(`${user.firstName} ${user.lastName}`.trim())
     // Website quotes and phone calls that came in while nobody was looking.
@@ -660,6 +668,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
 
   const companyName = useMemo(() => loadCompanyName(), [])
   const role = userProfile.role
+  const codeMessages = useCodeMessageStatus()
 
   // Revenue on the dashboard comes from jobs, so follow them as they change.
   useEffect(() => {
@@ -716,8 +725,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // Filtered nav based on role
   const visibleGroups = NAV_GROUPS.map(g => ({
     ...g,
-    items: g.items.filter(i => i.roles.includes(role)),
+    items: g.items.filter(i => i.roles.includes(role) && (!i.ownerOnly || codeMessages.owner)),
   })).filter(g => g.items.length > 0)
+  /** The unread count shown beside a menu line (Messages from Code). */
+  const navBadge = (name: string) => (name === CODE_MESSAGES_PAGE && codeMessages.owner && codeMessages.unread > 0 ? codeMessages.unread : 0)
 
   /* ── Quote handlers ── */
 
@@ -1166,7 +1177,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                     }`}
                   >
                     <item.icon size={18} strokeWidth={2} aria-hidden="true" />
-                    <span>{item.name}</span>
+                    <span className="flex-1 text-left">{item.name}</span>
+                    {navBadge(item.name) > 0 && <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-orange-500 text-white text-xs font-bold grid place-items-center" data-nav-badge={item.name} aria-label={`${navBadge(item.name)} unread`}>{navBadge(item.name)}</span>}
                   </button>
                 ))}
               </div>
@@ -1242,8 +1254,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                         : 'text-[#CFC4E2] hover:bg-white/10 hover:text-white'
                     }`}
                   >
-                    <item.icon size={18} strokeWidth={2} aria-hidden="true" />
-                    {!sidebarCollapsed && <span>{item.name}</span>}
+                    <span className="relative">
+                      <item.icon size={18} strokeWidth={2} aria-hidden="true" />
+                      {sidebarCollapsed && navBadge(item.name) > 0 && <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 rounded-full bg-orange-500" aria-label={`${navBadge(item.name)} unread`} />}
+                    </span>
+                    {!sidebarCollapsed && <span className="flex-1 text-left">{item.name}</span>}
+                    {!sidebarCollapsed && navBadge(item.name) > 0 && <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-orange-500 text-white text-xs font-bold grid place-items-center" data-nav-badge={item.name} aria-label={`${navBadge(item.name)} unread`}>{navBadge(item.name)}</span>}
                   </button>
                 ))}
               </div>
@@ -1394,6 +1410,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Portal'    && <PortalInbox />}
           {active === 'Audit Log' && <AuditLogPage />}
           {active === 'Feedback'  && <FeedbackPage />}
+          {active === CODE_MESSAGES_PAGE && <CodeMessagesPage />}
           {active === 'Settings'  && <AdminSettingsPage />}
           {active === 'Inventory' && <InventoryPage />}
           {active === 'Pending Orders' && <PendingOrdersPage />}
@@ -1587,7 +1604,10 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           </button>
         ))}
         <button onClick={() => setMobileMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={mobileMenuOpen} data-popup-trigger="nav-drawer" className={`h-16 flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold ${mobileMenuOpen ? 'text-orange-500' : 'text-gray-500'}`}>
-          <span className="grid place-items-center h-8 w-14 rounded-full"><Menu size={22} aria-hidden="true" /></span>More
+          <span className="relative grid place-items-center h-8 w-14 rounded-full"><Menu size={22} aria-hidden="true" />
+            {/* Unread Messages from Code (the owner's): a dot on More, the count on the menu line inside. */}
+            {navBadge(CODE_MESSAGES_PAGE) > 0 && <span className="absolute top-0 right-2.5 w-2.5 h-2.5 rounded-full bg-orange-500 ring-2 ring-white" data-more-badge aria-label="Unread Messages from Code" />}
+          </span>More
         </button>
       </nav>
 

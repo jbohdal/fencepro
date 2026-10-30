@@ -934,3 +934,46 @@ tests another branch, `NIGHTLY_OUT=<folder>` writes elsewhere,
 Note: the check's folders share the working folder's installed packages, so
 its `prisma generate` (finalize's schema) also applies to other worktrees until
 they generate again.
+
+## 21. Messages from Code (Oct 30, 2026)
+
+Jonathan: "Send me an EZ Biz push notification on my phone (owner only, never
+Christa or anyone else) whenever: a deploy goes live; something needs my
+answer or my OK; a deploy or a live data change fails."
+
+- Each message is saved in the database (`CodeMessage`) and its one line title
+  is pushed to the owner's phones only: every active super_admin login (with
+  none, the oldest active admin), as `isOwnerLogin` finds the owner. Never
+  another admin, the office, a Salesman or an Installer.
+- Tapping the push opens the message in the app (`/messages-from-code?msg=<id>`).
+  The owner also finds them under **Messages from Code** (More on the phone,
+  the side menu on a computer), with the unread count. Nobody else sees the
+  menu line, and the API answers them 403.
+- Only the live install reaches the phone (outbound gate, section 15). Run
+  anywhere else, the message is saved in that copy's database and the push
+  goes to its dev outbox.
+
+Send one from the live Mac, after the update has said "EZ Biz is up" and the
+app has been checked:
+
+```bash
+cd ~/ezbiz/apps/portal
+pnpm exec tsx scripts/code-message.ts --kind live --title "Live: <what is live, one line>"
+pnpm exec tsx scripts/code-message.ts --kind needs_answer --title "<the question, one line>" --body-file /path/to/details.md
+pnpm exec tsx scripts/code-message.ts --kind failed --title "<what failed, one line>" --body "<details>"
+```
+
+`--kind` is `live`, `needs_answer`, `failed` or `info`. `--body` or
+`--body-file` holds the details (plain text or simple markdown: headings,
+lists, **bold**, `code`, links); `--no-push` saves without a push. It prints
+the message's id and how many phones got the push (exit 3 on live when none
+did: turn on push on the owner's phone in Automations).
+
+`update.sh` sends the `failed` one itself when it stops (which step, and the
+code it was on). The `live` one is Code's to send, with what went live. The
+first update that adds `CodeMessage` creates its table at its `prisma db push`
+step; a failure before that step on that one update cannot be saved, so it
+sends nothing.
+
+Try it on the dev copy: `apps/web/e2e/code-messages.mjs` (the script, the
+owner on an iPhone and a computer, another admin, the office and a Salesman).
