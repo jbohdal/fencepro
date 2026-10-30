@@ -39,7 +39,7 @@ import { callableContact } from '../../../portal/src/server/lib/widgetContact'
 /** The end of the checkbox words, shown as the link to the terms. */
 const TERMS_TEXT = 'gdfencepro.com/terms.cfm'
 
-interface Material { material: 'vinyl' | 'chain' | 'alum' | 'wood'; label: string; photoUrl: string | null; colors: Array<{ key: string; label: string }>; heights: Array<{ key: string; height: string; kind: string; label: string; colors: string[] }> }
+interface Material { material: 'vinyl' | 'chain' | 'alum' | 'wood'; label: string; photoUrl: string | null; colors: Array<{ key: string; label: string }>; heights: Array<{ key: string; height: string; kind: string; label: string; colors: string[] }>; colorHeading?: string; heightHeading?: string; heightFirst?: boolean }
 interface Pick { material: Material['material']; color: string; height: string; kind: string }
 interface Option { key: string; name: string; text: string; popular: boolean; fenceStyle: string; styleLabel: string; price: number; perFoot: number }
 
@@ -170,6 +170,18 @@ export default function WidgetApp() {
 
   const material = materials.find(m => m.material === pick?.material) ?? null
   const heightsForColor = material ? material.heights.filter(h => !material.colors.length || h.colors.includes(pick?.color ?? '')) : []
+  // The height (wood: style) list, shown after the colors, or first for wood (widgetPricing.ts WOOD_WORDS).
+  const heightList = material && pick ? (
+    <>
+      <p className="text-sm font-semibold text-gray-700" data-w-height-heading>{material.heightHeading ?? 'Height'}</p>
+      <div className="grid grid-cols-3 gap-2">
+        {heightsForColor.map(h => (
+          <button key={h.key} type="button" onClick={() => { setPick({ ...pick, height: h.height, kind: h.kind }); setOptions(null) }} data-w-height={h.key}
+            className={`min-h-[48px] rounded-lg border-2 text-sm font-semibold px-2 ${pick.height === h.height && pick.kind === h.kind ? 'border-orange-500 bg-orange-50 text-orange-800' : 'border-gray-200'}`}>{h.label}</button>
+        ))}
+      </div>
+    </>
+  ) : null
   const pickReady = !!pick && !!material && material.heights.some(h => h.height === pick.height && h.kind === pick.kind && (!material.colors.length || h.colors.includes(pick.color)))
   const runsDrawn = (drawing?.runs ?? []).filter(r => r.pts.length >= 2)
   const feet = drawing ? totalFt(drawing) : 0
@@ -363,9 +375,11 @@ export default function WidgetApp() {
           )}
           {material && pick && (
             <>
+              {/* Wood: Style first, then Pickets (widgetPricing.ts WOOD_WORDS). */}
+              {material.heightFirst && heightList}
               {material.colors.length > 1 && (
                 <>
-                  <p className="text-sm font-semibold text-gray-700">Color</p>
+                  <p className="text-sm font-semibold text-gray-700" data-w-color-heading>{material.colorHeading ?? 'Color'}</p>
                   <div className="flex flex-wrap gap-2">
                     {material.colors.map(c => (
                       <button key={c.key} type="button" onClick={() => {
@@ -377,13 +391,7 @@ export default function WidgetApp() {
                   </div>
                 </>
               )}
-              <p className="text-sm font-semibold text-gray-700">Height</p>
-              <div className="grid grid-cols-3 gap-2">
-                {heightsForColor.map(h => (
-                  <button key={h.key} type="button" onClick={() => { setPick({ ...pick, height: h.height, kind: h.kind }); setOptions(null) }} data-w-height={h.key}
-                    className={`min-h-[48px] rounded-lg border-2 text-sm font-semibold px-2 ${pick.height === h.height && pick.kind === h.kind ? 'border-orange-500 bg-orange-50 text-orange-800' : 'border-gray-200'}`}>{h.label}</button>
-                ))}
-              </div>
+              {!material.heightFirst && heightList}
             </>
           )}
           <button type="button" className="btn btn-primary btn-lg w-full" disabled={!pickReady} onClick={() => setStep(3)} data-w-next>{priceFirst ? 'See my prices' : 'Next'}</button>

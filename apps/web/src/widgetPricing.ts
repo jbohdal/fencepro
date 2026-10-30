@@ -19,6 +19,7 @@ import { isQuotable } from './styleAvailability'
 import type { AppConfig, FenceStyle } from './configStore'
 import type { QuotePricingOverrides } from './pricingEngine'
 import { colorNamesOf } from './fenceCatalog'
+import { WOOD_STYLES } from './wood'
 
 // ── What the customer picks ──────────────────────────────────────────────────
 
@@ -36,7 +37,26 @@ export interface WidgetCatalog {
     colors: Array<{ key: string; label: string }>
     /** Heights (with kind) offered for each color. */
     heights: Array<{ key: string; height: string; kind: string; label: string; colors: string[] }>
+    /** The headings the customer sees over the two lists: "Color" and "Height", wood "Pickets" and "Style" (WOOD_WORDS). */
+    colorHeading: string
+    heightHeading: string
+    /** Wood: the style list is shown first (Style, then Pickets). */
+    heightFirst?: boolean
   }>
+}
+
+/**
+ * What a customer reads for wood on the website quote (review Oct 30 2026:
+ * the picket grade showed under "Color" and the styles under "Height"): the
+ * style list is "Style" (Stockade, Board on Board, Shadow Box), with the
+ * height only when more than one height is offered, and the picket grade is
+ * "Pickets" (regular pressure treated pine, or Alta Premium).
+ */
+export const WOOD_WORDS = {
+  styleHeading: 'Style',
+  picketHeading: 'Pickets',
+  picket: { pine: 'Regular pressure treated', premium: 'Alta Premium' } as Record<string, string>,
+  style: Object.fromEntries(WOOD_STYLES.map(s => [s.key, s.label])) as Record<string, string>,
 }
 
 /** The picks a style stands for, or null when the widget does not offer it. */
@@ -70,17 +90,25 @@ export function widgetCatalog(cfg: Pick<AppConfig, 'fenceStyles'> & Partial<Pick
     if (!picks.length) continue
     const colors = [...new Set(picks.map(p => p.color))].filter(Boolean)
     const kinds = new Set(picks.map(p => p.kind))
+    const wood = material === 'wood'
+    const oneHeight = new Set(picks.map(p => p.height)).size === 1
     const hk = new Map<string, WidgetCatalog['materials'][number]['heights'][number]>()
     for (const p of picks) {
       const key = `${p.height}|${p.kind}`
-      const h = hk.get(key) ?? { key, height: p.height, kind: p.kind, label: `${p.height} ft${kinds.size > 1 && KIND_NAME[p.kind] ? ` ${KIND_NAME[p.kind]}` : ''}`, colors: [] }
+      const woodStyle = WOOD_WORDS.style[p.kind] ?? (KIND_NAME[p.kind] ? KIND_NAME[p.kind].charAt(0).toUpperCase() + KIND_NAME[p.kind].slice(1) : p.kind)
+      const label = wood ? (oneHeight ? woodStyle : `${woodStyle}, ${p.height} ft`) : `${p.height} ft${kinds.size > 1 && KIND_NAME[p.kind] ? ` ${KIND_NAME[p.kind]}` : ''}`
+      const h = hk.get(key) ?? { key, height: p.height, kind: p.kind, label, colors: [] }
       if (!h.colors.includes(p.color)) h.colors.push(p.color)
       hk.set(key, h)
     }
+    const kindOrder = (k: string) => { const i = WOOD_STYLES.findIndex(s => s.key === k); return i < 0 ? 99 : i }
     out.materials.push({
       material, label: MATERIAL_LABEL[material],
-      colors: colors.map(k => ({ key: k, label: colorNames[k] ?? COLOR_LABEL[k] ?? k.charAt(0).toUpperCase() + k.slice(1) })),
-      heights: [...hk.values()].sort((a, b) => Number(a.height) - Number(b.height) || a.kind.localeCompare(b.kind)),
+      colors: colors.map(k => ({ key: k, label: (wood ? WOOD_WORDS.picket[k] : undefined) ?? colorNames[k] ?? COLOR_LABEL[k] ?? k.charAt(0).toUpperCase() + k.slice(1) })),
+      heights: [...hk.values()].sort((a, b) => Number(a.height) - Number(b.height) || (wood ? kindOrder(a.kind) - kindOrder(b.kind) : 0) || a.kind.localeCompare(b.kind)),
+      colorHeading: wood ? WOOD_WORDS.picketHeading : 'Color',
+      heightHeading: wood ? (oneHeight ? WOOD_WORDS.styleHeading : `${WOOD_WORDS.styleHeading} and height`) : 'Height',
+      ...(wood ? { heightFirst: true } : {}),
     })
   }
   return out
