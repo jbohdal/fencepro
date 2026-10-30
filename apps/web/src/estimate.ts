@@ -31,6 +31,8 @@ export { planChainDigSet, planChainDigSetPipesAndTies, planChainGateKits } from 
 export { planTanAutoDs } from './tanAutoDs'
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
+// Tan 8 ft tall vinyl, the four styles (lib/tanTallSeed.ts).
+export { planTanTall, planTanTallParts } from './tanTall'
 // A green part priced from Black follows Black's price until a green price is entered (Oct 27 2026).
 export { followBorrowedPrices, borrowedPrice } from './priceAge'
 // Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).

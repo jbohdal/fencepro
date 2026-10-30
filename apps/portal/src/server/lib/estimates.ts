@@ -73,6 +73,8 @@ interface EstimateModule {
   planChainDigSet(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean; concrete: Array<{ kit: string; part: string; qty: number }> }
   planTanAutoDs(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string | null; copiedFrom: string | null; skipped?: string }
   planTallVinylParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { items: unknown[]; added: string[] }
+  planTanTall(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string[]; copiedFrom: Record<string, string> }
+  planTanTallParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }, added: string[]): { items: unknown[]; added: string[] }
   planChainDigSetPipesAndTies(state:{ fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; renamed: Array<{ from: string; to: string }>; kitLines: Array<{ kitSet: string; kit: string; part: string }>; ties: string[]; skipped: string[] }
   planChainGateKits(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; updated: string[]; skipped: string[] }
   /** web/src/priceAge.ts: a part priced from another (green at Black's) takes that part's price now, until its own is entered. */

@@ -137,12 +137,14 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
 
   test('the $0 section parts are made in Inventory once, included in the section price; nothing else is touched', () => {
     clearBuiltInKits()
+    // The White 8 ft styles, as when this step ran (Tan 8 ft came Oct 29, 2026: tanTall.test.ts).
+    const whiteOnly = () => styles().filter(s => !/^TV-(ND|DS) 8'/.test(s.name))
     const items: InvItem[] = Object.entries(INV).filter(([n]) => !/Mid Rail|Picket, 4'|U Channel, 4'/.test(n)).map(([name, unitCost], i) => ({ id: `x${i}`, name, unitCost, category: 'Vinyl White', status: 'active' }))
-    const plan = planTallVinylParts({ fenceStyles: styles(), items, kits: [] })
+    const plan = planTallVinylParts({ fenceStyles: whiteOnly(), items, kits: [] })
     expect(plan.added.sort()).toEqual(["*Vinyl, White, Mid Rail, 6'", "*Vinyl, White, Mid Rail, 8'", "*Vinyl, White, Picket, 4'", "*Vinyl, White, U Channel, 4'"])
     for (const n of plan.added) expect(plan.items.find(i => i.name === n)).toMatchObject({ unitCost: 0, status: 'active', includedIn: '8 ft tall section price', category: 'Vinyl White' })
     expect(plan.items.slice(0, items.length)).toEqual(items)
-    expect(planTallVinylParts({ fenceStyles: styles(), items: plan.items, kits: [] }).added).toEqual([])
+    expect(planTallVinylParts({ fenceStyles: whiteOnly(), items: plan.items, kits: [] }).added).toEqual([])
   })
 })
 
