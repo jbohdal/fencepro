@@ -1,6 +1,6 @@
 // "Price may be low" on a green chain link quote (Jonathan, Oct 27 2026: "Any part still priced from Black
 // shows a warning on the quote so the salesman knows it's low"). Each step as the person who does it:
-//   office    adds the lead on a computer (Chromium)
+//   office    adds the lead on a computer (Chromium), picking the Salesman on Add lead
 //   salesman  quotes it from the card on her iPhone (WebKit, 390 x 844): the yard, then Green Chain Link 4 ft
 //             No dig (no part from Black once the green prices are in: no warning), then Dig set (its posts are
 //             still priced from Black: the warning in the Style and Price steps, naming them), saves it and
@@ -88,7 +88,7 @@ const tap = async (who, loc) => {
   await sleep(300)
 }
 
-async function officeAddsLead(o, first, last, phone) {
+async function officeAddsLead(o, first, last, phone, salesman) {
   const page = await go(o, '/pipeline')
   await page.waitForSelector('[data-kanban-col]', { timeout: 45000 }); await sleep(800)
   await tap(o, page.locator('button:has-text("+ New lead")').first())
@@ -99,6 +99,11 @@ async function officeAddsLead(o, first, last, phone) {
   await page.locator('[data-lead-field="street"]').fill('110 SE Watula Ave')
   await page.keyboard.press('Escape').catch(() => {})
   await page.locator('[data-lead-field="city"]').fill('Ocala')
+  // The Salesman choice on Add lead (Oct 29 2026): the office's entry starts on the owner (D4), and once a lead
+  // has a Salesman only the owner moves it, so the office picks the Salesman here.
+  const sel = page.locator('[data-salesman-select]')
+  await until(async () => (await sel.locator(`option[value="${salesman}"]`).count()) > 0, 20000)
+  await sel.selectOption(salesman)
   await tap(o, page.locator('[data-lead-add]'))
   const card = await until(async () => ((await owner('GET', '/api/pipeline')).json?.data?.leads ?? []).find(l => l.firstName === first && l.lastName === last && l.customerId), 20000)
   if (!card) throw new Error('the lead did not reach the server')
@@ -161,11 +166,13 @@ async function main() {
     const vp = S.page.viewportSize()
     check(vp?.width === 390, `the Salesman's phone is ${vp?.width} wide (iPhone 13, 390 x 844 screen)`)
 
-    const card = await officeAddsLead(O, 'GREENCHECK', `${TODAY} Green Yard`, '3525550109')
+    const salesName = `GREENCHECK ${TODAY} Salesman`
+    const card = await officeAddsLead(O, 'GREENCHECK', `${TODAY} Green Yard`, '3525550109', salesName)
     check(!!card, `office added the lead (card ${card.stage})`)
-    // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the office assigns it.
-    const assigned = await call(office.token, 'POST', `/api/lead-assign/${card.customerId}`, { to: sales.userId })
-    check(assigned.status === 200, `office assigned the lead to the Salesman (${assigned.status}${assigned.status === 200 ? '' : ' ' + assigned.text.slice(0, 200)})`)
+    // The Salesman sees only the Salesman's own and assigned customers (lib/salesScope.ts, Oct 28 2026): the office
+    // gives it to the Salesman on Add lead (the Salesman choice; D4 starts the office's entries on the owner).
+    const rep = sql(`SELECT coalesce("salesRep", '') FROM "CrmContact" WHERE id = ${lit(card.customerId)}`)
+    check(rep === salesName, `office gave the lead to the Salesman on Add lead (customer's Salesman: ${rep || 'none'})`)
 
     // The Salesman quotes from the card on her phone.
     let page = await go(S, `/pipeline?card=${encodeURIComponent(card.id)}`)
