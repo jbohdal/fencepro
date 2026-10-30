@@ -50,6 +50,7 @@ import { targetMarginPct, overheadPctOf } from './configStore'
 import DollarPickets, { splitDollars } from './DollarPickets'
 import { businessDate } from './businessDate'
 import { isQuotable } from './styleAvailability'
+import { isHeldSavedQuote, heldQuoteSave } from './heldQuote'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
   priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
@@ -642,6 +643,10 @@ export default function QuoteBuilder({
   const quoteIdRef = useRef<string>(init?.id || newId())
 
   const style = FENCE_STYLES.find(s => s.id === styleId)
+  // A saved quote whose style is held now because its costs are missing (8 ft tall with its piece costs cleared in
+  // Settings, review Oct 29 2026: it repriced at $0 a piece, $5,050 → $698): never repriced. The saved price stays
+  // on screen and is what a save keeps; a change that would move the price cannot be saved (heldChanged below).
+  const heldSaved = isHeldSavedQuote(init, style)
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
   const optSettings = getRailOptimizerConfig()
@@ -742,7 +747,7 @@ export default function QuoteBuilder({
   const showSentCards = !!sentCards && Object.keys(sentCards).length > 0 && !fenceChanged
   // The big price and the bottom bar show the customer's price on a signed quote, and on a sent one until its fence
   // changes (review Oct 27 2026: today's price under "Signed: the price is locked" read as the customer's).
-  const customerPrice: number | null = signedQuote ? signedQuoteOf(init!).finalPrice : sentQuote && !fenceChanged ? init!.finalPrice : null
+  const customerPrice: number | null = signedQuote ? signedQuoteOf(init!).finalPrice : heldSaved ? init!.finalPrice : sentQuote && !fenceChanged ? init!.finalPrice : null
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
@@ -830,7 +835,7 @@ export default function QuoteBuilder({
   const adjPrice    = work ? work.priceCents / 100 : newMin ? minimum.price : priced.price
   // The customer's price (above) when there is one, else the builder's.
   const shownPrice = customerPrice ?? adjPrice
-  const todayDiffers = customerPrice != null && Math.round(customerPrice * 100) !== Math.round(adjPrice * 100)
+  const todayDiffers = !heldSaved && customerPrice != null && Math.round(customerPrice * 100) !== Math.round(adjPrice * 100)
   // Cents the price was rounded down by to the whole dollar: its own line, out of profit (commission and overhead stay on the price before it).
   const roundingCents = !internal ? 0 : work ? work.roundingCents : newMin ? minimum.roundingCents : priced.roundingCents
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
@@ -862,6 +867,15 @@ export default function QuoteBuilder({
     proposal: JSON.stringify([offer, tierPrefs, keepSentTiers, showCompare]),
   }
   if (!openChoices.current) openChoices.current = choicesNow
+  // What the price is worked out from (the unsaved work, less the customer's name and notes), as it settled when
+  // opened: a held style's quote may save only when none of it changed.
+  const priceInputs = JSON.stringify([styleId, runs, entry, yard, corners, ends, walkGates, dblGates, tearOutSec, tearOutGates, adjLaborHrs, priceAdjust, hasSalesman,
+    typedGateWidths, laborMode, subUnit, subRateStr, laborFlatStr, priceMethod, perFootStr, factorStr, finalPriceStr, adjDollarsStr, showDiscount, offer, tierPrefs, jobType, move, repair, offerNewFence, offerMoveAsIs])
+  const openPriceInputs = useRef<string | null>(null)
+  useEffect(() => { const t = setTimeout(() => { openPriceInputs.current = priceInputsRef.current }, 400); return () => clearTimeout(t) }, [])
+  const priceInputsRef = useRef(priceInputs)
+  priceInputsRef.current = priceInputs
+  const heldChanged = heldSaved && openPriceInputs.current !== null && priceInputs !== openPriceInputs.current
   const openOverrides = useRef(pricingOverrides)
   const sentPricesChanged = sentQuote && openPriceRef.current != null && Math.round(openPriceRef.current * 100) !== Math.round((init?.finalPrice ?? 0) * 100)
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
@@ -944,7 +958,7 @@ export default function QuoteBuilder({
   }
 
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
-  const canSave = !!styleId && (internal || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
+  const canSave = !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
     : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
     : REPAIR_ITEMS.some(k => (chargedRepairItems(repairIn)[k] ?? 0) > 0))
 
@@ -1111,6 +1125,12 @@ export default function QuoteBuilder({
       if (direct) { toast.info('Nothing changed yet', 'Change the drawing first (footage, gates, style or height), then tap Make change order. Or type the change from the job\'s Change order button.'); return }
       // The quote as signed is what is saved (the builder may show the work as changed by approved change orders).
       onSave(keepPrices(signedQuoteOf(init), { ...quote, date: init.date }))
+      return
+    }
+    // A style held now for missing costs: the saved quote with only its words changed, at its saved price (heldSaved).
+    if (init?.id && heldSaved) {
+      const kept = heldQuoteSave(init, quote, heldChanged)
+      if (kept) onSave(kept)
       return
     }
     // A sent or shared proposal never reprices unless the office chooses it (Jonathan's rule): a save that would change
@@ -1547,7 +1567,12 @@ export default function QuoteBuilder({
                   )
                 })}
               </select>
-              {style && !isQuotable(style) && (
+              {heldSaved && !signedQuote && (
+                <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-style-held-saved>
+                  {style!.label || style!.name} is not available for quoting: {style!.held}. This quote keeps its saved price ({fmt(init!.finalPrice)}); notes and customer details can be saved, a change to the fence or its price cannot until the costs are in.
+                </p>
+              )}
+              {style && !isQuotable(style) && !heldSaved && (
                 <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-style-not-quotable>
                   {style.label || style.name} is not available for new quotes ({style.isActive === false ? 'turned off' : style.held ? style.held : 'pricing on hold'} in Settings → Fence Styles). This quote keeps it and still prices.
                 </p>
@@ -1657,7 +1682,7 @@ export default function QuoteBuilder({
 
           <div className={step === 'price' ? 'space-y-3' : 'hidden'} data-step-panel="price">
               <div className="bg-gray-900 rounded-xl p-4">
-                <p className="text-gray-400 text-xs mb-1">{customerPrice != null ? (signedQuote ? "The customer's price (as signed)" : "The customer's price (as sent)") : priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
+                <p className="text-gray-400 text-xs mb-1">{customerPrice != null ? (signedQuote ? "The customer's price (as signed)" : heldSaved ? 'The saved price (kept: our costs for this fence are missing)' : "The customer's price (as sent)") : priced.priceMethod === 'manual' ? 'Price (set by hand)' : 'Adjusted Price'}</p>
                 <p className="text-white text-3xl font-bold" data-quote-price>{fmt(shownPrice)}</p>
                 {todayDiffers && <p className="text-gray-300 text-xs mt-1" data-price-today>At today's costs it would be {fmt(adjPrice)}.</p>}
                 {!internal && svPricing && <p className="text-gray-300 text-xs mt-1" data-price-pending>Pricing…</p>}
@@ -2101,7 +2126,8 @@ export default function QuoteBuilder({
               >
                 {signedQuote ? 'Save notes and customer details only' : init?.id ? 'Update quote' : 'Save quote'}
               </button>
-              {!canSave && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
+              {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>Not saved: {style!.label || style!.name} has no costs in Settings ({style!.held}), so its price cannot change. Close without saving to keep the saved quote.</p>}
+              {!canSave && !heldChanged && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && materialItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4">
                 <div className="flex items-center justify-between mb-3">

@@ -130,6 +130,19 @@ export function styleLabels(saved: Partial<AppConfig> | null, data?: Pick<Estima
   return Object.fromEntries(estimateConfig(saved).fenceStyles.map(s => [s.name, s.label || s.name]))
 }
 
+/**
+ * Why a style is held back from quoting now because something it is priced
+ * from is missing (8 ft tall piece costs, a color not fully priced, parts
+ * waiting for prices: fenceCatalog.ts resolveFenceStyles `held`), or null.
+ * Switched off by hand (quotable false) is not "held": it still prices.
+ * Server: lib/heldStylePrice.ts refuses a save that changes such a price.
+ */
+export function heldStyleReason(data: EstimateData, name: string): string | null {
+  useData(data)
+  const s = estimateConfig(data.config).fenceStyles.find(x => x.name === name)
+  return s?.held ? s.held : null
+}
+
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */
 export function estimateConfig(saved: Partial<AppConfig> | null): AppConfig {
   const merged = mergeSavedConfig(saved)

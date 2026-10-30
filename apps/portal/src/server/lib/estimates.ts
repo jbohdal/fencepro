@@ -73,6 +73,7 @@ interface EstimateModule {
   planChainDigSet(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean; concrete: Array<{ kit: string; part: string; qty: number }> }
   planTanAutoDs(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string | null; copiedFrom: string | null; skipped?: string }
   planTallVinylParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { items: unknown[]; added: string[] }
+  heldStyleReason(data: unknown, name: string): string | null
   planTanTall(fenceStyles: unknown[]): { fenceStyles: unknown[]; added: string[]; copiedFrom: Record<string, string> }
   planTanTallParts(state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }, added: string[]): { items: unknown[]; added: string[] }
   planChainDigSetPipesAndTies(state:{ fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; items: unknown[]; kits: unknown[] }; renamed: Array<{ from: string; to: string }>; kitLines: Array<{ kitSet: string; kit: string; part: string }>; ties: string[]; skipped: string[] }
@@ -124,7 +125,7 @@ export function notQuotableMessage(err: unknown): string {
   return typeof m === 'string' && m ? m : NOT_QUOTABLE_MESSAGE
 }
 
-/** For staff: why the style is held ("8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl"). */
+/** For staff: why the style is held ("8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl"). */
 export function notQuotableReason(err: unknown): string {
   const held = (err as { held?: unknown } | null)?.held
   return typeof held === 'string' && held ? held : notQuotableMessage(err)
