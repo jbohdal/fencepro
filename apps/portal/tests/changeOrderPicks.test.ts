@@ -5,7 +5,7 @@
  *
  *   price = cost ÷ (1 − Target Margin), Target Margin = Overhead % + Repair
  *   Profit % when that is set, else the style's; whole dollars (rounded down);
- *   no minimum job price; wood × the Wood factor on material and labor.
+ *   no minimum job price; wood: its own wood parts and wood labor (woodChangeOrders.test.ts).
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
@@ -83,7 +83,7 @@ describe('priced as the Repair price list prices', () => {
     expect(priceChangeOrderPick(common({ overrides: { finalPrice: 9999, laborCost: 500 }, priceAdjust: 0.5, extraLaborHrs: 3 }), { kind: 'part', part: 'Misc, Concrete' }, 2).priceCents).toBe(2200)
   })
 
-  test('a wood job: material × the Wood factor (115 %), as a wood repair is priced', () => {
+  test('a wood style with no wood kit in use (the Oct 19 privacy rows): material × the Wood factor (115 %), as before; real wood jobs: woodChangeOrders.test.ts', () => {
     const wood = style({ name: 'Wood 6ft', woodBase: style() } as Partial<QuoteStyle>)
     // $12.50 × 1.15 = $14.38 ÷ 0.56 = $25.67 → $25.
     expect(priceChangeOrderPick(common({ style: wood }), { kind: 'part', part: 'Misc, Concrete' }, 2).priceCents).toBe(2500)

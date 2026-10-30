@@ -12,6 +12,10 @@
  *   Catalog            every Inventory item in use with a cost, priced as a
  *                      repair prices the parts it uses
  *
+ * On a wood job (Oct 30 2026) the parts are the wood style's own kit and
+ * Inventory costs, and labor is wood labor (White Vinyl × the Wood factor):
+ * moveRepair.ts woodChangeOrder.
+ *
  * Each item's price is for a quantity of one; pickPrice prices a quantity.
  */
 

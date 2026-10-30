@@ -940,10 +940,12 @@ function mergeItems(items: LineItem[]): LineItem[] {
  *
  * then priced as a repair is: cost ÷ (1 − Target Margin), Target Margin =
  * Overhead % + Repair Profit % when Repair Profit % is set, else the style's;
- * commission and the whole dollar rule as on a repair quote; a wood style's
- * material and labor × the Wood factor (woodWork). Never the minimum job price
- * (the job is already sold) and never the quote's typed price, flat labor or
- * slider: a line is priced on its own, at Settings today.
+ * commission and the whole dollar rule as on a repair quote. Never the
+ * minimum job price (the job is already sold) and never the quote's typed
+ * price, flat labor or slider: a line is priced on its own, at Settings today.
+ *
+ * A wood job (Jonathan, Oct 30 2026: "Change orders on wood jobs: use the
+ * wood parts and wood pricing, not vinyl +15%"): woodChangeOrder below.
  */
 export type PickRepairKey = RepairItemKey | 'pullPost'
 export const PICK_REPAIR_KEYS: PickRepairKey[] = [...REPAIR_ITEMS, 'pullPost']
@@ -956,10 +958,55 @@ export function priceChangeOrderPick(c: WorkCommon, pick: ChangeOrderPick, qty: 
   const n = Math.max(1, Math.round(Number(qty) || 1))
   const cc: WorkCommon = { ...c, settings: { ...c.settings, minimumJobCents: 0 }, overrides: {}, extraLaborHrs: 0, priceAdjust: 0 }
   if (pick.kind === 'repair' && pick.key !== 'pullPost') {
-    return priceRepair(cc, { what: 'other', items: { [pick.key]: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.gateKind === 'double' ? 'double' : 'walk', debrisCleared: true })
+    const r: RepairInputs = { what: 'other', items: { [pick.key]: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.gateKind === 'double' ? 'double' : 'walk', debrisCleared: true }
+    // A wood job: wood parts and wood labor (woodChangeOrder), not the repair quote's White Vinyl × the Wood factor.
+    if (cc.style.woodBase) return woodChangeOrder(cc, x => priceRepair(x, r))
+    return priceRepair(cc, r)
   }
-  if (cc.style.woodBase) return woodWork(cc, w => pickInner(w, pick, n))
+  if (cc.style.woodBase) return woodChangeOrder(cc, w => pickInner(w, pick, n))
   return pickInner(cc, pick, n)
+}
+
+/**
+ * A change order line on a wood job (Jonathan, Oct 30 2026: "use the wood
+ * parts and wood pricing, not vinyl +15%"):
+ *
+ *   material   the wood style's own kit (wood.ts) priced from Inventory, the
+ *              same parts and prices a new wood quote uses for those pieces
+ *              (a section kit, a gate kit, a post kit); a part picked from
+ *              the catalog at its Inventory cost, nothing added
+ *   labor      wood labor: the same line's labor on the White Vinyl style
+ *              (woodBase) × the Wood factor, as wood install labor is
+ *   disposal   pulling and hauling old posts, debris: as on vinyl
+ *
+ * then priced as every change order line is (finish → price). Moves and
+ * repair quotes are not this: they stay White Vinyl × the Wood factor
+ * (woodWork). A wood style with no kit in use (the Oct 19 privacy rows, their
+ * kits archived) has no wood parts to price from: its lines stay as they were
+ * priced (woodWork), so a line is never $0 material by accident.
+ */
+function woodChangeOrder(c: WorkCommon, run: (c: WorkCommon) => WorkResult): WorkResult {
+  const base = c.style.woodBase!
+  const own = { ...c.style, woodBase: undefined, woodFactor: undefined }
+  if (!workKit(own)) return woodWork(c, run)
+  const f = typeof c.style.woodFactor === 'number' && c.style.woodFactor > 0 ? c.style.woodFactor : c.settings.woodFactorPct / 100
+  const pct = Math.round(f * 1000) / 10
+  // The wood parts: the line on the wood style itself (its own kit and Inventory); its labor is not used.
+  const w = run({ ...c, style: own })
+  // The labor and disposal: the line on the White Vinyl style.
+  const v = run({ ...c, style: { ...base, margin: c.style.margin } })
+  const woodLaborCents = Math.round(v.laborCents * f)
+  const lines: CostLine[] = [
+    ...w.lines.filter(l => l.kind === 'material'),
+    ...v.lines.filter(l => l.kind !== 'material'),
+    { key: 'woodLabor', label: `Wood labor: ${pct}% of the White Vinyl labor`, kind: 'labor', cents: woodLaborCents - v.laborCents, math: `${usd(v.laborCents / 100)} vinyl labor × ${pct}% = ${usd(woodLaborCents / 100)}` },
+  ]
+  const rateWords = /^No rate per/
+  const warnings = [...new Set([...w.warnings.filter(x => !rateWords.test(x)), ...v.warnings.filter(x => rateWords.test(x))])]
+  const acc: Acc = { lines, warnings, missingRates: [], missingParts: new Set(), pull: new Map() }
+  const r = price(c, w.type, acc, { materialCents: w.materialCents, laborCents: woodLaborCents, disposalCents: v.disposalCents }, null, w.description, w.crew, w.needs811, w.sections, w.footage, w.manHours, c.settings)
+  r.pullSheet = w.pullSheet
+  return r
 }
 
 function pickInner(c: WorkCommon, pick: ChangeOrderPick, n: number): WorkResult {

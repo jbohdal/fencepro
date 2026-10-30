@@ -3,6 +3,16 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-30: change orders on wood jobs use the wood parts
+
+Jonathan: "Change orders on wood jobs: use the wood parts and wood pricing, not vinyl +15%."
+
+- **Change order lines on a wood job** (Replace a section, Replace a gate, the other Repair price list items, catalog parts): the material is the wood style's own kit priced from Inventory, the same parts and costs a new wood quote uses for those pieces (a section kit, a walk or double gate kit with the drop rod, a post kit). A catalog part is its Inventory cost, nothing added (it was × 115%).
+- **Labor** is wood labor: the same line's labor on the White Vinyl style × the Wood factor (unchanged). Disposal (pulling old posts, debris) as on vinyl. The line is priced as every change order line is (repair margin, commission, whole dollars).
+- **Repair quotes and moves on wood** are unchanged: White Vinyl × the Wood factor.
+- **An Oct 19 privacy wood job** (its kit archived, no wood parts to price from) keeps the old way, so its lines are never $0 material.
+- **In the app:** apps/web/src/moveRepair.ts (woodChangeOrder, priceChangeOrderPick); pinned in apps/portal/tests/woodChangeOrders.test.ts.
+
 ## 2026-10-30: wood is priced from real wood parts; the 15% is labor and repairs only
 
 Jonathan: "The 15% is for wood labor and repair rates only. Archive (don't delete) every vinyl part renamed as wood, and take them out of the wood kits. Build real wood kits ... made of real wood parts ... Each wood style turns on by itself once all its parts have a price, like the other styles. Wood labor stays at vinyl's rate +15%." Later the same day he gave the styles, parts and prices: 6 ft tall only, dig set, 8 ft sections; Stockade, Board on Board and Shadow Box; one picket in two grades offered as Good and Better; gates on a steel frame, hinges included.
