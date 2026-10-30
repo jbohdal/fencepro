@@ -14,7 +14,7 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
-import { estimateJob, quickEstimate, estimateStyleList, isNotQuotable, NOT_QUOTABLE_MESSAGE, type Estimate } from '../lib/estimates.js'
+import { estimateJob, quickEstimate, estimateStyleList, isNotQuotable, notQuotableMessage, notQuotableReason, type Estimate } from '../lib/estimates.js'
 import { plainZod } from '../lib/plainZod.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
@@ -67,7 +67,7 @@ router.post('/quick-estimate', async (req, res) => {
       res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
-    if (isNotQuotable(err)) { res.json({ success: false, notQuotable: true, error: NOT_QUOTABLE_MESSAGE, data: { message: NOT_QUOTABLE_MESSAGE } }); return }
+    if (isNotQuotable(err)) { const m = notQuotableMessage(err); res.json({ success: false, notQuotable: true, error: m, data: { message: m } }); return }
     const msg = err instanceof Error ? err.message : 'Failed to calculate estimate'
     res.status(400).json({ success: false, error: msg })
   }
@@ -98,7 +98,8 @@ router.post('/calculate', async (req, res) => {
       res.status(400).json({ success: false, error: plainZod(err) })
       return
     }
-    if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: NOT_QUOTABLE_MESSAGE }); return }
+    // Internal: staff are told why it is held ("8 ft tall needs its post price in Settings → …").
+    if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: `Not available for quoting: ${notQuotableReason(err)}`, customerMessage: notQuotableMessage(err) }); return }
     const msg = err instanceof Error ? err.message : 'Failed to calculate quote'
     res.status(400).json({ success: false, error: msg })
   }

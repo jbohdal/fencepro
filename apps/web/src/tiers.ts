@@ -106,6 +106,12 @@ export interface ResolvedTier {
   /** The width used, and the other width's price, when the tier picked the cheaper one. */
   widthFt: number | null
   otherWidth: { widthFt: number; price: number } | null
+  /**
+   * The other width exists but is not available for quoting (8 ft tall
+   * waiting for its Settings prices): the width used is the only one priced,
+   * not the cheaper one. `held` says why.
+   */
+  otherWidthHeld?: { widthFt: number; held: string } | null
   /** An earlier tier that came out as the same style for this yard. */
   sameAs?: string
 }
@@ -114,7 +120,7 @@ type Active<S> = S & { isActive?: boolean; quotable?: boolean }
 
 /** The style a tier stands for on a quote of `own`, or why there is none. */
 export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(spec: TierSpec, own: QuoteStyle, styles: Active<S>[]):
-  { styles: S[]; pickCheaper: boolean } | { reason: string } {
+  { styles: S[]; pickCheaper: boolean; heldWidths?: Array<{ widthFt: number; held: string }> } | { reason: string } {
   // Only styles that are turned on and available for quoting (commercial and industrial are on hold).
   const active = styles.filter(isQuotable)
   if (spec.style) {
@@ -149,7 +155,17 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     if (held) return { reason: `${cap(want)} is not available for quoting yet: ${(held as { held?: string }).held}.` }
     return { reason: `No ${want} style is turned on in Settings → Fence Styles.` }
   }
-  return { styles: found, pickCheaper: width === 'any' }
+  // The cheaper width: a width that exists but is held back is said, not compared.
+  const heldWidths: Array<{ widthFt: number; held: string }> = []
+  if (width === 'any') {
+    for (const s of styles) {
+      if (s.isActive === false || isQuotable(s) || !fits(s)) continue
+      const w = widthOf(s, styleParts(s.name, s as Parameters<typeof styleParts>[1])!)
+      if (typeof w !== 'number' || found.some(f => widthOf(f, styleParts(f.name, f as Parameters<typeof styleParts>[1])!) === w) || heldWidths.some(h => h.widthFt === w)) continue
+      heldWidths.push({ widthFt: w, held: (s as { held?: string }).held || (s.quotable === false ? 'switched off in Settings → Fence Styles' : 'not available for quoting') })
+    }
+  }
+  return { styles: found, pickCheaper: width === 'any', ...(heldWidths.length ? { heldWidths } : {}) }
 }
 
 export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(
@@ -180,6 +196,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
       res.widthFt = pick.w
       const other = priced.find(x => typeof x.w === 'number' && x.w !== pick.w)
       if (other) res.otherWidth = { widthFt: other.w as number, price: other.o.finalPrice }
+      else if (r.heldWidths?.length) res.otherWidthHeld = r.heldWidths[0]
     }
     out.push(res)
   }

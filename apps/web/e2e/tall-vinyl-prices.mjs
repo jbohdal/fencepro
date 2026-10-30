@@ -55,7 +55,7 @@ try {
 
   const a = await open()
   check('Settings → Price List lists the 8 ft tall fences', (await a.page.locator('[data-tall-row]').count()) >= 4, String(await a.page.locator('[data-tall-row]').count()))
-  check('no prices: the row says Not available for quoting', /Not available for quoting: enter the section and post prices/.test(await row(a.page).textContent()))
+  check('no prices: the row says Not available for quoting', /Not available for quoting: our section and post costs are missing/.test(await row(a.page).textContent()))
   await a.page.locator(`[data-tall-price="${STYLE}|section"]`).fill('412.50')
   await a.page.locator(`[data-tall-price="${STYLE}|post"]`).fill('65')
   await a.page.locator('[data-tall-save]').click(); await sleep(2500)

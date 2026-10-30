@@ -96,7 +96,7 @@ describe('choices and plain names for the old codes', () => {
       for (const k of ['name', 'category', 'sectionsPerMH', 'panelWidth', 'mhPerWalkGate', 'mhPerDblGate', 'isActive', 'quotable', 'autoRailMix', 'installMethod', 'colorFamily'] as const) expect(s[k], `${s.name} ${k}`).toEqual(was[k])
       if (/ 8'x[68]' /.test(s.name)) {
         // 8 ft tall is priced by the piece (Jonathan, Oct 21, 2026): held until its section and post prices are in.
-        expect(s.held, s.name).toBe('8 ft tall is priced by the piece: enter its section and post prices in Settings → Price List')
+        expect(s.held, s.name).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
         expect(s.jobLot).toMatchObject({ tall: true, coversAll: ['section', 'post'], sections: {} })
         continue
       }
@@ -219,7 +219,7 @@ describe('a job lot color (priced by piece)', () => {
     cfg = use(priced)
     // 6 ft tall: on. 8 ft tall waits only for its own section and post prices (Oct 21, 2026), not the color's job lot.
     expect(cfg.fenceStyles.filter(s => s.madeFrom && s.choices?.height === '6').every(isQuotable)).toBe(true)
-    expect(cfg.fenceStyles.filter(s => s.madeFrom && s.choices?.height === '8').map(s => s.held)).toEqual(Array(4).fill('8 ft tall is priced by the piece: enter its section and post prices in Settings → Price List'))
+    expect(cfg.fenceStyles.filter(s => s.madeFrom && s.choices?.height === '8').map(s => s.held)).toEqual(Array(4).fill('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl'))
     // White's fences were never touched.
     expect(cfg.fenceStyles.filter(s => !s.madeFrom).map(s => [s.name, isQuotable(s)])).toEqual(use(fresh()).fenceStyles.map(s => [s.name, isQuotable(s)]))
   })

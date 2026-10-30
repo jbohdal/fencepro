@@ -278,7 +278,7 @@ describe('an 8 ft tall color (Jonathan, Oct 21, 2026): the same shape as White, 
     // With no prices it is not available for quoting.
     const bare = plan.state.fenceStyles.map(s => (s.name === 'vinyl/privacy/8/chai-gray/nd/8' ? { ...s, pieceCents: undefined } : s))
     const held = resolveFenceStyles(estimateConfig({ fenceStyles: bare, fenceCatalog: plan.state.fenceCatalog } as any).fenceStyles, plan.state.fenceCatalog).find(s => s.name === 'vinyl/privacy/8/chai-gray/nd/8')!
-    expect(held.held).toMatch(/8 ft tall is priced by the piece/)
+    expect(held.held).toMatch(/8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl/)
     setMaterialPriceSource(null); setSavedKitSets(() => [])
 
     // The edit form reads the prices back; a changed price is set on both fences, dated.
