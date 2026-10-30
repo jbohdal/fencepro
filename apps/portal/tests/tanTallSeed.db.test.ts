@@ -107,7 +107,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Tan 8 ft tall start-up step (dev
       expect(isQuotable(estimateConfig(config).fenceStyles.find(x => x.name === n)!)).toBe(true)
       const e = estimate(data, { fenceStyle: n, runs: [48], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
       expect(e.sections).toBe(/8'x8'/.test(n) ? 6 : 8)
-      expect(e.materialCost).toBeCloseTo(430 * e.sections + 70 * (e.sections + 1), 2)
+      // Plus every part that is not the section's vinyl or the vinyl post, from Inventory (Oct 29, 2026).
+      const fromInv = e.pullSheet.filter(l => !l.jobLotPiece && l.total > 0)
+      expect(fromInv.some(l => /Post, 8' Privacy/.test(l.item))).toBe(false)
+      expect(fromInv.some(l => /Cap, 5"x5"/.test(l.item)), n).toBe(true)
+      expect(e.materialCost).toBeCloseTo(430 * e.sections + 70 * (e.sections + 1) + fromInv.reduce((t, l) => t + l.total, 0), 2)
     }
   })
 })

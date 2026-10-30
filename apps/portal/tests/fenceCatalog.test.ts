@@ -97,7 +97,8 @@ describe('choices and plain names for the old codes', () => {
       if (/ 8'x[68]' /.test(s.name)) {
         // 8 ft tall is priced by the piece (Jonathan, Oct 21, 2026): held until its section and post prices are in.
         expect(s.held, s.name).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
-        expect(s.jobLot).toMatchObject({ tall: true, coversAll: ['section', 'post'], sections: {} })
+        // The section price covers its kit; the post price the vinyl post only (Oct 29, 2026).
+        expect(s.jobLot).toMatchObject({ tall: true, coversAll: ['section'], sections: {} })
         continue
       }
       expect(s.held, s.name).toBeUndefined()
