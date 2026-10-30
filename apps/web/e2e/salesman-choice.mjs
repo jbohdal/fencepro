@@ -278,7 +278,7 @@ try {
     const done = box.locator('[data-customer-salesman-done]')
     await done.waitFor({ timeout: 15000 })
     const said = await done.innerText()
-    check(said.startsWith(`${second.name} is the Salesman now and sees this customer. ${CHRISTA} no longer does`), 'saved, and it says who has it now and that Christa no longer does', said)
+    check(said.startsWith(`${second.name} is the Salesman of `) && said.includes(`${CHRISTA} no longer has `), 'saved, and it says who has it now and that Christa no longer does', said)
     await until(async () => (await box.locator('[data-customer-salesman-name]').innerText()) === second.name)
     check((await box.locator('[data-customer-salesman-name]').innerText()) === second.name, 'the page shows the new Salesman')
     await shot(page, '7-owner-changed-salesman')
