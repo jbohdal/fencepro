@@ -137,6 +137,8 @@ describe('the Salesman\'s scope', () => {
         { id: 'q-pat', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-pat' },
         { id: 'q-pat-sold', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-pat', sold: true },
         { id: 'q-pat-other', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-pat' },
+        // The owner's (or the office's) own quote on the customer she has a visit with: never hers.
+        { id: 'q-pat-owners', ownerId: 'u-owner', salesRep: 'Jonathan Bohdal', crmContactId: 'c-pat' },
         { id: 'q-old', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-old' },
       ],
       jobs: [], cards: [],
