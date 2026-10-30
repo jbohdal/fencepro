@@ -139,7 +139,7 @@ describe('held until priced; with prices typed, they quote', () => {
     for (const n of TAN) {
       const s = cfg.fenceStyles.find(x => x.name === n)!
       expect(isQuotable(s), n).toBe(false)
-      expect(s.held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+      expect(s.held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     }
   })
   test.each(TAN)('%s: typed in Settings → Price List → 8 ft tall vinyl, it quotes by the piece; gates from the Tan parts', name => {

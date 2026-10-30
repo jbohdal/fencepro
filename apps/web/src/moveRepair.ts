@@ -623,7 +623,7 @@ export const REPAIR_HINT: Record<RepairItemKey, string> = {
   rehangGate: 'New hinges and latch',
   replaceGate: 'The whole gate kit',
   haulDebris: 'At the tear out rate per section',
-  footerDisposal: 'Per post: haul off the concrete footer',
+  footerDisposal: 'Per post: haul off the concrete footer (no dig posts only)',
 }
 
 /**

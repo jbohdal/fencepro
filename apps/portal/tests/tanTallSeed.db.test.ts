@@ -94,7 +94,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Tan 8 ft tall start-up step (dev
     for (const n of TAN) {
       const s = cfg.fenceStyles.find(x => x.name === n)!
       expect(isQuotable(s), n).toBe(false)
-      expect(s.held).toMatch(/8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl/)
+      expect(s.held).toMatch(/8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl/)
     }
     const tall = cfg.fenceStyles.filter(s => s.isActive !== false && isTallVinyl(styleChoicesOf(s)))
     expect(tall.map(s => s.name)).toEqual(expect.arrayContaining(TAN))

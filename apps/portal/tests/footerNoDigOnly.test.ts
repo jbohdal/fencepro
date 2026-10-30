@@ -139,6 +139,9 @@ describe('the Repair panel', () => {
     expect((html.match(/disabled=""/g) ?? []).length).toBe(2)
     const entered = render(style(WVDS), draft({ footerDisposal: 2 }))
     expect(row(entered)).toContain('Dig set haul already covers the concrete: the 2 entered are not charged.')
+    // The count can be cleared (− stays on); it cannot be raised (+ is off).
+    expect(row(entered)).toMatch(/aria-label="One less Concrete footer disposal \(per post\)" class="[^"]*">/)
+    expect(row(entered)).toMatch(/aria-label="One more Concrete footer disposal \(per post\)" class="[^"]*" disabled="">/)
     // With a count, the old posts' question shows, so it can be changed there too.
     expect(entered).toContain('How are the old posts set?')
   })
@@ -146,7 +149,7 @@ describe('the Repair panel', () => {
   test('no dig old posts: the footer row is on, with its hint', () => {
     for (const html of [row(render(style(WVND), draft({}))), row(render(style(WVDS), draft({}, 'nd')))]) {
       expect(html).not.toContain('data-repair-item-off')
-      expect(html).toContain('Per post: haul off the concrete footer')
+      expect(html).toContain('Per post: haul off the concrete footer (no dig posts only)')
       // Only "one less" at 0; "one more" can be tapped.
       expect((html.match(/disabled=""/g) ?? []).length).toBe(1)
       expect(html).toMatch(/aria-label="One more Concrete footer disposal \(per post\)" class="[^"]*">/)

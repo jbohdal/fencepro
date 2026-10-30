@@ -31,12 +31,13 @@ export function JobTypePicker({ value, onChange }: { value: JobType; onChange: (
   )
 }
 
-function Stepper({ value, onChange, label, min = 0, disabled = false }: { value: number; onChange: (n: number) => void; label: string; min?: number; disabled?: boolean }) {
+/** `noMore`: the item is off (the concrete footer on dig set): a count can be cleared, never raised. */
+function Stepper({ value, onChange, label, min = 0, noMore = false }: { value: number; onChange: (n: number) => void; label: string; min?: number; noMore?: boolean }) {
   return (
-    <div className={`flex items-center gap-1 shrink-0 ${disabled ? 'opacity-50' : ''}`} data-stepper={label}>
-      <button type="button" aria-label={`One less ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={disabled || value <= min} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
-      <span className={`w-8 text-center text-lg font-bold tabular-nums ${disabled ? 'line-through' : ''}`} data-stepper-value>{value}</span>
-      <button type="button" aria-label={`One more ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={disabled} onClick={() => onChange(value + 1)}>+</button>
+    <div className="flex items-center gap-1 shrink-0" data-stepper={label}>
+      <button type="button" aria-label={`One less ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+      <span className={`w-8 text-center text-lg font-bold tabular-nums ${noMore && value > 0 ? 'line-through text-gray-400' : ''}`} data-stepper-value>{value}</span>
+      <button type="button" aria-label={`One more ${label}`} className="w-12 h-12 rounded-lg border border-gray-300 text-xl font-bold disabled:opacity-40" disabled={noMore} onClick={() => onChange(value + 1)}>+</button>
     </div>
   )
 }
@@ -238,7 +239,7 @@ export function RepairPanel({ style, repair, setRepair, oldPostsNote, postRates,
                   </>
                 ) : <p className="text-xs text-gray-500" data-repair-hint={k}>{REPAIR_HINT[k]}</p>}
               </div>
-              <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} disabled={off} />
+              <Stepper label={REPAIR_LABEL[k]} value={qty(k)} onChange={n => setQty(k, n)} noMore={off} />
             </div>
           )
         })}

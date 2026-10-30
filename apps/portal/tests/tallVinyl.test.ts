@@ -88,10 +88,10 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     for (const [name] of W8) {
       const s = cfg.fenceStyles.find(x => x.name === name)!
       expect(isQuotable(s), name).toBe(false)
-      expect(s.held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+      expect(s.held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     }
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250 } })
-    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
+    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl')
     expect(tallPricesMissing({ pieceCents: { section: 41250, post: 0 } })).toEqual(['post'])
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500, pricedOn: '2026-10-21' } })
     expect(isQuotable(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!)).toBe(true)
@@ -178,8 +178,8 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     const after = estimateConfig({ fenceStyles: r.fenceStyles, fenceCatalog: DEFAULT_CATALOG } as any)
     const a = (n: string) => after.fenceStyles.find(s => s.name === n)!
     expect(isQuotable(a("WV-ND 8'x6' Privacy"))).toBe(true)
-    expect(a("WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
-    expect(a("WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    expect(a("WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl')
+    expect(a("WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
   })
 
   test('the quote builder picker says why 8 ft is off, in sight, and tells the Salesman to ask Jonathan', () => {
@@ -187,17 +187,17 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     const row = (c: ReturnType<typeof setup>) => pickerState(c.fenceStyles, DEFAULT_CATALOG, 'vinyl', { style: 'privacy' }, isQuotable).find(r => r.dim.key === 'height')!
     const eight = row(cfg).options.find(o => o.opt.key === '8')!
     expect(eight.state).toBe('held')
-    expect(eight.why).toEqual(['8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl'])
-    expect(offWords(eight.opt.label, eight.why!, false)).toBe('8 ft is off: 8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl (ask Jonathan).')
-    expect(offWords(eight.opt.label, eight.why!, true)).toBe('8 ft is off: 8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl.')
+    expect(eight.why).toEqual(['8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl'])
+    expect(offWords(eight.opt.label, eight.why!, false)).toBe('8 ft is off: 8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl (ask Jonathan).')
+    expect(offWords(eight.opt.label, eight.why!, true)).toBe('8 ft is off: 8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl.')
     // 6 ft is on and says nothing.
     expect(row(cfg).options.find(o => o.opt.key === '6')).toEqual(expect.objectContaining({ state: 'ok' }))
     expect(row(cfg).options.find(o => o.opt.key === '6')!.why).toBeUndefined()
     // Different fences missing different prices: each reason once.
     const some = setup({ "WV-ND 8'x6' Privacy": { section: 41250 }, "WV-ND 8'x8' Privacy": { section: 41250 } })
     expect(row(some).options.find(o => o.opt.key === '8')!.why!.sort()).toEqual([
-      '8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl',
-      '8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl',
+      '8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl',
+      '8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl',
     ])
     // One priced: 8 ft is on.
     const one = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
@@ -212,7 +212,7 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     expect(isNotQuotable(err)).toBe(true)
     expect(notQuotableMessage(err)).toBe('Call us for a price on 8 ft tall fence')
     expect(notQuotableMessage(err)).not.toMatch(/commercial|industrial/i)
-    expect(notQuotableReason(err)).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    expect(notQuotableReason(err)).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     // The website never offers it (only what is available for quoting), nor lists it with commercial and industrial.
     expect(widgetStyles(cfg).some(s => /8'x[68]'/.test(s.name))).toBe(false)
     expect(onHoldStyles(data.config).styles.some(s => /8'x[68]'/.test(s.name))).toBe(false)
@@ -236,7 +236,7 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     let t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]
     expect(t.widthFt).toBe(8)
     expect(t.otherWidth).toBeNull()
-    expect(t.otherWidthHeld).toEqual({ widthFt: 6, held: '8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl' })
+    expect(t.otherWidthHeld).toEqual({ widthFt: 6, held: '8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl' })
     // Both priced: compared as before.
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 }, "WV-ND 8'x6' Privacy": { section: 30000, post: 6500 } })
     t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]

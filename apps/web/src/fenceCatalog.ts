@@ -346,7 +346,7 @@ export function tallPricesMissing(s: Pick<FenceStyle, 'pieceCents'>): Array<'sec
 
 /** Why an 8 ft tall style is held back, in words. */
 export function tallHeldReason(missing: Array<'section' | 'post'>): string {
-  return `8 ft tall needs its ${missing.join(' and ')} price${missing.length === 1 ? '' : 's'} in Settings → Price List → 8 ft tall vinyl`
+  return `8 ft tall needs our ${missing.join(' and ')} cost${missing.length === 1 ? '' : 's'} in Settings → Price List → 8 ft tall vinyl`
 }
 
 /** An 8 ft tall style's piece prices, in dollars, as a job lot the material kits price with. */
@@ -608,7 +608,7 @@ export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCat
       options: dim.options.filter(opt => !opt.archived || sel[dim.key] === opt.key).map(opt => {
         const here = fits.filter(x => x.sc!.choices[dim.key] === opt.key)
         const state = (here.some(x => isOk(x.s)) ? 'ok' : here.length ? 'held' : 'none') as OptionState
-        // Why it is off, in words (each different reason once): "8 ft tall needs its post price in Settings → …".
+        // Why it is off, in words (each different reason once): "8 ft tall needs our post cost in Settings → …".
         const why = state === 'held' ? [...new Set(here.map(x => x.s.held || (x.s.quotable === false ? 'switched off in Settings → Fence Styles' : '')).filter(Boolean))] : []
         return { opt, state, ...(why.length ? { why } : {}) }
       }),
@@ -616,7 +616,7 @@ export function pickerState<S extends FenceStyle>(styles: S[], catalog: FenceCat
   })
 }
 
-/** Why a picker choice is off, in words: "8 ft is off: 8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl (ask Jonathan)." */
+/** Why a picker choice is off, in words: "8 ft is off: 8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl (ask Jonathan)." */
 export function offWords(label: string, why: string[], canPrice: boolean): string {
   return `${label} is off: ${why.join('; ')}${canPrice ? '' : ' (ask Jonathan)'}.`
 }
