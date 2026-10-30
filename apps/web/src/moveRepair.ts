@@ -36,8 +36,9 @@ import { calculatePrice, resolveSubRate, adjustedPrice, adjustmentOf, refusedNot
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
 import { kitSetFor, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
-import type { QuoteStyle } from './quoteCalc'
+import { calculateQuote, type QuoteStyle } from './quoteCalc'
 import { woodPartName } from './wood'
+import { DEFAULT_RAIL_OPTIMIZER_SETTINGS, type RailOptimizerSettings } from './railOptimizer'
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -927,9 +928,14 @@ function mergeItems(items: LineItem[]): LineItem[] {
 /**
  * A change order line picked from a list (Jonathan, Oct 22 2026: "a pick list
  * from the catalog and the Repair price list for change order lines"), priced
- * for the job's style with the Repair price list's own math:
+ * for the job's style:
  *
- *   repair item   priceRepair with that one item × the quantity (its kits,
+ *   add           sections or a gate added to the fence, and the Replace a
+ *                 section / Replace a gate items: priced as a new quote prices
+ *                 those pieces (priceAddedPieces below; Jonathan, Oct 30 2026:
+ *                 "Added sections and gates on a change order should price
+ *                 the same as on a new quote ... No 1.5x labor")
+ *   repair item   every other repair item: priceRepair with that one item × the quantity (its kits,
  *                 labor = the install rate × the item's multiplier, Settings →
  *                 Moves and Repairs)
  *   pullPost      pull an old post and haul it away: the pull labor and
@@ -946,17 +952,36 @@ function mergeItems(items: LineItem[]): LineItem[] {
  *
  * A wood job (Jonathan, Oct 30 2026: "Change orders on wood jobs: use the
  * wood parts and wood pricing, not vinyl +15%"): woodChangeOrder below.
+ *
+ * `job` is the job as it is now: its gates (once per job gate parts are not
+ * charged again) and the rail optimizer settings (auto mix styles).
  */
 export type PickRepairKey = RepairItemKey | 'pullPost'
 export const PICK_REPAIR_KEYS: PickRepairKey[] = [...REPAIR_ITEMS, 'pullPost']
 export const PICK_LABEL: Record<PickRepairKey, string> = { ...REPAIR_LABEL, pullPost: 'Pull an old post and haul it away' }
 export type ChangeOrderPick =
   | { kind: 'repair'; key: PickRepairKey; gateKind?: 'walk' | 'double' }
+  | { kind: 'add'; piece: 'section' | 'walk' | 'double'; widthFt?: number }
   | { kind: 'part'; part: string }
 
-export function priceChangeOrderPick(c: WorkCommon, pick: ChangeOrderPick, qty: number): WorkResult {
+/** The job a change order line is added to: the gates it has now, and the rail optimizer settings (auto mix styles). */
+export interface AddedJob { walkGates: number; dblGates: number; optimizer?: RailOptimizerSettings | null }
+
+export function priceChangeOrderPick(c: WorkCommon, pick: ChangeOrderPick, qty: number, job: AddedJob = { walkGates: 0, dblGates: 0 }): WorkResult {
   const n = Math.max(1, Math.round(Number(qty) || 1))
   const cc: WorkCommon = { ...c, settings: { ...c.settings, minimumJobCents: 0 }, overrides: {}, extraLaborHrs: 0, priceAdjust: 0 }
+  // Sections and gates, added or replaced: as a new quote prices them (a wood style with no kit in use keeps the old way, woodChangeOrder).
+  const pieces: AddedPieces | null = pick.kind === 'add'
+    ? { sections: pick.piece === 'section' ? n : 0, walkGates: pick.piece === 'walk' ? n : 0, dblGates: pick.piece === 'double' ? n : 0, ...(pick.widthFt ? { gateWidthFt: pick.widthFt } : {}), replace: false }
+    : pick.kind === 'repair' && pick.key === 'replaceSection' ? { sections: n, walkGates: 0, dblGates: 0, replace: true }
+      : pick.kind === 'repair' && pick.key === 'replaceGate' ? { sections: 0, walkGates: pick.gateKind === 'double' ? 0 : n, dblGates: pick.gateKind === 'double' ? n : 0, replace: true }
+        : null
+  if (pieces && !(cc.style.woodBase && !workKit({ ...cc.style, woodBase: undefined, woodFactor: undefined }))) return priceAddedPieces(cc, pieces, job)
+  if (pick.kind === 'add') {
+    // A wood style with no kit in use: the old way, as its Replace a section / Replace a gate.
+    const r: RepairInputs = { what: 'other', items: { [pick.piece === 'section' ? 'replaceSection' : 'replaceGate']: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.piece === 'double' ? 'double' : 'walk', debrisCleared: true }
+    return woodChangeOrder(cc, x => priceRepair(x, r))
+  }
   if (pick.kind === 'repair' && pick.key !== 'pullPost') {
     const r: RepairInputs = { what: 'other', items: { [pick.key]: n }, postType: postTypeOf(cc.style), newPostCaps: false, gateKind: pick.gateKind === 'double' ? 'double' : 'walk', debrisCleared: true }
     // A wood job: wood parts and wood labor (woodChangeOrder), not the repair quote's White Vinyl × the Wood factor.
@@ -1009,7 +1034,111 @@ function woodChangeOrder(c: WorkCommon, run: (c: WorkCommon) => WorkResult): Wor
   return r
 }
 
-function pickInner(c: WorkCommon, pick: ChangeOrderPick, n: number): WorkResult {
+/**
+ * Sections and gates on a change order (Jonathan, Oct 30 2026: "Added
+ * sections and gates on a change order should price the same as on a new
+ * quote: same parts, same labor rate, same margin, per section and per gate.
+ * No 1.5x labor. This applies to vinyl, aluminum, chain link and wood change
+ * orders"). The pieces are run through the new quote's own engine
+ * (quoteCalc.ts calculateQuote, so they can never drift from it) on the job's
+ * style at Settings today:
+ *
+ *   material    the style's kits from Inventory for these pieces, as a new
+ *               quote counts them; wood: the wood style's own kit (woodQuote)
+ *   labor       the install labor a new quote charges for them: labor mode
+ *               and sub rate from Settings (sub per foot × the sections'
+ *               footage or per section, the sub walk / double gate rate), or
+ *               hourly (the style's man hours × the man hour rate); wood:
+ *               the White Vinyl labor × the Wood factor
+ *   tear out    replaced pieces only: the new quote's tear out per section
+ *               and per gate (haul away, tear out, sub tear out)
+ *   price       cost ÷ the style's Target Margin (not the repair margin, no
+ *               item multiplier), commission as the job has it, whole dollars;
+ *               never the minimum job price (the job is sold) and never a
+ *               per foot price (a gate has no footage): always from cost.
+ *
+ * What the pieces are (decided Oct 30 2026, on what a new quote counts):
+ *
+ *   add N sections      N section kits and N line posts: N sections set into
+ *                       an existing run add one post each (a new quote's run
+ *                       of N + 1 sections has one more line post than a run
+ *                       of N), and N × the section width of footage
+ *   add a gate          the gate kit for its width (a double gate's blank post
+ *                       with it), and the 2 posts it hangs on: on a new quote
+ *                       a gate set in a line adds an end post each side (wood:
+ *                       the 6x6 gate posts, materialKits.ts withGatePosts).
+ *                       The once per job gate parts only when the job has no
+ *                       gate of that kind yet
+ *   replace N sections  tear out N sections and N new section kits on the
+ *                       posts already there (no post)
+ *   replace a gate      tear out the gate and a new gate kit (4 ft walk gate,
+ *                       8 ft double gate) on the posts already there
+ *
+ * Nothing is rounded up to a whole bag or roll (the job has its own) and no
+ * once per job part is charged again (materialCalculator.ts addedCounts).
+ */
+export interface AddedPieces {
+  sections: number
+  walkGates: number
+  dblGates: number
+  /** Each gate's width in feet; blank: 4 ft walk gate, 8 ft double gate. */
+  gateWidthFt?: number
+  /** Replace a section / gate: torn out and built new on the posts already there. */
+  replace: boolean
+}
+
+export function priceAddedPieces(c: WorkCommon, add: AddedPieces, job: AddedJob): WorkResult {
+  const { style } = c
+  const width = workWidth(style)
+  const n = Math.max(0, Math.round(add.sections))
+  const walk = Math.max(0, Math.round(add.walkGates)), dbl = Math.max(0, Math.round(add.dblGates))
+  const gates = walk + dbl
+  const gw = typeof add.gateWidthFt === 'number' && add.gateWidthFt > 0 ? add.gateWidthFt : null
+  // One run per section: each its own section and no post between; an added section brings its own line post.
+  const calc = calculateQuote({
+    style, runs: Array.from({ length: n }, () => ({ ft: width, rail: style.autoRailMix ? '6ft' as const : 'auto' as const })),
+    corners: 0, ends: add.replace ? 0 : 2 * gates, extraLinePosts: add.replace ? 0 : n, walkGates: walk, dblGates: dbl,
+    gateWidths: gw ? { walk: Array.from({ length: walk }, () => gw), dbl: Array.from({ length: dbl }, () => gw) } : null,
+    tearOutSections: add.replace ? n : 0, tearOutGates: add.replace ? gates : 0, extraLaborHrs: 0,
+    hasSalesman: c.hasSalesman, priceAdjust: 0, pricing: c.pricing, overrides: {}, optimizer: job.optimizer ?? DEFAULT_RAIL_OPTIMIZER_SETTINGS,
+    // A replaced gate's job has that kind of gate already.
+    addedTo: { walkGates: Math.max(0, job.walkGates || 0) + (add.replace ? walk : 0), dblGates: Math.max(0, job.dblGates || 0) + (add.replace ? dbl : 0) },
+  })
+  const p = calc.priced
+  const items = calc.materials.items
+  const isTearOut = (i: LineItem) => /^Tear Out Haul-Away/.test(i.item)
+  const parts = items.filter(i => !isTearOut(i))
+  const haul = items.filter(isTearOut)
+  const partsCents = parts.reduce((t, i) => t + Math.round(i.total * 100), 0)
+  const haulCents = haul.reduce((t, i) => t + Math.round(i.total * 100), 0)
+  const laborCents = Math.round(p.laborCost * 100)
+  const tearOutCents = Math.round(p.tearOutCost * 100)
+  const gateWord = (k: 'walk' | 'double', m: number) => `${m === 1 ? 'a' : m} ${gw ? `${gw} ft ` : ''}${k === 'walk' ? 'walk' : 'double'} gate${m === 1 ? '' : 's'}`
+  const what = [n ? `${n} section${n === 1 ? '' : 's'}` : '', walk ? gateWord('walk', walk) : '', dbl ? gateWord('double', dbl) : ''].filter(Boolean).join(' and ')
+  const posts = add.replace ? 0 : n + 2 * gates
+  const acc: Acc = { lines: [], warnings: [...calc.materials.warnings, ...p.notes], missingRates: [], missingParts: new Set(), pull: new Map() }
+  line(acc, { key: 'added:parts', label: add.replace ? 'New parts, as a new quote counts them' : 'Parts, as a new quote counts them', kind: 'material', cents: partsCents, math: `${what}${posts ? `, ${posts} post${posts === 1 ? '' : 's'}` : ''} (the style's kits, Inventory)`, parts })
+  const woodWords = style.woodBase ? ' (White Vinyl labor × the Wood factor)' : ''
+  const subWords = [
+    n ? (p.subUnit === 'section' ? `${n} × sub ${usd(p.subRate)}/section` : `sub ${usd(p.subRate)}/ft × ${n * width} ft`) : '',
+    walk ? `${walk} × the walk gate rate` : '', dbl ? `${dbl} × the double gate rate` : '',
+    add.replace ? 'sub tear out' : '',
+  ].filter(Boolean).join(' + ')
+  line(acc, { key: 'added:labor', label: 'Install labor, as a new quote charges it', kind: 'labor', cents: laborCents, math: `${p.laborMode === 'subcontractor' ? subWords : `${Math.round(p.manHours * 100) / 100} man hours × ${usd(Number(c.pricing.manHourRate) || 0)}`}${woodWords}` })
+  if (haulCents + tearOutCents) line(acc, { key: 'added:tearOut', label: 'Tear out the old, as a new quote charges it', kind: 'disposal', cents: haulCents + tearOutCents, math: `${[n ? `${n} section${n === 1 ? '' : 's'}` : '', gates ? `${gates} gate${gates === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ')} at the tear out rates (haul away ${usd(haulCents / 100)}, tear out ${usd(tearOutCents / 100)})` })
+  const description = add.replace ? `Replace ${what} (tear out the old, build new on the posts there).` : `Add ${what}${posts ? ` with ${posts === 1 ? 'its post' : `${posts} new posts`}` : ''}.`
+  const crew = [
+    n && !add.replace ? `Add ${n} section${n === 1 ? '' : 's'}: ${n} new line post${n === 1 ? '' : 's'}.` : '',
+    gates && !add.replace ? `Add ${[walk ? gateWord('walk', walk) : '', dbl ? gateWord('double', dbl) : ''].filter(Boolean).join(' and ')}: 2 posts for each gate.` : '',
+    add.replace ? `Tear out and replace ${what} on the posts already there.` : '',
+  ].filter(Boolean)
+  // The style's Target Margin: never the repair margin (Repair Profit %).
+  const cm: WorkCommon = { ...c, overrides: {}, settings: { ...c.settings, repairProfitPct: null, minimumJobCents: 0 } }
+  const r = price(cm, 'repair', acc, { materialCents: partsCents, laborCents, disposalCents: haulCents + tearOutCents }, null, description, crew, posts > 0, n, n * width, p.manHours, cm.settings)
+  return r
+}
+
+function pickInner(c: WorkCommon, pick: Exclude<ChangeOrderPick, { kind: 'add' }>, n: number): WorkResult {
   const acc: Acc = { lines: [], warnings: [], missingRates: [], missingParts: new Set(), pull: new Map() }
   if (pick.kind === 'repair') {
     const type = postTypeOf(c.style)
