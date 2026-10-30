@@ -266,7 +266,7 @@ export default function TeamManagementPage() {
             loadUsers()
           }} />
       )}
-      {editingUser && <EditUserModal user={editingUser} canChangeEmail={canChangeEmail} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); loadUsers() }} />}
+      {editingUser && <EditUserModal user={editingUser} canChangeEmail={canChangeEmail} onClose={() => { setEditingUser(null); loadUsers() }} onSaved={() => { setEditingUser(null); loadUsers() }} />}
     </div>
   )
 }
@@ -428,15 +428,21 @@ function EditUserModal({ user, canChangeEmail, onClose, onSaved }: { user: TeamU
 
   async function handleSave() {
     setSaving(true); setError('')
+    let emailSaved = false
     try {
       // The email first: a refused one (in use, not an address) saves nothing else, and the window stays open.
-      if (emailChanged) await api(`/users/${user.id}/email`, { method: 'PATCH', body: JSON.stringify({ email: email.trim() }) })
+      if (emailChanged) { await api(`/users/${user.id}/email`, { method: 'PATCH', body: JSON.stringify({ email: email.trim() }) }); emailSaved = true }
       await api(`/users/${user.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ firstName, lastName, phone: phone.trim(), role, status }),
       })
       onSaved()
-    } catch (err: any) { setError(plainText(err)) }
+    } catch (err: any) {
+      // The email went through but another field was refused (review Oct 30 2026): say so, so Cancel is not read as "nothing saved".
+      setError(emailSaved
+        ? `The new email is saved: they sign in with ${email.trim().toLowerCase()} from now on. The rest was not saved: ${plainText(err)}`
+        : plainText(err))
+    }
     setSaving(false)
   }
 
