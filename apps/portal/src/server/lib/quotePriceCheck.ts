@@ -9,6 +9,9 @@
  *                       quoting now (switched off, or held back: its prices
  *                       were removed). A style the saved quote already had
  *                       stays allowed, as the quote builder keeps it;
+ *   SUB_RATE_MISSING    its sub is paid per a unit Settings has no rate for
+ *                       (per section while Settings pays per foot) and no
+ *                       rate is typed on it (Oct 30 2026);
  *   PRICES_CHANGED      it was priced on an older copy of the price data than
  *                       the server's now (lib/pricingStamp.ts): the phone
  *                       reloads the prices, reprices and asks before saving.
@@ -33,6 +36,7 @@ type Json = any
 
 export const PRICES_CHANGED_CODE = 'PRICES_CHANGED'
 export const STYLE_NOT_QUOTABLE_CODE = 'STYLE_NOT_QUOTABLE'
+export const SUB_RATE_MISSING_CODE = 'SUB_RATE_MISSING'
 export const PRICES_CHANGED_MESSAGE = 'Prices changed since this quote was priced. Open it to see the new price, then save it again.'
 
 export type PriceCheck =
@@ -77,6 +81,20 @@ export async function unavailableStyles(accountId: string, data: Json, existing:
 }
 
 /**
+ * A save whose sub is paid per a unit Settings has no rate for, with no rate
+ * typed (pricingEngine.subUnitRateMissing): what to tell the person, or null.
+ * Read from the pricing choices the save writes (the Salesman's are the
+ * server's own, lib/quotePricing.ts), else the saved ones.
+ */
+export async function subRateMissing(accountId: string, data: Json, existing: Json | null): Promise<string | null> {
+  const pricing = data?.pricing !== undefined ? data.pricing : existing?.pricing
+  if (!pricing || typeof pricing !== 'object') return null
+  const m = await pricingModule() as Json
+  const d = await dataFor(accountId)
+  return m.subRateMissingFor(d.config, pricing, data?.fenceStyle ?? existing?.fenceStyle ?? null)
+}
+
+/**
  * The check for one save. `body` is what the phone sent (pricingStamp,
  * priceRequest), `data` the quote as it will be written, `existing` the saved
  * quote (null for a new one).
@@ -91,6 +109,9 @@ export async function checkQuotePrices(accountId: string, body: Json, data: Json
       error: `${gone.join(', ')} ${gone.length === 1 ? 'is' : 'are'} not available for quoting now. Pick another fence, then save again.`,
     }
   }
+  // Paid per a unit Settings has no rate for, with no rate typed: never priced with the other unit's rate (Oct 30 2026).
+  const missing = await subRateMissing(accountId, data, existing)
+  if (missing) return { kind: 'refuse', code: SUB_RATE_MISSING_CODE, error: missing }
   // Priced here from the quote builder's inputs, with today's data: nothing to compare.
   if (body?.priceRequest) return { kind: 'ok' }
   const sent = typeof body?.pricingStamp === 'string' && body.pricingStamp ? body.pricingStamp : null

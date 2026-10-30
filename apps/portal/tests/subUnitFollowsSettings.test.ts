@@ -11,10 +11,10 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
-import { calculatePrice, subUnitOf, subUnitOnOpen, keepsOwnSubUnit, type PriceInputs, type PricingSettings } from '../../web/src/pricingEngine'
+import { calculatePrice, subUnitOf, subUnitOnOpen, keepsOwnSubUnit, subUnitRateMissing, type PriceInputs, type PricingSettings } from '../../web/src/pricingEngine'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { styleRates } from '../../web/src/moveRepair'
-import { quoteJobFor } from '../../web/src/estimate'
+import { quoteJobFor, subRateMissingFor } from '../../web/src/estimate'
 import { newQuoteOverrides } from '../../web/src/widgetPricing'
 import { quotedCostOf } from '../src/server/lib/jobCostingMath'
 import { requestFrom } from '../src/server/lib/quotePricing'
@@ -47,9 +47,40 @@ describe('the engine: a blank rate follows Settings for the unit too', () => {
     expect([r.subUnit, r.subRate, r.laborCost]).toEqual(['section', 26, 43 * 26])
   })
 
-  test('"Paid per" picked on the quote is kept, at Settings\' rate', () => {
+  test('"Paid per" picked as Section with no rate: no rate for a section (Settings\' $5 is per foot), never $5 per section', () => {
     const r = calculatePrice({ ...job, overrides: { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true } })
-    expect([r.subUnit, r.laborCost]).toEqual(['section', 43 * 5])
+    expect(r.subUnit).toBe('section')
+    expect(r.subRate).toBe(0)
+    expect(r.laborCost).toBe(0)
+    expect(r.subRateMissing).toBe('Type the rate per section: Settings has $5 per foot.')
+    expect(r.notes).toContain('Type the rate per section: Settings has $5 per foot.')
+    // With gates: the gates are still paid, the fence is not priced at a rate it does not have.
+    expect(calculatePrice({ ...job, walkGates: 1, overrides: { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true } }).laborCost).toBe(10)
+  })
+
+  test('picked Section with a rate typed: that rate per section', () => {
+    const r = calculatePrice({ ...job, overrides: { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true, subRate: 24 } })
+    expect([r.subUnit, r.laborCost, r.subRateMissing]).toEqual(['section', 43 * 24, null])
+  })
+
+  test('the other way round: Settings per section, Foot picked, no rate', () => {
+    const r = calculatePrice({ ...job, pricing: { ...perFoot, subUnit: 'section', subRateByCategory: { Vinyl: 23 } }, overrides: { laborMode: 'subcontractor', subUnit: 'foot', subUnitPicked: true } })
+    expect([r.laborCost, r.subRateMissing]).toEqual([0, 'Type the rate per foot: Settings has $23 per section.'])
+  })
+
+  test('subUnitRateMissing: only a sub quote on the other unit with no rate of its own', () => {
+    const picked = { laborMode: 'subcontractor' as const, subUnit: 'section' as const, subUnitPicked: true }
+    expect(subUnitRateMissing(picked, perFoot, vinyl)).toBe('Type the rate per section: Settings has $5 per foot.')
+    expect(subUnitRateMissing({ ...picked, subRate: 24 }, perFoot, vinyl)).toBeNull()
+    expect(subUnitRateMissing({ ...picked, laborCost: 900 }, perFoot, vinyl)).toBeNull()
+    expect(subUnitRateMissing({ ...picked, laborMode: 'hourly' }, perFoot, vinyl)).toBeNull()
+    expect(subUnitRateMissing({ laborMode: 'subcontractor', subUnit: 'section' }, perFoot, vinyl)).toBeNull()
+    expect(subUnitRateMissing({ laborMode: 'subcontractor', subUnit: 'foot', subUnitPicked: true }, perFoot, vinyl)).toBeNull()
+    // A Salesman's phone has no rates (costs are not sent to her): the words still say what to do.
+    expect(subUnitRateMissing(picked, { laborMode: 'subcontractor', subUnit: 'foot' })).toBe('Type the rate per section: Settings has its rates per foot.')
+    // The server's check through the estimate bundle.
+    expect(subRateMissingFor({ pricing: perFoot } as any, picked, "WV-ND 6'x6' Privacy")).toBe('Type the rate per section: Settings has $5 per foot.')
+    expect(subRateMissingFor({ pricing: perFoot } as any, { ...picked, subRate: 30 }, "WV-ND 6'x6' Privacy")).toBeNull()
   })
 
   test('Settings per section: a blank-rate quote saved per foot follows it back', () => {
@@ -72,7 +103,9 @@ describe('the engine: a blank rate follows Settings for the unit too', () => {
   test('a move or repair\'s section labor follows the same rule', () => {
     const style = { name: "WV-ND 6'x6' Privacy", category: 'Vinyl', margin: 0.64, sectionsPerMH: 1.2, panelWidth: 6 }
     expect(styleRates(style, perFoot, { laborMode: 'subcontractor', subUnit: 'section' }).perSection).toBe(30)
-    expect(styleRates(style, perFoot, { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true }).perSection).toBe(5)
+    const picked = styleRates(style, perFoot, { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true })
+    expect([picked.perSection, picked.sectionText]).toEqual([null, 'Type the rate per section: Settings has $5 per foot.'])
+    expect(styleRates(style, perFoot, { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true, subRate: 24 }).perSection).toBe(24)
     expect(styleRates(style, perFoot, { laborMode: 'subcontractor', subUnit: 'section', subRate: 26 }).perSection).toBe(26)
   })
 })
@@ -106,10 +139,15 @@ describe('the quote builder\'s job (owner, office, the server for a Salesman, th
     expect(j.pricing).toMatchObject({ laborMode: 'subcontractor', subUnit: 'foot' })
     expect(j.pricing).not.toHaveProperty('subUnitPicked')
   })
-  test('picked Section is priced and saved per section, still marked picked', () => {
+  test('picked Section with no rate: no labor at a per foot rate, and the job says a rate is missing', () => {
     const j = quoteJobFor(data, req({ laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true }), 30)
-    expect(j.totals.laborCost).toBe(30 * 5)
-    expect(j.pricing).toMatchObject({ subUnit: 'section', subUnitPicked: true })
+    expect(j.totals.laborCost).toBe(0)
+    expect(j.calc.priced.subRateMissing).toBe('Type the rate per section: Settings has $5 per foot.')
+  })
+  test('picked Section with a rate typed: priced and saved per section, still marked picked', () => {
+    const j = quoteJobFor(data, req({ laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true, subRate: 24 }), 30)
+    expect(j.totals.laborCost).toBe(30 * 24)
+    expect(j.pricing).toMatchObject({ subUnit: 'section', subUnitPicked: true, subRate: 24 })
   })
   test('a typed rate is saved with the unit it was priced at', () => {
     const j = quoteJobFor(data, req({ laborMode: 'subcontractor', subUnit: 'section', subRate: 26 }), 30)
@@ -126,10 +164,13 @@ describe('the quote builder\'s job (owner, office, the server for a Salesman, th
     // An older phone still sending the saved Section: Settings' unit all the same.
     const old = requestFrom({ ...sent, overrides: { laborMode: 'subcontractor', subUnit: 'section' } }, existing, () => null)
     expect(quoteJobFor(data, old.req, 30).totals.laborCost).toBe(180 * 5)
-    // Picked on her phone: kept.
+    // Section picked on her phone, no rate: kept, but there is no rate for a section (never $5 per section).
     const picked = requestFrom({ ...sent, overrides: { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true } }, existing, () => null)
     expect(picked.req.overrides).toMatchObject({ subUnit: 'section', subUnitPicked: true })
-    expect(quoteJobFor(data, picked.req, 30).totals.laborCost).toBe(30 * 5)
+    const pj = quoteJobFor(data, picked.req, 30)
+    expect(pj.totals.laborCost).toBe(0)
+    expect(pj.calc.priced.subRateMissing).toBe('Type the rate per section: Settings has $5 per foot.')
+    expect(subRateMissingFor(data.config as any, pj.pricing, "WV-ND 6'x6' Privacy")).toBe('Type the rate per section: Settings has $5 per foot.')
   })
   test('the Salesman phone: a quote with its own rate keeps the rate and its unit', () => {
     const existing = { id: 'q2', status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy", runs: [120, 60], pricing: { laborMode: 'subcontractor', subUnit: 'section', subRate: 26 } }

@@ -182,6 +182,8 @@ export interface PriceResult {
   pricePerFoot: number
   /** Things the estimator should know (missing rates, fallbacks). */
   notes: string[]
+  /** Paid per a unit with no rate for it (subUnitRateMissing): the quote cannot be saved until a rate is typed. */
+  subRateMissing: string | null
 }
 
 const DEFAULT_MH_WALK_GATE = 2.4
@@ -318,6 +320,31 @@ export function subUnitOnOpen(saved: Pick<QuotePricingOverrides, 'subUnit' | 'su
   return { unit: subUnitOf(saved, pricing), picked: saved?.subUnitPicked === true, own: keepsOwnSubUnit(saved) }
 }
 
+/**
+ * A sub rate is for one unit (Jonathan, Oct 30 2026): Settings' rates are per
+ * Settings' unit, so a quote paid per the other unit with no rate of its own
+ * has no rate at all. It is never charged Settings' per foot rate per section
+ * (or the other way round), and nothing converts one into the other. Returns
+ * what to tell the person ("Type the rate per section: Settings has $5 per
+ * foot."), or null when there is a rate. The quote cannot be priced or saved
+ * until a rate is typed (or "Paid per" goes back to Settings' unit).
+ */
+export function subUnitRateMissing(
+  o: Pick<QuotePricingOverrides, 'laborMode' | 'subUnit' | 'subUnitPicked' | 'subRate' | 'laborCost'> | null | undefined,
+  pricing: Pick<PricingSettings, 'laborMode' | 'subUnit' | 'subRateDefault' | 'subRateByCategory'>,
+  style?: StylePricing,
+): string | null {
+  if ((o?.laborMode ?? pricing.laborMode ?? 'hourly') !== 'subcontractor') return null
+  if (typeof o?.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0) return null
+  if (pos(o?.subRate) !== undefined) return null
+  const settingsUnit: SubUnit = pricing.subUnit ?? 'foot'
+  const unit = subUnitOf(o, pricing)
+  if (unit === settingsUnit) return null
+  const rate = resolveSubRate(style, pricing as PricingSettings)
+  const has = rate > 0 ? `$${Number.isInteger(rate) ? rate : rate.toFixed(2)} per ${settingsUnit}` : `its rates per ${settingsUnit}`
+  return `Type the rate per ${unit}: Settings has ${has}.`
+}
+
 /** Does a quote keep the sub unit saved on it (picked on it, or with its own rate)? Else it follows Settings. */
 export function keepsOwnSubUnit(o: Pick<QuotePricingOverrides, 'subUnitPicked' | 'subRate'> | null | undefined): boolean {
   return o?.subUnitPicked === true || pos(o?.subRate) !== undefined
@@ -355,14 +382,20 @@ export function calculatePrice(input: PriceInputs): PriceResult {
   const subUnit: SubUnit = subUnitOf(o, pricing)
   let laborMode: PriceResult['laborMode'] = requestedMode
   let subRate = 0
+  let subRateMissing: string | null = null
   let laborCost: number
 
   if (typeof o.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0) {
     laborMode = 'flat'
     laborCost = o.laborCost
   } else if (requestedMode === 'subcontractor') {
-    subRate = resolveSubRate(style, pricing, o.subRate)
-    if (subRate <= 0 && (sections > 0 || footage > 0)) {
+    // Paid per a unit Settings has no rate for, and none typed: no rate (never Settings' rate for the other unit).
+    const unitMissing = subUnitRateMissing(o, pricing, style)
+    subRate = unitMissing ? 0 : resolveSubRate(style, pricing, o.subRate)
+    if (unitMissing) {
+      subRateMissing = unitMissing
+      notes.push(unitMissing)
+    } else if (subRate <= 0 && (sections > 0 || footage > 0)) {
       notes.push('No subcontractor rate is set for this style, so install labor is $0. Set a rate in Settings → Pricing or type one on this quote.')
     }
     // Any piece of the job with no sub rate is called out, never charged $0 quietly.
@@ -466,6 +499,7 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     gmPct,
     pricePerFoot: footage > 0 ? cents(price / footage) : 0,
     notes,
+    subRateMissing,
   }
 }
 

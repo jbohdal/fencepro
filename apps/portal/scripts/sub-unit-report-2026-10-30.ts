@@ -22,7 +22,7 @@
 import 'dotenv/config'
 import fs from 'fs'
 import { databaseNameOf } from '../src/server/lib/liveGuard.js'
-import { sectionQuotes, ownRate, picked, shared, footageOf, followingSettings, settingsSubUnit, priceSaved, laborOnlyPrice, id8, usd, table } from './sub-unit-common-2026-10-30.js'
+import { sectionQuotes, ownRate, picked, shared, footageOf, followingSettings, settingsSubUnit, settingsRate, priceSaved, laborOnlyPrice, id8, usd, table } from './sub-unit-common-2026-10-30.js'
 
 const args = process.argv.slice(2)
 const arg = (k: string) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined }
@@ -40,7 +40,10 @@ async function main() {
       n++
       const own = ownRate(q)
       const asIs = { labor: Number(q.laborCost) || 0, price: Number(q.finalPrice) || 0 }
-      const noFix = await priceSaved(q.accountId, q, { ...q.pricing, subUnitPicked: true })
+      // Before the fix a reopen charged Settings' per foot rate per section; the app now refuses that (no rate for the unit),
+      // so it is priced here with that rate typed on it, which is exactly what the reopen charged.
+      const bugRate = own ?? await settingsRate(q.accountId, q.fenceStyle)
+      const noFix = await priceSaved(q.accountId, { ...q, pricing: { ...q.pricing, subRate: bugRate } }, { ...q.pricing, subUnitPicked: true })
       const foot = own ? null : await priceSaved(q.accountId, q, followingSettings(q.pricing, await settingsSubUnit(q.accountId)))
       const laborOnly = foot ? await laborOnlyPrice(q.accountId, q, foot.totals.laborCost) : null
       const diff = foot ? (laborOnly ?? foot.totals.price) - asIs.price : null

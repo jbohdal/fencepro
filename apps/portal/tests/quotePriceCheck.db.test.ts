@@ -204,4 +204,27 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('quotes saved at old prices are r
       expect(back.json.data.status).toBe('DRAFT')
     }
   })
+  test('paid per section while Settings pays per foot, no rate typed: refused (owner and a Salesman\'s server pricing alike); with a rate typed: saved', async () => {
+    // Settings: a sub at $5 per foot (Jonathan's since Oct 30 2026).
+    config = { ...config, pricing: { ...config.pricing, laborMode: 'subcontractor', subUnit: 'foot', subRateDefault: 5, subRateByCategory: { Vinyl: 5 } } }
+    await prisma.businessState.update({ where: { accountId }, data: { config, version: { increment: 1 } } })
+    const name = `E2E ${tag} per section`
+    const sub = { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true }
+    const r = await call('POST', '/api/saved-quotes', { ...quote({ customerName: name, pricing: sub }), pricingStamp: await stampNow() })
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('SUB_RATE_MISSING')
+    expect(r.json.error).toBe('Type the rate per section: Settings has $5 per foot.')
+    expect(await prisma.savedQuote.count({ where: { accountId, customerName: name } })).toBe(0)
+    // The server's own check, as a Salesman's save priced here (priceRequest) reaches it.
+    const { checkQuotePrices } = await import('../src/server/lib/quotePriceCheck.js')
+    const viaPhone = await checkQuotePrices(accountId, { priceRequest: {} }, { ...quote({ pricing: sub }) }, null)
+    expect(viaPhone).toMatchObject({ kind: 'refuse', code: 'SUB_RATE_MISSING' })
+    // A rate typed for the section: saved. Settings' unit, no rate: saved.
+    const typed = await call('POST', '/api/saved-quotes', { ...quote({ customerName: name, pricing: { ...sub, subRate: 24 } }), pricingStamp: await stampNow() })
+    expect(typed.status).toBe(201)
+    const foot = await call('POST', '/api/saved-quotes', { ...quote({ customerName: `${name} foot`, pricing: { laborMode: 'subcontractor', subUnit: 'foot' } }), pricingStamp: await stampNow() })
+    expect(foot.status).toBe(201)
+    // An old draft saved per section with no pick follows Settings: not refused.
+    expect(await checkQuotePrices(accountId, {}, quote({ pricing: { laborMode: 'subcontractor', subUnit: 'section' } }), null)).not.toMatchObject({ code: 'SUB_RATE_MISSING' })
+  })
 })

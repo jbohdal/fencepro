@@ -30,7 +30,7 @@
  * are multiplied by the Wood factor.
  */
 
-import { calculatePrice, resolveSubRate, subUnitOf, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
+import { calculatePrice, resolveSubRate, subUnitOf, subUnitRateMissing, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
 import { kitSetFor, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
@@ -262,12 +262,14 @@ export function styleRates(style: QuoteStyle, pricing: PricingSettings, o: Quote
   }
   if (mode === 'subcontractor') {
     const unit = subUnitOf(o, pricing)
-    const rate = resolveSubRate(style, pricing, o.subRate)
+    // Paid per a unit with no rate for it: no rate (never Settings' rate for the other unit).
+    const missing = subUnitRateMissing({ ...o, laborMode: 'subcontractor' }, pricing, style)
+    const rate = missing ? 0 : resolveSubRate(style, pricing, o.subRate)
     const per = rate > 0 ? (unit === 'section' ? rate : rate * width) : null
     const g = (v: unknown) => (Number(v) > 0 ? Number(v) : null)
     return {
       laborMode: 'subcontractor', perSection: per, perWalkGate: g(pricing.subWalkGate), perDblGate: g(pricing.subDblGate),
-      sectionText: rate > 0 ? (unit === 'section' ? `sub ${usd(rate)}/section` : `sub ${usd(rate)}/ft × ${width} ft`) : 'no sub rate',
+      sectionText: missing ?? (rate > 0 ? (unit === 'section' ? `sub ${usd(rate)}/section` : `sub ${usd(rate)}/ft × ${width} ft`) : 'no sub rate'),
       ...tearOut,
     }
   }

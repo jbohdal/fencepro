@@ -902,7 +902,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         const q = getQuoteById(d.id!)
         if (!q) return
         if (showQuoteRef.current) {
-          toast.error('Not saved', `${d.label || 'A quote'}: ${d.code === 'STYLE_NOT_QUOTABLE' ? 'its fence is not available for quoting now' : 'prices changed since it was priced'}. Close this quote, then tap ⚠ at the top and Try again on it to see the new price.`)
+          toast.error('Not saved', `${d.label || 'A quote'}: ${d.code === 'STYLE_NOT_QUOTABLE' ? 'its fence is not available for quoting now' : d.code === 'SUB_RATE_MISSING' ? 'its sub is paid per a unit Settings has no rate for: type a sub rate on it' : 'prices changed since it was priced'}. Close this quote, then tap ⚠ at the top and Try again on it to see the new price.`)
           return
         }
         setQuoteReprice(true)

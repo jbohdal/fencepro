@@ -120,7 +120,8 @@ export const REFUSED_EVENT = 'ezbiz:refused'
  * longer has, or on a fence no longer available for quoting. Sending it again would be refused again, and dropping
  * it would lose the quote, so it waits (with the server's reason) until the quote is opened and saved again.
  */
-export const REDO_CODES: ReadonlySet<string> = new Set(['PRICES_CHANGED', 'STYLE_NOT_QUOTABLE'])
+// SUB_RATE_MISSING: its sub is paid per a unit with no rate for it (Oct 30 2026): a rate has to be typed on it first.
+export const REDO_CODES: ReadonlySet<string> = new Set(['PRICES_CHANGED', 'STYLE_NOT_QUOTABLE', 'SUB_RATE_MISSING'])
 
 export type RecordStatus = 'saved' | 'saving' | 'waiting' | 'failed'
 

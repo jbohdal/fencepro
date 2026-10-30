@@ -4,7 +4,7 @@ import { splitOnLastSpace } from './personName'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
-import { resolveSubRate, subUnitOf, subUnitOnOpen, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
+import { resolveSubRate, subUnitOf, subUnitOnOpen, subUnitRateMissing, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
@@ -1054,7 +1054,10 @@ export default function QuoteBuilder({
   }
 
   const categories = [...new Set(FENCE_STYLES.map(s => s.category))]
-  const canSave = !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
+  // Paid per a unit Settings has no rate for, and no rate typed (Oct 30 2026): never priced at the other unit's rate.
+  // A quote whose prices stand (sent, shared, signed, held) keeps them and is not priced here.
+  const subRateMissing = !pricesStand && !heldSaved ? subUnitRateMissing(pricingOverrides, cfg.pricing, style) : null
+  const canSave = !subRateMissing && !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
     : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
     : REPAIR_ITEMS.some(k => (chargedRepairItems(repairIn)[k] ?? 0) > 0))
 
@@ -1817,7 +1820,7 @@ export default function QuoteBuilder({
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">Sub rate ($)</label>
-                    <input type="number" min={0} step="0.25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={defaultSubRate > 0 ? `${defaultSubRate} from Settings` : 'No rate set'} value={subRateStr} onChange={e => setSubRateStr(e.target.value)} />
+                    <input type="number" min={0} step="0.25" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder={subUnitNow !== (cfg.pricing.subUnit ?? 'foot') ? `Rate per ${subUnitNow}` : defaultSubRate > 0 ? `${defaultSubRate} from Settings` : 'No rate set'} value={subRateStr} onChange={e => setSubRateStr(e.target.value)} />
                   </div>
                   <div>
                     <label className="text-xs text-gray-400 mb-1 block">Paid per</label>
@@ -1826,6 +1829,7 @@ export default function QuoteBuilder({
                       <option value="section">Section</option>
                     </select>
                   </div>
+                  {subRateMissing && <p className="col-span-2 text-sm font-medium text-red-700" role="alert" data-sub-rate-missing>{subRateMissing}</p>}
                 </div>
               ) : (
                 <p className="text-xs text-gray-400 mb-3">
@@ -2335,7 +2339,8 @@ export default function QuoteBuilder({
                 {signedQuote ? 'Save notes and customer details only' : init?.id ? 'Update quote' : 'Save quote'}
               </button>
               {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>{heldNotSaved(style!.label || style!.name, style!.held!, canPrice)}</p>}
-              {!canSave && !heldChanged && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
+              {subRateMissing && <p className="text-xs text-red-700 text-center" data-sub-rate-missing-save>{subRateMissing}</p>}
+              {!canSave && !heldChanged && !subRateMissing && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && shownItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4" data-pull-sheet>
                 <div className="flex items-center justify-between mb-3">

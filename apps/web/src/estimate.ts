@@ -9,6 +9,7 @@
 import { mergeSavedConfig } from './configDefaults'
 import { withTargetMargins, typedOverheadPct } from './targetMargin'
 import { calculateQuote, type QuoteCalc } from './quoteCalc'
+import { subUnitRateMissing, type QuotePricingOverrides } from './pricingEngine'
 import { setMaterialPriceSource, inventoryPriceSource, type LineItem, type GateWidths } from './materialCalculator'
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
@@ -21,6 +22,17 @@ import { deriveRunsFor } from './changeOrderYard'
 import type { TierSet } from './tiers'
 import { pickList, pickPrice, type PickInput, type PickList } from './changeOrderPicks'
 export { importedOldPrice, keepsCents } from './pricingEngine'
+
+/**
+ * A quote's pricing choices paid per a unit Settings has no rate for, with no
+ * rate typed (pricingEngine.subUnitRateMissing): what to tell the person, or
+ * null. The server refuses such a save (lib/quotePriceCheck.ts).
+ */
+export function subRateMissingFor(saved: Partial<AppConfig> | null, pricing: unknown, fenceStyle: string | null | undefined): string | null {
+  const cfg = estimateConfig(saved)
+  const o = (pricing && typeof pricing === 'object' ? pricing : {}) as QuotePricingOverrides
+  return subUnitRateMissing(o, cfg.pricing, cfg.fenceStyles.find(s => s.name === fenceStyle))
+}
 
 export { NOT_QUOTABLE_MESSAGE }
 // The server's wood seed (lib/woodSeed.ts) runs this through the bundle.

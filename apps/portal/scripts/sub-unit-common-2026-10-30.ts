@@ -19,7 +19,7 @@ import { dataFor, requestFrom, withServerCosts } from '../src/server/lib/quotePr
 import { stampQuoteWarranties } from '../src/server/lib/warranties.js'
 import { stampQuoteTerms } from '../src/server/lib/contractTerms.js'
 import { stampOwnTier } from '../src/server/lib/ownTier.js'
-import { calculatePrice } from '../../web/src/pricingEngine'
+import { calculatePrice, resolveSubRate } from '../../web/src/pricingEngine'
 
 type Json = any
 
@@ -78,6 +78,13 @@ export function followingSettings(pricing: Json, settingsUnit?: string): Json {
   delete p.subUnit; delete p.subUnitPicked
   if (settingsUnit && p.laborMode === 'subcontractor') p.subUnit = settingsUnit
   return p
+}
+
+/** Settings' sub rate now for a style (its own, its category's, the default: pricingEngine.resolveSubRate). */
+export async function settingsRate(accountId: string, fenceStyle: string): Promise<number> {
+  const m = await pricingModule() as Json
+  const cfg = m.estimateConfig((await dataFor(accountId)).config)
+  return resolveSubRate((cfg.fenceStyles as Json[]).find(s => s.name === fenceStyle), cfg.pricing)
 }
 
 /** Settings' sub unit now. */
