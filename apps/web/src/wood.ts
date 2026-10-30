@@ -187,8 +187,10 @@ export const WOOD_KITS: Record<string, KitSpec> = Object.fromEntries(
  * line on his prices: +7.22% estimated tax, his standing rule), Oct 30 2026;
  * the two nails are sub-cent each (picket nail 89/1200 = $0.0742 → $0.0796,
  * framing nail 154/4000 = $0.0385 → $0.0413) and are kept at the nearest
- * cent like every other part. The self-tapping screw has no price yet: wood
- * stays held until Jonathan types it.
+ * cent like every other part. Two are his cost as given, no tax added (his
+ * correction the same day): the steel gate frame $350.00 and the self-tapping
+ * screw $0.09. With every part priced, the six wood styles are available for
+ * quoting as soon as the one-time step adds them.
  */
 export const WOOD_PARTS: Array<{ part: string; unitCost: number; shelf: number | null; styles: string[] }> = [
   { part: POST_LINE, unitCost: 11.34, shelf: 10.58, styles: WOOD_REAL_STYLES },
@@ -200,9 +202,9 @@ export const WOOD_PARTS: Array<{ part: string; unitCost: number; shelf: number |
   { part: WOOD_GRADES[1].picket, unitCost: 3.95, shelf: 3.68, styles: WOOD_STYLES.map(s => woodStyleName(s.key, 'premium')) },
   { part: PICKET_NAIL, unitCost: 0.08, shelf: 89 / 1200, styles: WOOD_REAL_STYLES },
   { part: FRAMING_NAIL, unitCost: 0.04, shelf: 154 / 4000, styles: WOOD_REAL_STYLES },
-  { part: FRAME_SCREW, unitCost: 0, shelf: null, styles: WOOD_REAL_STYLES },
+  { part: FRAME_SCREW, unitCost: 0.09, shelf: null, styles: WOOD_REAL_STYLES },
   { part: LATCH, unitCost: 31.82, shelf: 29.68, styles: WOOD_REAL_STYLES },
-  { part: FRAME, unitCost: 375.27, shelf: 350, styles: WOOD_REAL_STYLES },
+  { part: FRAME, unitCost: 350, shelf: null, styles: WOOD_REAL_STYLES },
 ]
 /** The day the costs above were set (Inventory's "Price last updated"). */
 export const WOOD_PRICED_ON = '2026-10-30'

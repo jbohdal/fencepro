@@ -53,13 +53,12 @@ const plan = planWood({ fenceStyles: [...DEFAULT_FENCE_STYLES, ...OLD_ROWS], ite
 const config = { fenceStyles: plan.state.fenceStyles, pricing: { ...PRICING, overheadPct: 30 } } as any
 const COST = Object.fromEntries(WOOD_PARTS.map(p => [p.part, p.unitCost]))
 
-/** Inventory as the one-time step leaves it (Jonathan's costs; the screw $0), concrete and the drop rod at live's, and any changes. */
+/** Inventory as the one-time step leaves it (Jonathan's costs, every part priced), concrete and the drop rod at live's, and any changes. */
 function data(changes: Record<string, number> = {}): EstimateData {
   const prices: Record<string, number> = { ...COST, 'Misc, Concrete': 7.06, 'Drop Rod, 48", Black': 48.01, ...changes }
   return { config, inventory: plan.state.items.map(i => ({ name: i.name, unitCost: prices[i.name] ?? 0, status: 'active' })), kits: plan.state.kits }
 }
-/** With the self-tapping screw priced (a test price): every wood style available for quoting. */
-const priced = data({ [SCREW]: 0.05 })
+const priced = data()
 const ST = woodStyleName('stockade', 'pine'), ST_P = woodStyleName('stockade', 'premium')
 const BOB = woodStyleName('bob', 'pine'), SB_P = woodStyleName('sb', 'premium')
 const job = (fenceStyle: string) => ({ fenceStyle, runs: [100, 60], corners: 1, ends: 3, walkGates: 1, dblGates: 0 })
@@ -116,11 +115,11 @@ describe('the real wood kits', () => {
     expect(woodKitId('bob', 'premium')).toBe('kit_wood_real_bob_6_premium_ds_8')
   })
 
-  test('the new parts: 12, at Jonathan\'s costs (shelf × 1.0722, whole cents), the screw $0', () => {
+  test('the new parts: 12, at Jonathan\'s costs (shelf × 1.0722, whole cents; the frame and the screw as given)', () => {
     expect(WOOD_PARTS.map(p => [p.part, p.unitCost])).toEqual([
       ["Wood, PT Post, Line, 4x4x8'", 11.34], ["Wood, PT Post, Corner, 4x4x8'", 11.34], ["Wood, PT Post, End, 4x4x8'", 11.34],
       ["Wood, PT Post, Gate, 6x6x8'", 39.33], ["Wood, PT Rail, 2x4x8'", 5.23], [PINE, 2.77], [PREMIUM, 3.95],
-      [PICKET_NAIL, 0.08], [FRAMING_NAIL, 0.04], [SCREW, 0], ['Wood, Gate Latch', 31.82], [FRAME, 375.27],
+      [PICKET_NAIL, 0.08], [FRAMING_NAIL, 0.04], [SCREW, 0.09], ['Wood, Gate Latch', 31.82], [FRAME, 350],
     ])
     for (const p of WOOD_PARTS) if (p.shelf) expect(Math.abs(p.unitCost - p.shelf * 1.0722)).toBeLessThan(0.005 + 1e-9)
     expect(plan.state.items.filter(i => i.unitCost > 0).every(i => i.priceUpdatedAt === '2026-10-30')).toBe(true)
@@ -140,8 +139,7 @@ describe('the real wood kits', () => {
   })
 
   test('the drawn 100 ft line with a 4 ft walk gate: Stockade, PT Pine pickets, priced from Inventory, no "Wood material × 115%" line', () => {
-    // The screw at $0: held, so a preview (the price check shows the same numbers).
-    const est = estimate(data(), drawn(ST), { preview: true })
+    const est = estimate(priced, drawn(ST))
     expect(est.sections).toBe(12)
     const byName = (a: any[], b: any[]) => String(a[0]).localeCompare(String(b[0]))
     expect(est.pullSheet.map(i => [i.item, i.qty, i.unitCost, i.total]).sort(byName)).toEqual([
@@ -153,14 +151,14 @@ describe('the real wood kits', () => {
       [PINE, 213, 2.77, 590.01],
       [PICKET_NAIL, 1224, 0.08, 97.92],
       [FRAMING_NAIL, 144, 0.04, 5.76],
-      [FRAME, 1, 375.27, 375.27],
-      [SCREW, 36, 0, 0],
+      [FRAME, 1, 350, 350],
+      [SCREW, 36, 0.09, 3.24],
       ['Wood, Gate Latch', 1, 31.82, 31.82],
     ].sort(byName))
     expect(est.pullSheet.some(i => /Wood material/.test(i.item) || i.moneyOnly)).toBe(false)
-    expect(est.materialCost).toBe(1616.76)
+    expect(est.materialCost).toBe(1594.73)
     // Alta Premium: the same fence, 213 pickets at $3.95.
-    expect(estimate(data(), drawn(ST_P), { preview: true }).materialCost).toBe(Math.round((1616.76 + 213 * (3.95 - 2.77)) * 100) / 100)
+    expect(estimate(priced, drawn(ST_P)).materialCost).toBe(Math.round((1594.73 + 213 * (3.95 - 2.77)) * 100) / 100)
   })
 
   test('labor: WV-DS 6x8 install labor × 115% for all six; the material is not vinyl × 115%', () => {
@@ -213,8 +211,8 @@ describe('Good / Better on the proposal: PT Pine and Alta Premium pickets', () =
       expect(opts[0].finalPrice).toBe(j.totals.price)
     }
   })
-  test('while the screw has no price, neither tier is offered and each says why', () => {
-    const j = quoteJobFor(data(), { ...req(ST), keepStyle: ST })
+  test('while a part has no price, neither tier is offered and each says why', () => {
+    const j = quoteJobFor(data({ [SCREW]: 0 }), { ...req(ST), keepStyle: ST })
     expect(j.tiers.map(t => t.reason)).toEqual([expect.stringMatching(/waiting for prices on 1 part/), expect.stringMatching(/waiting for prices on 1 part/)])
   })
 })
@@ -248,20 +246,20 @@ describe('the gate post kit', () => {
 })
 
 describe('held until every wood part is priced, then quotes by itself', () => {
-  test('as the one-time step leaves it (the screw $0): every wood style held on that one part', () => {
-    const d = data()
+  test('any part at $0 (the screw here): every wood style held on that one part', () => {
+    const d = data({ [SCREW]: 0 })
     for (const n of WOOD_REAL_STYLES) expect(heldStyleReason(d, n)).toBe('Wood is waiting for prices on 1 part in Inventory')
     expect(estimateStyles(config, d).some(s => s.material === 'wood')).toBe(false)
     expect(() => estimate(d, job(ST))).toThrow()
   })
   test('each style goes by its own parts: Alta Premium at $0 holds only the premium styles', () => {
-    const d = data({ [SCREW]: 0.05, [PREMIUM]: 0 })
+    const d = data({ [PREMIUM]: 0 })
     for (const s of WOOD_STYLES) {
       expect(heldStyleReason(d, woodStyleName(s.key, 'pine'))).toBeNull()
       expect(heldStyleReason(d, woodStyleName(s.key, 'premium'))).toBe('Wood is waiting for prices on 1 part in Inventory')
     }
   })
-  test('every part priced: all six available for quoting, no other step', () => {
+  test('as the one-time step leaves it, every part priced: all six available for quoting, no other step', () => {
     for (const n of WOOD_REAL_STYLES) expect(heldStyleReason(priced, n)).toBeNull()
     expect(estimateStyles(config, priced).filter(s => s.material === 'wood').map(s => s.name)).toEqual(WOOD_REAL_STYLES)
   })
@@ -347,13 +345,13 @@ describe('the Oct 30 change on saved Settings and Inventory (planWoodRealKits)',
     const again = planWoodRealKits(p.state)
     expect([again.archivedItems, again.archivedKits, again.addedStyles, again.addedKits, again.addedItems, again.catalog]).toEqual([[], [], [], [], [], []])
   })
-  test('the new styles quote from their new kits once the screw is priced; the old ones stay held', () => {
+  test('the new styles quote from their new kits at once; the old ones stay held', () => {
     const d: EstimateData = {
       config: { ...config, fenceStyles: p.state.fenceStyles, fenceCatalog: p.state.fenceCatalog },
-      inventory: p.state.items.map(i => ({ name: i.name, unitCost: i.name === SCREW ? 0.05 : i.unitCost, status: i.status as string })), kits: p.state.kits,
+      inventory: p.state.items.map(i => ({ name: i.name, unitCost: i.unitCost, status: i.status as string })), kits: p.state.kits,
     }
     expect(heldStyleReason(d, ST)).toBeNull()
-    expect(estimate(d, drawn(ST)).materialCost).toBe(1616.76 + 36 * 0.05)
+    expect(estimate(d, drawn(ST)).materialCost).toBe(1594.73)
     expect(heldStyleReason(d, 'wood/privacy/6/ds/8')).toMatch(/Privacy is archived/)
   })
 })

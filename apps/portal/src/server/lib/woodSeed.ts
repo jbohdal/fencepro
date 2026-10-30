@@ -13,7 +13,7 @@
  * once per company, after ensureWood. Archives (never deletes) the white
  * vinyl parts renamed as wood on Oct 19 and the kits made from them, adds the
  * six real wood styles, their kits and their new parts at Jonathan's costs
- * (wood.ts WOOD_PARTS; the self-tapping screw $0 until he prices it), adds
+ * (wood.ts WOOD_PARTS: every part priced, so wood quotes at once), adds
  * the styles and picket grades to the choice tree and archives
  * wood's Privacy, No dig and 6 ft panel choices, and turns the wood material
  * back on (its parts' prices hold it until they are typed). If Jonathan turns wood off again afterwards, it
