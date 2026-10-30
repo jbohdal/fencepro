@@ -12,6 +12,7 @@
 import { fileURLToPath } from 'url'
 import prisma from './prisma.js'
 import { resolveIntakeAccountId } from './intake.js'
+import { withLiveOverhead } from './liveOverhead.js'
 
 export interface EstimateJob {
   fenceStyle: string
@@ -66,6 +67,9 @@ interface EstimateModule {
   /** A yard's runs and posts for a style, as the quote builder counts them (web/src/changeOrderYard.ts). */
   deriveYardRuns(config: unknown, yard: unknown, fenceStyle: string): { runs: number[]; corners: number; ends: number; walkGates: number; dblGates: number; linePosts?: number } | null
   estimate(data: unknown, job: EstimateJob, opts?: { preview?: boolean }): Estimate
+  /** Live overhead from the budget and the jobs, both bases (web/src/liveOverheadMath.ts; lib/liveOverhead.ts). */
+  overheadNowOf(budget: unknown, jobs: Array<{ completedDate?: string | null; contractValue?: number | null; quotePrice?: number | null }>, today?: Date): unknown
+  liveOverheadPctIn(pricing: unknown, now: unknown): number | null
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
@@ -158,7 +162,8 @@ async function estimateData() {
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),
   ])
   const arr = (v: unknown) => (Array.isArray(v) ? v : [])
-  const data = { config: business?.config ?? null, inventory: arr(inventory?.items), kits: arr(inventory?.kits) }
+  // With the live Overhead % in use (lib/liveOverhead.ts): the website prices as the owner's quote builder does.
+  const data = { config: business?.config ? await withLiveOverhead(accountId, business.config) : null, inventory: arr(inventory?.items), kits: arr(inventory?.kits) }
   cache = { at: Date.now(), data }
   return data
 }

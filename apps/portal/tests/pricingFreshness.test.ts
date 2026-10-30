@@ -185,11 +185,11 @@ describe('the server\'s fingerprints of the price data (lib/pricingStamp.ts)', (
     expect(businessPart({ voice: cfg.voice, company: cfg.company, pricing: cfg.pricing, fenceStyles: cfg.fenceStyles })).toBe(a)
   })
 
-  test('the budget\'s overhead counts only while live overhead is on', () => {
-    const off = businessPart(cfg, { overhead: [{ annual: 1000 }] })
-    expect(businessPart(cfg, { overhead: [{ annual: 2000 }] })).toBe(off)
+  test('the live Overhead % in use counts only while live overhead is on', () => {
+    const off = businessPart(cfg, 36.9)
+    expect(businessPart(cfg, 37)).toBe(off)
     const live = { ...cfg, pricing: { overheadPct: 20, liveOverhead: { on: true } } }
-    expect(businessPart(live, { overhead: [{ annual: 2000 }] })).not.toBe(businessPart(live, { overhead: [{ annual: 1000 }] }))
+    expect(businessPart(live, 37)).not.toBe(businessPart(live, 36.9))
   })
 
   test('Inventory: a part\'s cost or a kit changes it; stock counts and the confirmed date do not', () => {

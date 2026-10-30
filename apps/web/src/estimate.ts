@@ -150,14 +150,23 @@ export function estimateConfig(saved: Partial<AppConfig> | null): AppConfig {
 }
 
 /**
- * The Overhead % in use. Live overhead is worked out in the app from the
- * budget and installed jobs; here the month's figure it recorded is used,
- * else the typed Overhead %.
+ * The Overhead % in use. Live overhead is worked out on the server from the
+ * budget and every job (portal lib/liveOverhead.ts) and put on the Settings it
+ * prices with as pricing.liveOverheadPct (never saved): the same figure every
+ * phone gets with Settings (liveOverhead.ts), so a Salesman, the owner and the
+ * website price alike. Null there: not available, the typed Overhead %. Only
+ * Settings read without it fall back to the month's figure recorded in
+ * Settings.
  */
 export function estimateOverheadPct(merged: AppConfig): number {
-  const live = merged.pricing.liveOverhead?.on ? [...(merged.pricing.overheadHistory ?? [])].sort((a, b) => b.month.localeCompare(a.month))[0]?.pct : undefined
+  if (!merged.pricing.liveOverhead?.on) return typedOverheadPct(merged)
+  const now = (merged.pricing as { liveOverheadPct?: number | null }).liveOverheadPct
+  if (now !== undefined) return typeof now === 'number' && Number.isFinite(now) ? now : typedOverheadPct(merged)
+  const live = [...(merged.pricing.overheadHistory ?? [])].sort((a, b) => b.month.localeCompare(a.month))[0]?.pct
   return typeof live === 'number' ? live : typedOverheadPct(merged)
 }
+
+export { overheadNowOf, liveOverheadPctIn } from './liveOverheadMath'
 
 /**
  * A quote priced on the server exactly as the quote builder prices it

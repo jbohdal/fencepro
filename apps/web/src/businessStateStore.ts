@@ -14,6 +14,7 @@ import { deepEqual, merge3 } from './merge3'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { serverVersionOf } from './docVersions'
 import { notePricingPart, registerPricingReload } from './pricingFreshness'
+import type { OverheadNow } from './liveOverheadMath'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'fencepro:business-state:updated'
@@ -90,6 +91,16 @@ const loadedLazy = new Set<keyof BusinessFields>()
 const omitList = () => ['jobChecklists', ...LAZY.filter(f => !wanted.has(f))]
 const stateUrl = () => `${AUTH_API}/api/business-state?omit=${omitList().join(',')}`
 
+/**
+ * Live overhead as the server worked it out from the budget and every job of
+ * the company (portal lib/liveOverhead.ts), with each read of this record: the
+ * one figure every phone prices with (a Salesman's phone holds only her own
+ * jobs). Null until read, or for a login that sees no costs.
+ */
+let overheadNow: OverheadNow | null = null
+const noteOverheadNow = (v: unknown) => { if (v && typeof v === 'object' && 'last12' in v) overheadNow = v as OverheadNow }
+export function getOverheadNow(): OverheadNow | null { return overheadNow }
+
 async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T; part?: unknown }> {
   const token = isSignedIn()
   if (!token) return { ok: false }
@@ -102,7 +113,8 @@ async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; d
     if (!res.ok) return { ok: false }
     const json = await res.json().catch(() => ({}))
     if (!json?.success) return { ok: false }
-    // pricingPart: which copy of the price data this is (pricingFreshness.ts).
+    // pricingPart: which copy of the price data this is (pricingFreshness.ts); overheadNow: the live overhead.
+    if (method === 'GET') noteOverheadNow(json.overheadNow)
     return { ok: true, data: json.data as T, part: json.pricingPart }
   } catch { return { ok: false } }
 }

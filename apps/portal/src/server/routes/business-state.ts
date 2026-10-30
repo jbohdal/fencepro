@@ -38,6 +38,7 @@ import { salesScopeOf, salesScope, forgetScope, type SalesScope } from '../lib/s
 import { salesBusinessView, salesBusinessPatch, businessHanded, OutsideScopeError } from '../lib/salesScopeRecords.js'
 import { handedOut, handedOutHad, handedAt, afterOwnSave, NOTHING, type Had } from '../lib/salesServed.js'
 import { businessPart } from '../lib/pricingStamp.js'
+import { overheadNowFor, liveOverheadPctFor, forgetOverheadNow } from '../lib/liveOverhead.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -134,7 +135,9 @@ router.get('/', async (req: any, res) => {
       () => prisma.businessState.create({ data: { accountId } }),
     )
     // Which copy of the price data this is (lib/pricingStamp.ts): the phone sends it with a quote it prices.
-    res.json({ success: true, data: leanState(s, omittedParts(req.query)), pricingPart: businessPart(s.config, s.budget) })
+    // overheadNow: live overhead from the budget and every job (lib/liveOverhead.ts), the one figure every phone prices with.
+    const [overheadNow, livePct] = await Promise.all([overheadNowFor(accountId), liveOverheadPctFor(accountId, s.config)])
+    res.json({ success: true, data: leanState(s, omittedParts(req.query)), pricingPart: businessPart(s.config, livePct), overheadNow })
   } catch (err) {
     console.error('[business-state] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load business state' })
@@ -211,6 +214,8 @@ router.patch('/', async (req: any, res) => {
       }
     }
     const s = (await prisma.businessState.findUnique({ where: { accountId } }))!
+    // The budget or Settings may move live overhead: worked out again on the next ask.
+    if (updateData.budget !== undefined || updateData.config !== undefined) forgetOverheadNow(accountId)
     // The phone keeps what it sent as its copy of the new version: remembered for its next save.
     if (salesman && had) handedOutHad(salesman.scope.userId, salesman.scope.accountId, 'business', newVersion, afterOwnSave(had, sentByPhone))
     if (updateData.pendingOrders !== undefined) {
