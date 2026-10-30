@@ -303,13 +303,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('website quotes not finished (dev
     expect((await call('/partial', { sessionId: t, name: `Test ${LAST}`, phone: PHONE, step: 3, test: true })).body.test).toBe(true)
     expect(await prisma.intakeLead.count({ where: { sourceRef: t } })).toBe(0)
     expect((await call('/partial', { sessionId: 'short', name: NAME, phone: PHONE, step: 3 })).status).toBe(400)
-    // Five new leads an hour from one address; the sixth is refused (updates of a known lead are not counted).
+    // Twenty new leads an hour from one address; the next is refused (updates of a known lead are not counted).
     const statuses: number[] = []
-    for (let k = 0; k < 6; k++) {
-      const r = await call('/partial', { sessionId: visit(), name: `Flood${String.fromCharCode(65 + k)} ${LAST}`, email: `flood${k}.${tag}@example.invalid`, step: 0 }, { 'X-Forwarded-For': '10.7.4.4' })
+    let known = ''
+    for (let k = 0; k < 21; k++) {
+      const sid = visit()
+      if (!known) known = sid
+      const r = await call('/partial', { sessionId: sid, name: `Flood${String.fromCharCode(65 + k)} ${LAST}`, email: `flood${k}.${tag}@example.invalid`, step: 0 }, { 'X-Forwarded-For': '10.7.4.4' })
       statuses.push(r.status)
     }
-    expect(statuses).toEqual([201, 201, 201, 201, 201, 429])
+    expect(statuses).toEqual([...Array(20).fill(201), 429])
+    expect((await call('/partial', { sessionId: known, name: `FloodA ${LAST}`, email: `flood0.${tag}@example.invalid`, step: 1 }, { 'X-Forwarded-For': '10.7.4.4' })).status).toBe(200)
   })
 
   test('the dev outbox: nothing to any customer from this run, only pushes to the owner', async () => {

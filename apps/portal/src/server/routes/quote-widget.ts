@@ -69,8 +69,8 @@ const submitLimiter = limit(60 * 60_000, 20, 'Too many quotes from this address.
 const photoLimiter = rateLimit({ windowMs: 60 * 60_000, max: 40, standardHeaders: true, legacyHeaders: false })
 // The lead so far: saved again as the customer types (the page waits a moment between saves) and when they leave.
 const partialLimiter = limit(60_000, 30, 'Too many saves. Try again in a minute.')
-// New unfinished leads from one address: a person makes one or two; a robot is stopped at 5 an hour.
-const newPartialLimiter = limit(60 * 60_000, 5, 'Too many quotes from this address. Try again later.')
+// New unfinished leads from one address, an hour: as many as sent quotes (20; phones on one carrier can share an address).
+const newPartialLimiter = limit(60 * 60_000, 20, 'Too many quotes from this address. Try again later.')
 
 const api = Router()
 api.use(express.json({ limit: '600kb' }))
