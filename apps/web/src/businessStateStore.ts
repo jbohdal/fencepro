@@ -13,6 +13,7 @@ import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { deepEqual } from './merge3'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { serverVersionOf } from './docVersions'
+import { notePricingPart, registerPricingReload } from './pricingFreshness'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '')
 const EVT = 'fencepro:business-state:updated'
@@ -81,7 +82,7 @@ const loadedLazy = new Set<keyof BusinessFields>()
 const omitList = () => ['jobChecklists', ...LAZY.filter(f => !wanted.has(f))]
 const stateUrl = () => `${AUTH_API}/api/business-state?omit=${omitList().join(',')}`
 
-async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
+async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T; part?: unknown }> {
   const token = isSignedIn()
   if (!token) return { ok: false }
   try {
@@ -93,7 +94,8 @@ async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; d
     if (!res.ok) return { ok: false }
     const json = await res.json().catch(() => ({}))
     if (!json?.success) return { ok: false }
-    return { ok: true, data: json.data as T }
+    // pricingPart: which copy of the price data this is (pricingFreshness.ts).
+    return { ok: true, data: json.data as T, part: json.pricingPart }
   } catch { return { ok: false } }
 }
 
@@ -150,6 +152,7 @@ export function initBusinessState(): Promise<void> {
     const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     cache = next
     flusher.loaded(cache, version)
+    notePricingPart('business', r.part)
     hydrated = true
     emit()
   })().finally(() => { if (!hydrated) initPromise = null })
@@ -174,8 +177,16 @@ export async function refreshBusinessState(): Promise<void> {
   const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
   cache = pickBusiness(r.data)
   flusher.loaded(cache, version)
+  notePricingPart('business', r.part)
   emit()
 }
+
+// Prices changed on the server (pricingFreshness.ts): a change made here goes first, then Settings are read again.
+registerPricingReload('business', async () => {
+  if (!hydrated) { await initBusinessState(); return }
+  if (flusher.isDirty()) await whenBusinessStateSaved()
+  await refreshBusinessState()
+})
 
 /**
  * A screen that shows a part not read on load (the Sales Orders) asks for it

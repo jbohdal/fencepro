@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { sendJson } from './syncHttp'
 import { plainText } from './plainError'
 import type { TierSet, TierSpec } from './tiers'
+import { notePricingPart, registerPricingReload } from './pricingFreshness'
 
 const EVENT = 'ezbiz:tier-sets'
 let cache: TierSet[] | null = null
@@ -29,10 +30,21 @@ function publish(list: TierSet[]) {
 
 /** Read every set from the server (it makes the starting sets the first time). */
 export async function loadTierSets(): Promise<TierSet[]> {
-  const list = await call<TierSet[]>('GET', '')
+  const r = await sendJson('GET', '/api/tier-sets')
+  if (!r.result.ok || !Array.isArray(r.json?.data)) {
+    const err = new Error(plainText(r.json?.error || (r.status === 0 ? 'Failed to fetch' : 'Something went wrong'), 'The tier set')) as Error & { status?: number }
+    err.status = r.status
+    throw err
+  }
+  const list = r.json.data as TierSet[]
+  // Which copy of the price data this is (pricingFreshness.ts).
+  notePricingPart('tiers', r.json.pricingPart)
   publish(list)
   return list
 }
+
+// Prices changed on the server (pricingFreshness.ts): the sets are read again.
+registerPricingReload('tiers', async () => { await loadTierSets() })
 
 /** Loaded with the rest of the company's data when the app starts (App.tsx STORE_LOADERS). */
 export async function initTierSets(): Promise<void> { await loadTierSets() }

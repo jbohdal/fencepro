@@ -64,9 +64,11 @@ export interface SavedQuotePayload {
   needsResend?: boolean
   /** A Salesman's or Installer's save: the quote builder's inputs (the server works out the costs). */
   priceRequest?: QuoteJobRequest
+  /** The copy of the price data it was priced with (pricingFreshness.ts): the server refuses a save on an older one. */
+  pricingStamp?: string
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp'>> {
   needsResend?: boolean
   id: string
   pricing: QuotePricingOverrides | null

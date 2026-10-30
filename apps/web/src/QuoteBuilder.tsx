@@ -18,6 +18,8 @@ import { getCustomers, getCustomerById, upsertCustomer, findPossibleMatches } fr
 import { customersMatching, decideNewCustomer, contactToAdd, quoteDraftAddress, serviceAddressShown } from './customerPick'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
+import { BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
+import { checkPricing, heldPricingStamp, repriceOutcome, draftPriceLine, priceText, samePrice, PRICING_CHANGED_EVENT } from './pricingFreshness'
 import { getRailOptimizerConfig } from './configStore'
 import { sourcePicker } from './optionListsStore'
 import { calculateQuote, widthComparison, type QuoteCalcInput } from './quoteCalc'
@@ -491,7 +493,15 @@ export default function QuoteBuilder({
   // Styles, rates and thresholds all come from Settings. Styles turned off or
   // not available for quoting (Settings → Fence Styles) are hidden unless this
   // quote already uses one; then it stays, marked, and the quote keeps working.
-  const cfg = useMemo(() => getConfig(), [])
+  // Read again when Settings change while the builder is open (the owner's price change reaches an open quote:
+  // broken list #58, pricingFreshness.ts); nothing typed here is lost.
+  const [cfgTick, setCfgTick] = useState(0)
+  useEffect(() => {
+    const on = () => setCfgTick(t => t + 1)
+    window.addEventListener(BUSINESS_STATE_UPDATED_EVENT, on)
+    return () => window.removeEventListener(BUSINESS_STATE_UPDATED_EVENT, on)
+  }, [])
+  const cfg = useMemo(() => getConfig(), [cfgTick])  // eslint-disable-line react-hooks/exhaustive-deps
   const FENCE_STYLES = useMemo(
     () => cfg.fenceStyles.filter(s => isQuotable(s) || s.name === init?.fenceStyle),
     [cfg, init?.fenceStyle],
@@ -556,12 +566,13 @@ export default function QuoteBuilder({
   const [showDiscount, setShowDiscount] = useState(initPricing.showDiscountOnProposal === true)
   // The Final price field while it is being typed in (else it shows the price).
   const [finalTyped, setFinalTyped] = useState<string | null>(null)
-  // Bumps when Inventory changes so material costs are re-read while the builder is open.
+  // Bumps when Inventory or Settings change so costs, rates, tiers and Compare are re-read while the builder is open.
   const [invTick, setInvTick]           = useState(0)
   useEffect(() => {
     const onInv = () => setInvTick(t => t + 1)
     window.addEventListener(INVENTORY_UPDATED_EVENT, onInv)
-    return () => window.removeEventListener(INVENTORY_UPDATED_EVENT, onInv)
+    window.addEventListener(BUSINESS_STATE_UPDATED_EVENT, onInv)
+    return () => { window.removeEventListener(INVENTORY_UPDATED_EVENT, onInv); window.removeEventListener(BUSINESS_STATE_UPDATED_EVENT, onInv) }
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
   // One step on screen at a time: a new quote starts with the customer, a saved one on its price.
@@ -755,6 +766,16 @@ export default function QuoteBuilder({
     keepCents,
   }
   const { view: sv, pricing: svPricing, error: svError } = useServerQuoteView(!internal, priceRequest, init?.id)
+  // Prices priced here are kept current (broken list #58): checked when the builder opens and every 30 seconds
+  // while it is on screen (focus, signal back and every minute: liveRefresh.ts); a part that changed is read again.
+  useEffect(() => {
+    if (!internal) return
+    void checkPricing()
+    const t = setInterval(() => { if (document.visibilityState === 'visible') void checkPricing() }, 30_000)
+    return () => clearInterval(t)
+  }, [internal])
+  // The copy of the price data this render priced with: it goes with the save (the server refuses an older one).
+  const pricingStampNow = internal ? heldPricingStamp() : null
 
   // invTick: re-read Inventory costs when Inventory changes while the builder is open.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -864,6 +885,24 @@ export default function QuoteBuilder({
   if (!openChoices.current) openChoices.current = choicesNow
   const openOverrides = useRef(pricingOverrides)
   const sentPricesChanged = sentQuote && openPriceRef.current != null && Math.round(openPriceRef.current * 100) !== Math.round((init?.finalPrice ?? 0) * 100)
+  // A sent, shared or signed quote keeps its saved prices (the server never reprices it); every other save is checked.
+  const pricesStand = signedQuote || (!!init?.id && (proposalSent(init as Parameters<typeof proposalSent>[0]) || !!init.shareToken))
+  // Prices read again while this quote was open (pricingFreshness.ts): the price shown before, while the fence is
+  // unchanged since (once it is edited, the price on screen is simply the new one). The save asks first.
+  const priceNowRef = useRef(0)
+  priceNowRef.current = adjPrice
+  const [repricedFrom, setRepricedFrom] = useState<{ was: number; fence: string } | null>(null)
+  useEffect(() => {
+    const on = () => setRepricedFrom(prev => prev ?? { was: priceNowRef.current, fence: fenceRef.current })
+    window.addEventListener(PRICING_CHANGED_EVENT, on)
+    return () => window.removeEventListener(PRICING_CHANGED_EVENT, on)
+  }, [])
+  const repriced = repricedFrom && repricedFrom.fence === fenceKey && priceNowRef.current > 0 && !samePrice(repricedFrom.was, adjPrice) ? repricedFrom : null
+  // A draft opened after a price change says so, rather than silently showing the new price (a quote brought in
+  // from JobNimbus is priced from its parts on purpose, so it is not compared).
+  const draftLine = !pricesStand && !!init?.id && init.status === 'DRAFT' && oldPrice == null && !fenceChanged && !!style && (internal || !!sv)
+    ? draftPriceLine(init.finalPrice ?? 0, adjPrice) : null
+  const repricedLine = !draftLine && !pricesStand && repriced ? `Prices changed while this quote was open. It is now ${priceText(adjPrice)} (was ${priceText(repriced.was)}).` : null
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
   // Help that prevents bad quotes: plain warnings, never a block.
   const namedRuns: NamedRun[] = fromLayout
@@ -993,7 +1032,20 @@ export default function QuoteBuilder({
     status: SavedQuote['status']
     notes: string
     leadTemp: number
-  }) {
+  }, opts: { pricesChecked?: boolean } = {}) {
+    // Before a quote priced here is saved, its prices are the server's current ones (broken list #58): a part that
+    // changed is read again, the quote reprices, and a changed price is shown and confirmed first (never saved
+    // silently at old prices). No signal: it is saved, and the server checks it when it arrives.
+    if (internal && !pricesStand && !opts.pricesChecked && !directCo.current) {
+      const was = repriced?.was ?? adjPrice
+      const styleName = style ? optionLabel(style.name) : ''
+      const check = await checkPricing()
+      if (check.changed.length || repriced) {
+        setShowSaveModal(false)
+        setRecheck({ data, was, styleName, asked: false })
+        return
+      }
+    }
     // The aerial photo, turned as saved, under the plan on the proposal (when it is on).
     const photo = fromLayout && yard ? await bakedBackdrop(yard) : null
     const company = { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' }
@@ -1075,6 +1127,8 @@ export default function QuoteBuilder({
       work: savedWork,
       // A Salesman's or Installer's save: the server works out the costs from these inputs.
       ...(internal ? {} : { priceRequest }),
+      // Priced here: the copy of the price data it was priced with (the server refuses an older one).
+      ...(pricingStampNow ? { pricingStamp: pricingStampNow } : {}),
       proposal: workProposal ?? (style ? buildProposal({
         input: calcInput,
         // A Salesman or Installer: every option comes priced from the server.
@@ -1128,6 +1182,27 @@ export default function QuoteBuilder({
       if (sentPricesChanged || changes.length) { setPending({ quote, kind: 'sent', changes }); return }
     }
     onSave(quote)
+  }
+
+  // A save held back because the prices changed: priced again with the new data, then saved as it is (same price),
+  // or shown with the new price to confirm, or stopped (the fence is no longer available for quoting).
+  const [recheck, setRecheck] = useState<{ data: Parameters<typeof handleSave>[0]; was: number; styleName: string; asked: boolean } | null>(null)
+  const recheckOutcome = recheck ? repriceOutcome(recheck.was, adjPrice, { name: recheck.styleName, available: !!style && isQuotable(style) || (!!style && style.name === init?.fenceStyle) }) : null
+  useEffect(() => {
+    if (!recheck || recheck.asked || !recheckOutcome) return
+    if (recheckOutcome.kind === 'save') {
+      const d = recheck.data
+      setRecheck(null); setRepricedFrom(null)
+      void handleSave(d, { pricesChecked: true })
+      return
+    }
+    setRecheck({ ...recheck, asked: true })
+  }, [recheck, recheckOutcome?.kind])  // eslint-disable-line react-hooks/exhaustive-deps
+  function saveRepriced() {
+    if (!recheck) return
+    const d = recheck.data
+    setRecheck(null); setRepricedFrom(null)
+    void handleSave(d, { pricesChecked: true })
   }
 
   /**
@@ -1198,6 +1273,7 @@ export default function QuoteBuilder({
             {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({fmt(init!.finalPrice)} then, {fmt(adjPrice)} now).</p>}
+            {(draftLine || repricedLine) && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-price-changed-banner>{draftLine || repricedLine}</p>}
           </div>
           <div className="flex items-center gap-3">
             {materialItems.length > 0 && (
@@ -2236,6 +2312,25 @@ export default function QuoteBuilder({
                 </div>
                 <p className="text-xs text-gray-500">Keep the sent prices saves notes and customer details only; the fence, price and proposal stay as sent.</p>
               </>
+            )}
+          </div>
+        </div>
+      )}
+      {recheck?.asked && recheckOutcome && recheckOutcome.kind !== 'save' && <BackClose name="price-recheck" onClose={() => setRecheck(null)} />}
+      {recheck?.asked && recheckOutcome && recheckOutcome.kind !== 'save' && (
+        <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-3" data-price-recheck={recheckOutcome.kind}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            <p className="text-base font-bold text-gray-900" data-price-recheck-line>{recheckOutcome.line}</p>
+            {recheckOutcome.kind === 'confirm' ? (
+              <div className="flex flex-col gap-2">
+                <button type="button" className="btn btn-primary min-h-[48px]" onClick={saveRepriced} data-price-recheck-save>Save at {priceText(adjPrice)}</button>
+                <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setRecheck(null)} data-price-recheck-back>Back to the quote</button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { setRecheck(null); goStep('style') }} data-price-recheck-style>Pick another fence</button>
+                <button type="button" className="min-h-[44px] text-sm text-gray-600" onClick={() => setRecheck(null)} data-price-recheck-back>Back to the quote</button>
+              </div>
             )}
           </div>
         </div>

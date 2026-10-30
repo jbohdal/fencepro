@@ -50,6 +50,11 @@ export interface Op<P = any> {
   errorKind?: PlainError['kind']
   nextAt?: number
   account?: string | null
+  /**
+   * The server sent it back to be made again (a quote priced at prices it no longer has: 409 PRICES_CHANGED or
+   * STYLE_NOT_QUOTABLE). It waits as "Couldn't save" with the reason; the next save of the same record replaces it.
+   */
+  redo?: boolean
 }
 
 /** What a send came to. */
@@ -101,6 +106,13 @@ export function refusalReason(r: SendResult): string | null {
 
 /** A window event, sent when a change was refused for the login's role: { message, label }. */
 export const REFUSED_EVENT = 'ezbiz:refused'
+
+/**
+ * 409 codes that mean "make this change again" (broken list #58): the quote was priced at prices the server no
+ * longer has, or on a fence no longer available for quoting. Sending it again would be refused again, and dropping
+ * it would lose the quote, so it waits (with the server's reason) until the quote is opened and saved again.
+ */
+export const REDO_CODES: ReadonlySet<string> = new Set(['PRICES_CHANGED', 'STYLE_NOT_QUOTABLE'])
 
 export type RecordStatus = 'saved' | 'saving' | 'waiting' | 'failed'
 
@@ -243,6 +255,23 @@ const mine = (op: Op) => !op.account || !account || op.account === account
  * newest copy needs to go), unless the earlier one is a create.
  */
 export async function enqueue<P>(o: { key: string; kind: string; payload: P; label: string; after?: string[]; coalesce?: boolean }): Promise<Op<P>> {
+  // A change the server sent back to be made again (REDO_CODES): this newer copy of the record takes its place, and
+  // goes as that change went (a new quote is still created, an edit still an edit).
+  const again = ops.find(x => x.key === o.key && x.redo && x.id !== inFlight)
+  if (again) {
+    again.payload = o.payload
+    again.label = o.label
+    again.after = o.after
+    again.redo = false
+    again.state = 'pending'
+    again.error = undefined
+    again.errorKind = undefined
+    again.attempts = 0
+    again.nextAt = undefined
+    await persist(again)
+    emit(); kick()
+    return again as Op<P>
+  }
   if (o.coalesce !== false) {
     const same = ops.find(x => x.key === o.key && x.kind === o.kind && x.id !== inFlight && x.state === 'pending' && !/\.create$/.test(x.kind))
     if (same) {
@@ -326,6 +355,19 @@ async function pump() {
         try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }
         try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ }
         try { window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data')) } catch { /* no window (tests) */ }
+        emit()
+        continue
+      }
+      // Priced at prices the server no longer has (or a fence off quoting now): kept on the phone, not sent again,
+      // until the quote is opened (it shows today's price) and saved again; that save takes this one's place.
+      if (r.status === 409 && r.code && REDO_CODES.has(r.code)) {
+        op.state = 'failed'
+        op.redo = true
+        op.attempts += 1
+        op.error = plainText(r.error || 'Prices changed since this quote was priced. Open it to see the new price, then save it again.', handler.what?.(op))
+        op.errorKind = undefined
+        await persist(op)
+        try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message: `${op.label}: ${op.error}`, label: op.label } })) } catch { /* no window (tests) */ }
         emit()
         continue
       }

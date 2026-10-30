@@ -85,6 +85,8 @@ export interface SavedQuote {
   needsResend?: boolean
   /** Sent once with a Salesman's or Installer's save (never kept): the quote builder's inputs, so the server works out the costs (quoteJob.ts). */
   priceRequest?: QuoteJobRequest
+  /** The copy of the price data the quote builder priced it with (pricingFreshness.ts); sent with the save, never saved. */
+  pricingStamp?: string
 }
 
 const fmt = (n: number) =>

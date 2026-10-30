@@ -8,6 +8,7 @@
 
 import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave } from './syncGuard'
+import { notePricingPart, registerPricingReload } from './pricingFreshness'
 import { setMaterialPriceSource, inventoryPriceSource } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
@@ -32,7 +33,7 @@ let invCache: InventoryStateBlob = { items: [], bundles: [], locations: [], stoc
 let invInitPromise: Promise<void> | null = null
 let invHydrated = false
 
-async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T }> {
+async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean; data?: T; part?: unknown }> {
   const token = isSignedIn()
   if (!token) return { ok: false }
   try {
@@ -44,7 +45,8 @@ async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean
     if (!res.ok) return { ok: false }
     const json = await res.json().catch(() => ({}))
     if (!json?.success) return { ok: false }
-    return { ok: true, data: json.data as T }
+    // pricingPart: which copy of the price data this is (pricingFreshness.ts).
+    return { ok: true, data: json.data as T, part: json.pricingPart }
   } catch { return { ok: false } }
 }
 
@@ -85,6 +87,7 @@ export function initInventory(): Promise<void> {
     invCache = next
     rememberCosts()
     invFlusher.loaded(next, version)
+    notePricingPart('inventory', r.part)
     invHydrated = true
     invEmit()
   })().finally(() => { if (!invHydrated) invInitPromise = null })
@@ -108,8 +111,29 @@ export async function refreshInventory(): Promise<void> {
   costIndexFor = null
   rememberCosts()
   invFlusher.loaded(invCache, version)
+  notePricingPart('inventory', r.part)
   invEmit()
 }
+
+/** Resolves once every Inventory change made here has reached the server (false after `ms`: no signal). */
+function whenInventorySaved(ms = 15_000): Promise<boolean> {
+  const end = Date.now() + ms
+  return new Promise(res => {
+    const tick = () => {
+      if (!invFlusher.isDirty()) { res(true); return }
+      if (Date.now() > end) { res(false); return }
+      setTimeout(tick, 120)
+    }
+    setTimeout(tick, 60)
+  })
+}
+
+// Prices changed on the server (pricingFreshness.ts): a change made here goes first, then Inventory is read again.
+registerPricingReload('inventory', async () => {
+  if (!invHydrated) { await initInventory(); return }
+  if (invFlusher.isDirty()) await whenInventorySaved()
+  await refreshInventory()
+})
 
 export const INVENTORY_UPDATED_EVENT = INV_EVT
 

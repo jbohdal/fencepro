@@ -125,6 +125,8 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     ...(q.needsResend !== undefined ? { needsResend: !!q.needsResend } : {}),
     // A Salesman's or Installer's save: the quote builder's inputs, so the server works out the costs.
     ...(q.priceRequest ? { priceRequest: q.priceRequest } : {}),
+    // The copy of the price data the quote builder priced it with: the server refuses an older one (broken list #58).
+    ...(q.pricingStamp ? { pricingStamp: q.pricingStamp } : {}),
   }
 }
 
@@ -286,6 +288,7 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
     pricing: partial.pricing,
     work: partial.work,
     ...(partial.priceRequest ? { priceRequest: partial.priceRequest } : {}),
+    ...(partial.pricingStamp ? { pricingStamp: partial.pricingStamp } : {}),
   }
   cache = [fresh, ...cache]
   emit()
