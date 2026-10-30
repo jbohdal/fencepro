@@ -32,8 +32,9 @@ async function readAgain(force = false) {
   // (?since=), the pipeline only whether its version moved (audit #17).
   // Prices (Settings, Inventory, Good Better Best): a cheap check, and only a part that changed is read again
   // (broken list #58: an open app quoted at prices the owner had changed). Only logins that price on the phone.
-  const pricing = can('costs.view') ? checkPricing() : Promise.resolve()
-  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), refreshAppointments(), pricing])
+  const pricing = can('costs.view') ? checkPricing().catch(() => undefined) : Promise.resolve()
+  await Promise.allSettled([refreshQuotes(), refreshJobs(), refreshPipeline(), refreshCustomers(), refreshOpsStages(), refreshPipelineStages(), refreshOptionLists(), refreshBookingTeam(), refreshSchedule(), refreshAppointments()])
+  await pricing
   // What an open screen reads for itself (a job's change orders: ChangeOrders.tsx useChangeOrdersLive) reads again too.
   try { window.dispatchEvent(new CustomEvent(LIVE_REFRESH_EVENT)) } catch { /* no window */ }
 }
