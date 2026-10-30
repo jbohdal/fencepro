@@ -44,7 +44,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     accountId, customerName: 'E2E Job Costing Test', fenceStyle: "WV-ND 6'x8' Privacy", runs: [40, 40], sections: 10,
     materialCost: 265, laborCost: 240, tearOutCost: 0, totalCOGS: 505, finalPrice: 1000, gmPct: 0.495, pullSheet: sheet,
     // Made by the login every token here names: the Salesman's own quote and job (lib/salesScope.ts).
-    pricing: { laborMode: 'subcontractor', subUnit: 'section' }, status, salesRep: REP, ownerId: userId, ...extra,
+    // Paid per section picked on the quote (a quote with no rate or pick of its own follows Settings: pricingEngine.subUnitOf).
+    pricing: { laborMode: 'subcontractor', subUnit: 'section', subUnitPicked: true }, status, salesRep: REP, ownerId: userId, ...extra,
   })
   const quotedRows = (quoteId: string) => prisma.jobQuotedCost.findMany({ where: { quoteId } })
   /** Every key in a JSON answer, at any depth. */
