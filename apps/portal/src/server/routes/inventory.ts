@@ -20,6 +20,7 @@ import { inventoryChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
 import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { clearCostReviewOnKitSave } from '../lib/costReview.js'
 import { followBorrowed } from '../lib/followBorrowed.js'
+import { inventoryPart } from '../lib/pricingStamp.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -65,7 +66,8 @@ router.get('/', async (req: any, res) => {
       () => prisma.inventoryState.findUnique({ where: { accountId } }),
       () => prisma.inventoryState.create({ data: { accountId, items: [], bundles: [], locations: [], stockLevels: [], transactions: [] } }),
     )
-    res.json({ success: true, data: inv })
+    // Which copy of the price data this is (lib/pricingStamp.ts): the phone sends it with a quote it prices.
+    res.json({ success: true, data: inv, pricingPart: inventoryPart(inv.items, inv.kits) })
   } catch (err) {
     console.error('[inventory] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load inventory' })

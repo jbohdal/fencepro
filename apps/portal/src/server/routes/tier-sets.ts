@@ -19,6 +19,7 @@ import { createOnce, isUniqueViolation } from '../lib/once.js'
 import { plainZod } from '../lib/plainZod.js'
 import { ensureTierSets, tierSetBodySchema } from '../lib/tierSets.js'
 import { requireCan } from '../lib/permissions.js'
+import { tierPart } from '../lib/pricingStamp.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -36,7 +37,8 @@ router.get('/', async (req: any, res) => {
     const accountId = req.user.crmAccountId
     await ensureTierSets(accountId)
     const rows = await prisma.proposalTierSet.findMany({ where: { accountId }, orderBy: order })
-    res.json({ success: true, data: rows })
+    // Which copy of the price data this is (lib/pricingStamp.ts): the phone sends it with a quote it prices.
+    res.json({ success: true, data: rows, pricingPart: tierPart(rows) })
   } catch (err) { fail(res, err, 'load the tier sets') }
 })
 

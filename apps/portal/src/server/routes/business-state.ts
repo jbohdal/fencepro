@@ -37,6 +37,7 @@ import { materialsFollowOrders } from '../lib/materialsFromOrders.js'
 import { salesScopeOf, salesScope, forgetScope, type SalesScope } from '../lib/salesScope.js'
 import { salesBusinessView, salesBusinessPatch, businessHanded, OutsideScopeError } from '../lib/salesScopeRecords.js'
 import { handedOut, handedOutHad, handedAt, afterOwnSave, NOTHING, type Had } from '../lib/salesServed.js'
+import { businessPart } from '../lib/pricingStamp.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -132,7 +133,8 @@ router.get('/', async (req: any, res) => {
       () => prisma.businessState.findUnique({ where: { accountId } }),
       () => prisma.businessState.create({ data: { accountId } }),
     )
-    res.json({ success: true, data: leanState(s, omittedParts(req.query)) })
+    // Which copy of the price data this is (lib/pricingStamp.ts): the phone sends it with a quote it prices.
+    res.json({ success: true, data: leanState(s, omittedParts(req.query)), pricingPart: businessPart(s.config, s.budget) })
   } catch (err) {
     console.error('[business-state] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load business state' })

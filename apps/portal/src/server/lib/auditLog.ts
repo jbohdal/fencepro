@@ -43,6 +43,8 @@ export type AuditAction =
   | 'sold'
   | 'merged'
   | 'merge_undone'
+  /** A quote saved by an older app without a price stamp (lib/quotePriceCheck.ts). */
+  | 'price_check'
 
 export interface AuditOptions {
   oldValues?: unknown

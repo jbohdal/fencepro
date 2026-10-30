@@ -53,6 +53,7 @@ import { pricingModule } from '../lib/estimates.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { slimQuote, withHeavyParts } from '../lib/quoteSlim.js'
+import { checkQuotePrices, refusePrices, priceCheckAudit } from '../lib/quotePriceCheck.js'
 
 const router = Router()
 
@@ -279,6 +280,10 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
       res.status(200).json({ success: true, data: decision.row })
       return
     }
+    // Priced at prices the server no longer has, or a fence not available for quoting now: refused, the phone
+    // reprices and asks first (broken list #58, lib/quotePriceCheck.ts). An older app's save is taken and recorded.
+    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, null)
+    if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
     const created = await prisma.savedQuote.create({
       data: {
         ...(decision.kind === 'use' ? { id: decision.id } : {}),
@@ -324,6 +329,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
       },
     })
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
+    if (priceCheck.kind === 'unstamped') await priceCheckAudit((a, e, id, o) => audit(req, a, e, id, o), created)
     await linkQuoteMedia(created)
     // Job costing: a quote saved as Sold is signed now; its quoted cost is saved once.
     if (created.status === 'SOLD') { await markEverSold(created.accountId, created.id); await snapshotAfterSigning(created.accountId, created.id, 'app'); await scheduleAfterSigning(created.accountId, created.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' }) }
@@ -359,6 +365,10 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       const fields = lockedChanges(existing, data)
       if (fields.length) { refuseLocked(res, fields, existing); return }
     }
+    // An unsent quote repriced at prices the server no longer has, or put on a fence not available for quoting
+    // now: refused, the phone reprices and asks first (broken list #58). Sent and signed quotes are not checked.
+    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, existing)
+    if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
     // Each proposal option's warranty: a sent or signed proposal keeps the words it went out with (lib/warranties.ts).
     if (data.proposal) data.proposal = await stampQuoteWarranties(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing)) as any
     // Its terms and the company's address: a sent or signed proposal keeps the ones it went out with (lib/contractTerms.ts).
@@ -436,6 +446,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       },
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { oldValues: existing, newValues: updated })
+    if (priceCheck.kind === 'unstamped') await priceCheckAudit((a, e, id, o) => audit(req, a, e, id, o), updated)
     await linkQuoteMedia(updated)
     // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
     if (updated.status === 'SOLD' && !updated.soldAt) await markEverSold(updated.accountId, updated.id)
