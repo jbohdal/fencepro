@@ -5,8 +5,9 @@
 //   vinyl, white, 6 ft → name and phone → the Good / Better / Best prices →
 //   the lead lands once (one customer, one card, one quote) → picking another
 //   option and sending again changes that quote, never a second one → the
-//   draft comes back (cookie, then ?draft=) → the salesman opens it in the
-//   quote builder already drawn on the photo, at the same price.
+//   browser kept nothing (no draft id in the address; coming back starts
+//   fresh) → the salesman opens it in the quote builder already drawn on the
+//   photo, at the same price.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<dev staff token> \
 //   [BROWSER=webkit|chromium] [IFRAME=1] [SHOTS=<folder>] node e2e/widget-draw.mjs
@@ -132,6 +133,9 @@ try {
   if (CDP) await ctx.clearCookies()
   await stub(ctx)
   const { page, w, frame } = await open(ctx)
+  // What the page sends with the quote (its visit id is the lead's key; kept in the page's memory only).
+  const submits = []
+  page.on('request', r => { if (r.url().includes('/p/quote/api/submit')) submits.push(r.postData() || '') })
   const errors = []
   page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
   // Android: a real touch through Chrome's own input (the connected browser has no Playwright touchscreen).
@@ -299,8 +303,8 @@ try {
 
   // ── In EZ Biz: once ────────────────────────────────────────────────────────
   const frameUrl = (IFRAME ? page.frames().find(f => f.url().startsWith(WIDGET)) : page.mainFrame()).url()
-  made.draft = new URL(frameUrl).searchParams.get('draft')
-  check('the draft id is in the page address', /^[A-Za-z0-9_-]{20,40}$/.test(made.draft || ''), made.draft)
+  made.draft = JSON.parse(submits[0] || '{}').draftId || ''
+  check('the visit id is in the page\'s memory only: not in the page address', /^[A-Za-z0-9_-]{20,40}$/.test(made.draft) && !new URL(frameUrl).searchParams.get('draft'), made.draft)
   made.contact = psql(`select id from "CrmContact" where "firstName"='E2E' and "lastName"='${NAME.slice(4)}' and "archivedAt" is null order by "createdAt" desc limit 1`)
   const count = () => ({
     contacts: psql(`select count(*) from "CrmContact" where "firstName"='E2E' and "lastName"='${NAME.slice(4)}'`),
@@ -330,27 +334,19 @@ try {
   const q2 = psql(`select "fenceStyle"||'|'||"finalPrice" from "SavedQuote" where id='${made.quote}'`)
   check('picking Good after sending updates the same quote (no second one)', q2 === `${opts[0].style}|${opts[0].price}` && JSON.stringify(count()) === JSON.stringify(c1), q2)
   // The phone did not hear the answer and sends again: still one.
-  const again = await (IFRAME ? page.frames().find(f => f.url().startsWith(WIDGET)) : page.mainFrame()).evaluate(async ({ draft, name, phone }) => {
-    const d = await (await fetch(`/p/quote/api/draft?id=${draft}`)).json()
-    const r = await fetch('/p/quote/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ draftId: draft, name, phone, address: d.data.address, drawing: { ...d.data.drawing, runs: d.data.drawing.runs.filter(r => r.pts.length >= 2) }, pick: d.data.pick, fenceStyle: d.data.fenceStyle }) })
+  const again = await (IFRAME ? page.frames().find(f => f.url().startsWith(WIDGET)) : page.mainFrame()).evaluate(async body => {
+    const r = await fetch('/p/quote/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
     return { status: r.status, body: await r.json() }
-  }, { draft: made.draft, name: NAME, phone: PHONE })
+  }, submits[submits.length - 1])
   check('the same draft sent again: answered, marked a repeat, nothing new', again.status === 200 && again.body.duplicate === true && JSON.stringify(count()) === JSON.stringify(c1), `${again.status} ${JSON.stringify(count())}`)
   check('no page errors', errors.length === 0, errors.join(' | '))
 
-  // ── Coming back on the same phone ──────────────────────────────────────────
+  // ── Coming back on the same phone: nothing was kept in the browser (Oct 29 2026), it starts at the address ──
+  const kept = await ctx.cookies()
+  check('the browser kept no cookie for the quote', !kept.some(c => /ezq_/.test(c.name)), kept.map(c => c.name).join(', '))
   const back = await open(ctx)
-  const cookieBack = await back.w.locator('[data-w-sent]').isVisible().catch(() => false)
-  check(`coming back (same browser, no link): the draft cookie ${cookieBack ? 'brings it back' : 'is not kept here'}`, true, `${ENGINE}${IFRAME ? ' in a frame' : ''}: ${cookieBack ? 'resumed by cookie' : 'cookie not sent'}`)
-  console.log(`RESUME ${ENGINE}${IFRAME ? ' iframe' : ''} cookie=${cookieBack}`)
+  check('coming back starts a new quote at the address (the sent one is with the company)', await back.w.locator('[data-w-address]').isVisible().catch(() => false) && !(await back.w.locator('[data-w-sent]').isVisible().catch(() => false)))
   await back.page.close()
-  const ctx2 = CDP ? null : await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true })
-  if (ctx2) {
-    await stub(ctx2)
-    const link = await open(ctx2, `?draft=${made.draft}`)
-    check('the draft id in the address brings it back in any browser', await link.w.locator('[data-w-sent]').isVisible().catch(() => false))
-    await ctx2.close()
-  }
 
   // ── The salesman opens it in the quote builder, already drawn ──────────────
   const staff = await desk.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
@@ -382,6 +378,7 @@ try {
   try {
     if (made.quote) await api(`/api/saved-quotes/${made.quote}`, { method: 'DELETE' })
     if (made.card) { const pipe = await api('/api/pipeline'); await api('/api/pipeline', { method: 'PATCH', body: JSON.stringify({ upsert: [], remove: [made.card], baseVersion: pipe.data.version }) }) }
+    if (made.contact) psql(`delete from "AutomationEffect" where key in (select 'widget-partial-push:' || id from "IntakeLead" where "crmContactId"='${made.contact}')`)
     if (made.contact) psql(`delete from "IntakeLead" where "crmContactId"='${made.contact}'; delete from "CrmContactNote" where "crmContactId"='${made.contact}'; delete from "AutomationEvent" where "entityId"='${made.card}'; delete from "CardFollowUp" where "cardId"='${made.card}'; delete from "CustomerPossibleMatch" where "contactId"='${made.contact}'; delete from "CrmContact" where id='${made.contact}'`)
     if (made.draft) psql(`delete from "WidgetDraft" where id='${made.draft}'`)
     if (made.snapshot) { const f = path.resolve(process.cwd(), '../portal/uploads', made.snapshot.replace('/api/portal/files/', '')); if (fs.existsSync(f)) fs.unlinkSync(f) }

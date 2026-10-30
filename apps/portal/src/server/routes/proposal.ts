@@ -37,7 +37,7 @@ import { pricingModule, plainStyleName } from '../lib/estimates.js'
 import { styleRecords } from '../lib/ownTier.js'
 import { overlayAcceptedUpdate } from '../lib/warrantyUpdates.js'
 import { shownDollarCents, customerDepositCents, pricedWholeDollar } from '../lib/paymentMath.js'
-import { quoteOnCustomerDollars } from '../lib/customerDollars.js'
+import { quoteOnCustomerDollars, quoteOnNoDepositCancellation } from '../lib/customerDollars.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
@@ -192,8 +192,9 @@ export async function proposalPage(q: { accountId: string; acceptedAt: Date | nu
   const frozen = await termsOn(p)
   const asSigned = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId, { repair: p.kind === 'repair' }))
   // Not signed before Oct 29 2026: the proposal's own deposit in Payment Terms (D2) and the new permit sentence
-  // (#32), as the contract will print them (lib/contractPdf.ts). Signed before: as signed.
-  const terms = await quoteOnCustomerDollars(q) ? m.termsAsAsked(asSigned, p.depositPct) : asSigned
+  // (#32), as the contract will print them (lib/contractPdf.ts). Signed before: as signed. No deposit: the
+  // Cancellation Policy's no deposit sentence, unless signed before that rule.
+  const terms = await quoteOnCustomerDollars(q) ? m.termsAsAsked(asSigned, p.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : asSigned
   const address = p.company?.address || await companyAddress(q.accountId)
   const shown: Proposal = { ...p, terms, company: { ...(p.company ?? {}), ...(address ? { address } : {}) } }
   const dup = m.sameFenceAs(p.options)
@@ -565,7 +566,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   // showed them (proposalPage, lib/customerDollars.ts).
   const frozenWas = await termsOn(p)
   const termsWere = frozenWas ?? await currentTerms(q.accountId, { repair: p?.kind === 'repair' })
-  const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct) : termsWere
+  const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : termsWere
   const termsNow = frozenWas && sameValue(termsAsShown, frozenWas) ? null : termsAsShown
   // The quote becomes the option the customer chose, exactly as it was priced.
   const s = opt.snapshot ?? {}

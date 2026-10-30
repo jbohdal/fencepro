@@ -15,7 +15,7 @@
  * Each item's price is for a quantity of one; pickPrice prices a quantity.
  */
 
-import { priceChangeOrderPick, moveRepairSettings, PICK_REPAIR_KEYS, PICK_LABEL, REPAIR_HINT, type ChangeOrderPick, type PickRepairKey, type WorkResult } from './moveRepair'
+import { priceChangeOrderPick, moveRepairSettings, postTypeOf, footerCounts, FOOTER_DIG_SET_REASON, PICK_REPAIR_KEYS, PICK_LABEL, REPAIR_HINT, type ChangeOrderPick, type PickRepairKey, type WorkResult } from './moveRepair'
 import { quoteStyles } from './quoteJob'
 import type { AppConfig } from './configStore'
 
@@ -29,6 +29,8 @@ export interface PickItem {
   /** The price of one, whole dollars in cents. */
   unitCents: number
   warnings: string[]
+  /** Not offered for this job, and why (the concrete footer on a dig set job: FOOTER_DIG_SET_REASON); it cannot be picked. */
+  off?: string
 }
 
 export interface PickList {
@@ -62,6 +64,15 @@ export function pickOf(source: string, inventory: InvItem[]): { pick: ChangeOrde
   return null
 }
 
+/**
+ * Why a pick is not offered for the job's style, or null. The concrete footer
+ * is for no dig posts only (Jonathan, Oct 29 2026: "Dig set rates already
+ * cover the concrete"); a change order's old posts are the job's style's.
+ */
+function offFor(pick: ChangeOrderPick, style: Parameters<typeof postTypeOf>[0]): string | null {
+  return pick.kind === 'repair' && pick.key === 'footerDisposal' && !footerCounts(postTypeOf(style)) ? FOOTER_DIG_SET_REASON : null
+}
+
 const usable = (i: InvItem) => typeof i.name === 'string' && i.name.trim() !== '' && i.status !== 'inactive' && i.status !== 'discontinued' && Number(i.unitCost) > 0
 
 function common(cfg: AppConfig, input: PickInput, overheadPct: number) {
@@ -78,6 +89,8 @@ export function pickList(cfg: AppConfig, inventory: InvItem[], input: PickInput,
   const one = (source: string, group: PickItem['group'], detail: string) => {
     const p = pickOf(source, inventory)
     if (!p) return
+    const off = offFor(p.pick, c.style)
+    if (off) { items.push({ source, group, label: p.label, detail, unitCents: 0, warnings: [], off }); return }
     const r = priceChangeOrderPick(c, p.pick, 1)
     items.push({ source, group, label: p.label, detail, unitCents: r.priceCents, warnings: r.warnings })
   }
@@ -99,8 +112,9 @@ export function pickList(cfg: AppConfig, inventory: InvItem[], input: PickInput,
 export function pickPrice(cfg: AppConfig, inventory: InvItem[], input: PickInput, overheadPct: number, source: string, qty: number): { priceCents: number; label: string; qty: number; warnings: string[] } | null {
   const c = common(cfg, input, overheadPct)
   const p = pickOf(source, inventory)
-  if (!c || !p) return null
-  const n = Math.max(1, Math.min(10_000, Math.round(Number(qty) || 1)))
+  // Not offered for this job (a concrete footer on dig set): never priced, whatever a phone sends.
+  if (!c || !p || offFor(p.pick, c.style)) return null
+  const n =Math.max(1, Math.min(10_000, Math.round(Number(qty) || 1)))
   const r: WorkResult = priceChangeOrderPick(c, p.pick, n)
   return { priceCents: r.priceCents, label: p.label, qty: n, warnings: r.warnings }
 }

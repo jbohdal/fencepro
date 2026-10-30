@@ -52,6 +52,9 @@ export const REPAIR_LABEL = workWords.REPAIR_LABEL
 export const workScope = workWords.workScope
 export const workSummary = workWords.workSummary
 export const installWord = workWords.installWord
+export const FOOTER_DIG_SET_REASON = workWords.FOOTER_DIG_SET_REASON
+export const footerCounts = workWords.footerCounts
+export const chargedRepairItems = workWords.chargedRepairItems
 export type { RepairItemKey }
 
 export interface MoveRepairSettings {
@@ -620,7 +623,7 @@ export const REPAIR_HINT: Record<RepairItemKey, string> = {
   rehangGate: 'New hinges and latch',
   replaceGate: 'The whole gate kit',
   haulDebris: 'At the tear out rate per section',
-  footerDisposal: 'Per post: haul off the concrete footer',
+  footerDisposal: 'Per post: haul off the concrete footer (no dig posts only)',
 }
 
 /**
@@ -666,11 +669,12 @@ export function oldPostsMethod(picked: PostType | null | undefined, styleType: P
  * The old posts' note again on the Price step's "Check before you quote" box
  * (review Oct 29 2026: the style is changed at the top of the Style step, the
  * old posts' pick and its note sit several screens down, so a mismatch was easy
- * to miss). A move always pulls old posts; a repair only with a post item on it.
+ * to miss). A move always pulls old posts; a repair only with a post item or
+ * concrete footers on it (the footers are charged for no dig old posts only).
  */
 export function oldPostsCheck(jobType: JobType, move: { note: string | null }, repair: { note: string | null }, repairItems: RepairInputs['items']): string | null {
   const note = jobType === 'move' ? move.note
-    : jobType === 'repair' && ((repairItems.resetPost ?? 0) > 0 || (repairItems.replacePost ?? 0) > 0) ? repair.note
+    : jobType === 'repair' && ((repairItems.resetPost ?? 0) > 0 || (repairItems.replacePost ?? 0) > 0 || (repairItems.footerDisposal ?? 0) > 0) ? repair.note
     : null
   return note ? `${note} Change it on the Style step, under "${OLD_POSTS_QUESTION}"` : null
 }
@@ -774,8 +778,13 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
   }
   const hd = q('haulDebris')
   if (hd) line(acc, { key: 'haulDebris', label: REPAIR_LABEL.haulDebris, kind: 'disposal', cents: Math.round(hd * rates.tearOutSection * 100), math: `${hd} sections × ${usd(rates.tearOutSection)} tear out rate (${rates.tearOutText})` })
-  // Concrete footers hauled off, per post, at Settings' rate (#31, Oct 29 2026).
-  const fd = q('footerDisposal')
+  // Concrete footers hauled off, per post, at Settings' rate (#31, Oct 29 2026): no dig old posts only ("Dig set
+  // rates already cover the concrete", Jonathan, Oct 29 2026). The old posts' method as picked by hand, else the
+  // style's; with dig set old posts a count sent anyway is not charged, said or listed for the crew.
+  const oldType = oldPostsMethod(r.postType, postTypeOf(style)).type
+  const footerAsked = q('footerDisposal')
+  const fd = footerCounts(oldType) ? footerAsked : 0
+  if (footerAsked && !fd) acc.warnings.push(`Concrete footer disposal is not charged: ${FOOTER_DIG_SET_REASON.toLowerCase()}.`)
   if (fd) {
     const rate = s.footerDisposalCents
     if (rate === null) acc.missingRates.push('concrete footer disposal per post')
@@ -798,7 +807,7 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
   if (posts) words.push('haul away the old post' + (posts === 1 ? '' : 's'))
   const description = words.length ? `${words.join(', ').replace(/^./, ch => ch.toUpperCase())}.` : 'Repair as described.'
   const crew = [
-    ...REPAIR_ITEMS.filter(k => q(k) > 0).map(k => `${REPAIR_LABEL[k]}: ${q(k)}${k === 'rehangGate' || k === 'replaceGate' ? ` (${gateWord})` : ''}. ${REPAIR_HINT[k]}.`),
+    ...REPAIR_ITEMS.filter(k => (k === 'footerDisposal' ? fd : q(k)) > 0).map(k => `${REPAIR_LABEL[k]}: ${q(k)}${k === 'rehangGate' || k === 'replaceGate' ? ` (${gateWord})` : ''}. ${REPAIR_HINT[k]}.`),
     ...(posts ? [`Old posts come out ${r.postType === 'nd' ? 'with their pipe and donuts' : 'with their concrete'}; haul them away.`] : []),
     ...(r.what === 'storm' ? [r.debrisCleared ? 'Tree and debris are cleared by the customer before we start.' : 'Tree and debris: see the items above.'] : []),
   ]

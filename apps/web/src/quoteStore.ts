@@ -393,6 +393,37 @@ function reloadQuotes() { lastSync = null; void refreshQuotes() }
 /** When this list was last read from the server (the server's own clock). */
 let lastSync: string | null = null
 
+/** A quote that is not this login's any more (moved to someone else): off both lists, its waiting changes too. */
+export function forgetQuote(id: string): void {
+  const before = cache.length + archivedCache.length
+  cache = cache.filter(q => q.id !== id)
+  archivedCache = archivedCache.filter(q => q.id !== id)
+  if (cache.length + archivedCache.length !== before) emit()
+}
+
+/**
+ * Is this quote still the Salesman's? Asked of the server before her phone opens it in the builder or saves it
+ * (review, Oct 30 2026: a quote moved to someone else opened from the window's copy, with its prices, and its save
+ * made five contradictory messages). 'moved': the server said "The owner moved this to <name>" (the app has said
+ * it once, movedNotice.ts); 'unknown': no answer (no signal), the phone goes on as before.
+ */
+export async function quoteStillMine(id: string): Promise<'mine' | 'moved' | 'unknown'> {
+  const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(id)}`)
+  if (r.result.ok) return 'mine'
+  if (r.status === 404 && r.json?.code === 'MOVED') { forgetQuote(id); return 'moved' }
+  return 'unknown'
+}
+
+/** Drop every quote not in `ids` (none waiting to be sent); how many went. Not a list: nothing. */
+function keepOnly(ids: unknown, waiting: (id: string) => boolean): number {
+  if (!Array.isArray(ids)) return 0
+  const keep = new Set(ids as string[])
+  const before = cache.length + archivedCache.length
+  cache = cache.filter(q => keep.has(q.id) || waiting(q.id))
+  archivedCache = archivedCache.filter(q => keep.has(q.id) || waiting(q.id))
+  return before - cache.length - archivedCache.length
+}
+
 /**
  * Read the list again (the server changes some on its own: a customer
  * accepting online). Only what changed since the last read comes back, so it
@@ -424,8 +455,10 @@ export async function refreshQuotes(): Promise<void> {
       archivedCache = [...arch.values()]
     }
   } else { cache = rows.map(fromApi); void loadArchivedQuotes() }
+  // A Salesman's small refresh says which quotes are still hers (keepOnly): one moved to someone else leaves this copy.
+  const dropped = keepOnly(r.json.keepOnly, id => hasPending(`quote:${id}`))
   if (typeof r.json.serverTime === 'string') lastSync = r.json.serverTime
-  if (!r.json.partial || rows.length) { reapply('quote.'); emit() }
+  if (!r.json.partial || rows.length || dropped) { reapply('quote.'); emit() }
   // A quote a screen has open came back as the list's slim copy: read it whole again.
   for (const id of wanted.keys()) if (isSlimQuote(cache.find(q => q.id === id))) void loadFullQuote(id)
 }

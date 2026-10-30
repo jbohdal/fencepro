@@ -836,6 +836,7 @@ function PipelineCard({
       onClick={onClick}
       className={`relative bg-white rounded-xl shadow-sm hover:shadow-md hover:bg-gray-50 transition-shadow cursor-pointer p-3 group select-none ${faded ? 'opacity-20' : ''}`}
       style={{ borderLeft: `4px solid ${hex}` }}
+      data-card-id={lead.id}
     >
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="min-w-0 flex-1">
@@ -885,8 +886,12 @@ function PipelineCard({
         </span>
       </div>
 
-      {(installDate || next || overdue || followBadge || opened || (!next && stageHasRole(lead.stage, 'first') && fromIntake(lead.leadSource))) && (
+      {(installDate || next || overdue || followBadge || opened || lead.unfinishedQuote || (!next && stageHasRole(lead.stage, 'first') && fromIntake(lead.leadSource))) && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {/* A website quote they stopped part way through (lib/widgetPartialLead.ts): call them. */}
+          {lead.unfinishedQuote && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900" data-card-unfinished>Didn't finish instant quote</span>
+          )}
           {installDate && (
             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800" data-card-install={installDate}><CalendarDays size={12} className="inline -mt-0.5 mr-1" aria-hidden="true" />Install {installCardDay(installDate)}</span>
           )}

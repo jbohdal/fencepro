@@ -69,6 +69,20 @@ describe('outbox', () => {
     expect(store.map.size).toBe(0)
   })
 
+  test('a Salesman\'s save of a record the owner moved away (404 MOVED): never sent again, told in those words, the next change goes', async () => {
+    let refused = ''
+    registerKind('quote.update', { send: op => srv.send(op), refused: (_op, m) => { refused = m } })
+    srv.answer(op => (op.kind === 'quote.update' ? { ok: false, status: 404, code: 'MOVED', error: 'The owner moved this to Sam. It is off your list now.' } : { ok: true }))
+    await startOutbox('u1', { storage: store })
+    await enqueue({ key: 'quote:q1', kind: 'quote.update', payload: { id: 'q1', notes: 'x' }, label: 'Cleo, quote changes' })
+    await enqueue({ key: 'customer:a', kind: 'customer.update', payload: { name: 'Mina' }, label: 'Mina' })
+    await settle()
+    expect(srv.got.filter(o => o.kind === 'quote.update')).toHaveLength(1)
+    expect(refused).toBe('The owner moved this to Sam. It is off your list now.')
+    expect(store.map.size).toBe(0)
+    expect(srv.got.map(o => o.kind)).toEqual(['quote.update', 'customer.update'])
+  })
+
   test('refused by the server: "Couldn\'t save" in plain words, kept, and Try again sends it', async () => {
     srv.answer(() => ({ ok: false, status: 400, error: 'String must contain at least 8 character(s)' }))
     await startOutbox('u1', { storage: store })

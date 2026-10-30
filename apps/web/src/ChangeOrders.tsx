@@ -435,7 +435,7 @@ const pickWords = (label: string, qty: number) => (qty > 1 ? `${qty} × ${label}
 
 /* ───────── The pick list: the Repair price list and the catalog ───────── */
 
-interface PickItem { source: string; group: 'repair' | 'catalog'; label: string; detail: string; unitCents: number; warnings: string[] }
+interface PickItem { source: string; group: 'repair' | 'catalog'; label: string; detail: string; unitCents: number; warnings: string[]; off?: string }
 interface PickList { fenceStyle: string; styleLabel: string; noStyle: boolean; items: PickItem[] }
 
 /** One picked item at a quantity, priced on the server for the job's style. */
@@ -500,13 +500,15 @@ function PickSheet({ quoteId, onPick, onClose }: { quoteId: string; onPick: (ite
           {!list && !error && <p className="text-sm text-gray-500 p-2">Loading the price list…</p>}
           {list && !shown.length && !list.noStyle && <p className="text-sm text-gray-500 p-2">Nothing matches. Try another word, or type a custom line.</p>}
           {shown.map(i => (
-            <button key={i.source} type="button" onClick={() => onPick(i, list!)} className="w-full text-left rounded-xl px-3 py-2 min-h-[52px] hover:bg-gray-50 active:bg-gray-100 flex items-center justify-between gap-3" data-co-pick-item={i.source}>
+            <button key={i.source} type="button" onClick={() => { if (!i.off) onPick(i, list!) }} disabled={!!i.off} aria-disabled={!!i.off}
+              className="w-full text-left rounded-xl px-3 py-2 min-h-[52px] hover:bg-gray-50 active:bg-gray-100 disabled:hover:bg-transparent disabled:opacity-60 flex items-center justify-between gap-3" data-co-pick-item={i.source} data-co-pick-off={i.off ? 'yes' : undefined}>
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-gray-900">{i.label}</span>
                 <span className="block text-xs text-gray-500 truncate">{words.length ? `${i.group === 'repair' ? 'Repair price list' : 'Catalog'}${i.detail ? ` · ${i.detail}` : ''}` : i.detail}</span>
-                {i.warnings.length > 0 && <span className="block text-[11px] text-amber-800">{i.warnings[0]}</span>}
+                {i.off && <span className="block text-[11px] font-semibold text-gray-700" data-co-pick-off-reason>Not for this job: {i.off}</span>}
+                {!i.off && i.warnings.length > 0 && <span className="block text-[11px] text-amber-800">{i.warnings[0]}</span>}
               </span>
-              <span className="text-sm font-semibold text-gray-900 shrink-0" data-co-pick-price>{money(i.unitCents)}</span>
+              {!i.off && <span className="text-sm font-semibold text-gray-900 shrink-0" data-co-pick-price>{money(i.unitCents)}</span>}
             </button>
           ))}
           {found.length > SHOWN && <p className="text-xs text-gray-500 p-2">Showing {SHOWN} of {found.length}. Type more of the name to narrow it.</p>}

@@ -96,6 +96,7 @@ import { ensureChainGateKitsAll } from './lib/chainGateKits.js'
 import { ensureGreenFollowsBlackAll } from './lib/greenChainLinkFollow.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
+import { ensureTanTallAll } from './lib/tanTallSeed.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
 import { ensureCustomerDollarsFromAll } from './lib/customerDollars.js'
 import { hideCostsFromLimitedLogins, refuseNoPrices } from './lib/costRedact.js'
@@ -526,6 +527,8 @@ if (!isVercel) {
       await ensureTanAutoDsAll().catch(err => console.error('[tan dig set] 6/8 ft mix check failed:', err))
       // 8 ft tall vinyl section parts (4 ft pickets, 4 ft U channels, mid rails) at $0, included in the section price: once per company (lib/tallVinylParts.ts).
       await ensureTallVinylPartsAll().catch(err => console.error('[8 ft tall vinyl] section parts check failed:', err))
+      // Tan 8 ft tall vinyl, TV-ND / TV-DS 8'x6' and 8'x8', held until priced, with their $0 section parts: once per company (lib/tanTallSeed.ts).
+      await ensureTanTallAll().catch(err => console.error('[tan 8 ft tall] check failed:', err))
       // The one Operations stage list from the old Settings one; no job changes: once per company (lib/opsStages.ts).
       await ensureOpsStageListAll().catch(err => console.error('[ops stages] one list check failed:', err))
       // The one Sales Pipeline stage list; ids are the old names, so no card changes: once per company (lib/pipelineStages.ts).

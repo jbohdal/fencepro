@@ -8,16 +8,21 @@
  *
  * Only gdfencepro.com and www.gdfencepro.com may show it inside their pages
  * (frame-ancestors); anyone may open it directly. ?test=1 on the page: every
- * check and price runs, nothing is written (no draft, no lead).
+ * check and price runs, nothing is written (no lead).
+ *
+ * Nothing about the customer is kept before they type a name and a phone or
+ * email (Jonathan, Oct 29 2026). Before that the address goes out only to
+ * find it (suggestions, where it is) and to show the photo; it is not written
+ * down. From then on the page keeps the lead up to date (/partial,
+ * lib/widgetPartialLead.ts: "Didn't finish instant quote") until it is sent.
  *
  *   GET  /p/quote/            the page (apps/web/dist/quote-widget)
  *   GET  /p/quote/api/config  materials, colors and heights, photos, settings
- *   GET  /p/quote/api/place   ?address= where it is (for the aerial photo)
+ *   GET  /p/quote/api/place   ?address= where it is (for the aerial photo; not kept)
  *   GET  /p/quote/api/suggest ?q= addresses as they are typed
- *   GET  /p/quote/api/draft   ?id= the saved drawing (else the draft cookie)
- *   PUT  /p/quote/api/draft   save the drawing (sets the draft cookie)
+ *   POST /p/quote/api/partial the lead so far, once a name and a phone or email are typed
  *   POST /p/quote/api/price   the options and prices for a drawing (when Settings show prices before contact)
- *   POST /p/quote/api/photo   one photo of the yard
+ *   POST /p/quote/api/photo   ?sid= one photo of the yard (after the name and phone)
  *   POST /p/quote/api/submit  customer, quote and pipeline card, together; prices back
  *                             (and the customer's answer to the texting checkbox)
  */
@@ -39,8 +44,9 @@ import { suggest } from '../lib/addressIndex.js'
 import { tiles } from './aerialTiles.js'
 import { plainZod } from '../lib/plainZod.js'
 import {
-  widgetSettingsOf, priceDrawing, optionView, submitDrawnQuote, readDraft, saveDraft, newDraftId, DRAFT_ID, DRAFT_DAYS, DrawingProblem,
+  widgetSettingsOf, priceDrawing, optionView, submitDrawnQuote, DRAFT_ID, DrawingProblem,
 } from '../lib/widgetDrawQuote.js'
+import { savePartialLead, PartialRefused, PARTIAL_SOURCE } from '../lib/widgetPartialLead.js'
 
 /** The only sites allowed to show the widget inside their own pages. */
 export const WIDGET_FRAME_ANCESTORS = ['https://gdfencepro.com', 'https://www.gdfencepro.com']
@@ -61,25 +67,14 @@ const draftLimiter = limit(60_000, 40, 'Too many saves. Try again in a minute.')
 const priceLimiter = limit(60_000, 30, 'Too many estimates. Try again in a minute.')
 const submitLimiter = limit(60 * 60_000, 20, 'Too many quotes from this address. Try again later.')
 const photoLimiter = rateLimit({ windowMs: 60 * 60_000, max: 40, standardHeaders: true, legacyHeaders: false })
+// The lead so far: saved again as the customer types (the page waits a moment between saves) and when they leave.
+const partialLimiter = limit(60_000, 30, 'Too many saves. Try again in a minute.')
+// New unfinished leads from one address, an hour: as many as sent quotes (20; phones on one carrier can share an address).
+const newPartialLimiter = limit(60 * 60_000, 20, 'Too many quotes from this address. Try again later.')
 
 const api = Router()
 api.use(express.json({ limit: '600kb' }))
 
-// ── The draft cookie ─────────────────────────────────────────────────────────
-// httpOnly (the page never sees it), Secure + SameSite=None so it is sent
-// inside the website's frame, Partitioned so browsers that block other sites'
-// cookies keep it for this website only. The draft id also rides in the page
-// address, for browsers that keep no cookie at all in a frame.
-const COOKIE = 'ezq_draft'
-function setDraftCookie(res: Response, id: string) {
-  res.append('Set-Cookie', `${COOKIE}=${id}; Path=/p/quote; Max-Age=${DRAFT_DAYS * 86_400}; HttpOnly; Secure; SameSite=None; Partitioned`)
-}
-function draftCookie(req: Request): string | null {
-  const raw = String(req.headers.cookie || '')
-  const m = raw.split(/;\s*/).map(c => c.split('=')).find(([k]) => k === COOKIE)
-  const v = m?.[1] ?? ''
-  return DRAFT_ID.test(v) ? v : null
-}
 const isTest = (req: Request) => req.query.test === '1' || (req.body && typeof req.body === 'object' && req.body.test === true)
 
 api.get('/config', readLimiter, async (req, res) => {
@@ -116,7 +111,8 @@ api.get('/place', readLimiter, async (req, res) => {
   const address = String(req.query.address || '').slice(0, 300).trim()
   if (address.length < 6) { res.status(400).json({ success: false, error: 'Type the full address' }); return }
   const accountId = await resolveIntakeAccountId()
-  const p = accountId ? await locate(accountId, address).catch(() => null) : null
+  // Looked up, not kept: nothing about the customer is written down before their name and phone.
+  const p = accountId ? await locate(accountId, address, { keep: false }).catch(() => null) : null
   res.json({ success: true, data: p ? { lat: p.lat, lng: p.lng, source: p.source } : null })
 })
 
@@ -129,7 +125,7 @@ api.get('/suggest', readLimiter, async (req, res) => {
   res.json({ success: true, data: list.map(s => ({ formatted: s.formatted, line1: s.line1, city: s.city, state: s.state, zip: s.zip, lat: s.lat, lng: s.lng, source: s.source })) })
 })
 
-// ── Drafts ───────────────────────────────────────────────────────────────────
+// ── The lead so far ─────────────────────────────────────────────────────────
 
 const latLng = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
 const gate = z.object({ type: z.enum(['walk', 'double']), widthFt: z.number().min(3).max(20), startFt: z.number().min(0).max(5000) })
@@ -144,40 +140,63 @@ const run = z.object({
 })
 const drawing = z.object({ v: z.literal(1), address: z.string().trim().max(300), at: latLng, runs: z.array(run).max(12) })
 const pick = z.object({ material: z.enum(['vinyl', 'chain', 'alum', 'wood']), color: z.string().trim().max(20), height: z.string().trim().regex(/^\d{1,2}$/), kind: z.string().trim().max(30) })
-/** What a draft keeps: no name, phone or email. */
-const draftData = z.object({
-  step: z.number().int().min(0).max(6),
-  address: z.string().trim().max(300),
-  at: latLng.nullable(),
-  atSource: z.string().trim().max(20).optional(),
-  drawing: drawing.nullable(),
-  pick: pick.nullable(),
+const photoUrl = z.string().regex(/^\/api\/portal\/files\/intake\/[0-9a-f-]{36}\.(jpg|png|webp|heic)$/)
+
+/** What the page sends once a name and a phone or email are typed (lib/widgetPartialLead.ts). */
+const partialSchema = z.object({
+  sessionId: z.string().regex(DRAFT_ID),
+  name: z.string().trim().max(120),
+  phone: z.string().trim().max(40).optional().default(''),
+  email: z.string().trim().max(200).optional().default(''),
+  address: z.string().trim().max(300).optional().default(''),
+  drawing: drawing.nullable().optional(),
+  pick: pick.nullable().optional(),
   fenceStyle: z.string().trim().max(120).nullable().optional(),
-  snap: z.boolean().optional(),
+  step: z.number().int().min(0).max(3),
+  priceShown: z.boolean().optional(),
+  photos: z.array(photoUrl).max(10).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  wantsVisit: z.boolean().optional(),
+  leaving: z.boolean().optional(),
+  website: z.string().max(200).optional(),
+  test: z.boolean().optional(),
 })
 
-api.get('/draft', readLimiter, async (req, res) => {
-  if (isTest(req)) { res.json({ success: true, data: null }); return }
-  const id = typeof req.query.id === 'string' && DRAFT_ID.test(req.query.id) ? req.query.id : draftCookie(req)
-  const d = id ? await readDraft(id) : null
-  if (!d) { res.json({ success: true, data: null }); return }
-  res.json({ success: true, data: { id: d.id, ...(d.data as object), sent: !!d.quoteId } })
-})
+/**
+ * Only the widget's own page may save: a page on another site (Sec-Fetch-Site
+ * cross-site or same-site) is refused. Browsers send the header on every
+ * fetch and beacon; a script with no browser sends none and meets the limits
+ * and the checks instead.
+ */
+function fromOwnPage(req: Request): boolean {
+  const site = String(req.get('sec-fetch-site') || '')
+  return !site || site === 'same-origin' || site === 'none'
+}
 
-api.put('/draft', draftLimiter, async (req, res) => {
+/** Is this visit already a lead (unfinished or sent)? Photos need it; a save of a known lead is not a new one. */
+async function visitIsLead(sessionId: string): Promise<boolean> {
+  const n = await prisma.intakeLead.count({ where: { sourceRef: sessionId, source: { in: [PARTIAL_SOURCE, 'ez_quote'] }, deletedAt: null } })
+  return n > 0
+}
+
+/** Run an express-rate-limit limiter inside a handler; false when it answered (too many). */
+const within = (limiter: express.RequestHandler, req: Request, res: Response) =>
+  new Promise<boolean>(resolve => { res.once('finish', () => resolve(false)); void limiter(req, res, () => resolve(true)) })
+
+api.post('/partial', partialLimiter, async (req, res) => {
   try {
-    const body = z.object({ id: z.string().regex(DRAFT_ID).nullable().optional(), data: draftData, test: z.boolean().optional() }).parse(req.body)
-    if (JSON.stringify(body.data).length > 64_000) { res.status(400).json({ success: false, error: 'The drawing is too big to save.' }); return }
-    // Test mode: nothing is written.
-    if (body.test || isTest(req)) { res.json({ success: true, id: body.id ?? null, test: true }); return }
-    const id = body.id ?? newDraftId()
-    await saveDraft(id, JSON.parse(JSON.stringify(body.data)), await resolveIntakeAccountId())
-    setDraftCookie(res, id)
-    res.json({ success: true, id })
+    if (!fromOwnPage(req)) { res.status(403).json({ success: false, error: 'Not from this page' }); return }
+    const body = partialSchema.parse(req.body)
+    if (JSON.stringify(body).length > 64_000) { res.status(400).json({ success: false, error: 'The drawing is too big to save.' }); return }
+    // Test mode writes nothing; a robot that filled the hidden box is told all is well, and nothing is saved.
+    if (body.test || isTest(req)) { res.json({ success: true, test: true }); return }
+    if (body.website) { res.json({ success: true }); return }
+    if (!(await visitIsLead(body.sessionId)) && !(await within(newPartialLimiter, req, res))) return
+    const r = await savePartialLead({ ...body, photos: body.photos ?? [] })
+    res.status(r.created ? 201 : 200).json({ success: true, saved: r.saved, finished: !!r.finished })
   } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: 'The drawing did not save. Start over, or call us.' }); return }
-    console.error('[widget] draft error:', err)
-    res.status(500).json({ success: false, error: 'The drawing did not save' })
+    if (err instanceof PartialRefused) { res.status(400).json({ success: false, error: err.message }); return }
+    refuse(res, err, 'Could not save')
   }
 })
 
@@ -191,8 +210,8 @@ api.post('/price', priceLimiter, async (req, res) => {
     const { data } = await pricingWithData()
     // Contact before price (the default): prices come back with the sent quote, not here.
     if (!widgetSettingsOf((data as any).config).showPriceBeforeContact) {
-      const d = body.draftId ? await readDraft(body.draftId) : null
-      if (!d?.quoteId) { res.status(403).json({ success: false, contactFirst: true, error: 'Add your name and phone to see the prices.' }); return }
+      const sent = body.draftId ? await prisma.intakeLead.count({ where: { source: 'ez_quote', sourceRef: body.draftId, deletedAt: null } }) : 0
+      if (!sent) { res.status(403).json({ success: false, contactFirst: true, error: 'Add your name and phone to see the prices.' }); return }
     }
     const { priced } = await priceDrawing(accountId, body.drawing, body.pick)
     res.json({ success: true, label: 'Estimate', options: priced.options.map(optionView), footageFt: priced.footageFt })
@@ -212,9 +231,12 @@ function refuse(res: Response, err: unknown, fallback: string) {
 
 const PHOTO_TYPES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic' }
 const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
-api.post('/photo', photoLimiter, photoUpload.single('file'), (req: any, res) => {
+api.post('/photo', photoLimiter, photoUpload.single('file'), async (req: any, res) => {
   try {
     if (req.query.test === '1') { res.status(201).json({ success: true, url: null, test: true }); return }
+    // A photo is kept only once the customer is a lead (their name and phone or email are saved): ?sid= is the visit.
+    const sid = typeof req.query.sid === 'string' && DRAFT_ID.test(req.query.sid) ? req.query.sid : ''
+    if (!fromOwnPage(req) || !sid || !(await visitIsLead(sid))) { res.status(403).json({ success: false, error: 'Add your name and phone first, then the photos.' }); return }
     const file = req.file
     const ext = file ? PHOTO_TYPES[file.mimetype] : undefined
     if (!file || !ext) { res.status(400).json({ success: false, error: 'Send one photo (JPG, PNG, WEBP or HEIC, up to 10 MB)' }); return }
@@ -230,6 +252,7 @@ api.post('/photo', photoLimiter, photoUpload.single('file'), (req: any, res) => 
 })
 
 const submitSchema = z.object({
+  /** The visit's id (made by the page, kept in its memory only): one lead per visit. */
   draftId: z.string().regex(DRAFT_ID, 'Start the quote again'),
   name: z.string().trim().min(2, 'Your name is required').max(120),
   phone: z.string().trim().refine(v => v.replace(/\D/g, '').length >= 10, 'A 10 digit phone number is required').pipe(z.string().max(40)),

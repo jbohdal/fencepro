@@ -232,7 +232,7 @@ try {
     check(start === `${CHRISTA} (me)`, 'the quote\'s New Customer: starts on Christa', start)
     await sel.selectOption({ label: second.name })
     const words = await page.locator('[data-salesman-words]').innerText()
-    check(/You still see this quote and customer, because you made the quote/.test(words), 'picking another Salesman on a quote says the quote keeps it on Christa\'s list', words)
+    check(/Once saved, this quote and customer leave your list/.test(words), 'picking another Salesman on a quote says the quote and customer leave Christa\'s list', words)
     await sel.selectOption({ label: `${CHRISTA} (me)` })
     await page.locator('[data-salesman-choice]').scrollIntoViewIfNeeded(); await shot(page, '5-christa-quote-new-customer')
     await page.locator('[data-save-submit]').tap()

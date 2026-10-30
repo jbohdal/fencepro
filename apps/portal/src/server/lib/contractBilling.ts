@@ -132,10 +132,12 @@ export function depositPctOf(q: { proposal: unknown } | null): number {
  *   asSigned    signed before the Oct 29 2026 rules (onCustomerDollars false): the terms stay as signed, unchanged;
  *   depositPct  the schedule's percent (depositPctOf: the proposal's own; a quote with no proposal 50); null when
  *               the proposal asks none (0% or blank, D2), and the terms say "No deposit is required".
+ *   cancellationAsSigned  signed before the no deposit Cancellation Policy sentence began (`cancelFrom`,
+ *               lib/customerDollars.ts noDepositCancellationFrom): that sentence stays as signed.
  */
-export function termsDepositOf(q: { proposal: unknown; acceptedAt?: Date | string | null; soldAt?: Date | string | null; status?: string | null }, from: Date): { asSigned: boolean; depositPct: number | null } {
+export function termsDepositOf(q: { proposal: unknown; acceptedAt?: Date | string | null; soldAt?: Date | string | null; status?: string | null }, from: Date, cancelFrom: Date): { asSigned: boolean; depositPct: number | null; cancellationAsSigned?: boolean } {
   const pct = depositPctOf(q)
-  return { asSigned: !onCustomerDollars(q, from), depositPct: pct > 0 ? pct : null }
+  return { asSigned: !onCustomerDollars(q, from), depositPct: pct > 0 ? pct : null, ...(onCustomerDollars(q, cancelFrom) ? {} : { cancellationAsSigned: true }) }
 }
 
 /** Progress invoices a contract defines: none do today. The shape a proposal would carry: progressPayments [{ label, pct }]. */

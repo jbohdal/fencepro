@@ -159,6 +159,7 @@ router.patch('/', async (req: any, res) => {
     // The Salesman: what the phone held at the version this save is built on (lib/salesServed.ts).
     let had: Had | null = null
     let sentByPhone = new Map<string, Set<string>>()
+    let leftOut = 0
     if (salesman) {
       had = (!saved && base === 0) ? NOTHING : handedAt(salesman.scope.userId, salesman.scope.accountId, 'business', base)
       // Not known (the server restarted, or a copy this login was never handed): never guessed. The 409 hands
@@ -166,25 +167,22 @@ router.patch('/', async (req: any, res) => {
       if (!had) { refuseStale(res, leanState(saved, omit), saved?.version ?? 0); return }
       // The Salesman's copy left out other people's entries, and lacks any given to the Salesman since:
       // every entry the phone did not have is put back as stored before anything else.
+      // An entry sent for someone else's customer, job or quote is left out of the save (`leftOut`), the rest
+      // goes through: refusing the whole save left it stuck on the phone with her later saves behind it (Oct 30 2026).
       const original = { ...updateData }
-      try {
-        const m = salesBusinessPatch(salesman.scope, saved as any, original, had)
-        Object.assign(updateData, m.patch); sentByPhone = m.accepted
-      } catch (e) {
-        if (!(e instanceof OutsideScopeError)) throw e
-        // Maybe a customer, quote or job made a moment ago: read the scope again once before refusing.
+      const merge = (scope: typeof salesman.scope) => {
+        try { return salesBusinessPatch(scope, saved as any, original, had!) } catch (e) { if (e instanceof OutsideScopeError) return null; throw e }
+      }
+      let m = merge(salesman.scope)
+      if (!m || m.leftOut > 0) {
+        // Maybe a customer, quote or job made a moment ago: read the scope again once.
         forgetScope(salesman.scope.userId)
         const again = await salesScope(salesman.scope.userId, salesman.scope.accountId)
-        if (again) salesman.scope = again
-        try {
-          if (!again) throw e
-          const m = salesBusinessPatch(again, saved as any, original, had)
-          Object.assign(updateData, m.patch); sentByPhone = m.accepted
-        } catch (e2) {
-          if (!(e2 instanceof OutsideScopeError)) throw e2
-          res.status(404).json({ success: false, error: 'Not found' }); return
-        }
+        if (again) { salesman.scope = again; m = merge(again) }
       }
+      // Only a list sent as something else (cleared) with entries she may not remove.
+      if (!m) { res.status(404).json({ success: false, error: 'Not found' }); return }
+      Object.assign(updateData, m.patch); sentByPhone = m.accepted; leftOut = m.leftOut
     }
     // A Salesman or Installer never had the costs (lib/costRedact.ts): the ones their
     // phone left out are put back as saved; a cost or the books sent is refused below.
@@ -227,7 +225,8 @@ router.patch('/', async (req: any, res) => {
     for (const f of SETTINGS_FIELDS) {
       if (updateData[f] !== undefined) await auditSettingChange(req, `business-state/${f}`, (saved as any)?.[f] ?? null, (s as any)[f], { version: s.version })
     }
-    res.json({ success: true, data: leanState(s, omit) })
+    // leftOut: entries of the save that were not the Salesman's to send (the app takes `data` as its copy and says so).
+    res.json({ success: true, data: leanState(s, omit), ...(leftOut ? { leftOut } : {}) })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[business-state] patch error:', err)

@@ -19,6 +19,7 @@
 
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { noteDocVersions } from './docVersions'
+import { peekMoved, noteMoved } from './movedNotice'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
@@ -80,6 +81,8 @@ export async function fetchWithAuth(url: string, init: RequestInit = {}): Promis
   if (res.status === 401) signedOutNow()
   // A save's answer says where the board and the business record are now (docVersions.ts).
   noteDocVersions(res.headers?.get?.('X-Doc-Versions'))
+  // A Salesman's record the owner moved to someone else: said once by the app (movedNotice.ts).
+  peekMoved(res)
   return res
 }
 
@@ -105,6 +108,7 @@ export async function authFetch<T = unknown>(path: string, options: RequestInit 
     throw new Error(`Server returned non-JSON (status ${res.status})`)
   }
   if (!res.ok || !json.success) {
+    noteMoved(json)
     throw new Error(json.error || `API error: ${res.status}`)
   }
   return json.data as T

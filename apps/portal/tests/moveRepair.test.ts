@@ -193,7 +193,7 @@ describe('repair (spec 3)', () => {
   })
   test('concrete footer disposal (#31, Oct 29 2026): a count the salesman picks, per post at the Settings rate', () => {
     const s = { ...SETTINGS, footerDisposalCents: 1500 }
-    const r = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { resetPost: 2, footerDisposal: 2 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    const r = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { resetPost: 2, footerDisposal: 2 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' })
     const l = r.lines.find(x => x.key === 'footerDisposal')!
     expect(l).toMatchObject({ kind: 'disposal', cents: 3000, label: 'Concrete footer disposal (per post)', math: '2 posts × $15.00' })
     expect(r.description).toContain('haul away 2 concrete footers')
@@ -201,7 +201,7 @@ describe('repair (spec 3)', () => {
     // Not picked: no line.
     expect(priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { resetPost: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' }).lines.some(x => x.key === 'footerDisposal')).toBe(false)
     // Rate blank: $0 and the missing rate warning, as the other per post rates.
-    const blank = priceRepair(common(style(WV)), { what: 'other', items: { footerDisposal: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
+    const blank = priceRepair(common(style(WV)), { what: 'other', items: { footerDisposal: 1 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' })
     expect(blank.lines.find(x => x.key === 'footerDisposal')).toMatchObject({ cents: 0, missing: true })
     expect(blank.warnings.some(w => w.includes('concrete footer disposal per post'))).toBe(true)
   })
@@ -212,9 +212,12 @@ describe('repair (spec 3)', () => {
     const ds = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
     expect([cents(ds, 'replacePost:pull'), cents(ds, 'replacePost:disposal')]).toEqual([1200, 2400])
     expect(ds.lines.some(x => x.key === 'footerDisposal')).toBe(false)
-    // The footer is added only when the salesman picks it: $12 + $24 + $15.
+    // The footer is added only when the salesman picks it, and only for no dig old posts: $10 + $10 + $15.
+    const ndFooter = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1, footerDisposal: 1 }, postType: 'nd', newPostCaps: false, gateKind: 'walk' })
+    expect(cents(ndFooter, 'replacePost:pull') + cents(ndFooter, 'replacePost:disposal') + cents(ndFooter, 'footerDisposal')).toBe(3500)
+    // Dig set (Jonathan, Oct 29 2026: "Dig set rates already cover the concrete"): $12 + $24, the footer not charged.
     const dsFooter = priceRepair(common(style(WV), { settings: s }), { what: 'leaning', items: { replacePost: 1, footerDisposal: 1 }, postType: 'ds', newPostCaps: false, gateKind: 'walk' })
-    expect(cents(dsFooter, 'replacePost:pull') + cents(dsFooter, 'replacePost:disposal') + cents(dsFooter, 'footerDisposal')).toBe(5100)
+    expect(cents(dsFooter, 'replacePost:pull') + cents(dsFooter, 'replacePost:disposal') + cents(dsFooter, 'footerDisposal')).toBe(3600)
   })
   test('the rate history is kept through Settings (effective dated)', () => {
     const h = { effectiveFrom: '2026-10-29', rates: { footerDisposalCents: 1500 }, by: 'Jonathan' }

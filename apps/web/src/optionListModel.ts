@@ -51,7 +51,7 @@ export const ONE_LABEL: Record<OptionListKind, string> = { leadSources: 'lead so
 /** The words the app saves on its own, and the office's everyday ones. */
 export const BUILT_IN_OPTIONS: Record<OptionListKind, string[]> = {
   leadSources: ['Website Quote', 'Phone (AI receptionist)', 'Website chat', 'Phone call', 'Walk-in'],
-  customerTags: ['Imported', 'JobNimbus', 'From schedule', 'MyBudgetQuote import', 'MyBudgetQuote dropoff'],
+  customerTags: ['Imported', 'JobNimbus', 'From schedule', 'MyBudgetQuote import', 'MyBudgetQuote dropoff', "Didn't finish instant quote"],
 }
 
 /**

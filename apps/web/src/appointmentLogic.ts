@@ -91,6 +91,11 @@ export interface Appointment {
   customerEmail: string
   /** The customer record's notes (typed in Add lead), from the server; absent on one booked on this phone just now. */
   customerNotes?: string
+  /**
+   * A Salesman's appointment whose customer is not hers any more (moved to someone else): that person's name ('' when
+   * not known). She cannot open the customer or start a quote; the visit says so (portal lib/salesScope.ts).
+   */
+  customerNotYours?: string
 }
 
 /* ── Settings ────────────────────────────────────────────────────────────── */

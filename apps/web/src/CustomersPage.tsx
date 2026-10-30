@@ -1,4 +1,5 @@
 import MediaGallery from './MediaGallery'
+import { possessive } from './personName'
 import TextButton from './TextButton'
 import { dayWords } from './businessDate'
 import ScreenErrorBoundary from './ScreenErrorBoundary'
@@ -1849,7 +1850,7 @@ export default function CustomersPage({ onNewQuote }: {
           // from this phone, so closing without booking says so.
           goBackThen('/customers', () => openBooking({
             customerId: customer.id, type: 'estimate', withName: rep, customer,
-            onCancel: () => toast.info('Estimate not booked', `${`${customer.firstName} ${customer.lastName}`.trim() || 'This customer'} is ${rep}'s customer now and is off your list, so you cannot book it later. Ask ${rep} or the office to book the estimate.`),
+            onCancel: () => toast.info('Estimate not booked', `${`${customer.firstName} ${customer.lastName}`.trim() || 'This customer'} is ${possessive(rep)} customer now and is off your list, so you cannot book it later. Ask ${rep} or the office to book the estimate.`),
           }))
           toast.info('Customer added', `${rep} is the Salesman and sees them as soon as they are saved. Book the estimate now: once you close the booking, they leave your list.`)
           return

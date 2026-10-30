@@ -36,6 +36,7 @@ import { proposalOpenedSweep } from '../proposalViews.js'
 import { closeFinishedTasks } from '../taskAutoClose.js'
 import { locatesClearSweep } from '../waitingStageMove.js'
 import { leadRepushSweep } from '../leadRepush.js'
+import { partialLeadPushSweep } from '../widgetPartialLead.js'
 import { PERMIT_STATUS_LABEL, portalFor, type PermitStatus } from './permits.js'
 import { OFFICE_NOTICE_ROLE, PERMIT_REMINDER_PREFIX } from '../notificationService.js'
 import type { AutomationEvent, AutomationRule, AutomationRun } from '@prisma/client'
@@ -600,6 +601,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
     // Not on a test's pass (scan: false or sweeps: false): it would push about the dev copy's real leads.
     if (opts.sweeps !== false && opts.scan !== false) {
       try { await leadRepushSweep(now) } catch (err) { console.error('[automations] lead repeat push:', err) }
+      // A website quote the customer did not finish: the owner's push once they have stopped (lib/widgetPartialLead.ts).
+      try { await partialLeadPushSweep(now) } catch (err) { console.error('[automations] unfinished quote push:', err) }
     }
     for (let guard = 0; guard < 20; guard++) {
       const events = await prisma.automationEvent.findMany({ where: { processedAt: null }, orderBy: { occurredAt: 'asc' }, take: 100 })

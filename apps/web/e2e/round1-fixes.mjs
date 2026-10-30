@@ -41,6 +41,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import crypto from 'crypto'
+import { toContactStep } from './widgetSteps.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -92,12 +94,14 @@ const STARTED = psql(`select to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:
 const quotesOf = id => Number(psql(`select count(*) from "SavedQuote" where "crmContactId"='${q(id)}' and "deletedAt" is null`))
 
 async function setup() {
-  const d = await widget('/draft', { method: 'PUT', body: JSON.stringify({ id: null, data: { step: 2, address: drawing.address, at, drawing, pick: null } }) })
-  made.draft = d.body.id
+  // The visit's id, as the page makes it (kept in its memory; no draft is saved before the name and phone).
+  made.draft = crypto.randomBytes(18).toString('base64url')
+  // The name and phone typed: the lead so far is saved (a photo is kept only with a lead).
+  await widget('/partial', { method: 'POST', body: JSON.stringify({ sessionId: made.draft, name: NAME, phone: '352-555-0161', email: 'e2e.round1@example.invalid', address: drawing.address, drawing, pick, step: 3 }) })
   // A photo of the yard, sent with the quote as the website sends it.
   const fd = new FormData()
   fd.append('file', new Blob([fs.readFileSync(PHOTO)], { type: 'image/jpeg' }), 'yard.jpg')
-  const up = await (await fetch(`${API}/p/quote/api/photo`, { method: 'POST', body: fd })).json()
+  const up = await (await fetch(`${API}/p/quote/api/photo?sid=${made.draft}`, { method: 'POST', body: fd })).json()
   made.photo = up.url || ''
   const s = await widget('/submit', { method: 'POST', body: JSON.stringify({ draftId: made.draft, name: NAME, phone: '352-555-0161', email: 'e2e.round1@example.invalid', address: drawing.address, drawing, pick, wantsVisit: true, photos: made.photo ? [made.photo] : [] }) })
   // The page is told prices only: the customer, card and quote are found from the website lead.
@@ -214,16 +218,16 @@ async function tiersMatch(browser, who, phoneSize) {
 }
 
 // The website's free visit box: its words tick it, and the thank-you follows the box. The page's own answers
-// are stood in for (the draft it picks up, and the send), so nothing is saved and no lead is made.
+// are stood in for (the lead saved once the phone is typed, and the send), so nothing is saved and no lead is made.
 async function websiteVisitBox(browser) {
   const ctx = await browser.newContext({ ...devices['iPhone 13'] })
   const page = await ctx.newPage()
   let sentBody = null
-  await page.route('**/p/quote/api/draft**', route => route.request().method() === 'GET'
-    ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { id: 'e2eRound1VisitBoxDraft000', step: 3, address: drawing.address, at, atSource: 'county', drawing, pick, snap: false, sent: false } }) })
-    : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, id: 'e2eRound1VisitBoxDraft000' }) }))
+  await page.route(/gis\.ocalafl\.org/, route => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"features":[]}' }))
+  await page.route('**/p/quote/api/partial', route => route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true, saved: true }) }))
   await page.route('**/p/quote/api/submit', route => { sentBody = JSON.parse(route.request().postData() || '{}'); return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true, test: false, duplicate: false, options: [{ key: 'better', name: 'Better', text: '', popular: true, fenceStyle: "WV-ND 6'x8' Privacy", styleLabel: 'White Vinyl Privacy', price: 11299, perFoot: 40 }], chosen: { key: 'better', name: 'Better', text: '', popular: true, fenceStyle: "WV-ND 6'x8' Privacy", styleLabel: 'White Vinyl Privacy', price: 11299, perFoot: 40 } }) }) })
-  await page.goto(`${APP}/p/quote/?draft=e2eRound1VisitBoxDraft000`)
+  await page.goto(`${APP}/p/quote/`)
+  await toContactStep(page, { tap: true })
   await page.waitForSelector('[data-w-visit]', { timeout: 30000 })
   const box = page.locator('[data-w-visit]')
   const before = await box.isChecked()
@@ -427,6 +431,7 @@ async function cleanup(name = NAME) {
       // The visit's photo (since Oct 26 one of the customer's photos and video, lib/quoteMedia.ts): rows and files.
       for (const f of psql(`select path || E'\\n' || coalesce("thumbPath",'') from "MediaItem" where "customerId"='${q(made.contact)}'`).split('\n').filter(Boolean)) if (f.includes(`${path.sep}media${path.sep}`) && fs.existsSync(f)) fs.rmSync(f, { force: true })
       psql(`delete from "MediaItem" where "customerId"='${q(made.contact)}'`)
+      psql(`delete from "AutomationEffect" where key in (select 'widget-partial-push:' || id from "IntakeLead" where "crmContactId"='${q(made.contact)}')`)
       psql(`delete from "SavedQuote" where "crmContactId"='${q(made.contact)}'; delete from "IntakeLead" where "crmContactId"='${q(made.contact)}'; delete from "CrmContactNote" where "crmContactId"='${q(made.contact)}'; delete from "AutomationEvent" where "entityId"='${q(made.card)}'; delete from "CardFollowUp" where "cardId"='${q(made.card)}'; delete from "CustomerPossibleMatch" where "contactId"='${q(made.contact)}'; delete from "CrmContact" where id='${q(made.contact)}'`)
     }
     psql(`delete from "Notification" where title='Website quote: ${q(name.trim())}'`)
@@ -449,7 +454,7 @@ async function cleanup(name = NAME) {
 }
 
 // Test leads left by a run that died: removed first (only this test's own names).
-for (const row of psql(`select "crmContactId" || '|' || coalesce(payload->>'cardId','') || '|' || coalesce(payload->>'quoteId','') || '|' || "sourceRef" from "IntakeLead" where source='ez_quote' and name like 'E2E Round1 Lead %'`).split('\n').filter(Boolean)) {
+for (const row of psql(`select "crmContactId" || '|' || coalesce(payload->>'cardId','') || '|' || coalesce(payload->>'quoteId','') || '|' || "sourceRef" from "IntakeLead" where source in ('ez_quote', 'ez_quote_partial') and name like 'E2E Round1 Lead %'`).split('\n').filter(Boolean)) {
   const [contact, card, quote, draft] = row.split('|')
   Object.assign(made, { contact, card, quote, draft, appt: '' })
   const name = psql(`select coalesce("firstName",'') || ' ' || coalesce("lastName",'') from "CrmContact" where id='${q(contact)}'`)

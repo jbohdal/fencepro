@@ -20,7 +20,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Preview\'s deposit from the 
   const { default: prisma } = await import('../src/server/lib/prisma.js')
   const { default: savedQuotes } = await import('../src/server/routes/saved-quotes.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
-  const { CUSTOMER_DOLLARS_KEY } = await import('../src/server/lib/customerDollars.js')
+  const { CUSTOMER_DOLLARS_KEY, NO_DEPOSIT_CANCEL_KEY } = await import('../src/server/lib/customerDollars.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
   const stamp = Date.now().toString(36)
@@ -37,6 +37,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Preview\'s deposit from the 
     otherId = (await prisma.crmAccount.create({ data: { name: `Test preview deposit other-${stamp}`, status: 'active' } })).id
     // The rules began an hour ago for this company.
     await prisma.accountKeyValue.create({ data: { accountId, key: CUSTOMER_DOLLARS_KEY, value: new Date(Date.now() - 3_600_000).toISOString() } })
+    // The no deposit Cancellation Policy sentence began then too (contractCancelNoDeposit tests the moment between).
+    await prisma.accountKeyValue.create({ data: { accountId, key: NO_DEPOSIT_CANCEL_KEY, value: new Date(Date.now() - 3_600_000).toISOString() } })
     const sign = (acc: string) => jwt.sign({ sub: `preview-test-${stamp}`, email: 'preview@example.invalid', role: 'super_admin', crmAccountId: acc }, secret, { expiresIn: '10m' })
     owner = sign(accountId); stranger = sign(otherId)
     const make = async (key: string, proposal: unknown, extra: Record<string, unknown> = {}) => {
@@ -69,13 +71,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Preview\'s deposit from the 
     await prisma.crmAccount.deleteMany({ where: { id: { in: [accountId, otherId].filter(Boolean) } } })
   })
 
-  const expected: Record<string, { asSigned: boolean; depositPct: number | null }> = {
+  const expected: Record<string, { asSigned: boolean; depositPct: number | null; cancellationAsSigned?: boolean }> = {
     zero: { asSigned: false, depositPct: null },
     blank: { asSigned: false, depositPct: null },
     absent: { asSigned: false, depositPct: null },
     thirty: { asSigned: false, depositPct: 30 },
     none: { asSigned: false, depositPct: 50 },
-    oldSigned: { asSigned: true, depositPct: null },
+    oldSigned: { asSigned: true, depositPct: null, cancellationAsSigned: true },
     newSigned: { asSigned: false, depositPct: null },
   }
 

@@ -7,6 +7,7 @@
  * apps with the message filled in; nothing is sent by a service.
  */
 
+import { recentMoved } from './movedNotice'
 import { customerText } from '../../portal/src/server/lib/customerText'
 import { useEffect, useState } from 'react'
 import { ShieldCheck, MessageSquare, Mail, Copy, ExternalLink } from 'lucide-react'
@@ -87,7 +88,7 @@ export default function WarrantyUpdateSend({ quoteId, onChange }: { quoteId: str
   }
 
   if (p === undefined) return null
-  if (p === null) return <p className="text-xs text-red-700">Could not load the warranty update. Check the connection.</p>
+  if (p === null) return <p className="text-xs text-red-700">{recentMoved() ?? 'Could not load the warranty update. Check the connection.'}</p>
   const anyChanged = p.options.some(o => o.changed)
 
   return (

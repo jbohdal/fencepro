@@ -7,9 +7,12 @@
  *      List). The pull sheet lists every part at $0: a section is 2 rails, a
  *      mid rail, 22 pickets (4 ft) and 4 U channels (4 ft) at 6 ft wide; 2
  *      rails, a mid rail, 30 pickets, 4 U channels and 2 rail inserts at 8 ft
- *      wide. The post kit (post, cap, donuts and pipe or concrete) is covered
- *      by the post price. Gates are priced from their parts, as before. Not
- *      available for quoting until both prices are in.
+ *      wide. Gates are priced from their parts, as before. Not available
+ *      for quoting until both prices are in.
+ *      Oct 29, 2026: "Post price = the vinyl post ONLY. Everything else must
+ *      be priced from Inventory at its real price and show on the pull sheet
+ *      with that price": the vinyl post is $0 (covered by the post price);
+ *      the cap, donuts and pipe (ND) or concrete (DS) price from Inventory.
  */
 
 import { describe, test, expect, afterEach } from 'vitest'
@@ -88,10 +91,10 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     for (const [name] of W8) {
       const s = cfg.fenceStyles.find(x => x.name === name)!
       expect(isQuotable(s), name).toBe(false)
-      expect(s.held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+      expect(s.held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     }
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250 } })
-    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
+    expect(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!.held).toBe('8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl')
     expect(tallPricesMissing({ pieceCents: { section: 41250, post: 0 } })).toEqual(['post'])
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500, pricedOn: '2026-10-21' } })
     expect(isQuotable(cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!)).toBe(true)
@@ -100,7 +103,7 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     expect(isQuotable(cfg.fenceStyles.find(x => x.name === "WV-ND 6'x8' Privacy")!)).toBe(true)
   })
 
-  test.each(W8)('%s: one section price and one post price; every section and post part on the pull sheet at $0', (style, w) => {
+  test.each(W8)('%s: one section price and one post price; the section vinyl and the vinyl post at $0; cap, donuts, pipe, concrete from Inventory', (style, w) => {
     const cfg = setup({ [style]: { section: 41250, post: 6500 } })
     const c = calculateQuote(job(cfg, style))
     const n = w === 8 ? 6 : 8          // 48 ft
@@ -111,16 +114,56 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     expect(line(items, `8 ft tall White: section, ${w} ft wide`)).toEqual([expect.objectContaining({ qty: n, unitCost: 412.5, total: 412.5 * n, jobLotPiece: true })])
     expect(line(items, '8 ft tall White: end post')).toEqual([expect.objectContaining({ qty: 2, unitCost: 65, jobLotPiece: true })])
     expect(line(items, '8 ft tall White: line post')).toEqual([expect.objectContaining({ qty: n - 1, unitCost: 65, jobLotPiece: true })])
-    const parts: Record<string, number> = { [`*Vinyl, White, Rail, ${w}'`]: sec.rails * n, [`*Vinyl, White, Mid Rail, ${w}'`]: n, "*Vinyl, White, Picket, 4'": sec.pickets * n, "*Vinyl, White, U Channel, 4'": 4 * n,
-      "V , W, Post, 8' Privacy, EP, 5\" x 5\"": 2, "V , W, Post, 8' Privacy, LP, 5\" x 5\"": n - 1, '*Vinyl, White, Cap, 5"x5"': posts }
-    if (sec.railInserts) parts["Vinyl, Rail Insert, 8'"] = 2 * n
-    if (/-ND /.test(style)) Object.assign(parts, { 'ND, Donut': 2 * posts, "Pipe, PT40, Galv, 2-1/2\" x 8'": posts })
-    else parts['Misc, Concrete'] = 2 * posts
-    for (const [p, q] of Object.entries(parts)) expect(line(items, p), p).toEqual([expect.objectContaining({ qty: q, unitCost: 0, total: 0, costSource: 'jobLot' })])
-    // Nothing else: material is the pieces only.
-    expect(items.length).toBe(Object.keys(parts).length + 3)
-    expect(c.materialCost).toBeCloseTo(412.5 * n + 65 * (n + 1), 2)
+    // Covered, $0 on the pull sheet: the section's vinyl and the vinyl post.
+    const covered: Record<string, number> = { [`*Vinyl, White, Rail, ${w}'`]: sec.rails * n, [`*Vinyl, White, Mid Rail, ${w}'`]: n, "*Vinyl, White, Picket, 4'": sec.pickets * n, "*Vinyl, White, U Channel, 4'": 4 * n,
+      "V , W, Post, 8' Privacy, EP, 5\" x 5\"": 2, "V , W, Post, 8' Privacy, LP, 5\" x 5\"": n - 1 }
+    if (sec.railInserts) covered["Vinyl, Rail Insert, 8'"] = 2 * n
+    for (const [p, q] of Object.entries(covered)) expect(line(items, p), p).toEqual([expect.objectContaining({ qty: q, unitCost: 0, total: 0, costSource: 'jobLot' })])
+    // Priced from Inventory at its own price, as on 6 ft: the cap, donuts and pipe or concrete.
+    const priced: Record<string, number> = { '*Vinyl, White, Cap, 5"x5"': posts }
+    if (/-ND /.test(style)) Object.assign(priced, { 'ND, Donut': 2 * posts, "Pipe, PT40, Galv, 2-1/2\" x 8'": posts })
+    else priced['Misc, Concrete'] = 2 * posts
+    for (const [p, q] of Object.entries(priced)) expect(line(items, p), p).toEqual([expect.objectContaining({ qty: q, unitCost: INV[p], total: Math.round(q * INV[p] * 100) / 100, costSource: 'inventory' })])
+    // Nothing else: the pieces, the covered parts and the priced parts.
+    expect(items.length).toBe(Object.keys(covered).length + Object.keys(priced).length + 3)
+    const pricedCost = Object.entries(priced).reduce((t, [p, q]) => t + q * INV[p], 0)
+    expect(c.materialCost).toBeCloseTo(412.5 * n + 65 * (n + 1) + pricedCost, 2)
     expect(items.some(i => /Picket Section/.test(i.item))).toBe(false)
+    expect(c.materials.warnings.filter(x => /Inventory/.test(x))).toEqual([])
+  })
+
+  test('per piece math: 48 ft no dig 8 x 8 (6 sections, 7 posts), section $412.50, post $65', () => {
+    const cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
+    const c = calculateQuote(job(cfg, "WV-ND 8'x8' Privacy"))
+    // 6 x 412.50 + 7 x 65 + 7 caps x 1.50 + 14 donuts x 4.12 + 7 pipes x 18.05 = 2475 + 455 + 10.50 + 57.68 + 126.35
+    expect(Math.round(c.materialCost * 100)).toBe(247500 + 45500 + 1050 + 5768 + 12635)
+    const dsCfg = setup({ "WV-DS 8'x8' Privacy": { section: 41250, post: 6500 } })
+    const ds = calculateQuote(job(dsCfg, "WV-DS 8'x8' Privacy"))
+    // 6 x 412.50 + 7 x 65 + 7 caps x 1.50 + 14 bags x 7.06
+    expect(Math.round(ds.materialCost * 100)).toBe(247500 + 45500 + 1050 + 9884)
+  })
+
+  test('a post part not in Inventory, or at $0, is named in the warnings, never priced silently at $0', () => {
+    const cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
+    const inv: Record<string, number> = { ...INV, 'ND, Donut': 0 }
+    delete inv["Pipe, PT40, Galv, 2-1/2\" x 8'"]
+    setMaterialPriceSource(priceSourceFromMap(inv))
+    const c = calculateQuote(job(cfg, "WV-ND 8'x8' Privacy"))
+    expect(c.materials.warnings.some(x => /not in Inventory/.test(x) && x.includes('Pipe, PT40'))).toBe(true)
+    expect(c.materials.warnings.some(x => /in Inventory at \$0\.00/.test(x) && x.includes('ND, Donut'))).toBe(true)
+  })
+
+  test('a post kit with no vinyl post holds the style, so the post price is never charged on top of a priced post', () => {
+    clearBuiltInKits()
+    const kit = kitSetFor("WV-ND 8'x8' Privacy", [])
+    if (!kit || kit === 'archived') throw new Error('no kit')
+    const bad = { ...kit, kits: { ...kit.kits, line: kit.kits.line!.filter(p => !/Post, 8' Privacy/.test(p.part)) } }
+    setMaterialPriceSource(priceSourceFromMap(INV))
+    setSavedKitSets(() => [bad as any])
+    const cfg = estimateConfig({ fenceStyles: styles({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } }), fenceCatalog: DEFAULT_CATALOG } as any)
+    const s = cfg.fenceStyles.find(x => x.name === "WV-ND 8'x8' Privacy")!
+    expect(isQuotable(s)).toBe(false)
+    expect(s.held).toMatch(/post price is for the vinyl post only, but the line post kit has no vinyl post/)
   })
 
   test.each(W8)('%s: gates are priced from their parts, as before', style => {
@@ -130,19 +173,22 @@ describe('B. 8 ft tall vinyl: priced by the piece', () => {
     // What the gates add is exactly the old gate rows (Inventory prices), nothing covered, no piece line and no blank post.
     const added = (name: string) => qty(w.materials.items.filter(i => i.costSource !== 'jobLot'), name) - qty(none.materials.items.filter(i => i.costSource !== 'jobLot'), name)
     expect([added('V , W, Privacy Gate 8 x 4'), added('*Vinyl, Gate, Hinge'), added('*Vinyl, Gate, Latch'), added('*Vinyl, Gate, Handle'), added('*Vinyl, White, Cap, Gate')]).toEqual([3, 3, 2, 6, 6])
-    if (/-DS /.test(style)) expect(line(w.materials.items, 'Misc, Concrete').find(i => i.costSource !== 'jobLot')).toMatchObject({ qty: 2, unitCost: 7.06 })
+    // The walk gate's 2 bags (dig set); the posts' concrete is priced from Inventory too (Oct 29, 2026), on the same line.
+    if (/-DS /.test(style)) { expect(added('Misc, Concrete')).toBe(2); expect(line(w.materials.items, 'Misc, Concrete')).toEqual([expect.objectContaining({ unitCost: 7.06, costSource: 'inventory' })]) }
     expect(w.materials.items.filter(i => i.jobLotPiece).map(i => i.item).sort()).toEqual(none.materials.items.filter(i => i.jobLotPiece).map(i => i.item).sort())
     expect(w.materials.items.some(i => /Blank|gate post/.test(i.item))).toBe(false)
   })
 
   test('the $0 section parts are made in Inventory once, included in the section price; nothing else is touched', () => {
     clearBuiltInKits()
+    // The White 8 ft styles, as when this step ran (Tan 8 ft came Oct 29, 2026: tanTall.test.ts).
+    const whiteOnly = () => styles().filter(s => !/^TV-(ND|DS) 8'/.test(s.name))
     const items: InvItem[] = Object.entries(INV).filter(([n]) => !/Mid Rail|Picket, 4'|U Channel, 4'/.test(n)).map(([name, unitCost], i) => ({ id: `x${i}`, name, unitCost, category: 'Vinyl White', status: 'active' }))
-    const plan = planTallVinylParts({ fenceStyles: styles(), items, kits: [] })
+    const plan = planTallVinylParts({ fenceStyles: whiteOnly(), items, kits: [] })
     expect(plan.added.sort()).toEqual(["*Vinyl, White, Mid Rail, 6'", "*Vinyl, White, Mid Rail, 8'", "*Vinyl, White, Picket, 4'", "*Vinyl, White, U Channel, 4'"])
     for (const n of plan.added) expect(plan.items.find(i => i.name === n)).toMatchObject({ unitCost: 0, status: 'active', includedIn: '8 ft tall section price', category: 'Vinyl White' })
     expect(plan.items.slice(0, items.length)).toEqual(items)
-    expect(planTallVinylParts({ fenceStyles: styles(), items: plan.items, kits: [] }).added).toEqual([])
+    expect(planTallVinylParts({ fenceStyles: whiteOnly(), items: plan.items, kits: [] }).added).toEqual([])
   })
 })
 
@@ -176,8 +222,8 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     const after = estimateConfig({ fenceStyles: r.fenceStyles, fenceCatalog: DEFAULT_CATALOG } as any)
     const a = (n: string) => after.fenceStyles.find(s => s.name === n)!
     expect(isQuotable(a("WV-ND 8'x6' Privacy"))).toBe(true)
-    expect(a("WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl')
-    expect(a("WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    expect(a("WV-DS 8'x8' Privacy").held).toBe('8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl')
+    expect(a("WV-ND 8'x8' Privacy").held).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
   })
 
   test('the quote builder picker says why 8 ft is off, in sight, and tells the Salesman to ask Jonathan', () => {
@@ -185,17 +231,17 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     const row = (c: ReturnType<typeof setup>) => pickerState(c.fenceStyles, DEFAULT_CATALOG, 'vinyl', { style: 'privacy' }, isQuotable).find(r => r.dim.key === 'height')!
     const eight = row(cfg).options.find(o => o.opt.key === '8')!
     expect(eight.state).toBe('held')
-    expect(eight.why).toEqual(['8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl'])
-    expect(offWords(eight.opt.label, eight.why!, false)).toBe('8 ft is off: 8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl (ask Jonathan).')
-    expect(offWords(eight.opt.label, eight.why!, true)).toBe('8 ft is off: 8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl.')
+    expect(eight.why).toEqual(['8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl'])
+    expect(offWords(eight.opt.label, eight.why!, false)).toBe('8 ft is off: 8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl (ask Jonathan).')
+    expect(offWords(eight.opt.label, eight.why!, true)).toBe('8 ft is off: 8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl.')
     // 6 ft is on and says nothing.
     expect(row(cfg).options.find(o => o.opt.key === '6')).toEqual(expect.objectContaining({ state: 'ok' }))
     expect(row(cfg).options.find(o => o.opt.key === '6')!.why).toBeUndefined()
     // Different fences missing different prices: each reason once.
     const some = setup({ "WV-ND 8'x6' Privacy": { section: 41250 }, "WV-ND 8'x8' Privacy": { section: 41250 } })
     expect(row(some).options.find(o => o.opt.key === '8')!.why!.sort()).toEqual([
-      '8 ft tall needs its post price in Settings → Price List → 8 ft tall vinyl',
-      '8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl',
+      '8 ft tall needs our post cost in Settings → Price List → 8 ft tall vinyl',
+      '8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl',
     ])
     // One priced: 8 ft is on.
     const one = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
@@ -210,7 +256,7 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     expect(isNotQuotable(err)).toBe(true)
     expect(notQuotableMessage(err)).toBe('Call us for a price on 8 ft tall fence')
     expect(notQuotableMessage(err)).not.toMatch(/commercial|industrial/i)
-    expect(notQuotableReason(err)).toBe('8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl')
+    expect(notQuotableReason(err)).toBe('8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl')
     // The website never offers it (only what is available for quoting), nor lists it with commercial and industrial.
     expect(widgetStyles(cfg).some(s => /8'x[68]'/.test(s.name))).toBe(false)
     expect(onHoldStyles(data.config).styles.some(s => /8'x[68]'/.test(s.name))).toBe(false)
@@ -234,7 +280,7 @@ describe('C. typed in Settings: the save, and every place says what is missing',
     let t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]
     expect(t.widthFt).toBe(8)
     expect(t.otherWidth).toBeNull()
-    expect(t.otherWidthHeld).toEqual({ widthFt: 6, held: '8 ft tall needs its section and post prices in Settings → Price List → 8 ft tall vinyl' })
+    expect(t.otherWidthHeld).toEqual({ widthFt: 6, held: '8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl' })
     // Both priced: compared as before.
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 }, "WV-ND 8'x6' Privacy": { section: 30000, post: 6500 } })
     t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]

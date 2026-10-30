@@ -41,8 +41,10 @@ describe('the Salesman\'s scope', () => {
     expect(scope.contactIds.has('c-other')).toBe(false)
   })
 
-  test('quotes: made by or assigned to the Salesman, and every quote of the Salesman\'s own customers', () => {
-    expect([...scope.quoteIds].sort()).toEqual(['q-assigned', 'q-mine', 'q-owner-on-my-customer'])
+  test('quotes: the rep decides; a quote with no rep is hers when she wrote it or its customer is hers', () => {
+    expect([...scope.quoteIds].sort()).toEqual(['q-assigned', 'q-mine'])
+    // A quote whose rep names someone else is theirs, even on the Salesman's own customer (Oct 29 2026).
+    expect(scope.quoteIds.has('q-owner-on-my-customer')).toBe(false)
     // A customer brought in by one assigned quote does not bring that customer's other quotes.
     expect(scope.quoteIds.has('q-owner-on-assigned-customer')).toBe(false)
     expect(scope.quoteIds.has('q-other')).toBe(false)
@@ -75,6 +77,86 @@ describe('the Salesman\'s scope', () => {
     expect([...given.contactIds].sort()).toEqual(['c-entered-blank', 'c-entered-mine'])
     expect(inSalesScope('contacts', given, { id: 'x', ownerId: me, salesRep: 'Sam Other' })).toBe(false)
     expect(inSalesScope('contacts', given, { id: 'y', ownerId: me, salesRep: null })).toBe(true)
+  })
+
+  test('after a move (Jonathan, Oct 29 2026): unsold quotes leave her list; signed ones whose rep is still her stay, with their customer', () => {
+    // Cleo was the Salesman's; the owner moved her to Sam: the open quotes went with her (D3), the sold one and its job stayed.
+    const moved = buildSalesScope({
+      ...base,
+      contacts: [
+        { id: 'c-cleo', ownerId: me, salesRep: 'Sam Other' },
+        { id: 'c-dan', ownerId: me, salesRep: 'Sam Other' },
+        { id: 'c-eve', ownerId: 'u-owner', salesRep: 'Christa Feagin' },
+      ],
+      quotes: [
+        { id: 'q-cleo-draft', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-cleo' },
+        { id: 'q-cleo-sold', ownerId: me, salesRep: 'Christa Feagin', crmContactId: 'c-cleo' },
+        { id: 'q-dan-draft', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-dan' },
+        { id: 'q-dan-sold-moved', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-dan' },
+        { id: 'q-eve-draft-moved', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-eve' },
+        { id: 'q-eve-sold', ownerId: 'u-owner', salesRep: 'Christa', crmContactId: 'c-eve' },
+      ],
+      jobs: [
+        { id: 'j-cleo', quoteId: 'q-cleo-sold', crmContactId: 'c-cleo', salesRep: 'Christa Feagin' },
+        { id: 'j-dan-moved', quoteId: 'q-dan-sold-moved', crmContactId: 'c-dan', salesRep: 'Sam Other' },
+      ],
+      // A finished card and a past visit of hers left on Dan: neither keeps him.
+      cards: [{ customerId: 'c-dan', assignedRep: 'Christa' }],
+      appointments: [{ crmContactId: 'c-dan', assignedToUserId: me, assignedTo: 'Christa Feagin', status: 'completed', createdAt: new Date('2026-10-20T12:00:00Z') }],
+      // Dan was moved to Sam after that visit was booked.
+      movedAt: new Map([['c-dan', new Date('2026-10-29T22:00:00Z')]]),
+    })
+    expect([...moved.quoteIds].sort()).toEqual(['q-cleo-sold', 'q-eve-sold'])
+    expect([...moved.jobIds]).toEqual(['j-cleo'])
+    // Cleo stays through her sold quote; Dan (everything moved) leaves; Eve is hers.
+    expect([...moved.contactIds].sort()).toEqual(['c-cleo', 'c-eve'])
+    expect(moved.directContactIds.has('c-cleo')).toBe(false)
+    // One record opened by id: the rep on it decides, not who wrote it.
+    expect(inSalesScope('quotes', moved, { id: 'q-cleo-draft', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-cleo' })).toBe(false)
+    expect(inSalesScope('quotes', moved, { id: 'q-cleo-sold', ownerId: me, salesRep: 'Christa Feagin', crmContactId: 'c-cleo' })).toBe(true)
+    // Moved since the scope was read: out at once.
+    expect(inSalesScope('quotes', moved, { id: 'q-cleo-sold', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-cleo' })).toBe(false)
+    expect(inSalesScope('jobs', moved, { id: 'j-cleo', quoteId: 'q-cleo-sold', crmContactId: 'c-cleo', salesRep: 'Sam Other' })).toBe(false)
+    expect(inSalesScope('jobs', moved, { id: 'j-dan-moved', quoteId: 'q-dan-sold-moved', crmContactId: 'c-dan', salesRep: 'Sam Other' })).toBe(false)
+    // Her card left on Dan is not shown; one on Cleo (still on her list) is.
+    expect(inSalesScope('pipeline', moved, { id: 'k-dan', customerId: 'c-dan', assignedRep: 'Christa' })).toBe(false)
+    expect(inSalesScope('pipeline', moved, { id: 'k-cleo', customerId: 'c-cleo', assignedRep: 'Sam Other' })).toBe(true)
+    expect(inSalesScope('contacts', moved, { id: 'c-dan', ownerId: me, salesRep: 'Sam Other' })).toBe(false)
+    // A card of her own customer Eve is shown; Cleo's card for the draft that went to Sam is not (its price is Sam's).
+    expect(inSalesScope('pipeline', moved, { id: 'k-eve', customerId: 'c-eve', quoteId: 'q-eve-sold', assignedRep: 'Christa' })).toBe(true)
+    expect(inSalesScope('pipeline', moved, { id: 'k-cleo-draft', customerId: 'c-cleo', quoteId: 'q-cleo-draft', assignedRep: 'Sam Other' })).toBe(false)
+    expect(inSalesScope('pipeline', moved, { id: 'k-eve-moved', customerId: 'c-eve', quoteId: 'q-eve-draft-moved', assignedRep: 'Christa' })).toBe(false)
+    expect(inSalesScope('pipeline', moved, { id: 'k-dan-job', customerId: 'c-cleo', jobId: 'j-dan-moved', assignedRep: 'Christa' })).toBe(false)
+  })
+
+  test('a visit the office booked with her on the owner\'s customer (D4): the customer and the quote she writes after it are hers; a move takes them', () => {
+    const base2 = {
+      ...base,
+      contacts: [{ id: 'c-pat', ownerId: 'u-office', salesRep: 'Jonathan Bohdal' }, { id: 'c-old', ownerId: 'u-office', salesRep: 'Jonathan Bohdal' }],
+      quotes: [
+        { id: 'q-pat', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-pat' },
+        { id: 'q-pat-sold', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-pat', sold: true },
+        { id: 'q-pat-other', ownerId: me, salesRep: 'Sam Other', crmContactId: 'c-pat' },
+        // The owner's (or the office's) own quote on the customer she has a visit with: never hers.
+        { id: 'q-pat-owners', ownerId: 'u-owner', salesRep: 'Jonathan Bohdal', crmContactId: 'c-pat' },
+        { id: 'q-old', ownerId: me, salesRep: 'Jonathan Bohdal', crmContactId: 'c-old' },
+      ],
+      jobs: [], cards: [],
+    }
+    const booked = new Date('2026-10-30T13:00:00Z')
+    // Booked, under way, or finished and not moved since: hers.
+    for (const status of ['scheduled', 'on_my_way', 'completed']) {
+      const sc = buildSalesScope({ ...base2, appointments: [{ crmContactId: 'c-pat', assignedToUserId: me, assignedTo: 'Christa Feagin', status, createdAt: booked }] })
+      expect([status, sc.contactIds.has('c-pat')]).toEqual([status, true])
+      // Her unsold quote (rep: the customer's, as the Save sets it): hers to send. Sold, or moved on its own: rep decides.
+      expect([...sc.quoteIds].filter(q => q.startsWith('q-pat'))).toEqual(['q-pat'])
+    }
+    // The customer was moved to a Salesman after the visit was booked: a finished visit no longer holds anything.
+    const moved = buildSalesScope({ ...base2, appointments: [{ crmContactId: 'c-old', assignedToUserId: me, assignedTo: 'Christa', status: 'completed', createdAt: booked }], movedAt: new Map([['c-old', new Date('2026-10-30T15:00:00Z')]]) })
+    expect([moved.contactIds.has('c-old'), moved.quoteIds.has('q-old')]).toEqual([false, false])
+    // Someone else's visit with that customer: nothing.
+    const notHers = buildSalesScope({ ...base2, appointments: [{ crmContactId: 'c-pat', assignedToUserId: 'u-sam', assignedTo: 'Sam Other', status: 'scheduled', createdAt: booked }] })
+    expect(notHers.contactIds.has('c-pat')).toBe(false)
   })
 
   test('names: full or first, any case or spacing; never someone else\'s', () => {

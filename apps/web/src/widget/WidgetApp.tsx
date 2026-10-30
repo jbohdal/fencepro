@@ -13,10 +13,15 @@
  *               decide whether the name and phone come before the prices
  *               (the default) or after.
  *
- * Progress is kept on the server (a draft with no name, phone or email),
- * found again by an httpOnly cookie and by ?draft= in the page address. The
- * page never prices anything and never sees a cost. ?test=1: nothing is
- * saved or sent (Jonathan's tests).
+ * Nothing about the customer is kept anywhere until they type a name and a
+ * phone or email (Jonathan, Oct 29 2026). From that moment the page saves
+ * them as a lead, "Didn't finish instant quote", with whatever else they
+ * entered, and keeps it up to date: a moment after each change, when they
+ * leave a contact box, and when the page is hidden or closed (a beacon).
+ * Sending the quote then updates that same lead (lib/widgetPartialLead.ts).
+ * The visit's id is kept in this page's memory only: no cookie, no browser
+ * storage, nothing in the page address. The page never prices anything and
+ * never sees a cost. ?test=1: nothing is saved or sent (Jonathan's tests).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -29,6 +34,7 @@ import { aerialConfig, prefetchAerial } from '../aerialTiles'
 import { AerialCredit } from '../freeMap'
 import { TEXT_CONSENT_WORDING, TEXT_CONSENT_TERMS_URL } from '../../../portal/src/server/lib/textConsentModel'
 import { thanksText } from './thanksText'
+import { callableContact } from '../../../portal/src/server/lib/widgetContact'
 
 /** The end of the checkbox words, shown as the link to the terms. */
 const TERMS_TEXT = 'gdfencepro.com/terms.cfm'
@@ -36,7 +42,6 @@ const TERMS_TEXT = 'gdfencepro.com/terms.cfm'
 interface Material { material: 'vinyl' | 'chain' | 'alum' | 'wood'; label: string; photoUrl: string | null; colors: Array<{ key: string; label: string }>; heights: Array<{ key: string; height: string; kind: string; label: string; colors: string[] }> }
 interface Pick { material: Material['material']; color: string; height: string; kind: string }
 interface Option { key: string; name: string; text: string; popular: boolean; fenceStyle: string; styleLabel: string; price: number; perFoot: number }
-interface DraftData { step: number; address: string; at: LatLng | null; atSource?: string; drawing: WidgetDrawing | null; pick: Pick | null; fenceStyle?: string | null; snap?: boolean }
 
 const API = '/p/quote/api'
 const STEPS = ['Address', 'Draw', 'Fence', 'Price'] as const
@@ -54,6 +59,8 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   return j as T
 }
 const jsonInit = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+/** This visit's id: made when the page opens, kept in memory only (the server keys the lead by it). */
+const newVisitId = () => { const b = new Uint8Array(18); crypto.getRandomValues(b); return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') }
 
 /** (352) 789 4314 for a 10 digit number, else as typed in Settings. */
 const showPhone = (p: string) => { const d = p.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}` : p }
@@ -108,55 +115,17 @@ export default function WidgetApp() {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const [sent, setSent] = useState(false)
-  // The draft
-  const [draftId, setDraftId] = useState<string | null>(null)
-  const [resumed, setResumed] = useState(false)
-  const loaded = useRef(false)
+  // This visit (memory only) and the drawing on the photo for the salesman
+  const visitId = useRef(newVisitId()).current
   const snapshot = useRef<Promise<string | null> | null>(null)
 
-  // Settings, materials, and a draft to pick up again (?draft= first, else the cookie).
+  // Settings and materials.
   useEffect(() => {
     void aerialConfig()  // which photo source comes first, known before an address is picked
     getJson<{ materials: Material[]; onHold?: { label: string; message: string; phone: string } | null; settings?: { showPriceBeforeContact?: boolean } }>(`${API}/config`)
       .then(j => { setMaterials(j.materials); setOnHold(j.onHold ?? null); setPriceFirst(!!j.settings?.showPriceBeforeContact) })
       .catch(e => setLoadError(String(e.message || e)))
-    const want = params.get('draft')
-    getJson<{ data: (DraftData & { id: string; sent: boolean }) | null }>(`${API}/draft?${new URLSearchParams({ ...(want ? { id: want } : {}), ...(TEST ? { test: '1' } : {}) })}`)
-      .then(({ data }) => {
-        if (!data) return
-        setDraftId(data.id)
-        setAddress(data.address || '')
-        setAt(data.at); setAtSource(data.atSource || '')
-        setDrawing(data.drawing); setPick(data.pick); setFenceStyle(data.fenceStyle ?? null)
-        setSnap(data.snap !== false)
-        setSent(!!data.sent)
-        setStep(data.sent ? 3 : Math.min(data.step, data.drawing ? 3 : data.at ? 1 : 0))
-        setResumed(data.step > 0 || !!data.sent)
-      })
-      .catch(() => {})
-      .finally(() => { loaded.current = true })
   }, [])
-
-  // The draft id in the page address too (some phones keep no cookie inside a website's frame).
-  useEffect(() => {
-    if (!draftId) return
-    const u = new URL(window.location.href)
-    if (u.searchParams.get('draft') === draftId) return
-    u.searchParams.set('draft', draftId)
-    window.history.replaceState(window.history.state, '', u.toString())
-  }, [draftId])
-
-  // Saved on the server as they go (no name, phone or email in it).
-  const draftData: DraftData = { step, address, at, atSource, drawing, pick, fenceStyle, snap }
-  const draftKey = JSON.stringify(draftData)
-  useEffect(() => {
-    if (!loaded.current || TEST || !at) return
-    const t = setTimeout(() => {
-      getJson<{ id: string }>(`${API}/draft`, jsonInit('PUT', { id: draftId, data: draftData }))
-        .then(j => { if (j.id && j.id !== draftId) setDraftId(j.id) }).catch(() => {})
-    }, 700)
-    return () => clearTimeout(t)
-  }, [draftKey])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Suggestions as the address is typed (the county's property list on the Mac, then the Census lookup).
   useEffect(() => {
@@ -207,6 +176,50 @@ export default function WidgetApp() {
   const drawn = runsDrawn.length > 0 && !stillDrawing
   const drawPayload = drawing ? { ...drawing, runs: runsDrawn } : null
 
+  // ── The lead so far: once a name and a phone or email are typed (nothing is saved before) ──
+  const contact = callableContact({ name, phone, email })
+  const showingPrices = (priceFirst || sent) && !!options
+  const partialBody = contact && !sent && !TEST
+    ? { sessionId: visitId, name, phone, email, address, drawing: drawPayload, pick, fenceStyle, step, priceShown: showingPrices, photos, notes: notes || undefined, wantsVisit, website: website || undefined }
+    : null
+  const partialKey = partialBody ? JSON.stringify(partialBody) : ''
+  const latest = useRef({ body: partialBody, key: partialKey })
+  latest.current = { body: partialBody, key: partialKey }
+  const savedKey = useRef('')
+  const saving = useRef<Promise<void> | null>(null)
+  const sendingNow = useRef(false)
+  /** Save the lead now if anything changed since the last save (a no op before the contact is typed). */
+  function savePartial(): Promise<void> {
+    const { body, key } = latest.current
+    if (!body || sendingNow.current || key === savedKey.current) return saving.current ?? Promise.resolve()
+    savedKey.current = key
+    const p = getJson(`${API}/partial`, jsonInit('POST', body)).then(() => {}, () => { if (savedKey.current === key) savedKey.current = '' })
+    saving.current = p
+    return p
+  }
+  // A moment after each change.
+  useEffect(() => {
+    if (!partialKey) return
+    const t = setTimeout(() => { void savePartial() }, 1200)
+    return () => clearTimeout(t)
+  }, [partialKey])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Hidden (another app, another tab) or closed: saved on the way out; closed also tells the owner now.
+  useEffect(() => {
+    const out = (leaving: boolean) => {
+      const { body, key } = latest.current
+      if (!body || sendingNow.current || (!leaving && key === savedKey.current)) return
+      savedKey.current = key
+      const data = JSON.stringify(leaving ? { ...body, leaving: true } : body)
+      const queued = typeof navigator.sendBeacon === 'function' && navigator.sendBeacon(`${API}/partial`, new Blob([data], { type: 'application/json' }))
+      if (!queued) void fetch(`${API}/partial`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: data, keepalive: true, credentials: 'same-origin' }).catch(() => {})
+    }
+    const onHide = () => { if (document.visibilityState === 'hidden') out(false) }
+    const onLeave = () => out(true)
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', onLeave)
+    return () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onLeave) }
+  }, [])
+
   function choose(m: Material) {
     const color = m.colors[0]?.key ?? ''
     const h = m.heights.find(x => !m.colors.length || x.colors.includes(color)) ?? m.heights[0]
@@ -230,7 +243,7 @@ export default function WidgetApp() {
     if (!priceFirst && !sent) return
     let live = true
     setPriceMsg('')
-    getJson<{ options: Option[] }>(`${API}/price`, jsonInit('POST', { drawing: drawPayload, pick, draftId, test: TEST || undefined }))
+    getJson<{ options: Option[] }>(`${API}/price`, jsonInit('POST', { drawing: drawPayload, pick, draftId: visitId, test: TEST || undefined }))
       .then(j => { if (!live) return; setOptions(j.options); if (!fenceStyle || !j.options.some(o => o.fenceStyle === fenceStyle)) setFenceStyle((j.options.find(o => o.popular) ?? j.options[0])?.fenceStyle ?? null) })
       .catch(e => { if (live && !e.body?.contactFirst) setPriceMsg(String(e.message || e)) })
     return () => { live = false }
@@ -240,7 +253,9 @@ export default function WidgetApp() {
     const fd = new FormData()
     fd.append('file', file)
     try {
-      const j = await getJson<{ url: string | null }>(`${API}/photo${TEST ? '?test=1' : ''}`, { method: 'POST', body: fd })
+      // The photo is kept only with the lead: the name and phone are saved first.
+      if (!TEST) await savePartial()
+      const j = await getJson<{ url: string | null }>(`${API}/photo?${TEST ? 'test=1' : `sid=${encodeURIComponent(visitId)}`}`, { method: 'POST', body: fd })
       if (j.url) setPhotos(p => [...p, j.url!])
     } catch (e: any) { setSendError(String(e.message || e)) }
   }
@@ -249,28 +264,25 @@ export default function WidgetApp() {
   async function send(style: string | null = fenceStyle) {
     if (!drawPayload || !pick) return
     setSending(true); setSendError('')
+    // The lead so far is not saved again while it is being sent (the send updates it; lib/widgetPartialLead.ts).
+    sendingNow.current = true
     try {
-      // The draft id is the quote's key; a test run makes one up (nothing is saved).
-      let id = draftId
-      if (!id) {
-        const j = await getJson<{ id: string | null }>(`${API}/draft`, jsonInit('PUT', { id: null, data: draftData, test: TEST || undefined }))
-        id = j.id ?? `test-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9_-]/g, '').padEnd(24, '0')
-        if (j.id) setDraftId(j.id)
-      }
+      // The visit's id is the quote's key (the same lead as the one saved when the phone was typed).
+      const id = visitId
       const snap = !sent && snapshot.current ? await Promise.race([snapshot.current, new Promise<null>(r => setTimeout(() => r(null), 4000))]) : null
       const j = await getJson<{ options: Option[]; chosen: Option; test?: boolean }>(`${API}/submit`, jsonInit('POST', {
         draftId: id, name, phone, email, address, drawing: drawPayload, pick, fenceStyle: style, wantsVisit, textConsent: textOk,
         notes: notes || undefined, photos, snapshot: snap, website, test: TEST || undefined,
       }))
       setOptions(j.options); setFenceStyle(j.chosen.fenceStyle); setSent(true)
-    } catch (e: any) { setSendError(String(e.message || e)) }
+    } catch (e: any) { setSendError(String(e.message || e)); sendingNow.current = false }
     finally { setSending(false) }
   }
 
   const canNext = [!!at, drawn, pickReady][step] ?? false
   const contactOk = name.trim().length >= 2 && phone.replace(/\D/g, '').length >= 10 && (!email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
   const chosen = options?.find(o => o.fenceStyle === fenceStyle) ?? null
-  const showPrices = (priceFirst || sent) && !!options
+  const showPrices = showingPrices
 
   return (
     <main className="max-w-lg mx-auto px-4 py-4 text-gray-900" data-w-app>
@@ -286,7 +298,6 @@ export default function WidgetApp() {
         ))}
       </ol>
       {loadError && <p className="text-sm text-red-700 mb-3">{loadError}</p>}
-      {resumed && step > 0 && !sent && <p className="mb-3 text-sm text-gray-700" data-w-resumed>Welcome back. Your drawing was saved; carry on where you left off.</p>}
 
       {step === 0 && (
         <section className="space-y-3" data-w-step="address">
@@ -390,7 +401,7 @@ export default function WidgetApp() {
 
           {(!priceFirst || sent) && !sent && (
             <ContactForm {...{ name, setName, phone, setPhone, email, setEmail, notes, setNotes, website, setWebsite, wantsVisit, setWantsVisit, textOk, setTextOk, photos, addPhoto }}
-              title="Where should we send your prices?" />
+              photosReady={TEST || !!contact} onLeaveBox={() => { void savePartial() }} title="Where should we send your prices?" />
           )}
 
           {showPrices && (
@@ -418,7 +429,7 @@ export default function WidgetApp() {
 
           {priceFirst && !sent && (
             <ContactForm {...{ name, setName, phone, setPhone, email, setEmail, notes, setNotes, website, setWebsite, wantsVisit, setWantsVisit, textOk, setTextOk, photos, addPhoto }}
-              title="Send me this estimate" />
+              photosReady={TEST || !!contact} onLeaveBox={() => { void savePartial() }} title="Send me this estimate" />
           )}
           {!(priceFirst || sent) && <p className="text-xs text-gray-600">{WORDING} No obligation.</p>}
           {sendError && <p className="text-sm text-red-700" role="alert">{sendError}</p>}
@@ -442,16 +453,20 @@ function ContactForm(p: {
   notes: string; setNotes: (v: string) => void; website: string; setWebsite: (v: string) => void; wantsVisit: boolean; setWantsVisit: (v: boolean) => void
   textOk: boolean; setTextOk: (v: boolean) => void
   photos: string[]; addPhoto: (f: File) => void
+  /** Photos are taken once the name and a phone or email are typed (they are kept with the lead). */
+  photosReady: boolean
+  /** Leaving a box saves the lead so far at once. */
+  onLeaveBox: () => void
 }) {
   return (
     <div className="space-y-2" data-w-contact>
       <p className="text-base font-semibold text-gray-900">{p.title}</p>
-      <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Your name" autoComplete="name" value={p.name} onChange={e => p.setName(e.target.value)} data-w-name />
-      <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Phone" type="tel" autoComplete="tel" value={p.phone} onChange={e => p.setPhone(e.target.value)} data-w-phone />
-      <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Email" type="email" autoComplete="email" value={p.email} onChange={e => p.setEmail(e.target.value)} data-w-email />
+      <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Your name" autoComplete="name" value={p.name} onChange={e => p.setName(e.target.value)} onBlur={p.onLeaveBox} data-w-name />
+      <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Phone" type="tel" autoComplete="tel" value={p.phone} onChange={e => p.setPhone(e.target.value)} onBlur={p.onLeaveBox} data-w-phone />
+      <input className="w-full border border-gray-300 rounded-xl px-4 h-12 text-base" placeholder="Email" type="email" autoComplete="email" value={p.email} onChange={e => p.setEmail(e.target.value)} onBlur={p.onLeaveBox} data-w-email />
       {/* Left empty by people (hidden); form robots fill it in. */}
       <input className="absolute -left-[9999px] w-px h-px opacity-0" tabIndex={-1} autoComplete="off" aria-hidden="true" value={p.website} onChange={e => p.setWebsite(e.target.value)} name="website" />
-      <textarea className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base" rows={2} placeholder="Anything we should know? (optional)" value={p.notes} onChange={e => p.setNotes(e.target.value)} />
+      <textarea className="w-full border border-gray-300 rounded-xl px-4 py-3 text-base" rows={2} placeholder="Anything we should know? (optional)" value={p.notes} onChange={e => p.setNotes(e.target.value)} onBlur={p.onLeaveBox} />
       {/* The whole row ticks the box (the label is tied to it by id). */}
       <label htmlFor="w-wants-visit" className="flex items-center gap-2 text-sm text-gray-800 min-h-[44px] cursor-pointer" data-w-visit-row>
         <input id="w-wants-visit" type="checkbox" className="w-5 h-5 accent-orange-500" checked={p.wantsVisit} onChange={e => p.setWantsVisit(e.target.checked)} data-w-visit />
@@ -462,10 +477,14 @@ function ContactForm(p: {
         <input type="checkbox" className="w-5 h-5 mt-0.5 shrink-0 accent-orange-500" checked={p.textOk} onChange={e => p.setTextOk(e.target.checked)} data-w-text-consent-box />
         <span>{TEXT_CONSENT_WORDING.slice(0, TEXT_CONSENT_WORDING.indexOf(TERMS_TEXT))}<a href={TEXT_CONSENT_TERMS_URL} target="_blank" rel="noopener noreferrer" className="underline text-orange-700" data-w-terms>{TERMS_TEXT}</a></span>
       </label>
-      <label className="btn btn-secondary w-full cursor-pointer" data-w-photo>
-        Add photos of the yard (optional){p.photos.length ? ` · ${p.photos.length} added` : ''}
-        <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) p.addPhoto(f); e.target.value = '' }} />
-      </label>
+      {p.photosReady ? (
+        <label className="btn btn-secondary w-full cursor-pointer" data-w-photo>
+          Add photos of the yard (optional){p.photos.length ? ` · ${p.photos.length} added` : ''}
+          <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) p.addPhoto(f); e.target.value = '' }} />
+        </label>
+      ) : (
+        <p className="text-sm text-gray-500 text-center min-h-[44px] flex items-center justify-center" data-w-photo-later>Add your name and phone (or email) to add photos of the yard (optional)</p>
+      )}
     </div>
   )
 }
