@@ -325,7 +325,7 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
               <div key={h} className="space-y-2">
                 {heights.length > 1 && <p className="text-xs font-semibold text-gray-700">{h} ft tall</p>}
                 <div className="grid grid-cols-2 gap-3">
-                  {h === '8' ? moneyField(`post:${h}:all`, 'Post price', 'Every 8 ft tall post (corner, end, line); covers its cap and setting material')
+                  {h === '8' ? moneyField(`post:${h}:all`, 'Post price', 'Every 8 ft tall vinyl post (corner, end, line); the vinyl post only. Its cap, donuts, pipe or concrete are priced from Inventory')
                     : same ? moneyField(`post:${h}:all`, 'Post', '78" for ND, 102" for DS, as White')
                     : POST_TYPES.filter(t => !(h === '8' && t === 'blank')).map(t => <div key={t}>{moneyField(`post:${h}:${t}`, POST_LABEL[t])}</div>)}
                 </div>

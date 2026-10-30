@@ -27,6 +27,7 @@ import {
   styleHasPartsList,
   setKitEngine,
   normalizeItemName,
+  isVinylPostPart,
   inventoryCost,
   gateCounts,
   type GateWidths,
@@ -371,14 +372,16 @@ export function linesFromKitSetJobLot(set: KitSet, counts: KitCounts, lot: Style
   const unc = new Map<string, { qty: number; cost: number }>()
   const cov = new Map<string, number>()
   const covers = Object.fromEntries(Object.entries(lot.covers).map(([k, v]) => [k, new Set((v ?? []).map(normalizeItemName))])) as Record<keyof StyleJobLot['covers'], Set<string>>
-  // 8 ft tall vinyl: the section and post prices cover every part of their kits.
+  // 8 ft tall vinyl: the section price covers every part of a section kit
+  // (coversAll); the post price covers the vinyl post only, and the cap,
+  // donuts, pipe or concrete price from Inventory (Jonathan, Oct 29, 2026).
   const all = new Set(lot.coversAll ?? [])
   for (const kind of KIT_KINDS) {
     const n = counts[kind]
     if (!n) continue
     const piece = PIECE_OF_KIT[kind]
     for (const p of kitParts(set, kind)) {
-      if (piece && (all.has(piece) || covers[piece]?.has(normalizeItemName(p.part)))) cov.set(p.part, (cov.get(p.part) ?? 0) + p.qty * n)
+      if (piece && (all.has(piece) || (lot.tall && piece === 'post' && isVinylPostPart(p.part)) || covers[piece]?.has(normalizeItemName(p.part)))) cov.set(p.part, (cov.get(p.part) ?? 0) + p.qty * n)
       else { const was = unc.get(p.part); unc.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost }) }
     }
   }

@@ -261,7 +261,7 @@ describe('an 8 ft tall color (Jonathan, Oct 21, 2026): the same shape as White, 
     expect(Object.keys(made).some(n => /Section, 8x8/.test(n))).toBe(false)
     expect(plan.priced.map(p => p.name)).not.toContain("*Vinyl, Chai Gray, Picket, 4'")
 
-    // A quote: the section and post prices, every part at $0.
+    // A quote: the section and post prices.
     const cfg = estimateConfig({ fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog } as any)
     setMaterialPriceSource(priceSourceFromMap(Object.fromEntries(plan.state.items.map((i: InvItem) => [i.name, i.unitCost]))))
     setSavedKitSets(() => plan.state.kits)
@@ -273,7 +273,16 @@ describe('an 8 ft tall color (Jonathan, Oct 21, 2026): the same shape as White, 
     })
     const pieces = Object.fromEntries(calc.materials.items.filter(i => i.jobLotPiece).map(i => [i.item, [i.qty, i.unitCost]]))
     expect(pieces).toEqual({ '8 ft tall Chai Gray: section, 8 ft wide': [6, 412.5], '8 ft tall Chai Gray: end post': [2, 65], '8 ft tall Chai Gray: line post': [5, 65] })
-    expect(calc.materials.items.filter(i => !i.jobLotPiece).every(i => i.total === 0)).toBe(true)
+    // The section's vinyl and the vinyl post at $0; the cap, donuts and pipe from Inventory (Oct 29, 2026: the post price is the vinyl post only).
+    const priced = Object.fromEntries(calc.materials.items.filter(i => !i.jobLotPiece && i.total !== 0).map(i => [i.item, [i.qty, i.costSource]]))
+    expect(Object.keys(priced).sort()).toEqual(['*Vinyl, Chai Gray, Cap, 5"x5"', 'ND, Donut', 'Pipe, PT40, Galv, 2-1/2" x 8\''].sort())
+    // The cap is the color's Inventory item; this test's Inventory has no donut or pipe, so they are named in the warnings (as on 6 ft).
+    expect(priced['*Vinyl, Chai Gray, Cap, 5"x5"'][1]).toBe('inventory')
+    for (const [name, [q, src]] of Object.entries(priced)) {
+      expect(q).toBeGreaterThan(0)
+      if (src !== 'inventory') expect(calc.materials.warnings.some(w => /not in Inventory/.test(w) && w.includes(name)), name).toBe(true)
+    }
+    expect(calc.materials.items.find(i => i.item === '*Vinyl, Chai Gray, Post, 5" x 5", 8\' Privacy')).toMatchObject({ qty: 7, unitCost: 0, total: 0 })
     expect(calc.materials.items.find(i => i.item === "*Vinyl, Chai Gray, Picket, 4'")).toMatchObject({ qty: 180, unitCost: 0 })
     // With no prices it is not available for quoting.
     const bare = plan.state.fenceStyles.map(s => (s.name === 'vinyl/privacy/8/chai-gray/nd/8' ? { ...s, pieceCents: undefined } : s))

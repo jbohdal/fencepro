@@ -3,6 +3,19 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-10-29 (night): 8 ft tall post price is the vinyl post only
+
+Jonathan: "8 ft tall vinyl is underpriced, fix tonight. My piece prices cover only the vinyl: Section price = all the vinyl in a section (pickets, rails, mid rail, U channels, inserts). That part is correct. Post price = the vinyl post ONLY. Everything else must be priced from Inventory at its real price and show on the pull sheet with that price: post caps, donuts, pipe (no dig), concrete (dig set), and anything else that isn't the vinyl section or the vinyl post."
+
+- **Section price** (Settings > Price List > 8 ft tall vinyl): our cost for all the vinyl in one section: pickets, rails, mid rail, U channels, inserts. Those parts stay on the pull sheet at $0. Unchanged.
+- **Post price:** our cost for the vinyl post only (corner, end or line). The vinyl post stays on the pull sheet at $0. This replaces the Oct 21 entry's "a post keeps its kit (8 ft post, cap, donuts and pipe or concrete), covered by the post price".
+- **Everything else** in a post kit (the post cap, 2 donuts and a pipe on no dig, 2 bags of concrete on dig set) and anything else that is not the section's vinyl or the vinyl post is priced from Inventory at its current price, exactly as on 6 ft, and shows on the pull sheet with that price. A part not in Inventory, or in it at $0, is named in "Check before you quote" (the 6 ft rule), never priced silently.
+- **Gates** are unchanged: priced from their parts in Inventory.
+- **Labor, overhead and margin** are unchanged.
+- **A post kit with no vinyl post** (or two) holds the style from quoting, so the post price is never charged on top of an Inventory priced post.
+- **Saved quotes:** sent ones keep their price (Jonathan decides each); a draft reopened shows the corrected price in its "prices changed since saved" line.
+- **In the app:** apps/web/src/materialCalculator.ts (isVinylPostPart), materialKits.ts (linesFromKitSetJobLot), fenceCatalog.ts (tallJobLot, tallPostKitProblems), TallVinylPrices.tsx (wording); pinned in apps/portal/tests/tallVinyl.test.ts.
+
 ## 2026-10-29: the Salesman's Schedule shows names, addresses and dates only
 
 - **Jonathan** (Oct 29, D5): "Hide deposit amounts, prices and other customers' phone numbers from Christa's Schedule. She only needs names, addresses and dates."
@@ -305,7 +318,7 @@ or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same co
 
 - **Tan 6 ft tall, 8 ft wide:** 15 pickets a section, as White and Chai Gray. This reverses the Oct 20 ruling below (16, as on the sheet). Applies to TV-ND / TV-DS 6'x8' and to the 8 ft rail runs of TV-Auto DS.
 - **8 ft tall vinyl, every color, ND and DS** (White, Tan, Chai Gray and any color added later in Settings > Price List > Vinyl Colors): priced by the piece, like job lot pricing: one price per section and one per post (corner, end and line), set for each 8 ft tall style in Settings > Price List > 8 ft tall vinyl (a color made with the form: its 8x6 / 8x8 section price and 8 ft post price, saved on its 8 ft tall fences, editable in either place). Until both prices are in, the style is not available for quoting (the same "Not available for quoting" as commercial).
-- **The pull sheet still lists every part, at $0,** so the crew loads the right material. A section: 2 rails (top and bottom) and 1 mid rail of the panel's width, 4 ft pickets (22 at 6 ft wide, 30 at 8 ft wide), 4 U channels (4 ft), and on an 8 ft wide panel 2 rail inserts (`Vinyl, Rail Insert, 8'`, shared). The whole "V , W, Picket Section 8' x 6' / 8' x 8' Privacy" item is no longer used. A post keeps its kit (8 ft post, cap, donuts and pipe or concrete), covered by the post price.
+- **The pull sheet still lists every part, at $0,** so the crew loads the right material. A section: 2 rails (top and bottom) and 1 mid rail of the panel's width, 4 ft pickets (22 at 6 ft wide, 30 at 8 ft wide), 4 U channels (4 ft), and on an 8 ft wide panel 2 rail inserts (`Vinyl, Rail Insert, 8'`, shared). The whole "V , W, Picket Section 8' x 6' / 8' x 8' Privacy" item is no longer used. A post keeps its kit (8 ft post, cap, donuts and pipe or concrete). *Changed Oct 29, 2026: the post price covers the vinyl post only; the cap, donuts, pipe and concrete are priced from Inventory (entry above).*
 - **Gates on 8 ft tall stay as they were:** priced from their parts (the whole 8 x 4 gate per leaf, hinges, latch, handles, gate caps, 2 bags of concrete per dig set walk gate), not covered by the section or post price; no blank post at a double gate.
 - **New catalog items, $0, included in the section price** (made once per company at start-up for White, which has 8 ft tall fences; Jonathan may rename them): `*Vinyl, White, Picket, 4'`, `*Vinyl, White, U Channel, 4'`, `*Vinyl, White, Mid Rail, 6'`, `*Vinyl, White, Mid Rail, 8'`. A color made with the form makes its own (`*Vinyl, {Color}, Picket, 4'` and so on, and `*Vinyl, {Color}, Post, 5" x 5", 8' Privacy`). Tan has no 8 ft tall fence in Settings, so no Tan items were made.
 - **Saved quotes** keep the prices they were priced with; sent and signed proposals are not changed.
