@@ -1,9 +1,12 @@
 #!/bin/bash
 # Heavy browser test runs, made safe for the live app on this Mac.
 #
-# Jonathan's rule: no heavy test runs between 7 am and 6 pm local time (he is
-# using the live app on this Mac then) unless he asks. This wrapper:
-#   - refuses to start between 07:00 and 18:00 local, unless FORCE_BUSINESS_HOURS=1;
+# Jonathan's rule (Oct 30, 2026, replacing the Oct 23 night-only rule): work
+# and deploy by day as soon as a change is ready, running the suites that cover
+# it; the full run of every suite (and the iPhone run) is the nightly safety
+# net. This wrapper:
+#   - runs named suites (`suites a b`) and other commands at any hour;
+#   - refuses `all` between 07:00 and 18:00 local, unless FORCE_BUSINESS_HOURS=1;
 #   - refuses APP_URL / API_URL on port 4000 or a Tailscale address (live);
 #   - runs everything at low priority: nice -n 15 and taskpolicy -b (macOS
 #     background: low CPU and disk priority, the live server goes first);
@@ -21,7 +24,7 @@
 #   LOGS=<folder>              where the logs go (default ~/Downloads/ezbiz-e2e-<date-time>)
 #   PAUSE=<seconds>            pause between suites (default 20): the server settles
 #   SKIP="a b"                 suites to leave out of `all`
-#   FORCE_BUSINESS_HOURS=1     run between 07:00 and 18:00 anyway (only when Jonathan asks)
+#   FORCE_BUSINESS_HOURS=1     run `all` between 07:00 and 18:00 anyway (only when Jonathan asks)
 #   KEEP_DEVICES=1             leave the emulator and simulators running at the end
 #
 # The check alone (exit 0 = allowed now):  bash apps/web/e2e/run-heavy.sh --check
@@ -32,9 +35,9 @@ HOUR=$((10#$(date +%H)))
 
 business_hours() { [ "$HOUR" -ge 7 ] && [ "$HOUR" -lt 18 ]; }
 
-if business_hours && [ "${FORCE_BUSINESS_HOURS:-}" != "1" ]; then
-  echo "Refusing: it is $(date +%H:%M), inside business hours (07:00-18:00). Jonathan is using the live app on this Mac."
-  echo "Run this after 18:00, or with FORCE_BUSINESS_HOURS=1 only if Jonathan asked for it now."
+if [ "${1:-}" = "all" ] && business_hours && [ "${FORCE_BUSINESS_HOURS:-}" != "1" ]; then
+  echo "Refusing: it is $(date +%H:%M), inside business hours (07:00-18:00). The full run is the nightly safety net."
+  echo "By day, run the suites that cover the change: bash apps/web/e2e/run-heavy.sh suites a b c"
   exit 3
 fi
 [ "${1:-}" = "--check" ] && { echo "Allowed now ($(date +%H:%M))."; exit 0; }

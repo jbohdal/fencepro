@@ -67,6 +67,9 @@ export default function TeamManagementPage() {
   const [deletingUser, setDeletingUser] = useState<TeamUser | null>(null)
   // The link from the last invite resent, to copy and text when the email is slow.
   const [resent, setResent] = useState<InviteOutcome | null>(null)
+  // The owner alone changes a login's email (GET /team-rights; the server refuses anyone else).
+  const [canChangeEmail, setCanChangeEmail] = useState(false)
+  useEffect(() => { api<{ canChangeEmail: boolean }>('/team-rights').then(r => setCanChangeEmail(!!r?.canChangeEmail)).catch(() => setCanChangeEmail(false)) }, [])
 
   const loadUsers = useCallback(() => {
     setLoading(true)
@@ -263,7 +266,7 @@ export default function TeamManagementPage() {
             loadUsers()
           }} />
       )}
-      {editingUser && <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} onSaved={() => { setEditingUser(null); loadUsers() }} />}
+      {editingUser && <EditUserModal user={editingUser} canChangeEmail={canChangeEmail} onClose={() => { setEditingUser(null); loadUsers() }} onSaved={() => { setEditingUser(null); loadUsers() }} />}
     </div>
   )
 }
@@ -411,25 +414,35 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
 
 // ── Edit User Modal ──
 
-function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: () => void; onSaved: () => void }) {
+function EditUserModal({ user, canChangeEmail, onClose, onSaved }: { user: TeamUser; canChangeEmail: boolean; onClose: () => void; onSaved: () => void }) {
   useBackLayer(onClose, { key: 'edit-user-modal' })
   const [firstName, setFirstName] = useState(user.firstName)
   const [lastName, setLastName] = useState(user.lastName)
   const [phone, setPhone] = useState(formatPhone(user.phone || ''))
   const [role, setRole] = useState(user.role)
   const [status, setStatus] = useState(user.status)
+  const [email, setEmail] = useState(user.email)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const emailChanged = canChangeEmail && email.trim().toLowerCase() !== user.email.toLowerCase()
 
   async function handleSave() {
     setSaving(true); setError('')
+    let emailSaved = false
     try {
+      // The email first: a refused one (in use, not an address) saves nothing else, and the window stays open.
+      if (emailChanged) { await api(`/users/${user.id}/email`, { method: 'PATCH', body: JSON.stringify({ email: email.trim() }) }); emailSaved = true }
       await api(`/users/${user.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ firstName, lastName, phone: phone.trim(), role, status }),
       })
       onSaved()
-    } catch (err: any) { setError(plainText(err)) }
+    } catch (err: any) {
+      // The email went through but another field was refused (review Oct 30 2026): say so, so Cancel is not read as "nothing saved".
+      setError(emailSaved
+        ? `The new email is saved: they sign in with ${email.trim().toLowerCase()} from now on. The rest was not saved: ${plainText(err)}`
+        : plainText(err))
+    }
     setSaving(false)
   }
 
@@ -458,8 +471,16 @@ function EditUserModal({ user, onClose, onSaved }: { user: TeamUser; onClose: ()
 
         <div>
           <label className="block text-xs text-gray-500 mb-1">Email</label>
-          <input type="email" value={user.email} readOnly className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500" />
-          <p className="text-xs text-gray-400 mt-0.5">Email cannot be changed — re-invite to change email</p>
+          {canChangeEmail ? <>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} data-edit-email autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            {emailChanged
+              ? <p className="text-xs text-amber-700 mt-0.5" data-email-change-note>They sign in with the new email from now on; same password. They stay signed in on their phones, and keep their customers, leads, tasks and notices. Nothing is emailed to them{user.status === 'invited' ? '; their invite link stops working, so tap Resend after saving' : ''}.</p>
+              : <p className="text-xs text-gray-400 mt-0.5">The email they sign in with. Only the owner can change it.</p>}
+          </> : <>
+            <input type="email" value={user.email} readOnly className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500" />
+            <p className="text-xs text-gray-400 mt-0.5">Only the owner can change a login's email.</p>
+          </>}
         </div>
 
         <div>
