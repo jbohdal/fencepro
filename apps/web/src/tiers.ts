@@ -57,6 +57,24 @@ export interface TierSet {
 export const MAX_TIERS = 3
 
 export const INSTALL_LABEL: Record<TierInstall, string> = { same: 'Same as the quote', 'no-dig': 'No dig', 'dig-set': 'Dig set' }
+/**
+ * What the styles in a category let a tier change (Settings → Good / Better /
+ * Best). Section width is offered only where the category has more than one
+ * width (vinyl 6 and 8 ft); wood is 8 ft only, so its tiers never offer "All
+ * 6 ft wide sections" or "Whichever width prices lower" (review Oct 30 2026).
+ */
+export function tierChoicesFor(styles: Array<Parameters<typeof styleParts>[1] & { name: string }>): { colors: TierColor[]; installs: TierInstall[]; widths: TierWidth[] } {
+  const parts = styles.map(s => styleParts(s.name, s)).filter(Boolean)
+  const colors = [...new Set(parts.map(p => p!.color).filter(Boolean))] as TierColor[]
+  const installs = [...new Set(parts.map(p => p!.install).filter(Boolean))] as TierInstall[]
+  const widths = new Set(parts.map(p => p!.width).filter(w => typeof w === 'number'))
+  return {
+    colors: ['same', ...colors] as TierColor[],
+    installs: ['same', ...installs] as TierInstall[],
+    widths: (widths.size > 1 ? ['same', 'cheapest', '6', '8'] : ['same']) as TierWidth[],
+  }
+}
+
 export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Whichever width prices lower (6 or 8 ft)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
 /** Wood's picket grades are its tier "colors" (wood.ts WOOD_GRADES); they are a choice, not a color in Settings. */
 export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', pine: 'PT Pine pickets', premium: 'Alta Premium pickets' }
