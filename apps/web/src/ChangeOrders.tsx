@@ -644,7 +644,7 @@ export function QuickChangeOrderModal({
                           onBlur={() => update(item.id, { qtyText: undefined })}
                           className="w-20 border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm text-right font-normal" data-co-line-qty />
                       </label>
-                      <span className="min-w-0">{item.pricing ? 'Pricing…' : `${item.source.kind === 'repair' ? (item.source.ref.startsWith('add:') ? 'Priced as a new quote' : 'Repair price list') : 'Catalog'}${typeof item.source.listCents === 'number' ? `: ${money(item.source.listCents)}` : ''}`}</span>
+                      <span className="min-w-0">{item.pricing ? 'Pricing…' : `${item.source.kind === 'repair' ? (/^(add:|repair:replace(Section|Gate))/.test(item.source.ref) ? 'Priced as a new quote' : 'Repair price list') : 'Catalog'}${typeof item.source.listCents === 'number' ? `: ${money(item.source.listCents)}` : ''}`}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-2">

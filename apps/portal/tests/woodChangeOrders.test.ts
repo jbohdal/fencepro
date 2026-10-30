@@ -142,6 +142,17 @@ describe('change orders on a wood job: wood parts, wood labor', () => {
     expect(changeOrderPickPriceFor(data, { fenceStyle: ST, hasSalesman: false }, 'repair:replaceSection', 2)!.priceCents).toBe(pick(ST, 'replaceSection', 2).priceCents)
   })
 
+  test('Rehang a gate on wood: the latch only (the steel frame comes with its hinges, never pulled); labor as a rehang', () => {
+    for (const gateKind of ['walk', 'double'] as const) {
+      const r = priceChangeOrderPick(common(ST), { kind: 'repair', key: 'rehangGate', gateKind }, 1)
+      expect(r.pullSheet.map(i => [i.item, i.qty])).toEqual([['Wood, Gate Latch', 1]])
+      expect(r.materialCents).toBe(3182)
+      expect(r.laborCents).toBeGreaterThan(0)
+      // Never more than replacing the whole gate.
+      expect(r.priceCents).toBeLessThan(pick(ST, 'replaceGate', 1, gateKind).priceCents)
+    }
+  })
+
   test('a catalog part on a wood job: its Inventory cost, nothing added', () => {
     const r = priceChangeOrderPick(common(ST), { kind: 'part', part: "Wood, Picket, PT Pine, 1x6x6'" }, 10)
     expect(r.materialCents).toBe(2770)

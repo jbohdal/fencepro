@@ -193,8 +193,13 @@ export function seesCosts(role: string | null | undefined): boolean {
 export const isCap = (part: string) => /\bcap\b/i.test(part) && !/gate/i.test(part)
 /** What sets a post: pipe and donuts (no dig) or concrete (dig set). */
 export const isSetting = (part: string) => /donut|pt40|concrete/i.test(part)
-/** A gate's hardware kit: hinges and latch (chain link's latch is the fork). */
-export const isGateHardware = (part: string) => /hinge|latch|\bfork\b/i.test(part)
+/**
+ * A gate's hardware kit: hinges and latch (chain link's latch is the fork).
+ * Never a gate frame: the wood steel gate frame comes with its hinges ("Wood,
+ * Steel Gate Frame (hinges included)"), so rehanging a wood gate takes the
+ * latch only (review Oct 30 2026: Rehang pulled the $350 frame).
+ */
+export const isGateHardware = (part: string) => /hinge|latch|\bfork\b/i.test(part) && !/\bframe\b/i.test(part)
 /** Small hardware a reinstalled chain link or aluminum section gets new: ties, hog rings, screws, bolts, brackets. */
 export const isSectionHardware = (part: string) => /\btie|hog ring|\bhex\b|bolt|screw|bracket|clip/i.test(part)
 /** Chain link damage allowance: fabric and top rail. */
