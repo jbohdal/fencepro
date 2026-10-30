@@ -228,6 +228,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     const r = await call('POST', `/api/lead-assign/${id.cleo}`, tok.owner, { to: id.sam, replace: true })
     expect(r.status).toBe(200)
     expect(r.json.data.quotesMoved).toBe(2)
+    // The owner's message says what happened: Sally keeps Cleo by the signed quote; the open quotes and the visit went.
+    expect(r.json.data).toMatchObject({ was: SALLY(), wasKeeps: 1, visitsMoved: 1, customerName: `Cleo ${tag}` })
+    const { changeWords } = await import('../../web/src/salesmanWords')
+    expect(changeWords({ to: SAM(), was: SALLY(), customer: `Cleo ${tag}`, quotesMoved: 2, visitsMoved: 1, wasKeeps: 1 }))
+      .toBe(`${SAM()} is the Salesman of Cleo ${tag} now. ${SALLY()} keeps Cleo ${tag} because of the signed quote; the 2 open quotes and the visit went to ${SAM()}.`)
     expect(await sallySees()).toEqual({
       customers: ['cleo', 'dina', 'fay', 'mina'],
       quotes: ['qCleoSigned', 'qDina', 'qFay', 'qMina'],
@@ -240,12 +245,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     for (const k of ['qCleoDraft', 'qCleoSent']) expect((await call('GET', `/api/saved-quotes/${id[k]}`, tok.sam)).status).toBe(200)
     // Her open quote window: "The owner moved this to Sam", not a bare 404 (the app says it instead of "check the connection").
     const gone = await call('GET', `/api/saved-quotes/${id.qCleoDraft}`, tok.sally)
-    expect([gone.status, gone.json.code, gone.json.movedTo]).toEqual([404, 'MOVED', SAM()])
+    expect([gone.status, gone.json.code, gone.json.movedTo, gone.json.movedId]).toEqual([404, 'MOVED', SAM(), id.qCleoDraft])
     expect(gone.json.error).toBe(`The owner moved this to ${SAM()}. It is off your list now.`)
     expect(JSON.stringify(gone.json)).not.toMatch(/finalPrice|totalCOGS/)
     // Saving her open copy of it: the same answer (the phone's outbox drops it and says so).
+    const customersBefore = await prisma.crmContact.count({ where: { accountId } })
+    const notesBefore = (await prisma.savedQuote.findUnique({ where: { id: id.qCleoDraft } }))!.notes
     const save = await call('PATCH', `/api/saved-quotes/${id.qCleoDraft}`, tok.sally, { notes: 'from her open window' })
     expect([save.status, save.json.code]).toEqual([404, 'MOVED'])
+    // Nothing saved, no customer made.
+    expect((await prisma.savedQuote.findUnique({ where: { id: id.qCleoDraft } }))!.notes).toBe(notesBefore)
+    expect(await prisma.crmContact.count({ where: { accountId } })).toBe(customersBefore)
     // Her open list's small refresh: keepOnly names what is still hers, so the moved quotes leave it.
     const delta = await call('GET', `/api/saved-quotes?since=${encodeURIComponent(since)}`, tok.sally)
     expect(delta.json.partial).toBe(true)

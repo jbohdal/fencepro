@@ -77,7 +77,8 @@ router.post('/:customerId', async (req: any, res) => {
     if (!r.ok) { res.status(r.status).json({ success: false, code: r.code, error: r.error, ...(r.rep ? { rep: r.rep } : {}) }); return }
     // The open quotes moved with the customer, with their prices (unchanged) and the commission each carries (lib/quotesFollowCustomer.ts).
     if (!r.already || r.quotesMoved.length) await audit(req, 'update', 'CrmContact', contactId, { newValues: { leadAssignedTo: r.assignedTo, cards: r.cardIds, callbacks: r.callbackIds, replace: !!body.replace, quotesMoved: r.quotesMoved } })
-    res.json({ success: true, data: { assignedTo: r.assignedTo, already: r.already, cardIds: r.cardIds, quotesMoved: r.quotesMoved.length }, version: r.version })
+    // What moved and what stayed with the Salesman it left (the owner's message says exactly that).
+    res.json({ success: true, data: { assignedTo: r.assignedTo, already: r.already, cardIds: r.cardIds, quotesMoved: r.quotesMoved.length, visitsMoved: r.visitIds?.length ?? 0, was: r.was ?? null, wasKeeps: r.wasKeeps ?? 0, customerName: r.customerName ?? '' }, version: r.version })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[lead-assign] assign error:', err)

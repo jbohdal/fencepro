@@ -48,7 +48,7 @@ export async function loadLead(customerId: string): Promise<{ ok: true; lead: Wa
 
 export type AssignResult =
   /** quotesMoved: how many of the customer's open quotes went with them (portal lib/quotesFollowCustomer.ts). */
-  | { ok: true; assignedTo: string; already: boolean; quotesMoved: number }
+  | { ok: true; assignedTo: string; already: boolean; quotesMoved: number; visitsMoved?: number; was?: string; wasKeeps?: number; customerName?: string }
   | { ok: false; taken?: LeadRep; error: string }
 
 /** Assign one lead. `replace`: the answer yes to "Already assigned to X". */
@@ -60,7 +60,8 @@ export async function assignLead(customerId: string, to: string, replace = false
     void refreshPipeline()
     void refreshCustomers()
     void refreshQuotes()
-    return { ok: true, assignedTo: r.json.data.assignedTo, already: !!r.json.data.already, quotesMoved: Number(r.json.data.quotesMoved) || 0 }
+    const d = r.json.data
+    return { ok: true, assignedTo: d.assignedTo, already: !!d.already, quotesMoved: Number(d.quotesMoved) || 0, visitsMoved: Number(d.visitsMoved) || 0, was: typeof d.was === 'string' ? d.was : '', wasKeeps: Number(d.wasKeeps) || 0, customerName: typeof d.customerName === 'string' ? d.customerName : '' }
   }
   if (r.status === 409 && r.json?.code === 'ALREADY_ASSIGNED') return { ok: false, taken: r.json.rep, error: r.json.error }
   return { ok: false, error: r.status === 0 ? 'No signal right now. Nothing was assigned; try again.' : (r.json?.error || 'Could not assign the lead.') }

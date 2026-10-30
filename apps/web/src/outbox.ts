@@ -326,7 +326,8 @@ async function pump() {
         const message = (r.status === 409 || r.code === 'MOVED') && r.error ? r.error : plainError(403, r.error, handler.what?.(op) ?? 'This change').message
         await drop(op)
         try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }
-        try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ }
+        // A MOVED one is said once by the app already (movedNotice.ts): no second "Not saved".
+        if (r.code !== 'MOVED') { try { window.dispatchEvent(new CustomEvent(REFUSED_EVENT, { detail: { message, label: op.label } })) } catch { /* no window (tests) */ } }
         try { window.dispatchEvent(new CustomEvent('ezbiz:reload-page-data')) } catch { /* no window (tests) */ }
         emit()
         continue

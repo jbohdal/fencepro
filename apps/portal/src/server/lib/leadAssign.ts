@@ -40,7 +40,7 @@ import { applyPipelineDelta } from './pipelineDelta.js'
 import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
 import { moveCallbacks, moveUpcomingVisits, loginForRep } from './leadCallback.js'
 import type { PushMessage, PushResult } from './automations/push.js'
-import { moveOpenQuotes, type MovedQuote } from './quotesFollowCustomer.js'
+import { moveOpenQuotes, samePerson, type MovedQuote } from './quotesFollowCustomer.js'
 
 /** Roles that may assign a lead: the owner, admin, manager and office. Never the Salesman or the Installer. */
 export const ASSIGNER_ROLES = new Set(['super_admin', 'admin', 'manager', 'office_staff'])
@@ -308,7 +308,7 @@ export async function leadForAssign(accountId: string, contactId: string): Promi
 // ── Assign ──────────────────────────────────────────────────────────────────
 
 export type AssignAnswer =
-  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null; callbackIds: string[]; quotesMoved: MovedQuote[] }
+  | { ok: true; already: boolean; assignedTo: string; cardIds: string[]; version: number | null; callbackIds: string[]; quotesMoved: MovedQuote[]; visitIds?: string[]; was?: string; wasKeeps?: number; customerName?: string }
   | { ok: false; status: number; code: string; error: string; rep?: LeadRep }
 
 /**
@@ -371,7 +371,18 @@ export async function assignLead(input: { accountId: string; contactId: string; 
   // The Salesman's next request reads the scope again: this lead is in it (and out of the one it left).
   for (const p of people) forgetScope(p.id)
   const v = await prisma.pipelineState.findUnique({ where: { accountId }, select: { version: true } })
-  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved }
+  // What stays with the Salesman it moved from (the owner's message says it, review Oct 30 2026): the signed quotes
+  // still theirs keep the customer on their list (lib/salesScope.ts).
+  const wasKeeps = current && !isTarget(current.name) ? await stillTheirs(accountId, contactId, current.name) : 0
+  const who = await prisma.crmContact.findFirst({ where: { id: contactId }, select: { firstName: true, lastName: true } })
+  const customerName = `${who?.firstName ?? ''} ${who?.lastName ?? ''}`.replace(/\s+/g, ' ').trim()
+  return { ok: true, already: false, assignedTo: target.name, cardIds: cardIds ?? [], version: v?.version ?? null, callbackIds, quotesMoved, visitIds, was: current?.name, wasKeeps, customerName }
+}
+
+/** The customer's quotes (sold ones: the open ones went with the customer) whose Sales rep is still `rep`. */
+async function stillTheirs(accountId: string, contactId: string, rep: string): Promise<number> {
+  const qs = await prisma.savedQuote.findMany({ where: { accountId, crmContactId: contactId, deletedAt: null }, select: { salesRep: true } })
+  return qs.filter(q => samePerson(q.salesRep, rep)).length
 }
 
 /**

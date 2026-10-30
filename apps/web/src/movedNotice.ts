@@ -7,7 +7,7 @@
 
 export const MOVED_EVENT = 'ezbiz:moved'
 const SHOWN_FOR_MS = 60_000
-let last: { message: string; at: number } | null = null
+let last: { message: string; at: number; id: string } | null = null
 
 /** The sentence of a MOVED answer, or null. */
 export function movedMessage(json: unknown): string | null {
@@ -19,10 +19,11 @@ export function movedMessage(json: unknown): string | null {
 export function noteMoved(json: unknown): void {
   const message = movedMessage(json)
   if (!message) return
-  const again = last && last.message === message && Date.now() - last.at < 5_000
-  last = { message, at: Date.now() }
+  const id = typeof (json as { movedId?: unknown }).movedId === 'string' ? (json as { movedId: string }).movedId : ''
+  const again = last && last.message === message && last.id === id && Date.now() - last.at < 5_000
+  last = { message, at: Date.now(), id }
   if (again) return
-  try { window.dispatchEvent(new CustomEvent(MOVED_EVENT, { detail: { message } })) } catch { /* no window (tests) */ }
+  try { window.dispatchEvent(new CustomEvent(MOVED_EVENT, { detail: { message, id } })) } catch { /* no window (tests) */ }
 }
 
 /** The last MOVED sentence, if one came in the last minute (a screen that failed to load shows it). */

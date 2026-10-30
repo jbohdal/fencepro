@@ -8,6 +8,7 @@
  * no paid service is involved.
  */
 
+import { possessive } from './personName'
 import { useEffect, useMemo, useState } from 'react'
 import { Phone, Navigation } from 'lucide-react'
 import { getAppointments, updateAppointment, APPOINTMENTS_UPDATED } from './appointmentsStore'
@@ -261,7 +262,7 @@ export function VisitWindow({ a, onClose, onOutcome }: { a: Appointment; onClose
         </div>
         {a.customerNotYours !== undefined && (
           <p className="text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2" data-visit-not-yours>
-            {a.customerName || 'This customer'} {a.customerNotYours ? `is ${a.customerNotYours}'s customer now` : 'is not on your list any more'}, so you can't open the customer or start a quote. Ask {a.customerNotYours || 'the office'} or the office about this visit.
+            {a.customerName || 'This customer'} {a.customerNotYours ? `is ${possessive(a.customerNotYours)} customer now` : 'is not on your list any more'}, so you can't open the customer or start a quote. Ask {a.customerNotYours || 'the office'} or the office about this visit.
           </p>
         )}
         <div className="grid grid-cols-2 gap-2">

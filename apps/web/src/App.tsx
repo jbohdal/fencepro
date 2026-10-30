@@ -80,6 +80,8 @@ import { ToastContainer, toast } from './toast'
 import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole } from './permissions'
 import { isMyRep } from './salesmanChoice'
 import { MOVED_EVENT, recentMoved } from './movedNotice'
+import { forgetQuote, quoteStillMine } from './quoteStore'
+import { possessive } from './personName'
 import { seesCommission, withShownMargin } from './salesmanCommission'
 import { roleName } from './teamRoles'
 import { REFUSED_EVENT } from './outbox'
@@ -396,17 +398,6 @@ function AuthGate({ children, onLogout }: { children: (user: CrmUser, logout: ()
     return () => window.removeEventListener('fencepro:quote_first_viewed', onFirstView)
   }, [])
 
-  // A Salesman's record the owner moved to someone else ("The owner moved this to Sam"): said once, and her lists are
-  // read again so it leaves them (movedNotice.ts; review, Oct 30 2026).
-  useEffect(() => {
-    const onMoved = (e: Event) => {
-      toast.info('Not on your list any more', String((e as CustomEvent).detail?.message || 'The owner moved this to someone else.'))
-      refreshNow()
-    }
-    window.addEventListener(MOVED_EVENT, onMoved)
-    return () => window.removeEventListener(MOVED_EVENT, onMoved)
-  }, [])
-
   // A save the server refused for this login's role: the screen is already put back; say why.
   useEffect(() => {
     const onRefused = (e: Event) => toast.error('Not saved', String((e as CustomEvent).detail?.message || 'Your login is not allowed to do this. Ask Jonathan.'))
@@ -566,6 +557,39 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const setActive = (page: string) => navigate(pagePath(page))
   const [showQuote, setShowQuote]       = useState(false)
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
+  const editingQuoteRef = useRef<SavedQuote | null>(null)
+  editingQuoteRef.current = showQuote ? editingQuote : null
+
+  // A Salesman's record the owner moved to someone else ("The owner moved this to Sam"): said once, and her lists are
+  // read again so it leaves them (movedNotice.ts; review, Oct 30 2026).
+  useEffect(() => {
+    const onMoved = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {}
+      // ONE message, the server's words (review, Oct 30 2026), and nothing of it stays open.
+      toast.info(String(d.message || 'The owner moved this to someone else. It is off your list now.'))
+      if (typeof d.id === 'string' && d.id) {
+        forgetQuote(d.id)
+        if (editingQuoteRef.current?.id === d.id) { setShowQuote(false); setEditingQuote(null) }
+      }
+      refreshNow()
+    }
+    window.addEventListener(MOVED_EVENT, onMoved)
+    return () => window.removeEventListener(MOVED_EVENT, onMoved)
+  }, [])
+
+  // The quote open in the builder left her list in a background read (moved to someone else): ask the server, which
+  // answers "The owner moved this to <name>" (said once, closes the builder above) before she can save it.
+  useEffect(() => {
+    const onQuotes = () => {
+      const open = editingQuoteRef.current
+      if (signedInRole() !== 'sales_rep' || !open?.id) return
+      if (getQuotes().some(x => x.id === open.id) || getArchivedQuotes().some(x => x.id === open.id)) return
+      void quoteStillMine(open.id)
+    }
+    window.addEventListener('fencepro:quotes:updated', onQuotes)
+    return () => window.removeEventListener('fencepro:quotes:updated', onQuotes)
+  }, [])
+
   const [quotes, setQuotes]             = useState<SavedQuote[]>(loadQuotes)
   // A draft opened from Ready to quote or a pipeline card starts on the Yard step (its drawing and the site visit).
   const [quoteOnYard, setQuoteOnYard]   = useState(false)
@@ -691,6 +715,19 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // The open quote was started from a site visit: once saved, its window opens to send it (handleSaveQuote).
   const sendAfterSave = useRef(false)
   function handleSaveQuote(q: SavedQuote) {
+    // A Salesman saving a quote she had open: if the owner moved it meanwhile, nothing is saved, the builder closes and
+    // the one message says so (review, Oct 30 2026: five contradictory messages). No signal: saved as before.
+    if (signedInRole() === 'sales_rep' && q.id && quotes.some(x => x.id === q.id)) {
+      void quoteStillMine(q.id).then(r => {
+        if (r === 'moved') { setShowQuote(false); setEditingQuote(null); return }
+        saveQuoteNow(q)
+      })
+      return
+    }
+    saveQuoteNow(q)
+  }
+
+  function saveQuoteNow(q: SavedQuote) {
     try {
       const wasSold = quotes.find(x => x.id === q.id)?.status === 'SOLD'
 
@@ -765,7 +802,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       const toOpen = !givenAway && !toSend && active === 'Quotes' && !!q.id
       if (toSend || toOpen) navigate(`${pagePath('Quotes')}?qv=${encodeURIComponent(q.id)}`)
       // Not "saved" until the server has it: the quote shows Saved then, and the badge at the top until then.
-      if (givenAway) toast.info(`Quote saved for ${q.salesRep!.trim()}`, `This quote and ${q.customerName?.trim() || 'the customer'} are ${q.salesRep!.trim()}'s now, so they leave your list. ${q.salesRep!.trim()} sends the proposal.`)
+      if (givenAway) toast.info(`Quote saved for ${q.salesRep!.trim()}`, `This quote and ${q.customerName?.trim() || 'the customer'} are ${possessive(q.salesRep!)} now, so they leave your list. ${q.salesRep!.trim()} sends the proposal.`)
       else if (toOpen && q.status !== 'SOLD') toast.info('Quote stored', 'Its window is open: send the proposal from here (Text it, Email it or Copy link). The quote shows Saved once it has gone through.')
       else if (toSend) toast.info('Quote stored', `${movedTo ? `Card moved to ${stageName(movedTo)}. ` : ''}Send the proposal from here: Text it, Email it or Copy link. The quote shows Saved once it has gone through.`)
       // "Sold, job created" only on the save that sold it; saving an already signed quote again is just stored.
@@ -781,6 +818,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }
 
   function handleOpenQuote(q: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
+    // A Salesman's quote may have been moved to someone else since her list was read: ask the server before the
+    // builder opens it from the copy on the phone (review, Oct 30 2026). Moved: the app said so once; nothing opens.
+    if (signedInRole() === 'sales_rep' && q.id && !q.id.startsWith('tmp')) {
+      void quoteStillMine(q.id).then(r => { if (r !== 'moved') openQuoteNow(q, opts) })
+      return
+    }
+    openQuoteNow(q, opts)
+  }
+
+  function openQuoteNow(q: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     // "Change order" sends the work with the approved ones (openChangeFromDrawing): it opens on the latest drawing too,

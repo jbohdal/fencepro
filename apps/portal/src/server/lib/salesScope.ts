@@ -288,10 +288,10 @@ const notFound = (res: any) => res.status(404).json({ success: false, error: 'No
  * for another Salesman's customer): the 404 says so, with only that person's name, so her open screen says "The
  * owner moved this to Sam" instead of "check the connection" (review, Oct 30 2026). Null: not there, or deleted.
  */
-export function movedAnswer(s: Pick<SalesScope, 'names'>, row: { salesRep?: string | null; deletedAt?: Date | string | null } | null | undefined): Record<string, unknown> | null {
+export function movedAnswer(s: Pick<SalesScope, 'names'>, row: { id?: string; salesRep?: string | null; deletedAt?: Date | string | null } | null | undefined): Record<string, unknown> | null {
   const rep = typeof row?.salesRep === 'string' ? row.salesRep.trim() : ''
   if (!row || row.deletedAt || !rep || isMine(s, rep)) return null
-  return { success: false, code: 'MOVED', movedTo: rep, error: `The owner moved this to ${rep}. It is off your list now.` }
+  return { success: false, code: 'MOVED', movedTo: rep, ...(row.id ? { movedId: row.id } : {}), error: `The owner moved this to ${rep}. It is off your list now.` }
 }
 const notFoundOrMoved = (res: any, s: SalesScope, row: any) => { const m = movedAnswer(s, row); if (m) res.status(404).json(m); else notFound(res) }
 
