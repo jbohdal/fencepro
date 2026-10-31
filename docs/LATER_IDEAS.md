@@ -24,7 +24,7 @@ Things Jonathan said not to build now. Each names when he said it. Nothing here 
 
 Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan, Oct 28: "Nothing new gets added tonight").
 
-- iPhone (WebKit) page crash after saving a quote on the Quotes page, then opening /quotes?quote=… (site-plan-rotate suite). First bad commit 2c91b8f (on main since Oct 27). Check on a real iPhone with #17. Narrowed Oct 31: Playwright's WebKit only so far; any reload or link out of that page after a save that opens the quote window there (Back first too), never after a save from another screen or a window opened by hand; the save is already on the server. The suite goes through about:blank to run on past it.
+- iPhone (WebKit) page crash after saving a quote on the Quotes page, then opening /quotes?quote=… (site-plan-rotate suite). First bad commit 2c91b8f (on main since Oct 27). Check on a real iPhone with #17. Narrowed Oct 31: Playwright's WebKit only so far (real iPhone Safari not checked); any reload or link out of that page after a save that opens the quote window there (Back first too), never after a save from another screen or a window opened by hand; the save is already on the server. The suite goes through about:blank to run on past it.
 - Pricing check: a 3-post repair quote says "A new fence may be the better deal: $633 new vs $1,028 repair".
 - The contract's default term says "A 50% deposit" whatever percent the proposal uses (web contractTerms.ts).
 - A deposit percent over 100 is not refused by the server (Settings stops at 100).

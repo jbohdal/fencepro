@@ -34,6 +34,7 @@
 // Makes its own logins (nightly-<role>-<stamp>@example.invalid) and customers ("NIGHTLY <date> ...",
 // @example.invalid, (352) 555 01xx), and removes them all at the end, with whatever an earlier run left.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import './sharedLock.mjs' // needs prices that hold still: a test changing Inventory mid run brings up "Prices changed" on the quote
 import { chromium, webkit, devices } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
