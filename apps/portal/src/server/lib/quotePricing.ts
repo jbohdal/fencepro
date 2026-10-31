@@ -42,7 +42,7 @@ const gateWidthsIn = (g: Json): { walk: number[]; dbl: number[] } | null => {
 /** The work a change order starts from (web changeOrderPricing.ts ChangeBase): numbers only, or null. */
 const changeBaseIn = (b: Json): Json | null => {
   if (!b || typeof b !== 'object' || !Array.isArray(b.runs)) return null
-  const gateRuns = feet(b.drawn?.gateRuns)
+  const gateRuns = Array.isArray(b.drawn?.gateRuns) ? b.drawn.gateRuns.slice(0, 200).map((r: Json) => ({ ft: num(r?.ft), from: num(r?.from, -1) })) : null
   return {
     feet: num(b.feet), ends: num(b.ends), walkGates: num(b.walkGates), dblGates: num(b.dblGates),
     runs: b.runs.slice(0, 200).map((r: Json) => ({ ft: num(r?.ft), rail: r?.rail === '6ft' || r?.rail === '8ft' ? r.rail : 'auto' })),

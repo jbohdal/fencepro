@@ -74,7 +74,7 @@ export interface QuoteJob {
   repairCheck: (ReturnType<typeof newFenceBetter> & { newFenceCents: number | null; nf: QuoteCalc | null; runsFt: number[] }) | null
   /** A new fence lifted to the minimum job price. */
   newMin: boolean
-  /** With changeBase: the new version's change order price (dollars; a prices only login's one price difference line). Else null. */
+  /** With changeBase: the new version's change order price (dollars), for a login that sees prices only (changeOrderPricing.ts: none makes change orders today). Else null. */
   changePrice: number | null
   totals: {
     manHours: number; materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number

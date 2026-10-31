@@ -162,9 +162,31 @@ describe('each gate added has 2 new gate posts', () => {
     expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never))).toEqual({ ends: 0, linePosts: 1 })
   })
 
-  test('fence taken out on the run list with the gate: only what a gate can drop stays priced', () => {
-    const was = input(CL, [100]), now = input(CL, [60], { walkGates: 1 })
-    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(2)
+  test.each([["CL - 4' Galv", [100], [80], 1], ["CL - 4' Galv", [100], [60], 1], [VINYL, [96], [72], 1], [CL, [100], [96], 0], [CL, [100, 50], [100, 20], 1]])(
+    '%s, %j to %j on the run list with a gate: the line posts the removed fence takes are credited, the opening\'s are not', (name, a, b, kept) => {
+      const was = input(name as string, a as number[]), now = input(name as string, b as number[], { walkGates: 1 })
+      expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(kept)
+    })
+
+  test('a run cut in two with fence taken out too: one line post, the rest is the removed fence', () => {
+    const was = input(CL, [100]), now = input(CL, [38, 38], { ends: 4, walkGates: 1 })
+    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never))).toEqual({ ends: 0, linePosts: 1 })
+  })
+
+  test.each([['8ft', 0], ['6ft', 2]] as const)('every run forced to %s: the closed up fence is counted on the same rails (%i kept)', (rail, kept) => {
+    const y = (gate: boolean) => { const l = layoutForShape('front'); l.sides = l.sides.map((s, i) => ({ ...s, id: `s${i}`, lengthIn: [30, 40, 30][i] * 12, gate: gate && i === 1 ? { type: 'walk' as const, widthIn: 48, position: 'middle' as const } : null })); return l }
+    const d = drawn('WV-Auto ND Privacy', y(false), y(true))
+    const forced = (i: QuoteCalcInput) => ({ ...i, runs: i.runs.map(r => ({ ...r, rail })) })
+    const base = changeBaseOf({ ...signedOf(forced(d.was)) as object, ...d.signed } as never, d.drawing)
+    expect(gatePostsOf(forced(d.now), base).linePosts).toBe(kept)
+  })
+
+  test('a skip in the side: each closed up run keeps the rail of its own first piece', () => {
+    const skip = { skip: { lengthIn: 120, position: 'distance' as const, distanceIn: 600 } }
+    const d = drawn(CL, yard(100, false, skip), yard(100, false, { ...skip, gate: { type: 'walk', widthIn: 48, position: 'distance', distanceIn: 120 } }))
+    const drawnBase = changeBaseOf({ ...signedOf(d.was) as object, ...d.signed } as never, d.drawing).drawn!
+    expect(d.now.runs.map(r => r.ft)).toEqual([10, 36, 40])
+    expect(drawnBase.gateRuns).toEqual([{ ft: 50, from: 0 }, { ft: 40, from: 2 }])
   })
 
   test('a gate on a stretch of new fence: 2 posts, nothing more', () => {

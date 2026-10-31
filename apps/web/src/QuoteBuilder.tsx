@@ -1383,7 +1383,7 @@ export default function QuoteBuilder({
   function startChangeOrder(changedQuote?: SavedQuote) {
     const q = changedQuote ?? pending?.quote
     if (!init || !q) return
-    // The one price difference line: a change order's price of the new version (the server's for a prices only login).
+    // The one price difference line: a change order's price of the new version. Today that is a move, here (a Salesman sees costs: step lines).
     const priceNow = !internal ? sv?.changePrice ?? adjPrice
       : jobType === 'move' && changeBase && workCommon ? changeOrderPrice(calcInput, changeBase, { common: workCommon, inputs: moveIn, line: newLine })
         : adjPrice

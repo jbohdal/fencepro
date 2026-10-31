@@ -3,8 +3,12 @@
  * Oct 31 2026: "Chain link change orders: price fabric by the foot, not whole
  * rolls." "Added gate: 2 new gate posts."). Change orders price a change as
  * the new work minus the work before it through the quote's own math, with
- * two things changed on the input (price only, on every way a change order is
- * priced: changeOrderDraft.ts, the server for a prices only login, moves):
+ * two things changed on the input (price only). Every login that makes change
+ * orders sees costs, a Salesman too, so new fence is priced in the browser on
+ * the step lines (changeOrderDraft.ts) and a move's one price difference line
+ * by changeOrderPrice there. The server's changePrice (quoteJob.ts) is for a
+ * login that sees prices only; none makes change orders today.
+ *
  *
  *   fabric   the rolls the job was sold with, then N feet moves N/50 of a roll,
  *            both ways (quoteCalc.ts fabricFromFt); chain link only
@@ -20,7 +24,6 @@
  */
 
 import { calculateQuote, type QuoteCalcInput, type QuoteRun } from './quoteCalc'
-import { sectionWidthForStyle } from './materialCalculator'
 import { calculateLinePostsPerRun } from './sectionCount'
 import { priceMove, type MoveInputs, type NewLine, type WorkCommon } from './moveRepair'
 import { deriveLayout, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type TeePost, type YardLayout } from './yardLayout'
@@ -39,8 +42,11 @@ export interface ChangeBase {
 
 /** A change made on the drawing. */
 export interface DrawnGates {
-  /** The fence now with the new gates' openings closed, on sides that were already there. */
-  gateRuns: number[]
+  /**
+   * The fence now with the new gates' openings closed, on sides that were
+   * already there. `from`: the run now of its first piece, whose rail it keeps.
+   */
+  gateRuns: Array<{ ft: number; from: number }>
   /** The posts the drawing counts for the new gates (a gate at a side's end counts 1: the end's post is the other). */
   gatePosts: number
 }
@@ -63,12 +69,18 @@ function gateOpenings(before: YardLayout, now: ChangeNow): DrawnGates | null {
   const was = new Map(before.sides.map(s => [s.id, s]))
   const opts = { teeAs: now.teeAs }
   const isNew = (id: string) => { const b = was.get(id); return !(b?.on && b.gate) }
-  const gatePosts = deriveLayout(now.yard, now.nearIn, opts).sides.filter(r => r.gateAtIn !== null && isNew(r.sideId)).reduce((t, r) => t + r.gatePosts, 0)
+  const drawnNow = deriveLayout(now.yard, now.nearIn, opts)
+  const gatePosts = drawnNow.sides.filter(r => r.gateAtIn !== null && isNew(r.sideId)).reduce((t, r) => t + r.gatePosts, 0)
   const closed = now.yard.sides.map(s => {
     const b = was.get(s.id)
     return s.gate && isNew(s.id) && b?.on && b.lengthIn > 0 ? { ...s, gate: null } : s
   })
-  return { gatePosts, gateRuns: deriveLayout({ ...now.yard, sides: closed }, now.nearIn, opts).runs.map(r => r.ft) }
+  const whole = deriveLayout({ ...now.yard, sides: closed }, now.nearIn, opts)
+  const firstPiece = (sideId: string, span: [number, number] | undefined) => {
+    const piece = drawnNow.sides.find(r => r.sideId === sideId)?.pieceSpans.findIndex(([a]) => !!span && a >= span[0] - 0.01 && a < span[1]) ?? -1
+    return drawnNow.runs.findIndex(r => r.sideId === sideId && r.piece === piece + 1)
+  }
+  return { gatePosts, gateRuns: whole.runs.map(r => ({ ft: r.ft, from: firstPiece(r.sideId, whole.sides.find(x => x.sideId === r.sideId)?.pieceSpans[r.piece - 1]) })) }
 }
 
 /** The change order's starting point: this work, and the drawing as it is now when it has one. */
@@ -89,12 +101,30 @@ export function gatePostsOf(input: QuoteCalcInput, base: ChangeBase): { ends: nu
   const lineNow = lineOf(input.runs)
   const counted = base.drawn ? base.drawn.gatePosts : Math.max(0, input.ends - base.ends)
   const ends = Math.max(0, 2 * added - counted)
-  if (base.drawn) return { ends, linePosts: Math.max(0, lineOf(base.drawn.gateRuns.map(ft => ({ ft }))) - lineNow) }
-  // A run list doesn't say which feet are the gates': no more line posts than the gates added can drop, one for
-  // each run a gate splits and one for each section its opening takes.
+  if (base.drawn) return { ends, linePosts: Math.max(0, lineOf(base.drawn.gateRuns.map(r => ({ ft: r.ft, rail: input.runs[r.from]?.rail ?? 'auto' }))) - lineNow) }
+  // A run list doesn't say which feet are the gates': the line posts its gates' openings drop, never the fence's
+  // taken out with them (those are a credit), and never more than the job really lost.
   const openingFt = Math.max(0, input.walkGates - base.walkGates) * TYPED_WALK_GATE_FT + Math.max(0, input.dblGates - base.dblGates) * TYPED_DBL_GATE_FT
-  const most = added + Math.ceil(openingFt / sectionWidthForStyle(input.style.name, input.style.panelWidth))
-  return { ends, linePosts: Math.max(0, Math.min(lineOf(base.runs) - lineNow, most)) }
+  return { ends, linePosts: Math.max(0, Math.min(lineOf(base.runs), lineOf(openingsClosed(input.runs, base.runs, openingFt))) - lineNow) }
+}
+
+/**
+ * A run list with its gates' openings closed: the runs that changed, with the
+ * pieces a gate cut a run into put back together and the openings' feet back
+ * in. The rest of what changed is fence added or taken out, and stays out.
+ */
+function openingsClosed(now: QuoteRun[], before: QuoteRun[], openingFt: number): QuoteRun[] {
+  const left = before.filter(r => r.ft > 0)
+  const changed = now.filter(r => {
+    if (!(r.ft > 0)) return false
+    const i = left.findIndex(b => b.ft === r.ft)
+    if (i >= 0) left.splice(i, 1)
+    return i < 0
+  })
+  if (!changed.length) return now
+  const pieces = changed.slice(0, Math.max(1, changed.length - left.length + 1))
+  const same = now.filter(r => !changed.includes(r))
+  return [...same, { ...pieces[0], ft: pieces.reduce((t, r) => t + r.ft, openingFt) }, ...changed.slice(pieces.length)]
 }
 
 /** The quote's input as a change order prices it. */

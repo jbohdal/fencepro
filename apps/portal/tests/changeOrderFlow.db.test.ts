@@ -139,7 +139,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
   })
 
 
-  test('chain link by the foot (Oct 31 2026): a Salesman is priced by the foot, the work keeps whole rolls and its real cost', async () => {
+  test('chain link by the foot (Oct 31 2026): the server\'s change price is by the foot, the work keeps whole rolls and its real cost', async () => {
     const CL = "CL - 5' Galv"
     const { quoteId, jobId } = await signedJob()
     await prisma.savedQuote.update({ where: { id: quoteId }, data: { fenceStyle: CL, runs: [100], sections: 10, pricing: { overheadPct: 30 } } as any })
