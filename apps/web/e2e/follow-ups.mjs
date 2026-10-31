@@ -77,7 +77,9 @@ async function makeSalesman(letter) {
 }
 
 async function makeCard(first, last, rep, phone) {
-  const c = await owner('POST', '/api/crm-contacts', { firstName: first, lastName: last, phone, serviceAddress: '5708 SW 90th Ln, Ocala, FL 34476', leadSource: 'Referral' })
+  const c = await owner('POST', '/api/crm-contacts', { firstName: first, lastName: last, phone, serviceAddress: '5708 SW 90th Ln, Ocala, FL 34476', leadSource: 'Referral',
+    // A Salesman sees only their own customers (Oct 28 2026): the customer's Sales rep is the Salesman, as the card's is.
+    salesRep: rep })
   const contactId = c.json.data?.id
   made.contacts.push(contactId)
   const id = `e2e-follow-${stamp}-${made.cards.length}`

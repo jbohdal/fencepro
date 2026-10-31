@@ -20,6 +20,7 @@
 // starts on whoever is signed in, a change keeps the appointment's own person.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
+import { execFileSync } from 'node:child_process'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -365,6 +366,9 @@ async function ensureCards(token, stage, need, onlyUnbooked = false) {
 }
 
 const browser = await chromium.launch()
+// Every appointment this run books is removed at the end (Oct 31 2026): they were left on real dev customers, and one
+// left on the week of Nov 2 made booking.mjs refuse to run ("the test week already has an appointment").
+const apptsBefore = new Set(((await api('/api/appointments')) || []).map(a => a.id))
 await ensureCards(TOKEN, 'First Contact', REP_TOKEN ? 4 : 3, !!REP_TOKEN)
 await ensureCards(TOKEN, 'Appointment', 3, true)
 const only = process.env.E2E_ONLY || ''
@@ -374,6 +378,11 @@ try {
   if (!only || only === 'phone') { await phone(browser); await phoneBooking(browser) }
 } catch (err) { check('test run finished', false, String(err?.stack || err).slice(0, 700)) }
 await browser.close()
+try {
+  const left = ((await api('/api/appointments')) || []).map(a => a.id).filter(id => !apptsBefore.has(id) && /^[A-Za-z0-9-]+$/.test(id))
+  if (left.length) execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `DELETE FROM "CrmAppointment" WHERE id IN (${left.map(i => `'${i}'`).join(',')});`], { stdio: 'pipe' })
+  console.log(`cleanup: removed ${left.length} appointment(s) this run booked`)
+} catch (e) { console.log('cleanup: appointments not removed:', String(e?.stderr || e).slice(0, 200)) }
 const failed = results.filter(r => !r.ok)
 console.log(`\n${results.length - failed.length} of ${results.length} checks passed`)
 process.exit(failed.length ? 1 : 0)

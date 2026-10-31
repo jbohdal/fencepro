@@ -315,7 +315,12 @@ try {
   original = (await readBudget(api)).budget
   check('the saved budget was read first (to put it back after)', !!original && Array.isArray(original.overhead) && original.overhead.length > 0)
   if (original?.overhead?.length) {
+    // The saved budget has no crew (live has none either, Oct 31 2026), so the Crew tab has no number boxes to check:
+    // the test adds one made-up team member to its working copy of the budget, and puts the real budget back after.
+    const working = (original.employees ?? []).length ? original
+      : { ...original, employees: [{ id: 'e2e-budget-crew', name: 'E2E Crew', role: 'Installer', hourlyRate: 20, annualHours: 2040 }] }
     for (const s of SIZES) {
+      if (working !== original) check(`${s.name}: a test team member added to the budget for the Crew tab`, await putBack(api, working))
       const browser = await s.engine.launch()
       browsers.push(browser)
       const ctx = await browser.newContext(s.opts)
@@ -330,7 +335,7 @@ try {
       const errors = []
       page.on('pageerror', e => errors.push(String(e).slice(0, 200)))
       page.on('dialog', d => d.dismiss().catch(() => {}))
-      try { await run({ ...s, ctx, page }, original) } catch (e) {
+      try { await run({ ...s, ctx, page }, working) } catch (e) {
         check(`${s.name}: ran to the end`, false, String(e).split('\n')[0].slice(0, 300))
         if (SHOTS) await page.screenshot({ path: `${SHOTS}/budget-edit-${s.name}-FAILED.png` }).catch(() => {})
       }

@@ -32,6 +32,9 @@ const customerId = crypto.randomUUID(), cardId = crypto.randomUUID()
 const LAST = `Auto${tag}`
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 let jobId = '', ruleId = ''
+// A rule left by an earlier run that was stopped before its cleanup would run on this run's card too (the card showed 2 runs, not 1,
+// Oct 31 2026), and on every real dev customer moved to Estimating. Remove any such leftover first.
+for (const r of ((await call('/api/automations/rules')).json?.data ?? []).filter(r => /^E2E [0-9a-f]{6} measure$/.test(r.name))) await call(`/api/automations/rules/${r.id}`, { method: 'DELETE' })
 const stageRuleBefore = (await call('/api/automations/stage-rules')).json?.data?.find(r => r.board === 'sales' && r.stage === 'Pending Start')
 
 const b = await chromium.launch()

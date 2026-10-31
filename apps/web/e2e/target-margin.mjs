@@ -37,7 +37,13 @@ try {
   await page.goto(`${APP}/settings`); await page.waitForSelector('[data-page-scroll]'); await sleep(1500)
   await page.locator('[data-settings-tab="pricing"]').click(); await sleep(600)
   const inUse = await page.locator('[data-overhead-in-use]').textContent()
-  check('Settings: Overhead % shown as a percent, 30% to start', /Overhead in use: 30%/.test(inUse), inUse)
+  // Live overhead is on since Oct 30 2026 (36.9% then): the overhead in use is the live figure, not the typed 30%.
+  // With it on, "in use" must be the live figure shown under it; with it off, the typed overhead.
+  const pricing = (await api('/api/business-state'))?.config?.pricing ?? {}
+  const inUseN = Number((inUse.match(/Overhead in use: ([\d.]+)%/) || [])[1])
+  const liveN = Number((inUse.match(/Live: ([\d.]+)%/) || [])[1])
+  const expectedOverhead = pricing.liveOverhead?.on ? liveN : Number(pricing.overheadPct)
+  check('Settings: Overhead % shown as a percent (the live figure when live overhead is on, else the typed one)', Number.isFinite(inUseN) && inUseN === expectedOverhead, inUse)
   check('Settings: price method says Priced from cost (Target Margin)', await page.locator('option:has-text("Priced from cost (Target Margin)")').count() === 1)
   if (SHOTS) await page.locator('[data-overhead]').screenshot({ path: `${SHOTS}/1-settings-overhead.png` })
   await page.locator('[data-settings-tab="styles"]').click(); await sleep(600)
@@ -45,7 +51,9 @@ try {
   const ndTM = await page.locator(`[data-style-target-margin="WV-ND 6'x6' Privacy"]`).textContent()
   const ds = await page.locator(`[data-style-profit="WV-DS 6'x6' Privacy"]`).inputValue()
   const cl = await page.locator(`[data-style-profit="CL - 4' Galv"]`).inputValue()
-  check('Styles: no dig vinyl 14% profit, 44% Target Margin', nd === '14%' && ndTM.trim() === '44%', `${nd} / ${ndTM}`)
+  // Target Margin = overhead in use + profit (30% + 14% = 44% when the typed overhead is used; 36.9% + 14% = 50.9% with live overhead).
+  const wantTM = `${Math.round((expectedOverhead + 14) * 10) / 10}%`
+  check(`Styles: no dig vinyl 14% profit, ${wantTM} Target Margin (overhead in use + profit)`, nd === '14%' && ndTM.trim() === wantTM, `${nd} / ${ndTM}`)
   check('Styles: dig set vinyl 10%, chain link 12%', ds === '10%' && cl === '12%', `${ds} / ${cl}`)
   const body = await page.locator('[data-page-scroll]').textContent()
   check('Settings: no "magic number" and no 0.56 style numbers', !/magic/i.test(body) && !/\b0\.(5|6)\d?\b/.test(await page.locator('table').first().textContent()))
