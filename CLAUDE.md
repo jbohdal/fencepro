@@ -49,9 +49,11 @@ Jonathan does not have time to test the work, so:
   phone where that is how it is used, with realistic data, through every step
   before and after it (how you get to it, and what happens next). Passing
   tests is required but not enough.
-- That real use is done by a separate reviewer agent that did not build the
-  feature, acting as the user. It reports anything confusing, slow, missing or
-  broken, and it is fixed before Jonathan is told it is done.
+- The builder runs the tests that cover the change and does that real use
+  before deploying. For money, contracts, customer facing pages and live data
+  changes, a separate reviewer agent that did not build it also does the real
+  use, reports anything confusing, slow, missing or broken, and it is fixed
+  before Jonathan is told it is done. (Changed by Jonathan on Oct 30, 2026.)
 - Ask Jonathan to look only when it touches money, contracts or what
   customers see, and then give him one specific 1 minute check, not a list.
 - Reports say what the reviewer did and found, in plain words. No recordings

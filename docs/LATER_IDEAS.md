@@ -55,3 +55,8 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - A quote opened from the customer page has no Edit; "0 of 2 photos ticked" with no photos.
 - 8 ft: a draft reopened after a Settings price change reprices without saying so; the pull sheet lists the 8 ft section by a generic name next to $0 pickets.
 - e2e: the appointments suite leaves Michael Green booked Nov 2–3 on dev (booking suite fails until Nov 9); schedule-install drag and site-plan-rotate (WebKit crash) fail on main too.
+
+## From the Oct 30 night (iPhone run; test fixes, not app bugs)
+- iphone-safari: payments and portal checks still expect cents ($4,457.14 / $4,457.13, form value 4457.14, receipt 445714); bills have been whole dollars since Oct 29, so update them to $4,457 (5 false failures).
+- iphone-safari: the Salesman's reload checks open the owner's customer and quote, and "not one of yours" is correct (4 false failures). Give the Salesman a customer and quote of its own, so a Salesman reloading its own quote on an iPhone is actually tested; right now it is not.
+- Nightly: dev sign-in files stop working after each refresh of ezbiz_dev; make new ones at the start of the run.
