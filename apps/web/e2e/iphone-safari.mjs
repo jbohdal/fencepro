@@ -10,6 +10,7 @@
 //   DRIVER=safari (default) | webkit | chromium
 //   DEVICE='iPhone 16'  IOS=18.5       the simulator safaridriver opens (Safari only)
 //   AREAS=fit,quote,media,payments,portal,home   only these areas (all by default)
+//   REAL_IPHONE=<device id> PHONE_URL=http://192.168.x.x:<dev port>   Safari on a real iPhone by cable (real-iphone.sh)
 //   SHOTS=<folder>   screenshots of each failure, iphone-<area>-<check>.png
 //                    (default ~/Downloads/ezbiz-screens-2026-10-17)
 //   MEDIA_PHOTO=<.jpg> MEDIA_VIDEO=<.mp4>   the files picked in "Choose from gallery"
@@ -58,11 +59,16 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const APP = process.env.APP_URL || 'http://localhost:4001'
+// A real iPhone cannot reach localhost: its pages load from the same dev server through this Mac's home network address.
+const REAL_IPHONE = process.env.REAL_IPHONE || ''
+const PHONE_URL = process.env.PHONE_URL || ''
+const LOCAL_APP = process.env.APP_URL || 'http://localhost:4001'
+const APP = REAL_IPHONE ? PHONE_URL : LOCAL_APP
 const API = process.env.API_URL || 'http://localhost:4001'
 // The dev copy on this Mac: http://localhost:4001, or a worktree's own dev server on another port (never 4000, live).
 const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\/?$/.test(u)
-if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only (http://localhost:4001, never port 4000).'); process.exit(2) }
+if (REAL_IPHONE && (!/^http:\/\/192\.168\.\d+\.\d+:\d+\/?$/.test(PHONE_URL) || new URL(PHONE_URL).port !== new URL(LOCAL_APP).port)) { console.error('Refusing to run: PHONE_URL must be this Mac on the home network, on the port of APP_URL.'); process.exit(2) }
+if (!devLocal(LOCAL_APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only (http://localhost:4001, never port 4000).'); process.exit(2) }
 const DRIVER = process.env.DRIVER || 'safari'
 const DEVICE = process.env.DEVICE || 'iPhone 16'
 const IOS = process.env.IOS || '18.5'
@@ -119,7 +125,9 @@ async function safariDriver() {
     if (!r.ok) { const e = new Error(`${method} ${p}: ${j.value?.error || r.status} ${String(j.value?.message || '').slice(0, 300)}`); e.wd = j.value?.error; throw e }
     return j.value
   }
-  const caps = { browserName: 'safari', platformName: 'iOS', 'safari:useSimulator': true, 'safari:deviceName': DEVICE, 'safari:platformVersion': IOS }
+  const caps = REAL_IPHONE
+    ? { browserName: 'safari', platformName: 'iOS', 'safari:useSimulator': false, 'safari:deviceUDID': REAL_IPHONE }
+    : { browserName: 'safari', platformName: 'iOS', 'safari:useSimulator': true, 'safari:deviceName': DEVICE, 'safari:platformVersion': IOS }
   let s
   // A run that died can leave Safari paired with its old session: quit Safari in that simulator and try once more.
   const quitSafari = () => {
@@ -129,7 +137,7 @@ async function safariDriver() {
   }
   for (let i = 0; ; i++) {
     try { s = await raw('POST', '/session', { capabilities: { alwaysMatch: caps } }); break } catch (e) {
-      if (i === 0 && /already paired/i.test(e.message)) { try { quitSafari() } catch { /* not booted */ } await sleep(3000); continue }
+      if (i === 0 && !REAL_IPHONE && /already paired/i.test(e.message)) { try { quitSafari() } catch { /* not booted */ } await sleep(3000); continue }
       proc.kill(); throw new Error(`${e.message}${log ? ' | safaridriver: ' + log.slice(-400) : ''}`)
     }
   }
