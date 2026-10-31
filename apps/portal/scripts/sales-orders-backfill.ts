@@ -17,6 +17,8 @@
  *   npx tsx scripts/sales-orders-backfill.ts --apply     makes the changes in DATABASE_URL
  *   ... --apply --live                                   required as well for the live database, with
  *                                                        EZBIZ_LIVE_WRITE_OK=1 and a backup from the last 30 minutes
+ *   ... --skip-job <job id>                              leaves that job's order as it is (repeat for more); an id
+ *                                                        that is not a job here stops the run before anything changes
  */
 
 import 'dotenv/config'
@@ -36,10 +38,22 @@ if (APPLY && dbName === LIVE_DATABASE_NAME && !process.argv.includes('--live')) 
 
 const DONE = ['completed', 'invoiced', 'paid'] as const
 
+const SKIP = new Set(process.argv.flatMap((a, i, all) => (a === '--skip-job' ? [all[i + 1] ?? ''] : [])))
+if (SKIP.has('') || [...SKIP].some(id => id.startsWith('--'))) {
+  console.error('--skip-job needs a job id.')
+  process.exit(2)
+}
+
 async function main() {
   const prisma = (await import('../src/server/lib/prisma.js')).default
   const { orderBasisFor, planOrders, syncSalesOrder } = await import('../src/server/lib/salesOrders.js')
   console.log(`Database: ${dbName}${APPLY ? '' : ' (dry run: nothing is written)'}`)
+  const known = await prisma.savedJob.findMany({ where: { id: { in: [...SKIP] } }, select: { id: true } })
+  const unknown = [...SKIP].filter(id => !known.some(j => j.id === id))
+  if (unknown.length) {
+    console.error(`--skip-job: no such job: ${unknown.join(', ')}. Nothing was changed.`)
+    process.exit(2)
+  }
   const states = await prisma.businessState.findMany({ select: { accountId: true, pendingOrders: true } })
   let changes = 0
   for (const st of states) {
@@ -57,6 +71,7 @@ async function main() {
     for (const j of jobs) {
       const quoteId = j.quoteId!
       seen.add(quoteId)
+      if (SKIP.has(j.id)) { console.log(`\n${j.customerName} (job ${j.id}, ${j.status}): skipped, order left as it is`); continue }
       const basis = await orderBasisFor(accountId, quoteId)
       if (!basis) continue
       const mine = orders.filter(o => o?.quoteId === quoteId || (o?.jobId === j.id && o?.status === 'pending'))
