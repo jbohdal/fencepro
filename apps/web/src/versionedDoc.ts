@@ -39,6 +39,10 @@ export interface VersionedDoc<T> {
   /** Call when the record has loaded from the server. */
   loaded: (server: T, version: number) => void
   version: () => number
+  /** The server's copy this tab's changes are measured from. */
+  base: () => T
+  /** Some parts were read again from the server without the rest (the version is not moved): the changes in those parts are measured from there now. */
+  rebase: (parts: Partial<T>) => void
   /** Save until the server and this tab agree. False when the server could not be reached; { refused } when the role may not make this change (the local copy is put back to the server's). */
   push: () => Promise<PushResult>
 }
@@ -61,6 +65,8 @@ export function createVersionedDoc<T>(opts: VersionedDocOptions<T>): VersionedDo
   return {
     loaded(server, v) { base = clone(server); version = v },
     version: () => version,
+    base: () => base,
+    rebase(parts) { base = { ...base, ...clone(parts) } },
     async push() {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         const sent = clone(opts.get())

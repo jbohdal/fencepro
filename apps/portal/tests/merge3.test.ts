@@ -95,6 +95,12 @@ describe('merge3', () => {
     expect(merged.runs).toEqual([10, 10, 5])
   })
 
+  test('the fence choice tree merges by key: both new choices stay, one removed there stays gone', () => {
+    const tree = (...keys: string[]) => ({ materials: [{ key: 'vinyl', dims: [{ key: 'style', options: keys.map(key => ({ key })) }] }] })
+    expect(merge3(tree('privacy'), tree('privacy', 'ranch'), tree('privacy', 'semi')).merged).toEqual(tree('privacy', 'semi', 'ranch'))
+    expect(merge3(tree('privacy', 'semi'), tree('privacy', 'semi', 'ranch'), tree('privacy')).merged).toEqual(tree('privacy', 'ranch'))
+  })
+
   test('a whole value replaced (cloud storage key) on one side only', () => {
     expect(merge3<unknown>(null, [{ id: 'f1' }], null).merged).toEqual([{ id: 'f1' }])
     expect(merge3<unknown>([{ id: 'f1' }], [{ id: 'f1' }], [{ id: 'f1' }, { id: 'f2' }]).merged).toEqual([{ id: 'f1' }, { id: 'f2' }])

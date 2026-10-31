@@ -35,6 +35,8 @@ export function deepEqual(a: Json, b: Json): boolean {
 function keyOf(item: Json): string | null {
   if (!isObj(item)) return null
   if (typeof item.id === 'string' || typeof item.id === 'number') return `id:${item.id}`
+  // The fence choice tree (materials, their choices and options) names its entries by key.
+  if (typeof item.key === 'string') return `key:${item.key}`
   // Stock levels have no id of their own: one row per item per location.
   if (typeof item.itemId === 'string' && typeof item.locationId === 'string') return `stock:${item.itemId}|${item.locationId}`
   return null

@@ -102,6 +102,10 @@ export function createFlusher(opts: {
 export interface VersionedFlusher<T> extends Flusher {
   /** Call when the record has loaded from the server, with the version it came with. */
   loaded: (server: T, version: number) => void
+  /** The server's copy this tab's changes are measured from. */
+  base: () => T
+  /** Some parts were read again from the server on their own: what they hold is not a change made here. */
+  rebase: (parts: Partial<T>) => void
 }
 
 /**
@@ -187,6 +191,19 @@ export function createVersionedFlusher<T>(opts: {
       }, opts.debounceMs ?? 250)
     },
     isDirty: () => !!timer || pendingFor(key).length > 0,
+    base: () => doc.base(),
+    rebase: parts => {
+      doc.rebase(parts)
+      serverCopy = { ...(serverCopy as T), ...clone(parts) }
+      // What waits on the phone moves with it, its base and its copy together: after a reload, what was read here is not a change made here.
+      const waiting = pendingFor(key)[0]
+      if (waiting) {
+        const p = waiting.payload as DocSave
+        const now = clone(opts.get()) as Record<string, unknown>
+        p.base = { ...(p.base as object), ...clone(parts) }
+        p.mine = { ...(p.mine as object), ...Object.fromEntries(Object.keys(parts as object).map(k => [k, now[k]])) }
+      }
+    },
     loaded: (server, version) => {
       doc.loaded(server, version)
       serverCopy = JSON.parse(JSON.stringify(server ?? null))
