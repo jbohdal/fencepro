@@ -58,3 +58,14 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 
 ## From the Oct 30 night (iPhone run)
 - Nightly: dev sign-in files stop working after each refresh of ezbiz_dev; make new ones at the start of the run.
+
+## From the Oct 31 night (nightly triage)
+
+- Change order window on the customer page says "Change order CO-1" when it will be CO-3 (`ChangeOrders.tsx`, `existingCount + 1`). The saved number and its toast are right. Staff screen only.
+- The API limit (600 a minute per address) answered 429 on a change order save during a test and the window just stayed open. Not seen in real use; a save refused this way should say so.
+- `sales-orders` e2e: "AUD Web Chainlink" is a dev-only audit job that dev no longer has; the fixture needs rebuilding.
+- `quotable-styles` e2e: a saved quote on the held style CL - Com 6' did not open the builder; rerun after the Quotes page speed fix before calling it a bug.
+- `salesman-live-overhead` e2e needs its three sign-in settings in the nightly.
+- `budget-edit` failed once on desktop only and did not repeat; watch it.
+- WebKit page crash when leaving the Quotes page after a save (Oct 27 item): `site-plan-rotate` goes round it through about:blank. The crash stack needs Jonathan's OK to read the crash reports.
+- Settings save: when the server took a save but its answer was lost, putting the value back sends nothing. Rare.
