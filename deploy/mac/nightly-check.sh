@@ -142,6 +142,8 @@ sed -e "s/^PORT=.*/PORT=$PORT/" -e "s#^APP_URL=.*#APP_URL=\"http://localhost:$PO
 grep -q 'connection_limit=' "$WT/apps/portal/.env" || say "Note: the dev DATABASE_URL has no connection_limit"
 printf 'VITE_API_PORT=%s\n' "$PORT" > "$WT/apps/web/.env.local"
 printf 'VITE_API_PORT=%s\n' "$PORT" > "$WT/apps/portal/.env.local"
+# The county address list is not in git: without it the worktree's address lookup falls back to the Census (round1-fixes).
+printf '\nADDRESS_DATA_DIR="%s"\n' "$REPO/apps/portal/data/addresses" >> "$WT/apps/portal/.env"
 
 # ── Safety: the dev copy, nothing outside ──
 dburl="$(grep -E '^DATABASE_URL=' "$WT/apps/portal/.env" | head -1 | sed -E 's/^DATABASE_URL="?([^"]*)"?$/\1/')"

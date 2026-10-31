@@ -8,8 +8,12 @@
 #   - runs named suites (`suites a b`) and other commands at any hour;
 #   - refuses `all` between 07:00 and 18:00 local, unless FORCE_BUSINESS_HOURS=1;
 #   - refuses APP_URL / API_URL on port 4000 or a Tailscale address (live);
-#   - runs everything at low priority: nice -n 15 and taskpolicy -b (macOS
-#     background: low CPU and disk priority, the live server goes first);
+#   - runs everything at low priority: nice -n 15, and by day taskpolicy -b too
+#     (macOS background: low CPU and disk priority, the live server goes first).
+#     Not at night: at background priority Playwright's WebKit pages stop
+#     answering or crash in long runs (Oct 31 2026: the nightly walkthrough
+#     passed 34 of 34 in 2.7 minutes at normal priority, 16 of 34 in 14 minutes
+#     with taskpolicy -b);
 #   - shuts down the Android emulator and every booted iOS simulator at the
 #     end (also after a failure or Ctrl-C), and the Playwright browsers it left.
 #
@@ -59,7 +63,7 @@ fi
 export MEDIA_PHOTO="${MEDIA_PHOTO:-$HERE/fixtures/test-photo.jpg}" MEDIA_VIDEO="${MEDIA_VIDEO:-$HERE/fixtures/test-video.mp4}"
 
 LOW=(nice -n 15)
-command -v taskpolicy >/dev/null 2>&1 && LOW=(nice -n 15 taskpolicy -b)
+business_hours && command -v taskpolicy >/dev/null 2>&1 && LOW=(nice -n 15 taskpolicy -b)
 
 cleanup() {
   [ "${KEEP_DEVICES:-}" = "1" ] && return
