@@ -147,7 +147,11 @@ const flusher = createVersionedFlusher<BusinessFields>({
     if (serverVersionOf('business') > version) {
       const r = await call<BusinessFields>('GET')
       const v = typeof (r.data as any)?.version === 'number' ? (r.data as any).version : -1
-      if (r.ok && r.data && v > version) return { status: 'stale', server: pickBusiness(r.data), version: v }
+      if (r.ok && r.data && v > version) {
+        const server = pickBusiness(r.data)
+        notePriceFields(server)
+        return { status: 'stale', server, version: v }
+      }
     }
     const patch: Record<string, unknown> = {}
     for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
@@ -157,7 +161,11 @@ const flusher = createVersionedFlusher<BusinessFields>({
       if ((PRICE_FIELDS as readonly string[]).includes(k) && deepEqual(state[k], loadedPrice[k as 'config' | 'budget'])) continue
       if (!deepEqual(state[k], base[k])) patch[k] = state[k]
     }
-    return versionedSave(stateUrl(), 'PATCH', patch, version, pickBusiness)
+    const r = await versionedSave(stateUrl(), 'PATCH', patch, version, pickBusiness)
+    // The server's copy moved with this answer: a change put back the way it was read is a change made here, and goes.
+    if ('server' in r && r.server) notePriceFields(r.server)
+    else if (r.status === 'saved') for (const k of PRICE_FIELDS) if (k in patch) loadedPrice = { ...loadedPrice, [k]: JSON.parse(JSON.stringify(state[k])) }
+    return r
   },
 })
 function scheduleFlush() { flusher.schedule() }
