@@ -75,3 +75,17 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - After a merge the Settings page reloads itself and an open Fences list closes.
 - A quote made on another phone lands at the very bottom of an open Quotes list, past Show more, until a reload. The count and tile update.
 - Quotes page: margin colors keep the old Settings until the next redraw after another phone changes a Target Profit. Any touch updates them.
+
+## From the Oct 31 change order pricing review
+
+- Run list only: a gate taken out and more gates added in one change order bills 1 line post too many (vinyl [60] to [48], 1 walk out, 2 doubles in: $81 over). The opening counts every gate added, not the net. Drawings are fine.
+- Run list only: [40,20] to [40,30,8] plus a gate, a run growing and a new stretch together, can keep 1 extra line post.
+- Drawing, wording only: "N ft becomes the gate" can name the wrong gate when a side's length changes and a wider gate of the same kind is on a later side. The price is right.
+- Forced rails on a drawing: QuoteBuilder sets drawn runs to auto (since 02a8a08, Oct 14), so a forced-rail job changed by drawing moves to auto rails, in price and pull sheet. Up to $379 on a test job; nearly never reached. Live not checked.
+- Staff words: during a change order the Price tab's "At today's costs it would be $X" is the whole roll figure. On a move, "Price difference at today's prices" is no longer strictly true with fabric by the foot.
+- Per-foot quote: adding a gate comes out negative (-$100), the 2 posts never reach the price. Older than this work; 0 such quotes on dev.
+- Gate rule on wood is not verified: the wood kits are archived on dev.
+- Mixed rails on the two pieces of a split run put all the rail change on the gate line.
+- Server `changePrice` has no login that reaches it today except by API.
+- Sales Orders: Manuel Cotrich's order (paid, received) is not marked to stay; a change order on that job would rewrite it. The backfill writes no audit row.
+- WebKit crash reports on the Mac (23): all the Playwright test build (623.1.10+). 19 are Navigation::initializeForNewWindow, 4 its network process. Not real Safari; a test browser bug, no app fix.
