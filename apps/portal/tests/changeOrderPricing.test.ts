@@ -168,6 +168,58 @@ describe('each gate added has 2 new gate posts', () => {
       expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(kept)
     })
 
+  test.each([
+    [VINYL, [44], [38], { walkGates: 1, gateWidths: { walk: [6], dbl: [] } }, 1],
+    [VINYL, [44], [40], { walkGates: 1 }, 1],
+    [CL, [102], [96], { walkGates: 1, gateWidths: { walk: [6], dbl: [] } }, 1],
+    [CL, [104], [90], { dblGates: 1, gateWidths: { walk: [], dbl: [14] } }, 2],
+  ])('%s, %j to %j: the opening is the gate\'s own width (%j), and its line post stays priced', (name, a, b, extra, kept) => {
+    const was = input(name as string, a as number[]), now = input(name as string, b as number[], extra as Partial<QuoteCalcInput>)
+    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(kept)
+  })
+
+  test('a job that has a gate already: the added gate\'s width, not the old one\'s', () => {
+    const was = input(VINYL, [44, 20], { walkGates: 1 }), now = input(VINYL, [38, 20], { walkGates: 2, gateWidths: { walk: [4, 6], dbl: [] } })
+    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(1)
+  })
+
+  test.each([
+    [[40], [28, 28]], [[40, 40, 20], [40, 18, 18, 30]], [[40, 40, 20], [40, 30, 18, 18]],
+  ])('fence added with the gate on a run list, %j to %j: the line post its opening drops stays priced, as on the drawing', (a, b) => {
+    const was = input(CL, a), now = input(CL, b, { ends: 4, walkGates: 1 })
+    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(1)
+  })
+
+  test('the same change by drawing: 1 line post', () => {
+    const d = drawn(CL, yard(40), yard(60, true))
+    expect(gatePostsOf(d.now, changeBaseOf({ ...signedOf(d.was) as object, ...d.signed } as never, d.drawing)).linePosts).toBe(1)
+  })
+
+  test.each([[[100], [100, 8, 8]], [[100, 50], [100, 50, 12]]])('a gate on a stretch of new fence on a run list, %j to %j: 2 posts, nothing more', (a, b) => {
+    const was = input(CL, a), now = input(CL, b, { ends: 6, walkGates: 1 })
+    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never))).toEqual({ ends: 0, linePosts: 0 })
+  })
+
+  test('a gate with no change to the fence on a run list: nothing kept', () => {
+    const was = input(CL, [100]), now = input(CL, [100], { walkGates: 1, gateWidths: { walk: [6], dbl: [] } })
+    expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never)).linePosts).toBe(0)
+  })
+
+  test.each([
+    [{ walkGates: 1, gateWidths: { walk: [6], dbl: [] } }, [47, 47], 'Add 1 walk gate (6 ft of fence becomes the gate)'],
+    [{ walkGates: 1, gateWidths: { walk: [5], dbl: [] } }, [47.5, 47.5], 'Add 1 walk gate (5 ft of fence becomes the gate)'],
+    [{ dblGates: 1 }, [46, 46], 'Add 1 double gate (8 ft of fence becomes the gate)'],
+    [{ dblGates: 1, gateWidths: { walk: [], dbl: [12] } }, [44, 44], 'Add 1 double gate (12 ft of fence becomes the gate)'],
+  ])('the customer\'s words say the gate\'s real width: %j', (extra, runs, words) => {
+    const r = both(input(CL, [100]), input(CL, runs as number[], { ends: 4, ...extra as Partial<QuoteCalcInput> }))
+    expect(r.lines[0].description).toBe(words)
+  })
+
+  test('a 6 ft gate and a shorter fence: "6 ft of it becomes the new gate"', () => {
+    const r = both(input(CL, [100]), input(CL, [80], { walkGates: 1, gateWidths: { walk: [6], dbl: [] } }))
+    expect(r.lines[0].description).toMatch(/; 6 ft of it becomes the new gate/)
+  })
+
   test('a run cut in two with fence taken out too: one line post, the rest is the removed fence', () => {
     const was = input(CL, [100]), now = input(CL, [38, 38], { ends: 4, walkGates: 1 })
     expect(gatePostsOf(now, changeBaseOf(signedOf(was) as never))).toEqual({ ends: 0, linePosts: 1 })

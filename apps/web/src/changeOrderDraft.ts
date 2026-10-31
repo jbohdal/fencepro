@@ -24,7 +24,7 @@
  * whole dollar), so the cents never go on the customer.
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
-import { changeBaseOf, changeOrderInput, type ChangeBase, type ChangeNow } from './changeOrderPricing'
+import { changeBaseOf, changeOrderInput, gateOpeningFt, type ChangeBase, type ChangeNow } from './changeOrderPricing'
 import { wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
@@ -67,8 +67,8 @@ export interface DraftInput {
   simple: boolean
   /**
    * Gates put into sides of the drawing (a side that had no gate and has one now, same length): the
-   * sides' names and the feet of fence the new gates take. Without it, a walk gate takes 4 ft and a
-   * double gate 10 ft (yardLayout.ts GATE_WIDTH_IN).
+   * sides' names and the feet of fence the new gates take. Without it, the gates' own widths, else
+   * 4 ft for a walk gate and 8 ft for a double (changeOrderPricing.ts gateOpeningFt).
    */
   gatesIn?: { sides: string[]; openingFt: number } | null
   /**
@@ -100,7 +100,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const gatesToo = cur.walkGates !== s.walkGates || cur.dblGates !== s.dblGates
   const walkIn = Math.max(0, cur.walkGates - s.walkGates), dblIn = Math.max(0, cur.dblGates - s.dblGates)
   const delta = Math.round((ftNow - ftWas) * 100) / 100
-  const openingFt = Math.round((d.gatesIn?.openingFt ?? walkIn * 4 + dblIn * 10) * 100) / 100
+  const openingFt = Math.round((d.gatesIn?.openingFt ?? gateOpeningFt(cur, s)) * 100) / 100
   // A gate put into a side (round 3, Oct 26 2026): "Remove 4 ft of fence, 1 panel more +$128" then "Add 1 walk gate
   // +$202" read as paying for fence taken away. When the fence taken out is just the new gates' opening, it is one
   // change: "Add 1 walk gate in the Back side (4 ft of fence becomes the gate)", the two price steps as one.

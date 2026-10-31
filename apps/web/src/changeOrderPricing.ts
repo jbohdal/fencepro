@@ -103,17 +103,33 @@ export function gatePostsOf(input: QuoteCalcInput, base: ChangeBase): { ends: nu
   const ends = Math.max(0, 2 * added - counted)
   if (base.drawn) return { ends, linePosts: Math.max(0, lineOf(base.drawn.gateRuns.map(r => ({ ft: r.ft, rail: input.runs[r.from]?.rail ?? 'auto' }))) - lineNow) }
   // A run list doesn't say which feet are the gates': the line posts its gates' openings drop, never the fence's
-  // taken out with them (those are a credit), and never more than the job really lost.
-  const openingFt = Math.max(0, input.walkGates - base.walkGates) * TYPED_WALK_GATE_FT + Math.max(0, input.dblGates - base.dblGates) * TYPED_DBL_GATE_FT
-  return { ends, linePosts: Math.max(0, Math.min(lineOf(base.runs), lineOf(openingsClosed(input.runs, base.runs, openingFt))) - lineNow) }
+  // taken out with them (those are a credit). More than one way to put it back: the fewest.
+  const closed = openingsClosed(input.runs, base.runs, gateOpeningFt(input, base), added)
+  return { ends, linePosts: Math.max(0, Math.min(...closed.map(lineOf)) - lineNow) }
 }
 
 /**
- * A run list with its gates' openings closed: the runs that changed, with the
- * pieces a gate cut a run into put back together and the openings' feet back
- * in. The rest of what changed is fence added or taken out, and stays out.
+ * The feet of fence the gates added take: their own widths when the input
+ * carries them (a gate added comes last in the list, yardLayout.ts
+ * fitGateWidths), else the typed defaults, 4 ft walk and 8 ft double.
  */
-function openingsClosed(now: QuoteRun[], before: QuoteRun[], openingFt: number): QuoteRun[] {
+export function gateOpeningFt(input: Pick<QuoteCalcInput, 'walkGates' | 'dblGates' | 'gateWidths'>, before: { walkGates: number; dblGates: number }): number {
+  const feet = (n: number, widths: number[] | undefined, typed: number) => {
+    const added = Math.max(0, n)
+    const given = added ? (widths ?? []).slice(-added) : []
+    return given.reduce((t, w) => t + w, (added - given.length) * typed)
+  }
+  return feet(input.walkGates - before.walkGates, input.gateWidths?.walk, TYPED_WALK_GATE_FT) + feet(input.dblGates - before.dblGates, input.gateWidths?.dbl, TYPED_DBL_GATE_FT)
+}
+
+/**
+ * A run list with its gates' openings closed, each way it can be read: a run
+ * that changed gets the opening's feet back, with the pieces a gate cut it
+ * into put back together. Fence added or taken out stays as it is now. No run
+ * of the job changed: the gate is in fence that is new or was left alone, so
+ * no line post went.
+ */
+function openingsClosed(now: QuoteRun[], before: QuoteRun[], openingFt: number, gates: number): QuoteRun[][] {
   const left = before.filter(r => r.ft > 0)
   const changed = now.filter(r => {
     if (!(r.ft > 0)) return false
@@ -121,10 +137,13 @@ function openingsClosed(now: QuoteRun[], before: QuoteRun[], openingFt: number):
     if (i >= 0) left.splice(i, 1)
     return i < 0
   })
-  if (!changed.length) return now
-  const pieces = changed.slice(0, Math.max(1, changed.length - left.length + 1))
+  if (!changed.length || !left.length) return [now]
   const same = now.filter(r => !changed.includes(r))
-  return [...same, { ...pieces[0], ft: pieces.reduce((t, r) => t + r.ft, openingFt) }, ...changed.slice(pieces.length)]
+  const pieces = Math.min(gates, Math.max(0, changed.length - left.length)) + 1
+  return Array.from({ length: changed.length - pieces + 1 }, (_, i) => {
+    const cut = changed.slice(i, i + pieces)
+    return [...same, { ...cut[0], ft: cut.reduce((t, r) => t + r.ft, openingFt) }, ...changed.slice(0, i), ...changed.slice(i + pieces)]
+  })
 }
 
 /** The quote's input as a change order prices it. */
