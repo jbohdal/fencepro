@@ -25,6 +25,10 @@ import 'dotenv/config'
 import { liveDatabaseMisuse, LIVE_DATABASE_NAME } from '../src/server/lib/liveGuard.js'
 import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
 
+const flags = process.argv.slice(2)
+const strange = flags.filter((a, i) => !['--apply', '--live', '--skip-job'].includes(a) && flags[i - 1] !== '--skip-job')
+if (strange.length) { console.error(`Not understood: ${strange.join(' ')}. Nothing was changed.`); process.exit(2) }
+
 const APPLY = process.argv.includes('--apply')
 if (APPLY) assertLiveWriteAllowed('sales-orders-backfill.ts')
 const dbUrl = process.env.DATABASE_URL || ''
@@ -56,6 +60,7 @@ async function main() {
   }
   const states = await prisma.businessState.findMany({ select: { accountId: true, pendingOrders: true } })
   let changes = 0
+  let failed = 0
   for (const st of states) {
     const accountId = st.accountId
     const orders = (Array.isArray(st.pendingOrders) ? st.pendingOrders : []) as any[]
@@ -86,7 +91,11 @@ async function main() {
         console.log(`  becomes: pending "${now.quoteName}", from ${now.source}, ${now.items.length} parts, ${usd(now.totalCostCents)}`)
         for (const i of now.items) console.log(`    ${i.requiredQuantity} x ${i.itemName}`)
       }
-      if (APPLY) console.log(`  done: ${await syncSalesOrder(accountId, quoteId)}`)
+      if (APPLY) {
+        const done = await syncSalesOrder(accountId, quoteId)
+        console.log(`  done: ${done}`)
+        if (!done) { failed++; console.log('  NOT DONE: this job was not changed') }
+      }
     }
     // Pending orders whose quote has no open job: listed for the office, not changed.
     for (const o of orders) {
@@ -94,7 +103,7 @@ async function main() {
       console.log(`\n${o.customerName}: pending "${o.quoteName}" has no open job for its quote (${o.quoteId}); left as it is`)
     }
   }
-  console.log(`\n${changes} job${changes === 1 ? '' : 's'} ${APPLY ? 'brought up to date' : 'would change'}.`)
+  console.log(`\n${changes - failed} job${changes - failed === 1 ? '' : 's'} ${APPLY ? 'brought up to date' : 'would change'}.${failed ? ` ${failed} NOT DONE.` : ''}`)
   await prisma.$disconnect()
 }
 
