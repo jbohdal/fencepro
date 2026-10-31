@@ -31,7 +31,8 @@ const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.E2E_SHOTS || process.env.SHOTS || ''
 const PHOTO = process.env.MEDIA_PHOTO || ''
 const CDP = process.env.CDP_URL || ''
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
+if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 

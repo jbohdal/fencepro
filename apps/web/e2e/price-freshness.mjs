@@ -17,7 +17,8 @@ const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
-if (!/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
+if (!devLocal(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
 const check = (name, ok, detail = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`) }

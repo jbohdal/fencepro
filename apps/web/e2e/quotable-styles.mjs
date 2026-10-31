@@ -14,7 +14,8 @@ import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', WIDGET = process.env.EZ_QUOTE_WIDGET_TOKEN || '', SHOTS = process.env.SHOTS || ''
-if (!/localhost:4001/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
+if (!devLocal(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!TOKEN || !WIDGET) { console.error('Set E2E_ACCESS_TOKEN and EZ_QUOTE_WIDGET_TOKEN.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []

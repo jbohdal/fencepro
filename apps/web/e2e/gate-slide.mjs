@@ -32,7 +32,8 @@ const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.SHOTS || ''
 const CDP = process.env.CDP_URL || ''
 const ENGINE = CDP ? 'android' : process.env.BROWSER === 'chromium' ? 'chromium' : 'webkit'
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+const devLocal = u => /^http:\/\/localhost:\d+\/?$/.test(u) && !/:4000\b/.test(u)
+if (!devLocal(APP) || !devLocal(API)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN.'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 
