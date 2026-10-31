@@ -89,7 +89,6 @@ export function initInventory(): Promise<void> {
     invCache = next
     rememberCosts()
     invFlusher.loaded(next, version)
-    loadedPriced = JSON.parse(JSON.stringify({ items: next.items, kits: next.kits }))
     notePricingPart('inventory', r.part)
     invHydrated = true
     invEmit()
@@ -114,7 +113,6 @@ export async function refreshInventory(): Promise<void> {
   costIndexFor = null
   rememberCosts()
   invFlusher.loaded(invCache, version)
-  loadedPriced = JSON.parse(JSON.stringify({ items: invCache.items, kits: invCache.kits }))
   notePricingPart('inventory', r.part)
   invEmit()
 }
@@ -123,18 +121,17 @@ export async function refreshInventory(): Promise<void> {
  * Only the parts' prices and the kits, read again while other Inventory changes made here are still waiting (or
  * cannot go yet): the server's copy, with the changes made here put on top of it (broken list #58).
  */
-let loadedPriced: { items: any[]; kits: any[] } | null = null
 async function refreshPricedParts(): Promise<void> {
   const r = await invCall<InventoryStateBlob>('GET')
   if (!r.ok || !r.data) return
   const server = pickInventory(r.data)
-  const was = loadedPriced ?? { items: invCache.items, kits: invCache.kits }
+  const was = invFlusher.base()
   invCache = {
     ...invCache,
     items: merge3(was.items, invCache.items, server.items).merged,
     kits: merge3(was.kits, invCache.kits, server.kits).merged,
   }
-  loadedPriced = JSON.parse(JSON.stringify({ items: server.items, kits: server.kits }))
+  invFlusher.rebase({ items: server.items, kits: server.kits })
   costIndexFor = null
   rememberCosts()
   notePricingPart('inventory', r.part)

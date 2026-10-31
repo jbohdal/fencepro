@@ -13,13 +13,14 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 
 type Rec = { config: any; budget: any; version: number }
-const server: { rec: Rec; patches: Array<Record<string, unknown>>; another: Partial<Rec> | null } = { rec: { config: {}, budget: {}, version: 1 }, patches: [], another: null }
+const server: { rec: Rec; patches: Array<Record<string, unknown>>; down: boolean } = { rec: { config: {}, budget: {}, version: 1 }, patches: [], down: false }
 const answer = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body })
 
 vi.mock('../../web/src/crmAuth', () => ({
   isSignedIn: () => true,
   fetchWithAuth: async (_url: string, init: { method: string; body?: string }) => {
     if (init.method === 'GET') return answer(200, { success: true, data: { ...server.rec } })
+    if (server.down) throw new Error('no signal')
     const { baseVersion, ...patch } = JSON.parse(init.body ?? '{}')
     if (baseVersion !== server.rec.version) return answer(409, { code: 'STALE_VERSION', data: { ...server.rec }, version: server.rec.version })
     server.patches.push(patch)
@@ -28,14 +29,20 @@ vi.mock('../../web/src/crmAuth', () => ({
   },
 }))
 
+const other = (patch: Partial<Rec>) => { server.rec = { ...server.rec, ...patch, version: server.rec.version + 1 } }
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+
 async function store() {
   vi.resetModules()
   const s = await import('../../web/src/businessStateStore')
   const outbox = await import('../../web/src/outbox')
+  const prices = await import('../../web/src/pricingFreshness')
   const kept = new Map<string, any>()
   await outbox.startOutbox('u1', { storage: { all: async () => [...kept.values()], put: async (o: any) => { kept.set(o.id, o) }, remove: async (id: string) => { kept.delete(id) } } })
   await s.initBusinessState()
-  return s
+  /** The phone's normal price check, after the server's prices moved. */
+  const readPrices = () => prices.checkPricing(async () => ({ stamp: 's', business: `p${server.rec.version}`, inventory: 'i', tiers: 't' }))
+  return Object.assign(s, { readPrices })
 }
 
 beforeEach(() => {
@@ -43,6 +50,56 @@ beforeEach(() => {
   vi.stubGlobal('document', { addEventListener: () => {}, visibilityState: 'visible' })
   server.rec = { config: { overheadPct: 30 }, budget: { rent: 100 }, version: 1 }
   server.patches = []
+  server.down = false
+})
+
+describe('Settings changed on another device, a change waiting on this phone', () => {
+  // The phone cannot send; the other device saves; the phone reads prices; the other device saves again; signal back.
+  async function aroundAPriceRead(first: Partial<Rec>, second: Partial<Rec>, mine?: () => void) {
+    const s = await store()
+    server.down = true
+    s.setBusinessField('bundles', [{ id: 'b' }] as any)
+    mine?.()
+    await wait(400)
+    other(first)
+    await s.readPrices()
+    other(second)
+    server.down = false
+    expect(await s.whenBusinessStateSaved(30_000)).toBe(true)
+    return s
+  }
+
+  test('saved twice: the newest stays', async () => {
+    const s = await aroundAPriceRead({ config: { overheadPct: 35 } }, { config: { overheadPct: 40 } })
+    expect(server.rec.config.overheadPct).toBe(40)
+    expect(s.getBusinessField('config').overheadPct).toBe(40)
+    expect(server.patches.flatMap(p => Object.keys(p))).not.toContain('config')
+  }, 40_000)
+
+  test('saved and put back: stays put back', async () => {
+    await aroundAPriceRead({ config: { overheadPct: 35 } }, { config: { overheadPct: 30 } })
+    expect(server.rec.config.overheadPct).toBe(30)
+  }, 40_000)
+
+  test('a fence style added then removed there does not come back', async () => {
+    server.rec.config = { fenceStyles: [{ id: 'a' }] }
+    await aroundAPriceRead({ config: { fenceStyles: [{ id: 'a' }, { id: 'semi' }] } }, { config: { fenceStyles: [{ id: 'a' }] } })
+    expect(server.rec.config.fenceStyles.map((x: any) => x.id)).toEqual(['a'])
+  }, 40_000)
+
+  test('a Settings change waiting here and theirs both stay', async () => {
+    server.rec.config = { overheadPct: 30, other: 1 }
+    const s = await store()
+    server.down = true
+    s.setBusinessField('config', { overheadPct: 31, other: 1 })
+    await wait(400)
+    other({ config: { overheadPct: 30, other: 2 } })
+    await s.readPrices()
+    other({ config: { overheadPct: 30, other: 3 } })
+    server.down = false
+    expect(await s.whenBusinessStateSaved(30_000)).toBe(true)
+    expect(server.rec.config).toEqual({ overheadPct: 31, other: 3 })
+  }, 40_000)
 })
 
 describe('Settings put back the way they were', () => {

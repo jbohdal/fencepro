@@ -63,13 +63,11 @@ const DEFAULT: BusinessFields = {
 
 let cache: BusinessFields = { ...DEFAULT }
 /**
- * The price-bearing parts (Settings and the budget) as the server last handed them out (pricingFreshness.ts). They
- * are read again on their own when prices change, even while other changes made here are still waiting to go, so a
- * change that cannot go yet never keeps a quote on old prices (broken list #58).
+ * The price-bearing parts (Settings and the budget, pricingFreshness.ts). They are read again on their own when
+ * prices change, even while other changes made here are still waiting to go, so a change that cannot go yet never
+ * keeps a quote on old prices (broken list #58).
  */
 const PRICE_FIELDS = ['config', 'budget'] as const
-let loadedPrice: Pick<BusinessFields, 'config' | 'budget'> = { config: {}, budget: {} }
-const notePriceFields = (b: BusinessFields) => { loadedPrice = JSON.parse(JSON.stringify({ config: b.config, budget: b.budget })) }
 let initPromise: Promise<void> | null = null
 let hydrated = false
 
@@ -147,25 +145,15 @@ const flusher = createVersionedFlusher<BusinessFields>({
     if (serverVersionOf('business') > version) {
       const r = await call<BusinessFields>('GET')
       const v = typeof (r.data as any)?.version === 'number' ? (r.data as any).version : -1
-      if (r.ok && r.data && v > version) {
-        const server = pickBusiness(r.data)
-        notePriceFields(server)
-        return { status: 'stale', server, version: v }
-      }
+      if (r.ok && r.data && v > version) return { status: 'stale', server: pickBusiness(r.data), version: v }
     }
     const patch: Record<string, unknown> = {}
     for (const k of Object.keys(DEFAULT) as (keyof BusinessFields)[]) {
       // A part not read here is never sent: the empty copy would replace the saved one.
       if (LAZY.includes(k) && !loadedLazy.has(k)) continue
-      // Settings or the budget taken from the server on their own (prices changed) are not a change made here.
-      if ((PRICE_FIELDS as readonly string[]).includes(k) && deepEqual(state[k], loadedPrice[k as 'config' | 'budget'])) continue
       if (!deepEqual(state[k], base[k])) patch[k] = state[k]
     }
-    const r = await versionedSave(stateUrl(), 'PATCH', patch, version, pickBusiness)
-    // The server's copy moved with this answer: a change put back the way it was read is a change made here, and goes.
-    if ('server' in r && r.server) notePriceFields(r.server)
-    else if (r.status === 'saved') for (const k of PRICE_FIELDS) if (k in patch) loadedPrice = { ...loadedPrice, [k]: JSON.parse(JSON.stringify(state[k])) }
-    return r
+    return versionedSave(stateUrl(), 'PATCH', patch, version, pickBusiness)
   },
 })
 function scheduleFlush() { flusher.schedule() }
@@ -182,7 +170,6 @@ export function initBusinessState(): Promise<void> {
     const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
     cache = next
     flusher.loaded(cache, version)
-    notePriceFields(next)
     notePricingPart('business', r.part)
     hydrated = true
     emit()
@@ -208,7 +195,6 @@ export async function refreshBusinessState(): Promise<void> {
   const version = typeof (r.data as any).version === 'number' ? (r.data as any).version : 0
   cache = pickBusiness(r.data)
   flusher.loaded(cache, version)
-  notePriceFields(cache)
   notePricingPart('business', r.part)
   emit()
 }
@@ -221,10 +207,11 @@ async function refreshPriceFields(): Promise<void> {
   const r = await call<BusinessFields>('GET')
   if (!r.ok || !r.data) return
   const server = pickBusiness(r.data)
+  const base = flusher.base()
   const next = { ...cache }
-  for (const k of PRICE_FIELDS) next[k] = merge3(loadedPrice[k], cache[k], server[k]).merged
+  for (const k of PRICE_FIELDS) next[k] = merge3(base[k], cache[k], server[k]).merged
   cache = next
-  notePriceFields(server)
+  flusher.rebase({ config: server.config, budget: server.budget })
   notePricingPart('business', r.part)
   emit()
 }

@@ -21,6 +21,7 @@ import WalkthroughSettings from './WalkthroughSettings'
 import WarrantySettings from './WarrantySettings'
 import VoiceSettings from './VoiceSettings'
 import { toast } from './toast'
+import { merge3 } from './merge3'
 import { useNav, useLeaveGuard, useLeaveWarning, navigate, goBack, openedFrom } from './nav'
 import { SettingsPageSaveContext, type PageSave } from './settingsPageSave'
 import { SETTINGS_GROUPS, settingsPage, searchSettings, type SettingsTab, type SettingsHit } from './settingsMenu'
@@ -600,10 +601,12 @@ export default function AdminSettingsPage() {
 
   /** Save the shared settings (or `next`: a change Settings → Fence styles saves at once, with the page's other changes). */
   function saveShared(next?: AppConfig): boolean {
-    const config_ = next ?? config
     try {
-      // The Appointments and Messages tabs save on their own; keep what they saved.
-      saveConfig({ ...config_, appointments: getConfig().appointments, appointmentMessages: getConfig().appointmentMessages })
+      // Only what was changed on this page goes, on top of the newest Settings: a change another phone or computer
+      // saved while this page sat open stays. The Appointments and Messages tabs save on their own; keep what they saved.
+      const latest = getConfig()
+      const config_ = merge3(savedConfig, next ?? config, latest).merged
+      saveConfig({ ...config_, appointments: latest.appointments, appointmentMessages: latest.appointmentMessages })
       // Read back: plain names and what the choice tree says are worked out on read.
       const back = getConfig()
       setConfig(back)
