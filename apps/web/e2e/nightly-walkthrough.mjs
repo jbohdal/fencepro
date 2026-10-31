@@ -396,6 +396,8 @@ async function officeSchedules(o, jobId) {
   await card.waitFor({ timeout: 40000 })
   const month = TODAY.slice(0, 7)
   for (let i = 0; i < 3 && (await page.locator('[data-month]').getAttribute('data-month').catch(() => month)) !== month; i++) { await page.locator('[data-month-prev]').click().catch(() => {}); await sleep(200) }
+  // The calendar shows crew days only; a day off has no square until "Show days off" is ticked (a Friday to Sunday night).
+  if (!(await page.locator(`td[data-day="${day}"]`).count())) await page.locator('[data-show-days-off]').check()
   await card.dragTo(page.locator(`td[data-day="${day}"]`))
   const dlg = page.locator(`[data-schedule-install="${jobId}"]`)
   await dlg.locator('[data-si-save]').waitFor({ timeout: 15000 })

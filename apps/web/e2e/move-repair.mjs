@@ -267,9 +267,10 @@ try {
   await rp.close()
 
   // ── 4. A leaning post: the minimum ──
-  // Live's repair multipliers (copied to dev) price a leaning post above $350 ($449 on Oct 23), so the
-  // minimum is raised to $600 for this step only, to see it applied; put back to $350 right after.
-  await setMoveRepair(mr => ({ ...mr, minimumJobCents: 60000 }))
+  // Live's repair rates (copied to dev) price a leaning post above $350 ($449 on Oct 23; $646 since the sub is paid per
+  // foot times the panel width, the Oct 30 sub unit rule, so the Oct 30 requotes rose the same way), so the
+  // minimum is raised for this step only, far above any one post, to see it applied; put back to $350 right after.
+  await setMoveRepair(mr => ({ ...mr, minimumJobCents: 500000 }))
   await home(); await newQuote()
   await b.locator('[data-step="style"]').click(); await sleep(300)
   await b.locator('[data-job-type-option="repair"]').click()
@@ -278,27 +279,25 @@ try {
   await b.locator('[data-repair-starter-add]').click(); await sleep(200)
   await b.locator('[data-step="price"]').click(); await sleep(500)
   const leanText = await b.locator('[data-work-breakdown]').textContent().catch(() => '')
-  check('Minimum: a leaning post prices at the $600.00 minimum', money(await b.locator('[data-quote-price]').textContent()) === 600, `${await b.locator('[data-quote-price]').textContent()} | ${leanText.slice(0, 300)}`)
+  check('Minimum: a leaning post prices at the $5,000.00 minimum', money(await b.locator('[data-quote-price]').textContent()) === 5000, `${await b.locator('[data-quote-price]').textContent()} | ${leanText.slice(0, 300)}`)
   check('Minimum: "Minimum job price applied" shows internally', await b.locator('[data-price-minimum]').count() === 1 && await b.locator('[data-minimum-applied]').count() === 1)
   await shot('dev-repair-4-minimum-applied', b.locator('[data-work-breakdown]'))
   await b.locator('[data-quote-close]').click(); await sleep(500)
   await setMoveRepair(mr => ({ ...mr, minimumJobCents: 35000 }))
 
   // ── 5. Wood ──
+  // Real wood parts from Inventory (Jonathan, Oct 30 2026: "wood kits of real parts"; only labor and repair rates
+  // are vinyl × Wood factor, moveRepair.test.ts and repairPostRates.db.test.ts). Before that wood was the vinyl job × 115%.
   await home(); await newQuote()
   await straight(100, false)
   await b.locator('[data-step="style"]').click(); await sleep(300)
-  await pickStyle('White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig')
-  await b.locator('[data-step="price"]').click(); await sleep(400)
-  const vinylPrice = money(await b.locator('[data-quote-price]').textContent())
-  await b.locator('[data-step="style"]').click(); await sleep(200)
-  await pickStyle('Wood Privacy, 6 ft tall, 6 ft panels, No dig')
+  await pickStyle('Wood Stockade, 6 ft tall, 8 ft panels, Dig set, PT Pine pickets')
   await b.locator('[data-step="price"]').click(); await sleep(400)
   const woodPrice = money(await b.locator('[data-quote-price]').textContent())
-  // Both prices are rounded down to the whole dollar (Oct 21 2026): the vinyl's dropped cents (under $1) × 1.15, and the wood's own.
-  check('Wood: a new 100 ft wood privacy fence is 115% of the same vinyl job (whole dollars, ± rounding)', woodPrice % 1 === 0 && vinylPrice % 1 === 0 && woodPrice - vinylPrice * 1.15 > -1.03 && woodPrice - vinylPrice * 1.15 < 1.18, `${woodPrice} vs ${vinylPrice} × 1.15 = ${(vinylPrice * 1.15).toFixed(2)}`)
-  const pull = (await b.locator('text=Pull sheet').locator('..').locator('..').textContent().catch(() => '')) || (await b.textContent())
-  check('Wood: the pull sheet names wood parts and carries the wood material line', /Wood, Picket/.test(pull) && /Wood material: White Vinyl Privacy/.test(pull))
+  check('Wood: a new 100 ft stockade fence has a whole dollar price', woodPrice > 0 && woodPrice % 1 === 0, String(woodPrice))
+  await b.locator('button:has-text("Show Pull Sheet")').click().catch(() => {}); await sleep(300)
+  const pull = await b.locator('h3:text-is("Pull Sheet")').locator('..').locator('..').textContent()
+  check('Wood: the pull sheet names wood parts, no vinyl parts', /Wood|Picket|Pine/.test(pull) && !/Vinyl/i.test(pull), pull.slice(0, 300))
   await shot('dev-wood-1-new-fence-quote', b.locator('[data-quote-price]'))
   await b.locator('[data-quote-close]').click(); await sleep(500)
 

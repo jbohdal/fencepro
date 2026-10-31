@@ -94,7 +94,7 @@ async function stub(ctx) {
 }
 async function signIn(ctx) {
   if (CDP) { const p0 = await ctx.newPage(); await p0.goto(APP); await p0.evaluate(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN); await p0.close() }
-  else await ctx.addInitScript(t => { localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
+  else await ctx.addInitScript(t => { if (location.protocol === 'about:') return; localStorage.setItem('crm_access_token', t); localStorage.setItem('crm_refresh_token', 'e2e') }, TOKEN)
 }
 
 try {
@@ -181,6 +181,10 @@ try {
   const base = await api(`/api/saved-quotes/${made.quote}`)
   check('saved as typed first (the price to keep)', base.finalPrice > 0 && base.sections > 0, `$${base.finalPrice}, ${base.sections} sections, runs ${base.runs}`)
 
+  // WebKit's page process dies on any reload or link out of the Quotes page after a save opened the quote's window
+  // there, in this Playwright build (docs/LATER_IDEAS.md, first bad 2c91b8f; the save is already on the server, and a
+  // fresh load or a link from the window does not do it). Going through about:blank starts a new process.
+  await page.goto('about:blank')
   await openQuote(page)
   const typedNow = await facts(page)
   check('no north arrow without the photo', await page.locator(`${svgSel} [data-plan-north]`).count() === 0)
@@ -281,6 +285,7 @@ try {
   check('the proposal drawing has the turned photo baked in', propSvg.includes(`data-photo-rotation="${lined}"`) && /href="data:image\/jpeg;base64,/.test(propSvg) && propSvg.length < 400_000, `${propSvg.length} chars`)
 
   // Reload: it opens at the same angle.
+  await page.goto('about:blank')
   await openQuote(page)
   await page.waitForSelector(`${svgSel} [data-plan-photo]`, { timeout: 30000 }); await sleep(500)
   check('reloaded: the photo is on at the saved angle', await angle(page) === lined, String(await angle(page)))

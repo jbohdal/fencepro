@@ -143,7 +143,10 @@ async function setup() {
 
 async function phone(browser) {
   const ctx = await browser.newContext({ ...devices['iPhone 13'] })
-  await signIn(ctx)
+  // Assigning the lead moved the visit to the Salesman (lead-assign visitsMoved): it is on her Today, not the owner's.
+  // On the owner's, "Complete" was some other visit of the day, and no quote opened.
+  const signedIn = await salesmanSignIn(ctx)
+  if (!signedIn.ok()) { check('phone: the Salesman signed in', false, String(signedIn.status())); await ctx.close(); return }
   const page = await ctx.newPage()
   const errors = watch(page)
   await page.goto(`${APP}/today`)
@@ -211,8 +214,13 @@ async function tiersMatch(browser, who, phoneSize) {
   await page.waitForFunction(() => document.querySelectorAll('[data-step-panel="price"] [data-tier] [data-tier-price]').length >= 3, null, { timeout: 30000 }).catch(() => {})
   await sleep(1500)
   const shown = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-step-panel="price"] [data-tier]')].map(e => [e.getAttribute('data-tier'), Math.round(Number((e.querySelector('[data-tier-price]')?.textContent || '').replace(/[^\d.]/g, '')) * 100)])))
+  // A tier that comes out as the same fence as an earlier one for this yard (Best at 6 ft when Better's cheapest
+  // width is 6 ft too) stays a card in the builder, marked "Same fence as ...", and the website leaves it out
+  // (widgetPricing.ts): every price the customer saw is on the draft, and any other card is such a twin.
+  const twins = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-step-panel="price"] [data-tier]')].map(e => [e.getAttribute('data-tier'), (e.querySelector('[data-tier-same]')?.textContent || '').match(/Same fence as (.+?) for this yard/)?.[1]?.toLowerCase() ?? null])))
   const keys = Object.keys(made.web)
-  check(`${who} (${phoneSize ? 'phone' : 'computer'}): the draft's Good, Better, Best are the website's prices`, keys.length === 3 && keys.every(k => shown[k] === made.web[k]), `website ${JSON.stringify(made.web)} quote ${JSON.stringify(shown)}`)
+  const extra = Object.keys(shown).filter(k => !(k in made.web))
+  check(`${who} (${phoneSize ? 'phone' : 'computer'}): the draft's Good, Better, Best are the website's prices`, keys.length >= 2 && keys.every(k => shown[k] === made.web[k]) && extra.every(k => twins[k] && shown[k] === shown[twins[k]]), `website ${JSON.stringify(made.web)} quote ${JSON.stringify(shown)} twins ${JSON.stringify(twins)}`)
   await shot(page, `${who}-${phoneSize ? 'phone' : 'computer'}-tiers`)
   await ctx.close()
 }
