@@ -285,7 +285,7 @@ async function overMap(screen, what, overlays, map = '.leaflet-container') {
 // ── Test data (one customer for media, payments and the portal) ──
 const stamp = Date.now().toString(36).slice(-6)
 const WHO = `iPhone Safari ${stamp}`
-const T = { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), jobId: null, email: `e2e-iphone-${stamp}@example.invalid`, sessions: [], tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'iphone-safari-')) }
+const T = { contactId: crypto.randomUUID(), cardId: crypto.randomUUID(), quoteId: crypto.randomUUID(), salesContactId: crypto.randomUUID(), salesQuoteId: crypto.randomUUID(), jobId: null, email: `e2e-iphone-${stamp}@example.invalid`, sessions: [], tmp: fs.mkdtempSync(path.join(os.tmpdir(), 'iphone-safari-')) }
 const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 let OWNER = process.env.E2E_ACCESS_TOKEN || ''
 let COOKIE = ''
@@ -304,8 +304,19 @@ async function makeSalesman() {
   const acc = await call('POST', '/api/crm-auth/accept-invite', { token: new URL(url).searchParams.get('token'), email, password }, {})
   const token = acc.json?.data?.accessToken
   const me = token ? await call('GET', '/api/crm-auth/me', undefined, { Authorization: `Bearer ${token}` }) : null
-  T.salesman = { email, password, id: me?.json?.data?.id ?? null }
+  T.salesman = { email, password, id: me?.json?.data?.id ?? null, token }
   return T.salesman
+}
+
+// A customer and a draft quote the Salesman made itself, the only kind a Salesman opens (Oct 28 2026 rule).
+async function salesmanOwn() {
+  const auth = { Authorization: `Bearer ${T.salesman.token}` }, name = `Sales ${WHO}`
+  const c = await call('POST', '/api/crm-contacts', { id: T.salesContactId, firstName: 'E2E', lastName: name, phone: '3525550194', email: `e2e-iphone-own-${stamp}@example.invalid`, serviceAddress: '14 Receipt Rd, Ocala, FL 34470', leadSource: 'Other', tags: ['Test'] }, auth)
+  const q = await call('POST', '/api/saved-quotes', {
+    id: T.salesQuoteId, crmContactId: T.salesContactId, customerName: `E2E ${name}`, customerPhone: '3525550194', customerAddress: '14 Receipt Rd, Ocala, FL 34470',
+    fenceStyle: "WV-ND 6'x8' Privacy", runs: [150], sections: 19, ends: 2, walkGates: 1, status: 'DRAFT', date: today, leadSource: 'Other',
+  }, auth)
+  await check("the Salesman's own customer and draft quote (dev API, its own login)", c.status < 300 && q.status < 300, `${c.status} ${q.status}`)
 }
 
 function devSession(args) {
@@ -494,16 +505,18 @@ async function payments() {
   const sched = `[data-payment-schedule="${T.jobId}"]`
   await until(() => D.exec(`return performance.getEntriesByType('resource').some(e => e.name.endsWith('/api/payments/receipt-numbers'))`), 15000)
   const dep = `${sched} [data-payment-received="deposit"]`
-  await check('job page: Payment received on the deposit ($4,457.14)', /\$4,457\.14/.test(await text(dep) || ''), await text(dep) || 'missing')
+  // Billing is in whole dollars (Oct 29 2026): the $8,914.27 job bills $8,914, half of it on the deposit.
+  await check('job page: Payment received on the deposit ($4,457)', /\$4,457\.00/.test(await text(dep) || ''), await text(dep) || 'missing')
   await D.tap(dep)
   await waitFor('[data-payment-sheet]', 10000)
-  await check('the payment form opens filled in with the amount due', (await D.exec(`return document.querySelector('[data-payment-sheet] [data-payment-amount]')?.value`)) === '4457.14')
+  const filled = await D.exec(`return document.querySelector('[data-payment-sheet] [data-payment-amount]')?.value`)
+  await check('the payment form opens filled in with the amount due', Number(filled) === 4457, String(filled))
   await D.tap('[data-payment-sheet] [data-payment-method="check"]')
   await D.type('[data-payment-sheet] [data-payment-check-number]', '1042')
   await D.tap('[data-payment-sheet] [data-payment-save]')
   const shown = await waitFor('[data-receipt-screen]', 15000)
   const amt = await text('[data-receipt-screen] [data-receipt-amount]')
-  await check('the receipt shows: amount, check number, balance', !!shown && amt === '$4,457.14' && /Check #1042/.test(await text('[data-receipt-screen] [data-receipt-method]') || '') && (await text('[data-receipt-screen] [data-receipt-balance]')) === '$4,457.13', `${amt} | ${await text('[data-receipt-screen] [data-receipt-method]')} | ${await text('[data-receipt-screen] [data-receipt-balance]')}`)
+  await check('the receipt shows: amount, check number, balance', !!shown && amt === '$4,457.00' && /Check #1042/.test(await text('[data-receipt-screen] [data-receipt-method]') || '') && (await text('[data-receipt-screen] [data-receipt-balance]')) === '$4,457.00', `${amt} | ${await text('[data-receipt-screen] [data-receipt-method]')} | ${await text('[data-receipt-screen] [data-receipt-balance]')}`)
   const saved = await until(async () => (await attr('[data-receipt-screen] [data-receipt-status]', 'data-receipt-status')) === 'saved', 30000)
   await check('the receipt says Saved', !!saved, await attr('[data-receipt-screen] [data-receipt-status]', 'data-receipt-status') || '')
   const rows = sql(`SELECT number || '|' || token FROM "Receipt" WHERE "jobId" = ${lit(T.jobId)}`).split('\n').filter(Boolean)
@@ -515,7 +528,7 @@ async function payments() {
   await D.clearCookies()
   await D.goto(`${APP}/p/r/${T.receiptToken}`)
   await waitFor('[data-receipt-amount]', 20000)
-  await check('the public receipt link opens with no sign in', (await attr('[data-receipt-amount]', 'data-receipt-amount')) === '445714' && (await attr('[data-receipt-number]', 'data-receipt-number')) === shownNo && !(await has('input[type="password"]')))
+  await check('the public receipt link opens with no sign in', (await attr('[data-receipt-amount]', 'data-receipt-amount')) === '445700' && (await attr('[data-receipt-number]', 'data-receipt-number')) === shownNo && !(await has('input[type="password"]')))
   const h = await D.exec('return document.scrollingElement.scrollWidth - innerWidth')
   await check('the public receipt fits the iPhone (no sideways scroll)', h <= 0, `${h}px`)
   // The page's own Download link (its CSP allows no fetch from the page, so the link is tapped).
@@ -559,7 +572,7 @@ async function portal() {
       await waitFor('[data-portal-receipt]', 15000)
       const href = await attr('[data-portal-receipt]', 'href')
       await check('Billing: the payment with its receipt link', !!href && href.endsWith(`/p/r/${T.receiptToken}`), href || 'no receipt link')
-      await check('Billing: the balance after the deposit ($4,457.13)', /\$4,457\.13/.test(pages[p][1]), pages[p][1].replace(/\s+/g, ' ').slice(0, 200))
+      await check('Billing: the balance after the deposit ($4,457)', /Balance\s+\$4,457(?![.,\d])/.test(pages[p][1]), pages[p][1].replace(/\s+/g, ' ').slice(0, 200))
     }
     if (p === 'documents') await check('Documents: the shared document and the receipt', pages[p][1].includes(`HOA approval ${stamp}`) && /receipt/i.test(pages[p][1]), pages[p][1].replace(/\s+/g, ' ').slice(0, 200))
   }
@@ -634,8 +647,8 @@ async function reloads() {
   const screens = who => [
     ['Today', '/today', '[data-today]'],
     ['Pipeline', '/pipeline', '[data-kanban-board]'],
-    ['a customer', `/customers/${T.contactId}`, '[data-customer-tab]'],
-    ['a quote', `/quotes?quote=${T.quoteId}`, '[data-quote-builder]'],
+    ['a customer', `/customers/${who === 'owner' ? T.contactId : T.salesContactId}`, '[data-customer-tab]'],
+    ['a quote', `/quotes?quote=${who === 'owner' ? T.quoteId : T.salesQuoteId}`, '[data-quote-builder]'],
     // A Salesman has no Schedule: the app shows its own "no access" words there, which must show as well.
     ['Schedule', '/schedule', who === 'owner' ? '[data-schedule-tabs]' : '[data-schedule-tabs], [data-no-access], main'],
   ]
@@ -659,6 +672,10 @@ async function reloads() {
       const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: arguments[0], password: arguments[1], cookie: true }) }).then(r => done(r.status), e => done(String(e)))`, [sales?.email ?? '', sales?.password ?? ''])
       await check('the Salesman signs in (a login of its own)', st === 200, `${st}${sales ? '' : ' (the login could not be made)'}`)
       if (st !== 200) continue
+      await salesmanOwn()
+      await D.goto(`${APP}/customers/${T.contactId}`)
+      const refused = await until(async () => /not one of yours/.test(await text('main') || await text('body') || ''), 30000)
+      await check("the Salesman is refused a customer that is not its own", !!refused)
     } else {
       // The owner signs in again first: the portal and home areas before this one end signed out (they clear the
       // cookies to show the sign in pages), so the owner's reloads all showed Sign In (Oct 27 2026 night run).
@@ -732,6 +749,13 @@ async function cleanup() {
       if ((await call('PATCH', '/api/pipeline', { upsert: [], remove: mine, baseVersion: pl.data.version })).status === 200) break
     }
   })
+  await step("the Salesman's customer and quote", async () => sql(`BEGIN;
+    DELETE FROM "CrmAuditLog" WHERE "entityId" IN (${lit(T.salesQuoteId)}, ${lit(T.salesContactId)});
+    DELETE FROM "AutomationEvent" WHERE "entityId" IN (${lit(T.salesQuoteId)}, ${lit(T.salesContactId)});
+    DELETE FROM "SavedQuote" WHERE id = ${lit(T.salesQuoteId)};
+    DELETE FROM "CrmContactNote" WHERE "crmContactId" = ${lit(T.salesContactId)};
+    DELETE FROM "CrmContact" WHERE id = ${lit(T.salesContactId)};
+    COMMIT;`))
   if (OWNER) await step('contact (API)', () => call('DELETE', `/api/crm-contacts/${T.contactId}`))
   await step('contact', async () => sql(`DELETE FROM "CrmContact" WHERE id = ${lit(T.contactId)}`))
   await step('sign ins', async () => {
@@ -745,7 +769,7 @@ async function cleanup() {
     if (COOKIE) sql(`DELETE FROM "CrmUserSession" WHERE "tokenHash" = ${lit('ck1:' + crypto.createHash('sha256').update(COOKIE).digest('hex'))}`)
   })
   fs.rmSync(T.tmp, { recursive: true, force: true })
-  const left = Number(sql(`SELECT (SELECT count(*) FROM "CrmContact" WHERE id = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedQuote" WHERE "crmContactId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedJob" WHERE id = ${jl}) + (SELECT count(*) FROM "Receipt" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "ContractPayment" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "MediaItem" WHERE "customerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "PortalAccount" WHERE "crmCustomerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "IntakeLead" WHERE name LIKE ${lit('E2E iPhone Quote ' + stamp)})`))
+  const left = Number(sql(`SELECT (SELECT count(*) FROM "CrmContact" WHERE id IN (${lit(T.contactId)}, ${lit(T.salesContactId)})) + (SELECT count(*) FROM "SavedQuote" WHERE id = ${lit(T.salesQuoteId)}) + (SELECT count(*) FROM "SavedQuote" WHERE "crmContactId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "SavedJob" WHERE id = ${jl}) + (SELECT count(*) FROM "Receipt" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "ContractPayment" WHERE "jobId" = ${jl}) + (SELECT count(*) FROM "MediaItem" WHERE "customerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "PortalAccount" WHERE "crmCustomerId" = ${lit(T.contactId)}) + (SELECT count(*) FROM "IntakeLead" WHERE name LIKE ${lit('E2E iPhone Quote ' + stamp)})`))
   const folder = fs.existsSync(path.join(PORTAL_DIR, 'uploads/portal', T.contactId))
   D = null // no screenshot for clean up
   await check('cleaned up (customer, card, quote, job, payments, receipt, media, portal login, documents, sign ins)', left === 0 && !folder, `${left} rows left, folder ${folder}`)
