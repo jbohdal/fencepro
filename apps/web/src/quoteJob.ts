@@ -20,6 +20,7 @@ import {
 } from './moveRepair'
 import { cleanOverrides, adjustedPrice, roundsToWholeDollar, subUnitOf, type QuotePricingOverrides } from './pricingEngine'
 import { isQuotable } from './styleAvailability'
+import { changeOrderPrice, type ChangeBase } from './changeOrderPricing'
 import type { AppConfig, FenceStyle } from './configStore'
 
 export interface QuoteJobRequest {
@@ -59,6 +60,8 @@ export interface QuoteJobRequest {
   keepStyle?: string | null
   /** The phone's word that a quote keeping its cents (sent or signed before the whole dollar rule) is unchanged: false once it is changed. The server decides from the saved quote (lib/quotePricing.ts). */
   keepCents?: boolean
+  /** A signed quote being changed: the work a change order starts from, so changePrice is priced too. Changes nothing else. */
+  changeBase?: ChangeBase | null
 }
 
 export interface QuoteJob {
@@ -71,6 +74,8 @@ export interface QuoteJob {
   repairCheck: (ReturnType<typeof newFenceBetter> & { newFenceCents: number | null; nf: QuoteCalc | null; runsFt: number[] }) | null
   /** A new fence lifted to the minimum job price. */
   newMin: boolean
+  /** With changeBase: the new version's change order price (dollars), for a login that sees prices only (changeOrderPricing.ts: none makes change orders today). Else null. */
+  changePrice: number | null
   totals: {
     manHours: number; materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number
     price: number; commission: number; grossMargin: number; gmPct: number
@@ -181,6 +186,10 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   const listPrice = work ? work.listCents / 100 : newMin ? minimum.listPrice : priced.listPrice
   const adjustmentCents = work ? work.adjustmentCents : newMin ? minimum.adjustmentCents : priced.adjustmentCents
   const adjustmentRefused = work ? work.adjustmentRefused : newMin ? minimum.adjustmentRefused : priced.adjustmentRefused
+  const changePrice = !req.changeBase || newMin ? null
+    : req.jobType === 'new' ? changeOrderPrice(calcInput, req.changeBase)
+      : req.jobType === 'move' && workCommon && moveIn ? changeOrderPrice(calcInput, req.changeBase, { common: workCommon, inputs: moveIn, line: newLine })
+        : null
   const totals = {
     manHours: work ? work.manHours : priced.manHours,
     materialCost: work ? work.materialCents / 100 : totalMaterialCost(calc.materials.items),
@@ -232,7 +241,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...adjustmentRecord(req.overrides, adjustmentCents),
   })
   return {
-    style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, totals,
+    style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, changePrice, totals,
     pullSheet: work ? work.pullSheet : calc.materials.items,
     tiers, compareRows, proposalOptions, ownTierKey: ownTier, twinTierKey: twinTier, pricing,
   }
@@ -272,7 +281,7 @@ export function quoteView(job: QuoteJob) {
     sections: c.sections, perRunSections: c.perRunSections, perRunRail: c.perRunRail,
     pullSheet: job.pullSheet.map(lineView),
     materialWarnings: c.materials.warnings,
-    price: job.totals.price, pricePerFoot: c.priced.pricePerFoot,
+    price: job.totals.price, pricePerFoot: c.priced.pricePerFoot, changePrice: job.changePrice,
     // The ± dollar adjustment (a price, not a cost): the list price, the amount applied, and a reduction refused for being under cost.
     listPrice: job.totals.listPrice, adjustmentCents: job.totals.adjustmentCents, adjustmentRefused: job.totals.adjustmentRefused, newFencePrice: c.priced.price, priceMethod: c.priced.priceMethod,
     manHours: job.totals.manHours,

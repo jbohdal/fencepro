@@ -39,6 +39,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
   const { default: prisma } = await import('../src/server/lib/prisma.js')
   const { default: savedJobs } = await import('../src/server/routes/saved-jobs.js')
   const { default: changeOrders } = await import('../src/server/routes/change-orders.js')
+  const { default: quotePricing } = await import('../src/server/routes/quote-pricing.js')
   const { default: payments } = await import('../src/server/routes/payments.js')
   const { default: pullSheets } = await import('../src/server/routes/pull-sheets.js')
   const { default: jobCosting } = await import('../src/server/routes/job-costing.js')
@@ -93,6 +94,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     app.use(express.json({ limit: '10mb' }))
     app.use('/api/saved-jobs', savedJobs)
     app.use('/api/change-orders', changeOrders)
+    app.use('/api/quote-pricing', quotePricing)
     app.use('/api/payments', payments)
     app.use('/api/pull-sheets', pullSheets)
     app.use('/api/job-costing', jobCosting)
@@ -134,6 +136,30 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     await prisma.crmContact.deleteMany({ where: { id: { in: made.contacts } } })
     await prisma.receiptNumberBlock.deleteMany({ where: { accountId, createdAt: { gte: new Date(Date.now() - 3600_000) } } })
     server?.close()
+  })
+
+
+  test('chain link by the foot (Oct 31 2026): the server\'s change price is by the foot, the work keeps whole rolls and its real cost', async () => {
+    const CL = "CL - 5' Galv"
+    const { quoteId, jobId } = await signedJob()
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { fenceStyle: CL, runs: [100], sections: 10, pricing: { overheadPct: 30 } } as any })
+    const req = { ...request(110, 0, CL), hasSalesman: false }
+    const changeBase = { feet: 100, runs: [{ ft: 100, rail: 'auto' }], ends: 2, walkGates: 0, dblGates: 0, drawn: null }
+    const plain = (await call(sales, 'POST', '/api/quote-pricing', { request: req, quoteId })).json.data
+    const view = (await call(sales, 'POST', '/api/quote-pricing', { request: { ...req, changeBase }, quoteId })).json.data
+    expect(plain.changePrice).toBeNull()
+    expect(view.changePrice).toBeLessThan(plain.price)
+    expect(view.price).toBe(plain.price)
+    expect(view.pullSheet).toEqual(plain.pullSheet)
+    // A phone sending changeBase with the work changes nothing the job keeps: whole rolls, the real cost.
+    const co = (await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Ten more feet', lines: [{ id: 'a', description: 'Add 10 ft of fence', amountCents: 20000 }], work: { request: { ...req, changeBase }, layout: { yard: null, runSections: [11] } }, verbalReason: 'Customer agreed on the phone', status: 'approved' })).json.data
+    expect(co.totalCents).toBe(20000)
+    const row = await prisma.changeOrder.findUnique({ where: { id: co.id } }) as any
+    expect(row.work.request.changeBase ?? null).toBeNull()
+    expect(row.work.pullSheet.find((l: any) => /Fabric/.test(l.item)).qty).toBe(3)
+    expect(row.costDelta.materialCents).toBeGreaterThan(10000)
+    expect((await prisma.savedQuote.findUnique({ where: { id: quoteId } }))!.finalPrice).toBe(6000)
+    expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.contractValue).toBe(6200)
   })
 
   test('from the yard drawing, +12 ft and a walk gate, signed in person: everything follows', async () => {

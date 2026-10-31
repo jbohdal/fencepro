@@ -380,9 +380,26 @@ export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
   const up = new Set(counts.exact ? [] : set.roundUp)
   return [...totals].map(([part, t]) => {
     const exact = Math.round(t.qty * 1e6) / 1e6
-    return { part, qty: up.has(part) ? Math.ceil(exact) : exact, fallbackCost: t.cost }
+    if (!up.has(part)) return { part, qty: exact, fallbackCost: t.cost }
+    const byFoot = fabricByFoot(set, part, counts)
+    return { part, qty: byFoot === null ? Math.ceil(exact) : Math.round((Math.ceil(Math.round((exact - byFoot) * 1e6) / 1e6) + byFoot) * 1e6) / 1e6, fallbackCost: t.cost }
   })
 }
+
+/**
+ * A change order's price (KitCounts.fabricFromFt): how much of a chain link
+ * fabric part moved by the foot since the job was sold, a credit negative.
+ * The rest stays in whole rolls. Null for every other part.
+ */
+function fabricByFoot(set: Pick<KitSet, 'kits'>, part: string, counts: KitCounts): number | null {
+  const from = counts.fabricFromFt
+  if (typeof from !== 'number' || !isFabricPart(part)) return null
+  const perFt = (set.kits.perFoot ?? []).find(p => p.part === part)?.qty
+  return perFt ? perFt * (counts.perFoot - from) : null
+}
+
+/** A chain link fabric roll in a kit or on a pull sheet. */
+export const isFabricPart = (part: string) => /\bfabric\b/i.test(part)
 
 /** Which piece price pays for each kind of kit on a job lot color (per foot and per job parts never are). */
 export const PIECE_OF_KIT: Record<KitKind, keyof StyleJobLot['covers'] | null> = {

@@ -412,3 +412,11 @@ Jonathan: "8 ft tall vinyl is underpriced, fix tonight. My piece prices cover on
 - Gate handles, 2 per gate leaf, go on every white and tan privacy style with a parts list.
 - Chain link hook ties: 9 / 10 / 11 per section at 4 / 5 / 6 ft. Commercial chain link keeps its own count for now.
 - Tees: corner post on chain link, aluminum and wood; line post on vinyl (route the third side on site).
+
+## Change orders: chain link fabric by the foot, 2 new gate posts (Jonathan, Oct 31 2026)
+
+"Chain link change orders: price fabric by the foot, not whole rolls." "Added gate: 2 new gate posts." On every way a change order is priced (web changeOrderPricing.ts; picked lines already did). Price only: the pull sheet, crew packet, Sales Order, a change order's stored work and its costDelta keep whole rolls and the real post count, so job costing shows what is really bought (a change order can bill less fabric than the whole roll the job buys).
+
+Left as today, not covered by the decision: taking a gate out (its posts and kit credit as before, with the fence the opening gets back priced by the foot); a gate moved or swapped (no net gate added); repair quotes (priced by section, not feet, so a chain link repair's fabric still rounds up per line); a move's damage allowance fabric. A run list does not say which feet a gate took: the line posts the opening itself drops stay priced (a changed run with the gate's pieces put back and the opening's own width returned, compared to now; a typed gate with no width is 4 ft walk, 8 ft double), the ones the fence taken out with it takes are credited, a gate in new fence or in fence left alone keeps none, and end posts typed with the gate count as its 2.
+
+Who uses which path: every login that makes change orders sees costs, a Salesman too, so new fence is priced on the step lines in the browser. The one price difference line is used today by moves (priced in the browser) and repairs. The server's changePrice is for a login that sees prices only; none makes change orders today.

@@ -15,12 +15,16 @@
  * their quotes), gets the changes as lines and one price difference line:
  * today's price of the new version minus the signed price.
  *
+ * Both price a change the way changeOrderPricing.ts does (Jonathan, Oct 31
+ * 2026): chain link fabric by the foot, 2 new posts for each gate added.
+ *
  * Every amount is whole dollars (Jonathan, Oct 21 2026): each step is priced
  * to the whole dollar, even on a quote signed with cents, and the one price
  * difference line is rounded down to the whole dollar (a credit to the larger
  * whole dollar), so the cents never go on the customer.
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
+import { changeBaseOf, changeOrderInput, gateOpeningFt, type ChangeBase, type ChangeNow } from './changeOrderPricing'
 import { wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
@@ -35,12 +39,11 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 // Priced from cost, never at a price set by hand: a hand set price is the same before and after
 // every step, so each line came out $0 and the change order could not be saved (seen Oct 23, 2026
 // on a signed quote with its price typed in). The step's difference is what the change costs today.
-const priceCents = (input: QuoteCalcInput) => priced(input).cents
 /** The step's price (cents) and its panels: in all, and on each run (per run rounding, never pooled). */
-const priced = (input: QuoteCalcInput): { cents: number; sections: number; perRun: number[] } => {
+const priced = (input: QuoteCalcInput, base: ChangeBase): { cents: number; sections: number; perRun: number[] } => {
   if (!input.style) return { cents: 0, sections: 0, perRun: [] }
   const { finalPrice, ...o } = input.overrides ?? {}; void finalPrice
-  const c = calculateQuote({ ...input, overrides: { ...o, wholeDollar: true } })
+  const c = calculateQuote({ ...changeOrderInput(input, base), overrides: { ...o, wholeDollar: true } })
   return { cents: Math.round(c.priced.price * 100), sections: c.sections, perRun: c.perRunSections }
 }
 const panels = (n: number) => `${n} panel${n === 1 ? '' : 's'}`
@@ -56,7 +59,7 @@ export interface DraftInput {
   signedOverrides: QuoteCalcInput['overrides']
   /** Every style (the signed one is looked up by name). */
   styles: Style[]
-  /** The price the quote builder shows now (dollars). */
+  /** The new version's change order price (dollars; changeOrderPricing.ts changeOrderPrice): the one price difference line is this minus the signed price. */
   priceNow: number
   /** Sections now. */
   sectionsNow: number
@@ -64,8 +67,8 @@ export interface DraftInput {
   simple: boolean
   /**
    * Gates put into sides of the drawing (a side that had no gate and has one now, same length): the
-   * sides' names and the feet of fence the new gates take. Without it, a walk gate takes 4 ft and a
-   * double gate 10 ft (yardLayout.ts GATE_WIDTH_IN).
+   * sides' names and the feet of fence the new gates take. Without it, the gates' own widths, else
+   * 4 ft for a walk gate and 8 ft for a double (changeOrderPricing.ts gateOpeningFt).
    */
   gatesIn?: { sides: string[]; openingFt: number } | null
   /**
@@ -75,6 +78,8 @@ export interface DraftInput {
    * "146 ft to 156 ft" stopped being true (round 3 recheck, Oct 26 2026).
    */
   sides?: string | null
+  /** The drawing as it is now, for its gates' posts (changeOrderPricing.ts changeBaseOf); null: a run list. */
+  now?: ChangeNow | null
 }
 
 /** What changed on the signed quote, as lines with amounts in cents. */
@@ -95,7 +100,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const gatesToo = cur.walkGates !== s.walkGates || cur.dblGates !== s.dblGates
   const walkIn = Math.max(0, cur.walkGates - s.walkGates), dblIn = Math.max(0, cur.dblGates - s.dblGates)
   const delta = Math.round((ftNow - ftWas) * 100) / 100
-  const openingFt = Math.round((d.gatesIn?.openingFt ?? walkIn * 4 + dblIn * 10) * 100) / 100
+  const openingFt = Math.round((d.gatesIn?.openingFt ?? gateOpeningFt(cur, s)) * 100) / 100
   // A gate put into a side (round 3, Oct 26 2026): "Remove 4 ft of fence, 1 panel more +$128" then "Add 1 walk gate
   // +$202" read as paying for fence taken away. When the fence taken out is just the new gates' opening, it is one
   // change: "Add 1 walk gate in the Back side (4 ft of fence becomes the gate)", the two price steps as one.
@@ -163,7 +168,8 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     tearOutSections: s.tearOutSections, tearOutGates: s.tearOutGates, extraLaborHrs: s.adjLaborHrs || 0, hasSalesman: !!s.hasSalesman,
     priceAdjust: s.priceAdjust || 0, overrides: d.signedOverrides,
   }
-  let was = priced(at)
+  const base = changeBaseOf(s, d.now)
+  let was = priced(at, base)
   // The one side whose length changed (same sides otherwise), for "still 7 panels on that side".
   const ftNowRuns = cur.runs.map(r => r.ft)
   const diffs = ftNowRuns.length === signedRuns.length ? ftNowRuns.map((f, i) => (f === signedRuns[i].ft ? -1 : i)).filter(i => i >= 0) : []
@@ -171,7 +177,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const lines: ChangeOrderLine[] = []
   for (const w of words) {
     at = w.step(at)
-    const now = priced(at)
+    const now = priced(at, base)
     const amount = now.cents - was.cents
     if (w.text === 'Other price changes' && !amount && !restChanged) { was = now; continue }
     lines.push({ id: newId(), description: w.runs ? runWords(w.text, was, now, amount, oneSide, !!d.sides) : w.text, amountCents: amount })

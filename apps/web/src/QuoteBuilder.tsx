@@ -74,6 +74,7 @@ import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../
 import { shapeOf, sideChanges, sideChangeWords } from '../../portal/src/server/lib/changeOrderMerge'
 import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
+import { changeBaseOf, changeOrderPrice, type ChangeNow } from './changeOrderPricing'
 import { SignedDocumentLinks } from './SignedDocuments'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import SalesmanPicker from './SalesmanPicker'
@@ -808,6 +809,9 @@ export default function QuoteBuilder({
   // The big price and the bottom bar show the customer's price on a signed quote, and on a sent one until its fence
   // changes (review Oct 27 2026: today's price under "Signed: the price is locked" read as the customer's).
   const customerPrice: number | null = signedQuote ? signedQuoteOf(init!).finalPrice : heldSaved ? init!.finalPrice : sentQuote && !fenceChanged ? init!.finalPrice : null
+  // A signed quote changed: the drawing now and what a change order starts from (the signed quote, so it holds across change orders).
+  const changeNow: ChangeNow | null = entry === 'layout' && yard ? { yard, nearIn: widthFt * 12, teeAs } : null
+  const changeBase = signedQuote ? changeBaseOf(signedQuoteOf(init!), changeNow) : null
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
@@ -818,6 +822,7 @@ export default function QuoteBuilder({
     move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
     tierSet: tierSet ?? null, tierPrefs, compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
     keepCents,
+    ...(changeBase && !internal ? { changeBase } : {}),
   }
   const { view: sv, pricing: svPricing, error: svError } = useServerQuoteView(!internal, priceRequest, init?.id)
   // Prices priced here are kept current (broken list #58): checked when the builder opens and every 30 seconds
@@ -1378,9 +1383,13 @@ export default function QuoteBuilder({
   function startChangeOrder(changedQuote?: SavedQuote) {
     const q = changedQuote ?? pending?.quote
     if (!init || !q) return
+    // The one price difference line: a change order's price of the new version. Today that is a move, here (a Salesman sees costs: step lines).
+    const priceNow = !internal ? sv?.changePrice ?? adjPrice
+      : jobType === 'move' && changeBase && workCommon ? changeOrderPrice(calcInput, changeBase, { common: workCommon, inputs: moveIn, line: newLine })
+        : adjPrice
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
-      priceNow: adjPrice, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
+      now: changeNow, priceNow, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
       sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard
@@ -1389,7 +1398,7 @@ export default function QuoteBuilder({
     })
     // A new fence: the new work goes with it (the server prices it and keeps it, so the pull sheet, packet,
     // site plan, crew days and job costing follow once it is approved).
-    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: priceRequest as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
+    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: { ...priceRequest, changeBase: undefined } as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
   }
 
   return (

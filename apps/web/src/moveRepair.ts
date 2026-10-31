@@ -34,7 +34,7 @@
 
 import { calculatePrice, resolveSubRate, subUnitOf, subUnitRateMissing, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
-import { kitSetFor, type KitPart, type KitSet } from './materialKits'
+import { kitSetFor, isFabricPart, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
 import { calculateQuote, type QuoteStyle } from './quoteCalc'
 import { woodPartName } from './wood'
@@ -374,6 +374,8 @@ export interface NewLine {
   ends: number
   walkGates: number
   dblGates: number
+  /** A change order's price only: line posts priced beyond the runs' own (changeOrderPricing.ts changeOrderPrice). */
+  extraLinePosts?: number
 }
 
 export interface WorkCommon {
@@ -386,6 +388,8 @@ export interface WorkCommon {
   hasSalesman: boolean
   priceAdjust: number
   extraLaborHrs: number
+  /** A change order's price only: the footage the move was sold at, so the extra length's chain link fabric moves by the foot from there. */
+  fabricFromFt?: number | null
 }
 
 export interface WorkResult {
@@ -437,7 +441,7 @@ export interface WorkResult {
 function newLineCounts(line: NewLine, width: number) {
   const perRun = line.runs.map(ft => sectionsForRun(ft, width))
   const sections = perRun.reduce((t, n) => t + n, 0)
-  const linePosts = calculateLinePostsPerRun(perRun.filter(n => n > 0)).reduce((t, n) => t + n, 0)
+  const linePosts = calculateLinePostsPerRun(perRun.filter(n => n > 0)).reduce((t, n) => t + n, 0) + (line.extraLinePosts ?? 0)
   return { perRun, sections, linePosts, footage: line.runs.reduce((t, n) => t + (n > 0 ? n : 0), 0) }
 }
 
@@ -577,11 +581,16 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
     addGateOnce(gateBag, kit, newWalk, newDbl)
     materialLine(acc, kit, 'newGates', 'New gates (whole gate kit)', gateBag, `${repl.walk + repl.dbl} replaced${addWalk + addDbl ? `, ${addWalk + addDbl} added on the new line` : ''}`)
     // g. Extra sections on a longer line: like a new fence.
-    if (extra > 0) {
+    // On a change order's price, chain link fabric: the rolls the extra length was sold with, then by the foot, both ways.
+    const soldExtraFt = chain && typeof c.fabricFromFt === 'number' ? Math.max(0, c.fabricFromFt - m.oldFt) : null
+    if (extra > 0 || soldExtraFt) {
+      const extraFt = Math.max(0, nw.footage - m.oldFt)
       const b: Bag = new Map()
       addTo(b, kit.kits.section, extra)
-      addTo(b, kit.kits.perFoot, Math.max(0, nw.footage - m.oldFt))
-      materialLine(acc, kit, 'extra', `Extra length: ${extra} new sections`, b, `${extra} sections × the section kit${kit.kits.perFoot ? ` + ${Math.max(0, nw.footage - m.oldFt)} ft of per foot parts` : ''}`)
+      addTo(b, kit.kits.perFoot, extraFt, extra > 0 ? undefined : isFabricPart)
+      const byFoot = new Set<string>()
+      if (soldExtraFt !== null) for (const p of kit.kits.perFoot ?? []) if (isFabricPart(p.part)) { byFoot.add(p.part); b.set(p.part, Math.ceil(Math.round(p.qty * soldExtraFt * 1e6) / 1e6) + p.qty * (extraFt - soldExtraFt)) }
+      materialLine(acc, byFoot.size ? { ...kit, roundUp: kit.roundUp.filter(p => !byFoot.has(p)) } : kit, 'extra', `Extra length: ${extra} new sections`, b, `${extra} sections × the section kit${kit.kits.perFoot ? ` + ${Math.max(0, nw.footage - m.oldFt)} ft of per foot parts` : ''}`)
     }
   }
   // d. Reinstall at the new fence install rate; extra sections and added gates the same.

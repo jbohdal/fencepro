@@ -83,6 +83,12 @@ export interface QuoteCalcInput {
    * no section (a gate on its own).
    */
   addedTo?: AddedTo | null
+  /**
+   * A change order's price only (changeOrderPricing.ts changeOrderInput): the
+   * footage the job was sold at, so chain link fabric moves by the foot from
+   * there. Never set for a quote's price or its pull sheet.
+   */
+  fabricFromFt?: number | null
 }
 
 export interface QuoteCalc {
@@ -155,6 +161,9 @@ export function makeRunCost(
   }
 }
 
+/** Chain link and commercial chain link: the styles with fabric rolls (moveRepair.ts counts them the same way). */
+export const isChainLink = (style: Pick<QuoteStyle, 'category'>) => style.category === 'Chainlink' || style.category === 'Commercial'
+
 export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
   const { style } = input
   if (style?.woodBase) return woodQuote(input, style, style.woodBase)
@@ -195,6 +204,7 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
         })
       : calculateMaterialsDetailed({
           fenceStyle: style.name, runs: filled.map(r => r.ft), ...jobParts,
+          ...(typeof input.fabricFromFt === 'number' && isChainLink(style) ? { fabricFromFt: input.fabricFromFt } : {}),
           ...(style.jobLot ? { jobLot: style.jobLot } : {}),
           ...(input.gateWidths ? { gateWidths: input.gateWidths } : {}),
           // A style made in Settings: its kits are counted at its own section width (old styles: by their code, as always).

@@ -102,7 +102,8 @@ export const workChangeable = (q: { work?: unknown } | null | undefined) => !(is
 /** Price a request on the server, with the signed quote's cost choices (its sub rate, labor, Overhead %). */
 async function price(accountId: string, body: Json, signed: Json) {
   const m = await pricingModule() as Json
-  const { req, overheadPct } = requestFrom({ ...body, keepCents: false }, signed, m.importedOldPrice, m.keepsCents)
+  // The real work and its real costs, never a change order's price (web changeOrderPricing.ts): changeBase stays out.
+  const { req, overheadPct } = requestFrom({ ...body, keepCents: false, changeBase: null }, signed, m.importedOldPrice, m.keepsCents)
   const job = m.quoteJobFor(await dataFor(accountId), req, overheadPct)
   return { req, job }
 }
