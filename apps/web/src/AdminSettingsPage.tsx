@@ -605,14 +605,15 @@ export default function AdminSettingsPage() {
       // Only what was changed on this page goes, on top of the newest Settings: a change another phone or computer
       // saved while this page sat open stays. The Appointments and Messages tabs save on their own; keep what they saved.
       const latest = getConfig()
-      const config_ = merge3(savedConfig, next ?? config, latest).merged
+      const { merged: config_, problems } = merge3(savedConfig, next ?? config, latest)
       saveConfig({ ...config_, appointments: latest.appointments, appointmentMessages: latest.appointmentMessages })
       // Read back: plain names and what the choice tree says are worked out on read.
       const back = getConfig()
       setConfig(back)
       setSavedConfig(back)
       try { window.dispatchEvent(new CustomEvent(SETTINGS_UPDATED_EVENT, { detail: config_ })) } catch {}
-      toast.success('Settings saved', 'Live pages will update immediately.')
+      if (problems.length > 0) toast.error('Settings: not everything could be saved', problems.join(' '))
+      else toast.success('Settings saved', 'Live pages will update immediately.')
       return true
     } catch (err: any) {
       toast.error('Could not save settings', err?.message || 'Unknown error.')

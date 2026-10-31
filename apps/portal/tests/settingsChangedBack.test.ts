@@ -32,13 +32,16 @@ vi.mock('../../web/src/crmAuth', () => ({
 const other = (patch: Partial<Rec>) => { server.rec = { ...server.rec, ...patch, version: server.rec.version + 1 } }
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-async function store() {
+const kept = new Map<string, string>()
+
+async function store(reopened = false) {
   vi.resetModules()
+  if (!reopened) kept.clear()
   const s = await import('../../web/src/businessStateStore')
   const outbox = await import('../../web/src/outbox')
   const prices = await import('../../web/src/pricingFreshness')
-  const kept = new Map<string, any>()
-  await outbox.startOutbox('u1', { storage: { all: async () => [...kept.values()], put: async (o: any) => { kept.set(o.id, o) }, remove: async (id: string) => { kept.delete(id) } } })
+  // Kept as a real copy, the way the phone's storage keeps it.
+  await outbox.startOutbox('u1', { storage: { all: async () => [...kept.values()].map(o => JSON.parse(o)), put: async (o: any) => { kept.set(o.id, JSON.stringify(o)) }, remove: async (id: string) => { kept.delete(id) } } })
   await s.initBusinessState()
   /** The phone's normal price check, after the server's prices moved. */
   const readPrices = () => prices.checkPricing(async () => ({ stamp: 's', business: `p${server.rec.version}`, inventory: 'i', tiers: 't' }))
@@ -85,6 +88,37 @@ describe('Settings changed on another device, a change waiting on this phone', (
     server.rec.config = { fenceStyles: [{ id: 'a' }] }
     await aroundAPriceRead({ config: { fenceStyles: [{ id: 'a' }, { id: 'semi' }] } }, { config: { fenceStyles: [{ id: 'a' }] } })
     expect(server.rec.config.fenceStyles.map((x: any) => x.id)).toEqual(['a'])
+  }, 40_000)
+
+  test('the app reopened with a change still waiting: what was read here is not sent back', async () => {
+    const s = await store()
+    server.down = true
+    s.setBusinessField('bundles', [{ id: 'b' }] as any)
+    await wait(400)
+    other({ config: { overheadPct: 35 }, budget: { rent: 500 } })
+    await s.readPrices()
+    await wait(1_500)                                  // one more try fails: what waits is kept again on the phone
+    server.down = false
+    const again = await store(true)
+    expect(await again.whenBusinessStateSaved(30_000)).toBe(true)
+    await wait(1_000)
+    expect(server.rec).toMatchObject({ config: { overheadPct: 35 }, budget: { rent: 500 } })
+    expect(server.patches.flatMap(p => Object.keys(p))).not.toContain('config')
+  }, 40_000)
+
+  test('the app reopened: a Settings change made here and theirs both stay', async () => {
+    server.rec.config = { overheadPct: 30, other: 1 }
+    const s = await store()
+    server.down = true
+    s.setBusinessField('config', { overheadPct: 31, other: 1 })
+    await wait(400)
+    other({ config: { overheadPct: 30, other: 2 } })
+    await s.readPrices()
+    await wait(1_500)
+    server.down = false
+    const again = await store(true)
+    expect(await again.whenBusinessStateSaved(30_000)).toBe(true)
+    expect(server.rec.config).toEqual({ overheadPct: 31, other: 2 })
   }, 40_000)
 
   test('a Settings change waiting here and theirs both stay', async () => {

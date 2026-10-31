@@ -195,9 +195,14 @@ export function createVersionedFlusher<T>(opts: {
     rebase: parts => {
       doc.rebase(parts)
       serverCopy = { ...(serverCopy as T), ...clone(parts) }
-      // Saved again later with this base: kept on the phone, it stays right after a reload.
+      // What waits on the phone moves with it, its base and its copy together: after a reload, what was read here is not a change made here.
       const waiting = pendingFor(key)[0]
-      if (waiting) { const p = waiting.payload as DocSave; p.base = { ...(p.base as object), ...clone(parts) } }
+      if (waiting) {
+        const p = waiting.payload as DocSave
+        const now = clone(opts.get()) as Record<string, unknown>
+        p.base = { ...(p.base as object), ...clone(parts) }
+        p.mine = { ...(p.mine as object), ...Object.fromEntries(Object.keys(parts as object).map(k => [k, now[k]])) }
+      }
     },
     loaded: (server, version) => {
       doc.loaded(server, version)
