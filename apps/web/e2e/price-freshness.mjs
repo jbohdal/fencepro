@@ -99,9 +99,12 @@ try {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/3-inventory-prices-to-check.png` })
   await page.locator('[data-confirm-shown]').click(); await sleep(2500)
   const left = await page.locator('[data-price-item]').count()
-  const all = (await api('/api/inventory-state')).items
-  const notConfirmed = all.filter(i => !(i.priceUpdatedAt && !i.priceImported))
+  // 358 saved prices are one save: wait for the server to show it (up to 20 s) instead of reading it 2.5 s after the tap.
+  let all = [], notConfirmed = []
+  for (let i = 0; i < 10; i++) { all = (await api('/api/inventory-state')).items; notConfirmed = all.filter(x => Number(x.unitCost) > 0 && !(x.priceUpdatedAt && !x.priceImported)); // a part with no price yet (the Oct 30 wood kit parts, $0) has no price to confirm
+    if (notConfirmed.length <= borrowedShown) break; await sleep(2000) }
   check('Bulk "Confirm these prices": every shown item confirmed but the From Black ones', toCheck - borrowedShown > 1 && left === borrowedShown && notConfirmed.every(borrowed) && notConfirmed.length === borrowedShown, `${toCheck - borrowedShown} confirmed, ${left} left, ${borrowedShown} From Black`)
+  if (notConfirmed.length !== borrowedShown) console.log('      not confirmed after the bulk confirm:', notConfirmed.length, notConfirmed.filter(x => !borrowed(x)).slice(0, 6).map(x => `${x.name} (cost ${x.unitCost}, updated ${x.priceUpdatedAt}, imported ${x.priceImported})`).join('; '))
   await page.locator('[data-price-filter]').selectOption('all'); await sleep(300)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/4-inventory-after-confirm.png` })
 
