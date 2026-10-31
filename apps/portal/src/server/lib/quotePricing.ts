@@ -39,6 +39,17 @@ const gateWidthsIn = (g: Json): { walk: number[]; dbl: number[] } | null => {
   return walk && dbl ? { walk, dbl } : null
 }
 
+/** The work a change order starts from (web changeOrderPricing.ts ChangeBase): numbers only, or null. */
+const changeBaseIn = (b: Json): Json | null => {
+  if (!b || typeof b !== 'object' || !Array.isArray(b.runs)) return null
+  const gateRuns = feet(b.drawn?.gateRuns)
+  return {
+    feet: num(b.feet), ends: num(b.ends), walkGates: num(b.walkGates), dblGates: num(b.dblGates),
+    runs: b.runs.slice(0, 200).map((r: Json) => ({ ft: num(r?.ft), rail: r?.rail === '6ft' || r?.rail === '8ft' ? r.rail : 'auto' })),
+    drawn: gateRuns ? { gateRuns, gatePosts: num(b.drawn.gatePosts) } : null,
+  }
+}
+
 export async function dataFor(accountId: string) {
   const [b, inv] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
@@ -92,6 +103,7 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     offerMoveAsIs: b.offerMoveAsIs !== false,
     photoIds: b.photoIds && typeof b.photoIds === 'object' ? b.photoIds : {},
     keepStyle: existing?.fenceStyle ?? null,
+    changeBase: changeBaseIn(b.changeBase),
   }
   const overheadPct = existing && typeof existing.pricing?.overheadPct === 'number' ? existing.pricing.overheadPct : null
   return { req, overheadPct }

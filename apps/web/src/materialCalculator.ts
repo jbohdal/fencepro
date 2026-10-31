@@ -101,6 +101,12 @@ export interface KitCounts {
    * quote's price per section carries.
    */
   exact?: boolean
+  /**
+   * A change order's price only (changeOrderPricing.ts): the footage the job
+   * was sold at. Chain link fabric stays in whole rolls for that footage and
+   * moves by the foot from there. The pull sheet never sets it.
+   */
+  fabricFromFt?: number | null
 }
 export interface KitLine {
   part: string; qty: number; fallbackCost: number
@@ -286,6 +292,8 @@ export interface JobInputs {
   gateWidths?: GateWidths | null
   /** Pieces added to a sold job that has these gates (a change order): addedCounts. */
   addedTo?: AddedTo | null
+  /** A change order's price only: KitCounts.fabricFromFt. */
+  fabricFromFt?: number | null
 }
 
 /**
@@ -576,9 +584,11 @@ function chainHookTieBoxes(sections: number, h: number): number {
 }
 
 // ── Fabric rolls ──────────────────────────────────────────────────────────────
-// Chainlink fabric: total footage / 50 feet per roll, ceiling
-function fabricRolls(totalFt: number): number {
-  return Math.ceil(totalFt / 50)
+// Chainlink fabric: total footage / 50 feet per roll, ceiling. On a change
+// order's price (fromFt, KitCounts.fabricFromFt): the rolls the job was sold
+// with, then by the foot (Jonathan, Oct 31 2026).
+function fabricRolls(totalFt: number, fromFt?: number | null): number {
+  return typeof fromFt === 'number' ? Math.ceil(fromFt / 50) + (totalFt - fromFt) / 50 : Math.ceil(totalFt / 50)
 }
 function totalFt(runs: number[]): number {
   return runs.reduce((s, r) => s + r, 0)
@@ -598,6 +608,7 @@ export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
     section: perRun ? perRun.reduce((t, n) => t + n, 0) : totalSections(runs, s), section8: 0,
     line: (perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s)) + extraLines(inputs.extraLinePosts), corner: corners, end: ends,
     blank: dblGates, ...gateCounts(walkGates, dblGates, inputs.gateWidths), perFoot: totalFt(runs), perJob: 1,
+    ...(typeof inputs.fabricFromFt === 'number' ? { fabricFromFt: inputs.fabricFromFt } : {}),
   }, inputs.addedTo)
   return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)
     ?? legacyCalculateMaterialsDetailed(inputs)
@@ -934,7 +945,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       ? "Fabric, Galv, 60\" KK (11.5)"
       : "Fabric, Galv, 72\" KK (11.5)"
     const fabricCost = h === 4 ? 113.43 : h === 5 ? 137.50 : 166.37
-    add(fabricKey, fabricRolls(totalFootage), fabricCost)
+    add(fabricKey, fabricRolls(totalFootage, inputs.fabricFromFt), fabricCost)
 
     // Line posts: 1-5/8" Schedule 40 (SS40) pipe, one per line post
     // (TAKEOFF_RULES: linePosts). Chain link sections are 10 ft, so each run
@@ -1008,7 +1019,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       ? "Res, Fabric, 60\", Blk, KK (9)"
       : "Res, Fabric, 72\", Blk, KK (9)"
     const fabricCost = h === 4 ? 116.16 : h === 5 ? 145.20 : 174.24
-    add(fabricKey, fabricRolls(totalFootage), fabricCost)
+    add(fabricKey, fabricRolls(totalFootage, inputs.fabricFromFt), fabricCost)
 
     // Line posts: 1-5/8" Schedule 40 (SS40) pipe, one per line post (see galvanized).
     const linePipeCost = h === 4 ? 21.50 : h === 5 ? 24.19 : 26.87
@@ -1071,7 +1082,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
         `"${s}" is priced with galvanized commercial fabric and pipe. There is no commercial grade color fabric in the parts list, so add the color premium by hand.`,
       )
     }
-    add("Comm, G, Fabric, 72\" KT (9)", fabricRolls(totalFootage), 258.75)
+    add("Comm, G, Fabric, 72\" KT (9)", fabricRolls(totalFootage, inputs.fabricFromFt), 258.75)
     add("Comm, G, Term, Plated, 2-1/2\" X 6' (SS40)", corners + ends, 59.00)
     add("Pipe, Galv,  2-1/2\" X 10' (SS40)", corners + ends, 33.75)
     add("Pipe, Galv, 2\" X 12' (SS40)", linePosts, 36.13)

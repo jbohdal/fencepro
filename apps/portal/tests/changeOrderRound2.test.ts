@@ -79,7 +79,8 @@ describe('round 3: a gate put into a side is one change the customer can read', 
     const two = draft(gateIn)
     expect(two.lines.length).toBe(1)
     expect(d.lines[0].amountCents).toBe(two.lines[0].amountCents)
-    expect(d.lines[0].amountCents).toBe(Math.round(calculateQuote({ ...gateIn, overrides: { wholeDollar: true } }).priced.price * 100) - Math.round(calculateQuote({ ...signedIn, overrides: { wholeDollar: true } }).priced.price * 100))
+    // With the 2 line posts this gate's opening drops still priced (a gate added carries 2 new posts, no credit: Oct 31 2026; changeOrderPricing.test.ts).
+    expect(d.lines[0].amountCents).toBe(Math.round(calculateQuote({ ...gateIn, extraLinePosts: 2, overrides: { wholeDollar: true } }).priced.price * 100) - Math.round(calculateQuote({ ...signedIn, overrides: { wholeDollar: true } }).priced.price * 100))
     expect(d.scope).toMatchObject({ footageFt: -4, walkGates: 1 })
     // No generic reason: whoever makes it types the reason (required, Oct 26 2026).
     expect(d.reason).toBe('')
