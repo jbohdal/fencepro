@@ -67,7 +67,9 @@ try {
   check('Shawn Hart: the order is chain link', /Chain Link/i.test(shawn.rowText) && shawn.parts.some(p => /Fabric, Galv/.test(p)), shawn.rowText)
   check('... no white vinyl posts, donuts or PT40 pipe', !shawn.parts.some(p => /Vinyl|Donut|PT40/.test(p)), shawn.parts.filter(p => /Vinyl|Donut|PT40/.test(p)).join('; '))
 
-  const web = await openOrder(page, 'AUD Web Chainlink')
+  // AUD Web Chainlink is a dev-only audit job (a chain link order with an approved +20 ft change order); the Oct 30 refresh of the dev copy does not hold it.
+  // When it is missing this says so and the checks after it still run.
+  const web = await openOrder(page, 'AUD Web Chainlink').catch(() => ({ rowText: 'no order for AUD Web Chainlink on this database (its dev-only audit job is missing)', parts: [] }))
   const lineQty = Number(psql(`select i->>'requiredQuantity' from "BusinessState", jsonb_array_elements("pendingOrders"::jsonb) o, jsonb_array_elements(o->'items') i where o->>'customerName'='AUD Web Chainlink' and i->>'itemName' like 'Pipe, Galv, 1-5/8%' limit 1`))
   check('AUD Web Chainlink: the order follows the approved +20 ft change order', /From: Change order CO-1/.test(web.rowText) && lineQty === 45, `${web.rowText} · line posts ${lineQty}`)
 

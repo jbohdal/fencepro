@@ -135,8 +135,16 @@ try {
     check('No Answer: the imported cards come before the cards placed by hand', naIds.slice(lastImported + 1).every(id => wantNa.includes(id) || (pipe.leads || []).find(l => l.id === id)?.boardOrder?.stage === 'No Answer'))
     const naCount = Number(await na.locator('[data-kanban-count]').innerText().catch(() => '0'))
     check('No Answer: the count includes them', naCount === (pipe.leads || []).filter(l => l.stage === 'No Answer').length, `${naCount}`)
-    const firstCard = await na.locator('[data-kanban-card]').first().innerText().catch(() => '')
-    check('No Answer: the top card is the newest row (order_in_stage 1 among cards)', firstCard.includes(imported('No Answer')[0].firstName), firstCard.slice(0, 60).replace(/\n/g, ' | '))
+    // Cards that came in after the import and nobody has placed (no board rank: Peg Harding, a live lead of Oct 27) sit above the
+    // ranked ones, newest first (Oct 31 2026: the dev copy holds live leads from after the import). So the newest row of the file is
+    // the first RANKED card, and everything above it must be an unranked, not imported card.
+    const leadById = id => (pipe.leads || []).find(l => l.id === id)
+    const ranked = id => !!leadById(id)?.importBatchId || leadById(id)?.boardOrder?.stage === 'No Answer'
+    const firstRankedAt = naIds.findIndex(ranked)
+    const above = naIds.slice(0, Math.max(firstRankedAt, 0))
+    check('No Answer: the top imported card is the newest row (order_in_stage 1 among cards); only newer cards nobody placed are above it',
+      firstRankedAt >= 0 && naIds[firstRankedAt] === imported('No Answer')[0].id && above.every(id => !ranked(id)),
+      `${above.length} unplaced above; ${leadById(naIds[firstRankedAt])?.firstName ?? '?'} (want ${imported('No Answer')[0].firstName})`)
     const fcIds = await page.locator('[data-kanban-col="First Contact"] [data-kanban-card]').evaluateAll(els => els.map(e => e.getAttribute('data-kanban-card')))
     const wantFc = imported('First Contact').map(l => l.id)
     check(`First Contact: the ${wantFc.length} imported cards keep the file's order`, wantFc.length > 0 && JSON.stringify(fcIds.filter(id => wantFc.includes(id))) === JSON.stringify(wantFc))

@@ -35,6 +35,7 @@ const snapshot = async () => {
 }
 const before = await snapshot()
 const GALV = before.bs.config.fenceStyles.filter(s => s.isActive !== false && (s.choices?.finish === 'galv' || /^CL - (\d'|Com 6'(\+1')?)( Galv)?$/.test(s.name)) && !/Black/.test(s.name))
+check('setup: no Semi privacy choice left from an earlier run (the test adds it and removes it)', !before.bs.config.fenceStyles.some(s => s.choices?.style === 'semi-privacy'))
 check('setup: no test finish left from an earlier run', !before.finishes.includes(KEY) && !before.styles.some(n => n.includes(KEY)))
 
 const browser = await chromium.launch()
@@ -101,18 +102,28 @@ try {
   await tap('[data-add-choice="vinyl:style"]'); await page.waitForSelector('[data-choice-dialog]')
   await page.locator('[data-choice-label]').fill('Semi privacy'); await page.locator('[data-choice-copy="privacy"]').tap()
   await shot(page, 'dev-add-height-or-style')
-  await tap('[data-choice-save]'); await sleep(2500)
+  await tap('[data-choice-save]'); await page.waitForSelector('[data-choice-dialog]', { state: 'detached', timeout: 30000 }).catch(() => {}); await sleep(2500)
   s = await snapshot()
   const semi = s.bs.config.fenceStyles.filter(x => x.choices?.style === 'semi-privacy')
   check('Semi privacy added: its fences copied from Privacy, turned off until checked', semi.length > 10 && (await page.locator('[data-tree-option="vinyl:style:semi-privacy"] [role="switch"]').getAttribute('aria-checked')) === 'false', `${semi.length} fences`)
   await tap('[data-edit-option="vinyl:style:semi-privacy"]'); await page.waitForSelector('[data-choice-dialog]'); await tap('[data-choice-remove]'); await sleep(2500)
-  s = await snapshot()
+  // The settings save is debounced and a second edit right after the first merges with it: wait for the server to show the removal (up to 30 s).
+  for (let i = 0; i < 15; i++) { s = await snapshot(); if (!s.bs.config.fenceStyles.some(x => x.choices?.style === 'semi-privacy')) break; await sleep(2000) }
   check('Semi privacy removed with its fences and kits', !s.bs.config.fenceStyles.some(x => x.choices?.style === 'semi-privacy') && !(s.inv.kits ?? []).some(k => k.madeFor === 'vinyl:style:semi-privacy'))
 } catch (e) {
-  check('test run finished', false, String(e?.stack || e).split('\n').slice(0, 4).join(' '))
+  check('test run finished', false, String(e?.stack || e).split('\n').slice(0, 14).join(' '))
 }
 
 // ── Nothing left behind ──
+// If the removal above did not reach the server (Oct 31 2026: a removal right after the add in the same page shows removed on screen
+// but the server keeps the choice; a reload shows it again), take it out on a fresh page so the dev copy is not left with a test choice.
+// The failed check above stays failed.
+try {
+  if ((await snapshot()).bs.config.fenceStyles.some(x => x.choices?.style === 'semi-privacy')) {
+    await openStyles()
+    await tap('[data-edit-option="vinyl:style:semi-privacy"]'); await page.waitForSelector('[data-choice-dialog]'); await tap('[data-choice-remove]'); await sleep(4000)
+  }
+} catch (e) { console.log('cleanup of Semi privacy did not finish:', String(e).split('\n')[0].slice(0, 200)) }
 await sleep(1500)
 const after = await snapshot()
 check('nothing left: the fence styles are exactly as before', JSON.stringify(after.styles) === JSON.stringify(before.styles))

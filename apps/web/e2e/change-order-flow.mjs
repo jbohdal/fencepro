@@ -234,7 +234,9 @@ try {
     if (signedB && signedB.totalCents) {
       await open(`${APP}/pipeline?card=${B.cardId}`)
       const row = await until(async () => (await page.locator(`[data-card-window] [data-card-quote="${B.quoteId}"] [data-card-quote-contract]`).count()) > 0, 30000)
-      check('B: the card window shows the contract (signed + change orders)', !!row && cents(await page.locator(`[data-card-quote="${B.quoteId}"] [data-card-quote-contract]`).innerText()) === Math.round(total0) + signedB.totalCents)
+      check('B: the card window shows the contract (signed + change orders)', !!row && // The card shows whole dollars (Oct 29 2026: billing in whole dollars), and B's quote is a copy of a dev quote that has cents.
+        Math.abs(cents(await page.locator(`[data-card-quote="${B.quoteId}"] [data-card-quote-contract]`).innerText()) - (Math.round(total0) + signedB.totalCents)) <= 50,
+        await page.locator(`[data-card-quote="${B.quoteId}"] [data-card-quote-contract]`).innerText().catch(() => 'no contract line'))
     }
   }
 
@@ -382,6 +384,7 @@ try {
   await page.locator('[data-co-verbal-reason]').blur()
   await tap(page.locator('[data-co-save-verbal]'))
   const co3 = await until(async () => ((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data ?? []).find(x => x.number === 3 && x.status === 'approved'), 15000)
+  if (!co3) { await shot(page, 'co3-failed'); console.log('      CO-3 debug:', JSON.stringify({ cos: ((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data ?? []).map(x => [x.number, x.status, x.totalCents]), verbal: await page.locator('[data-co-verbal-reason]').inputValue().catch(() => 'none'), verbalBtnDisabled: await page.locator('[data-co-save-verbal]').isDisabled().catch(() => 'none'), toast: (await page.locator('[role=alert],[role=status],[data-toast]').allInnerTexts().catch(() => [])).join(' | ').slice(0, 300), modal: (await page.locator('[data-co-modal]').innerText().catch(() => 'no modal')).replace(/\s+/g, ' ').slice(0, 600) })) }
   const s3 = (await call('GET', `/api/payments/job/${jobId}`)).json.data.schedule
   const inv3 = s3.invoices.find(i => i.kind === 'change_order')
   check('customer page: CO-3 (+$200) approved verbally after everything was paid', !!co3 && co3.totalCents === 20000)
