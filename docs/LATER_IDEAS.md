@@ -73,3 +73,5 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - A Settings fence edit stuck on a phone, with that fence removed elsewhere, is dropped with no word when prices are read (`refreshPriceFields` ignores what merge3 could not apply).
 - The "not everything could be saved" message names a fence by its internal code (`label()` in merge3.ts takes name before label); the save bar can show Saved next to it.
 - After a merge the Settings page reloads itself and an open Fences list closes.
+- A quote made on another phone lands at the very bottom of an open Quotes list, past Show more, until a reload. The count and tile update.
+- Quotes page: margin colors keep the old Settings until the next redraw after another phone changes a Target Profit. Any touch updates them.
