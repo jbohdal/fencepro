@@ -80,6 +80,24 @@ export function quoteMarginTone(q: { gmPct: number; totalCOGS: number; fenceStyl
   return marginTone(hasCost(q) ? q.gmPct : null, styleTarget(q.fenceStyle))
 }
 
+/**
+ * quoteMarginTone for a whole list: Settings read once, not once per quote.
+ * getConfig() works every fence style out from Inventory, so counting 2,000
+ * quotes one at a time held a phone's screen for seconds on every draw of the
+ * Quotes page (Oct 31 2026). Same answers as quoteMarginTone.
+ */
+export function quoteMarginToner(): (q: { gmPct: number; totalCOGS: number; fenceStyle: string }) => 'good' | 'near' | 'bad' | 'none' {
+  const cfg = getConfig()
+  const styles = cfg.fenceStyles ?? []
+  const lowest = targetMargins(styles, overheadPctOf(cfg)).minPct / 100
+  const target = new Map<string, number>()
+  return q => {
+    let t = target.get(q.fenceStyle)
+    if (t === undefined) { t = targetOfStyle(styles, q.fenceStyle) ?? lowest; target.set(q.fenceStyle, t) }
+    return marginTone(hasCost(q) ? q.gmPct : null, t)
+  }
+}
+
 /** Every quote (archived too) with sold ones at their contract (change orders added): what Reports and the Dashboard count. */
 export function reportQuotes(): SavedQuote[] {
   return withChangeOrders([...getQuotes(), ...(getArchivedQuotes() as SavedQuote[])], [...getJobs(), ...getArchivedJobs()])

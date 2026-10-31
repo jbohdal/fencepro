@@ -19,7 +19,7 @@ import { createJobFromQuote, getJobByQuoteId } from './jobStore'
 import QuoteDetailDrawer from './QuoteDetailDrawer'
 import { getQuotes, getArchivedQuotes, updateQuote } from './quoteStore'
 import { averageMargin } from './quoteStats'
-import { quoteMarginTone } from './moneyLoad'
+import { quoteMarginTone, quoteMarginToner } from './moneyLoad'
 import { useBackLayer, BackClose, useScreenMemory, useNav, takeOpenedParam } from './nav'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { seesCommission, withShownMargin, salesmanQuoteView, SALESMAN_ROLE } from './salesmanCommission'
@@ -108,8 +108,8 @@ const FENCE_CATEGORIES = ['All', 'Vinyl', 'Chainlink', 'Aluminum', 'Commercial',
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 /** A quote's margin against its own style's Target Margin (Settings › Pricing); gray with no cost. */
-function marginColor(q: { gmPct: number; totalCOGS: number; fenceStyle: string }) {
-  const tone = quoteMarginTone(q)
+function marginColor(q: { gmPct: number; totalCOGS: number; fenceStyle: string }, toneOf: ReturnType<typeof quoteMarginToner>) {
+  const tone = toneOf(q)
   return tone === 'good' ? 'text-green-600' : tone === 'near' ? 'text-yellow-600' : tone === 'bad' ? 'text-red-500' : 'text-gray-400'
 }
 
@@ -225,6 +225,7 @@ function PipelineAnalytics({ quotes, rep, repQuotes }: { quotes: SavedQuote[]; r
     return Object.entries(sources).sort((a, b) => b[1].opp - a[1].opp).slice(0, 6)
   }, [quotes])
 
+  const toneOf      = quoteMarginToner()
   const totalOpp    = quotes.length
   const totalSold   = quotes.filter(q => q.status === 'SOLD').length
   const totalRev    = quotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0)
@@ -248,7 +249,7 @@ function PipelineAnalytics({ quotes, rep, repQuotes }: { quotes: SavedQuote[]; r
           { label: 'Closed',         value: String(totalSold), sub: fmtPct(closingRate) + ' close rate', accent: true },
           { label: 'Closed Revenue', value: fmt(totalRev),     sub: `avg ${fmt(avgDeal)}/job` },
           { label: 'Open Pipeline',  value: fmt(openPipe),     sub: `${quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length} active` },
-          { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => quoteMarginTone(q) === 'good').length + ' at their Target Margin' },
+          { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => toneOf(q) === 'good').length + ' at their Target Margin' },
         ].map(s => (
           <div key={s.label} className={`rounded-2xl p-4 ${s.accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
             <p className={`text-xs font-semibold mb-1 ${s.accent ? 'text-orange-100' : 'text-gray-400'}`}>{s.label}</p>
@@ -599,6 +600,7 @@ export default function QuotesPage({
     return matchSearch && matchStatus && matchCat
   })
   const listed = filtered.slice(0, listLimit)
+  const toneOf = quoteMarginToner()
   const statsQuotes = useMemo(() => myQuotes.map(q => withShownMargin(q, showCommission)), [myQuotes, showCommission])
 
   return (
@@ -677,7 +679,7 @@ export default function QuotesPage({
                   <td className="px-4 py-3 text-gray-700" data-label="Style">{quoteStyleLabel(q as any)}</td>
                   <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{sectionsCell(q.sections, q.work)}</td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
-                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(withShownMargin(q, showCommission))}`} data-label="Margin">{q.totalCOGS > 0 ? fmtPct(withShownMargin(q, showCommission).gmPct) : '—'}</td>
+                  <td className={`px-4 py-3 text-right font-bold text-sm ${marginColor(withShownMargin(q, showCommission), toneOf)}`} data-label="Margin">{q.totalCOGS > 0 ? fmtPct(withShownMargin(q, showCommission).gmPct) : '—'}</td>
                   <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>
