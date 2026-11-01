@@ -11,7 +11,7 @@ import { webkit, chromium } from 'playwright'
 import fs from 'fs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
-if (!/localhost:4001/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
+if (!/localhost:(4001|409[0-9])/.test(APP)) { console.error('Refusing to run: the dev copy only.'); process.exit(2) }
 const SHOTS = process.env.SHOTS || ''
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []

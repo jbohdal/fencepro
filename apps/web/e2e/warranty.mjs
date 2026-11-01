@@ -28,7 +28,7 @@ const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
 const OWNER = process.env.E2E_ACCESS_TOKEN || ''
 const SHOTS = process.env.E2E_SHOTS || process.env.SHOTS || ''
-if (!/localhost:4001/.test(APP) || !/localhost:4001/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
+if (!/localhost:(4001|409[0-9])/.test(APP) || !/localhost:(4001|409[0-9])/.test(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
 

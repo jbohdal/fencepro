@@ -89,3 +89,13 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - Server `changePrice` has no login that reaches it today except by API.
 - Sales Orders: Manuel Cotrich's order (paid, received) is not marked to stay; a change order on that job would rewrite it. The backfill writes no audit row.
 - WebKit crash reports on the Mac (23): all the Playwright test build (623.1.10+). 19 are Navigation::initializeForNewWindow, 4 its network process. Not real Safari; a test browser bug, no app fix.
+
+## From the Nov 1 night (nightly triage)
+
+- Tests add 24 hours for "tomorrow": automations.db dry run and locateStageMove.db fail on the 25 hour day clocks go back (Nov 1). The app is right; use calendar days in the tests.
+- feedback.db "lists it since today" failed just after midnight that night. Check that scripts/feedback-report.ts `--since` uses the day's real offset, not a fixed one.
+- automations.db "with conditions" needs ADDRESS_DATA_DIR, so it fails in a worktree without the county list.
+- save-conflicts "the next quote is saved and its card moved on" failed once in the full run, then passed 14 of 14 alone.
+- staff-signin: WebKit "Page crashed" once in the full run, then 49 of 49 alone. The test build's crash, as in the Oct 31 reports.
+- address-suggest.mjs hardcodes localhost:4001, so a worktree nightly tests the folder's server for that suite. Other suites may do the same; 109 suites default to 4001.
+- Still failing, known: sales-orders (AUD Web Chainlink fixture), quotable-styles (stale), builderProposalBetter and contractBilling (2) on dev data, devDbScrubbed (CrmContact (352) 789-4314).

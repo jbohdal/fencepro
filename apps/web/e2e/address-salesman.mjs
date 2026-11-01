@@ -32,7 +32,7 @@ const SHOTS = process.env.SHOTS || ''
 const CDP = process.env.CDP_URL || ''
 const NAME = CDP ? 'android' : 'webkit'
 const ADB = `${process.env.ANDROID_SDK_ROOT || `${process.env.HOME}/Library/Android/sdk`}/platform-tools/adb`
-const local = u => /^https?:\/\/(localhost|127\.0\.0\.1):4001(\/|$)/.test(u)
+const local = u => /^https?:\/\/(localhost|127\.0\.0\.1):(4001|409[0-9])(\/|$)/.test(u)
 if (!local(APP) || !local(API)) { console.error('Refusing to run: the dev copy only (localhost:4001).'); process.exit(2) }
 if (!OWNER) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })
