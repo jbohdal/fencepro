@@ -12,8 +12,10 @@
  *   - Every save of an unsigned quote holds to it (routes/saved-quotes.ts); the
  *     quote builder asks the same rule before a save and says so first.
  *   - A move: commission follows the rep on an unsigned quote, off to someone
- *     who is positively not a Salesman, on to a Salesman (commissionOnMove). A
- *     signed quote or sold job does not change (signedMoveChangesCommission).
+ *     who is positively not a Salesman (the quote records that the move took it
+ *     off: pricing.commissionMovedOff), and back on to a Salesman only then: a
+ *     switch turned off on purpose stays off. A signed quote or sold job does
+ *     not change (signedMoveChangesCommission).
  *   - Commission added on top of the price is never touched here: taking it off
  *     would leave the price grossed up.
  *   - Commission "included" comes out of the price, so turning it off or on
@@ -112,6 +114,13 @@ function workWith(work: Json, pct: number): Json {
   return { ...work, priced: { ...p, commissionCents: c, grossMarginCents: (Number(p.grossMarginCents) || 0) - c } }
 }
 
+/** Commission figures still on a saved quote: the quote's own %, a move's or repair's, or a proposal option's copy of one. */
+export function hasCommissionFigures(q: { pricing?: unknown; work?: unknown; proposal?: unknown }): boolean {
+  const options = (q.proposal as Json)?.options
+  return pos((q.pricing as Json)?.commissionPct) || pos((q.work as Json)?.priced?.commissionCents)
+    || (Array.isArray(options) && options.some((o: Json) => pos(o?.snapshot?.work?.priced?.commissionCents)))
+}
+
 type Fields = { hasSalesman: boolean; gmPct: number; pricing?: Json; work?: Json; proposal?: Json }
 type QuoteFigures = { finalPrice: number; totalCOGS: number; pricing?: unknown; work?: unknown; proposal?: unknown }
 
@@ -192,9 +201,14 @@ export function commissionOnMove(
   if (input.signed && !signedMoveChangesCommission()) return { change: 'none', why: 'signed', fields: null }
   if (isAdded(q, input.settings.mode)) return { change: 'none', why: 'added', fields: null }
   const carries = carriesCommission(q)
-  if (carries && repRulesOut(input.toRep, null, input.logins)) return { change: 'off', why: 'rep', fields: withoutCommission(q) }
+  if (carries && repRulesOut(input.toRep, null, input.logins)) {
+    const fields = withoutCommission(q)
+    return { change: 'off', why: 'rep', fields: { ...fields, pricing: { ...((fields.pricing ?? q.pricing ?? {}) as Json), commissionMovedOff: true } } }
+  }
   const toSalesman = input.logins.some(u => u.role === SALESMAN_ROLE && repNamesLogin(input.toRep, u))
-  if (!carries && toSalesman && input.settings.pct > 0) return { change: 'on', why: 'rep', fields: withCommission(q, input.settings.pct) }
+  // Only what a move took off comes back.
+  const { commissionMovedOff, ...pricing } = (q.pricing ?? {}) as Json
+  if (!carries && commissionMovedOff === true && toSalesman && input.settings.pct > 0) return { change: 'on', why: 'rep', fields: { ...withCommission(q, input.settings.pct), pricing } }
   return { change: 'none', why: 'same', fields: null }
 }
 

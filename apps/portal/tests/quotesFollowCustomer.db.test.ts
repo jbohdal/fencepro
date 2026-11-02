@@ -241,7 +241,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     const notes = await prisma.crmContactNote.findMany({ where: { crmContactId: id.gwen, body: { startsWith: 'Open quotes moved to ' } }, orderBy: { createdAt: 'asc' } })
     expect(notes.map(n => n.body)).toEqual([
       `Open quotes moved to ${SAM()} with the customer by ${OLIVE()}: 2 quotes not sold yet, they were ${SALLY()}'s. Signed jobs stay with whoever sold them.`,
-      `Open quotes moved to ${OLIVE()} with the customer by ${OLIVE()}: 2 quotes not sold yet, they were ${SAM()}'s. Commission off on 1: not a Salesman. Signed jobs stay with whoever sold them.`,
+      `Open quotes moved to ${OLIVE()} with the customer by ${OLIVE()}: 2 quotes not sold yet, they were ${SAM()}'s. Commission off for 1: not a Salesman. Signed jobs stay with whoever sold them.`,
     ])
   })
 

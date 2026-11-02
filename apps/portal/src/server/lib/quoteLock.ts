@@ -133,6 +133,8 @@ function pricePart(field: string, v: unknown): unknown {
   if (field === 'work') return workPart(v)
   if (field === 'layout') return layoutGeometry(v)
   if (field === 'proposal') return proposalPrices(v)
+  // A move's record that it took commission off (lib/commissionRule.ts) is not a price.
+  if (field === 'pricing' && isObj(v) && 'commissionMovedOff' in v) { const { commissionMovedOff: _off, ...rest } = v as Json; return rest }
   return v
 }
 

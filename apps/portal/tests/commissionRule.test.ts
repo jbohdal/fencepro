@@ -4,10 +4,11 @@
  * salesmanCommission.ts, pricingEngine.ts.)
  */
 import { describe, test, expect } from 'vitest'
-import { repRulesOut, withoutCommission, withCommission, gmPctAtSigning, carriesCommission, commissionOnMove, signedMoveChangesCommission, type RuleLogin } from '../src/server/lib/commissionRule'
+import { repRulesOut, withoutCommission, withCommission, gmPctAtSigning, carriesCommission, commissionOnMove, signedMoveChangesCommission, hasCommissionFigures, type RuleLogin } from '../src/server/lib/commissionRule'
 import { commissionWords, confirmQuestion, movedNote } from '../src/server/lib/salesmanMove'
+import { lockedChanges } from '../src/server/lib/quoteLock'
 import { calculatePrice, type PriceInputs, type PricingSettings } from '../../web/src/pricingEngine'
-import { isSalesmanRep, salesmanSwitchDefault } from '../../web/src/salesmanCommission'
+import { isSalesmanRep, salesmanSwitchDefault, clearedCommission, savedCommission } from '../../web/src/salesmanCommission'
 
 const TEAM = [{ name: 'Jonathan Bohdal', role: 'super_admin' }, { name: 'Christa Feagin', role: 'sales_rep' }, { name: 'Pat Office', role: 'office_staff' }]
 
@@ -50,6 +51,16 @@ describe('a move', () => {
     expect(signedMoveChangesCommission()).toBe(false)
     expect(commissionOnMove(q, { signed: true, toRep: 'Jonathan Bohdal', logins: ALL, settings })).toEqual({ change: 'none', why: 'signed', fields: null })
     expect(commissionOnMove({ ...q, hasSalesman: false }, { signed: true, toRep: 'Christa Feagin', logins: ALL, settings }).change).toBe('none')
+  })
+  test('only what a move took off comes back: a switch turned off on purpose stays off', () => {
+    const offOnPurpose = { ...q, hasSalesman: false, gmPct: 0.44 }
+    expect(commissionOnMove(offOnPurpose, { signed: false, toRep: 'Christa Feagin', logins: ALL, settings })).toEqual({ change: 'none', why: 'same', fields: null })
+    const off = commissionOnMove(q, { signed: false, toRep: 'Jonathan Bohdal', logins: ALL, settings })
+    expect(off.fields!.pricing.commissionMovedOff).toBe(true)
+    const on = commissionOnMove({ ...q, ...off.fields! }, { signed: false, toRep: 'Christa', logins: ALL, settings })
+    expect(on.fields!.pricing).toEqual({ costFactor: 0.56 })
+    // Moved off and then to someone who is no Salesman: still off, still recorded.
+    expect(commissionOnMove({ ...q, ...off.fields! }, { signed: false, toRep: 'Pat Office', logins: ALL, settings }).change).toBe('none')
   })
   test('unsigned: off to the owner, back on to a Salesman, the same margin', () => {
     const off = commissionOnMove(q, { signed: false, toRep: 'Jonathan Bohdal', logins: ALL, settings })
@@ -141,6 +152,30 @@ describe('taking commission off a saved quote', () => {
     const out = withoutCommission({ finalPrice: 1000, totalCOGS: 500, work: { type: 'repair', description: 'd', priced: { commissionCents: 9000, grossMarginCents: 41000, priceCents: 100000 } } }) as any
     expect(out.work.priced).toEqual({ commissionCents: 0, grossMarginCents: 50000, priceCents: 100000 })
     expect(out.work.description).toBe('d')
+  })
+})
+
+describe('every copy of a move\'s or repair\'s commission', () => {
+  const w = (type: string) => ({ type, description: 'd', priced: { commissionCents: 53227, grossMarginCents: 300000, priceCents: 591400 } })
+  for (const type of ['move', 'repair']) test(`${type}: the screen's copies clear, the words and prices stay`, () => {
+    const work = w(type), proposal = { terms: [], options: [{ label: 'x', finalPrice: 5914, snapshot: { totalCOGS: 1, work: w(type) } }, { label: 'New fence', finalPrice: 9000, snapshot: { totalCOGS: 1, work: null } }] }
+    expect(hasCommissionFigures({ work })).toBe(true)
+    expect(hasCommissionFigures({ proposal })).toBe(true)
+    const out = clearedCommission(work, proposal)
+    expect(out.work.priced).toEqual({ commissionCents: 0, grossMarginCents: 353227, priceCents: 591400 })
+    expect(out.work.type).toBe(type)
+    expect(out.proposal.options[0].snapshot.work!.priced.commissionCents).toBe(0)
+    expect(out.proposal.options[0].finalPrice).toBe(5914)
+    expect(out.proposal.options[1].snapshot.work).toBeNull()
+    expect(hasCommissionFigures(out)).toBe(false)
+    expect(savedCommission({ gmPct: 0.569, finalPrice: 5914, totalCOGS: 2549, hasSalesman: false, work: out.work })).toBeNull()
+  })
+})
+
+describe('a signed quote\'s lock', () => {
+  test('a move\'s record is not a price: a save without it is no change', () => {
+    expect(lockedChanges({ pricing: { costFactor: 0.56, commissionMovedOff: true } }, { pricing: { costFactor: 0.56 } })).toEqual([])
+    expect(lockedChanges({ pricing: { costFactor: 0.56, commissionMovedOff: true } }, { pricing: { costFactor: 0.5 } })).toEqual(['pricing'])
   })
 })
 

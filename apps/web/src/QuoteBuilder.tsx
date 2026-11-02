@@ -64,7 +64,7 @@ import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepa
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
 import { sendJson } from './syncHttp'
-import { salesmanSwitchDefault, seesCommission } from './salesmanCommission'
+import { salesmanSwitchDefault, seesCommission, clearedCommission } from './salesmanCommission'
 import { marginTone, pricedTarget } from './moneyTruth'
 import { getBookingTeam } from './bookingTeamStore'
 import { toast } from './toast'
@@ -1262,6 +1262,7 @@ export default function QuoteBuilder({
         tierSet: tierSet ?? undefined,
       }) : undefined),
     }
+    if (hasSalesman && !commissionOn) Object.assign(quote, clearedCommission(quote.work, quote.proposal))
     setShowSaveModal(false)
     if (init?.id && signedQuote) {
       // Only what was changed counts (today's costs moving the figures does not): the work, the choices.

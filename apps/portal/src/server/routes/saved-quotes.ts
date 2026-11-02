@@ -39,7 +39,7 @@ import { salesmanMoveRoute } from '../lib/salesmanMove.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
-import { commissionSettings, ruleLogins, saveTakesCommissionOff, withCommission, withoutCommission } from '../lib/commissionRule.js'
+import { commissionSettings, hasCommissionFigures, ruleLogins, saveTakesCommissionOff, withCommission, withoutCommission } from '../lib/commissionRule.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE, keepPrices } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
@@ -256,6 +256,17 @@ router.get('/:id/deposit-terms', requireUser, requireAccount, async (req: any, r
  * save may send only some fields: the figures are the two together. The switch sent alone, with no margin, moves the margin with it.
  */
 async function holdCommissionRule(accountId: string, data: any, rep: string | null | undefined, ownerId: string | null | undefined, existing: any | null): Promise<void> {
+  await commissionForSave(accountId, data, rep, ownerId, existing)
+  // Switch off: no commission figure stays in any copy (a move's or repair's saved work, a proposal option's copy).
+  const after = { ...(existing ?? {}), ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) }
+  if (!after.hasSalesman && hasCommissionFigures(after)) { const gmPct = data.gmPct; Object.assign(data, withoutCommission(after)); if (gmPct !== undefined) data.gmPct = gmPct }
+  // A move took it off: said on the quote until a Salesman has it back (lib/commissionRule.ts). A save does not lose that; the switch turned on does.
+  if (existing?.pricing?.commissionMovedOff === true && data.pricing && typeof data.pricing === 'object') {
+    if (after.hasSalesman) { const { commissionMovedOff: _off, ...rest } = data.pricing; data.pricing = rest } else data.pricing = { ...data.pricing, commissionMovedOff: true }
+  }
+}
+
+async function commissionForSave(accountId: string, data: any, rep: string | null | undefined, ownerId: string | null | undefined, existing: any | null): Promise<void> {
   if (typeof data.hasSalesman !== 'boolean') return
   const whole = { ...(existing ?? {}), ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) }
   const settings = await commissionSettings(accountId)

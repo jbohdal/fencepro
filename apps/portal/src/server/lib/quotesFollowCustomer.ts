@@ -136,7 +136,7 @@ export async function moveOpenQuotes(input: { accountId: string; contactId: stri
   await prisma.crmContactNote.create({
     data: {
       crmContactId: input.contactId, accountId: input.accountId, isPinned: false,
-      body: `${QUOTES_MOVED_NOTE_PREFIX}${toRep} with the customer by ${input.by.name}: ${n} quote${n === 1 ? '' : 's'} not sold yet${froms.length ? `, ${n === 1 ? 'it was' : 'they were'} ${froms.join(' and ')}'s` : ''}.${off ? ` Commission off on ${off}: not a Salesman.` : ''}${on ? ` Commission on on ${on}, with the Salesman.` : ''}${added ? ` Commission left as it was on ${added}: it is added on top of the price.` : ''} Signed jobs stay with whoever sold them.`,
+      body: `${QUOTES_MOVED_NOTE_PREFIX}${toRep} with the customer by ${input.by.name}: ${n} quote${n === 1 ? '' : 's'} not sold yet${froms.length ? `, ${n === 1 ? 'it was' : 'they were'} ${froms.join(' and ')}'s` : ''}.${off ? ` Commission off for ${off}: not a Salesman.` : ''}${on ? ` Commission back on for ${on}, with the Salesman.` : ''}${added ? ` Commission left as it was for ${added}: it is added on top of the price.` : ''} Signed jobs stay with whoever sold them.`,
       createdBy: input.by.name, createdById: input.by.id,
     },
   })

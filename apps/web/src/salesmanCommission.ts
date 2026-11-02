@@ -127,6 +127,24 @@ export function withShownMargin<T extends SavedMargin>(q: T, showCommission: boo
   return gmPct === q.gmPct ? q : { ...q, gmPct }
 }
 
+/**
+ * A saved quote's copies with its commission cleared, when "Save without commission" is chosen: a move's or repair's
+ * saved work, and each proposal option's copy of it (the same as the server's lib/commissionRule.ts withoutCommission).
+ */
+export function clearedCommission<W, P>(work: W, proposal: P): { work: W; proposal: P } {
+  const clear = (w: any) => {
+    const c = w?.priced?.commissionCents
+    return pos(c) ? { ...w, priced: { ...w.priced, commissionCents: 0, grossMarginCents: (Number(w.priced.grossMarginCents) || 0) + c } } : w
+  }
+  const p = proposal as any
+  return {
+    work: clear(work),
+    proposal: Array.isArray(p?.options)
+      ? { ...p, options: p.options.map((o: any) => (o?.snapshot?.work ? { ...o, snapshot: { ...o.snapshot, work: clear(o.snapshot.work) } } : o)) }
+      : proposal,
+  }
+}
+
 type Login = { firstName?: string | null; lastName?: string | null } | null | undefined
 
 /** A login's names as a rep is written: "christa feagin" and "christa" (the server's lib/salesScope.ts names). */

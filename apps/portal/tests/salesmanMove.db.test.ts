@@ -287,6 +287,48 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     await prisma.savedQuote.deleteMany({ where: { id: { in: [q.id, s.id] } } })
   })
 
+  test('Save without commission on a move or a repair: no commission left in any copy, and a move says so', async () => {
+    for (const type of ['move', 'repair']) {
+      const work = { version: 1, type, description: 'd', priced: { commissionCents: 53227, grossMarginCents: 283000, priceCents: 591400, costCents: 255000 } }
+      const q = await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: OLIVE(), ownerId: id.owner, status: 'SENT', finalPrice: 5914, totalCOGS: 2550, gmPct: 0.479, hasSalesman: true, work, proposal: { version: 1, options: [{ label: 'x', fenceStyle: 'WV ND 6x8', finalPrice: 5914, snapshot: { totalCOGS: 2550, gmPct: 0.479, work } }] } as any } })
+      // As an older copy of the builder sends it: the switch off, the margin, the work and proposal as they were.
+      const r = await call('PATCH', `/api/saved-quotes/${q.id}`, tok.owner, { hasSalesman: false, gmPct: 0.5688, finalPrice: 5914, totalCOGS: 2550, work, proposal: q.proposal })
+      expect(r.status).toBe(200)
+      const now = (await quoteOf(q.id))! as any
+      expect(now).toMatchObject({ hasSalesman: false, gmPct: 0.5688, finalPrice: 5914 })
+      expect(now.work.priced).toMatchObject({ commissionCents: 0, grossMarginCents: 336227, priceCents: 591400 })
+      expect(now.proposal.options[0].snapshot.work.priced.commissionCents).toBe(0)
+      expect(now.proposal.options[0].finalPrice).toBe(5914)
+      expect(quoteCommissionCents(now)).toBe(0)
+      const move = await call('POST', `/api/saved-quotes/${q.id}/salesman`, tok.owner, { to: id.sam })
+      expect(move.json.data.commissionWords).toBe('It carries no commission.')
+      await prisma.crmContactNote.deleteMany({ where: { accountId, body: { contains: q.id.slice(-6).toUpperCase() } } })
+      await prisma.savedQuote.delete({ where: { id: q.id } })
+    }
+  })
+
+  test('a switch turned off on purpose stays off on a move; a quote moved off and saved still comes back', async () => {
+    await prisma.businessState.create({ data: { accountId, config: { pricing: { commissionSalesman: 0.09, commissionMode: 'included' } } } as any })
+    const off = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SALLY(), status: 'SENT', finalPrice: 6500, totalCOGS: 3470, gmPct: 0.4662, hasSalesman: false } })).id
+    await call('POST', `/api/saved-quotes/${off}/salesman`, tok.owner, { to: id.sam })
+    expect(await quoteOf(off)).toMatchObject({ hasSalesman: false, gmPct: 0.4662, salesRep: SAM() })
+    await call('POST', `/api/saved-quotes/${off}/salesman`, tok.owner, { to: id.owner })
+    await call('POST', `/api/saved-quotes/${off}/salesman`, tok.owner, { to: id.sam })
+    expect(await quoteOf(off)).toMatchObject({ hasSalesman: false, gmPct: 0.4662 })
+    const moved = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })).id
+    await call('POST', `/api/saved-quotes/${moved}/salesman`, tok.owner, { to: id.owner })
+    // A builder save sends pricing with no word of the move: the record stays.
+    await call('PATCH', `/api/saved-quotes/${moved}`, tok.owner, { hasSalesman: false, gmPct: 0.44, pricing: { overheadPct: 30 } })
+    expect(((await quoteOf(moved))!.pricing as any).commissionMovedOff).toBe(true)
+    await call('POST', `/api/saved-quotes/${moved}/salesman`, tok.owner, { to: id.sam })
+    expect(await quoteOf(moved)).toMatchObject({ hasSalesman: true })
+    expect((await quoteOf(moved))!.gmPct).toBeCloseTo(0.35, 6)
+    expect(((await quoteOf(moved))!.pricing as any).commissionMovedOff).toBeUndefined()
+    await prisma.businessState.delete({ where: { accountId } })
+    await prisma.crmContactNote.deleteMany({ where: { accountId, OR: [off, moved].map(q => ({ body: { contains: q.slice(-6).toUpperCase() } })) } })
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [off, moved] } } })
+  })
+
   test('commission follows the rep on an unsigned quote, both ways; a signed job does not change, and every word says so', async () => {
     await prisma.businessState.create({ data: { accountId, config: { pricing: { commissionSalesman: 0.09, commissionMode: 'included' } } } as any })
     const qid = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })).id
