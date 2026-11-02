@@ -43,7 +43,7 @@ import { portalPageUrl } from './publicDoor'
 import { getEmailTemplate, renderTemplate } from './emailTemplatesStore'
 import { logCustomerActivity, getActivityForCustomer, getCustomers, getArchivedCustomers, upsertCustomer, bulkImportCustomers } from './customerStore'
 import { archiveRecord, unarchiveRecord, deleteRecord } from './recordArchive'
-import { getQuotes, getQuoteById } from './quoteStore'
+import { getQuotes, getArchivedQuotes, getQuoteById } from './quoteStore'
 import { sectionsCell } from './moveRepair'
 import { getJobs, getArchivedJobs } from './jobStore'
 import { stageOf, stageName, stageColor, OPS_STAGES_UPDATED_EVENT } from './opsStagesStore'
@@ -63,6 +63,7 @@ import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
 import { can, canOpenOperations, signedInRole } from './permissions'
 import { seesCommission, shownMargin } from './salesmanCommission'
+import { costRow } from './jobCostLabor'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
@@ -801,31 +802,29 @@ function CustomerNotesTab({ customerId }: { customerId: string }) {
 
 // ── Customer Job Costing Tab ──────────────────────────────────────────────────
 
-function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
+function CustomerJobCostingTab({ customerId }: { customerId: string }) {
   const costEntries: any[] = (() => {
     try { const r = cloudStorage.getItem('fencepro_jobcosting'); return r ? JSON.parse(r) : [] } catch { return [] }
   })()
 
-  const soldQuotes = quotes.filter((q: any) => q.status === 'SOLD')
-  const costedJobs = soldQuotes.map((q: any) => {
+  // The list handed to this page is slimmed (no price, cost or name) and leaves out archived quotes: the full
+  // records are in the quote store, which holds only what this login may see.
+  // Archived ones too, as Budget > Job Costing shows them.
+  const ofCustomer: any[] = [...getQuotes(), ...getArchivedQuotes()].filter(q => q.customerId === customerId)
+  const costedJobs = ofCustomer.map((q: any) => {
     const entry = costEntries.find((e: any) => e.quoteId === q.id)
     if (!entry) return null
-    const estLabor = (q.adjLaborHrs || 0) * 22
-    const actLabor = entry.actualLaborHrs * 22
-    const estCOGS = q.totalCOGS || 0
-    const actCOGS = actLabor + entry.actualMaterialCost + (entry.actualOtherCosts || 0)
-    const variance = actCOGS - estCOGS
-    const estGM = shownMargin(q, seesCommission(signedInRole(), can('costs.view'))) || 0
-    const actGM = q.finalPrice > 0 ? (q.finalPrice - actCOGS) / q.finalPrice : 0
-    return { quote: q, entry, estCOGS, actCOGS, variance, estGM, actGM }
+    // One rule with Budget > Job Costing (jobCostLabor.ts).
+    return { quote: q, entry, ...costRow(entry, q) }
   }).filter(Boolean) as any[]
 
-  const totalEst = costedJobs.reduce((s: number, j: any) => s + j.estCOGS, 0)
-  const totalAct = costedJobs.reduce((s: number, j: any) => s + j.actCOGS, 0)
-  const totalVariance = totalAct - totalEst
+  const totalEst = costedJobs.reduce((s: number, j: any) => s + (j.varianceCents === null ? 0 : j.estCents), 0)
+  const totalAct = costedJobs.reduce((s: number, j: any) => s + j.actualCents, 0)
+  const totalVariance = costedJobs.reduce((s: number, j: any) => s + (j.varianceCents ?? 0), 0)
 
-  const fmtD = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
-  const fmtP = (n: number) => `${(n * 100).toFixed(1)}%`
+  const fmtD = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cents / 100)
+  const fmtP = (n: number | null) => (n === null ? 'Not available' : `${(n * 100).toFixed(1)}%`)
+  const none = 'Not available'
   const varColor = (v: number) => v > 0 ? 'text-red-600' : v < 0 ? 'text-green-600' : 'text-gray-600'
 
   if (costedJobs.length === 0) {
@@ -843,9 +842,9 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
       {/* Summary */}
       <div className="grid grid-cols-4 gap-3">
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Jobs Costed</p><p className="text-lg font-bold text-gray-900">{costedJobs.length}</p></div>
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Est. COGS</p><p className="text-lg font-bold text-gray-900">{fmtD(totalEst)}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Est. COGS</p><p className="text-lg font-bold text-gray-900">{costedJobs.some((j: any) => j.varianceCents !== null) ? fmtD(totalEst) : none}</p></div>
         <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Actual COGS</p><p className="text-lg font-bold text-gray-900">{fmtD(totalAct)}</p></div>
-        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Variance</p><p className={`text-lg font-bold ${varColor(totalVariance)}`}>{totalVariance > 0 ? '+' : ''}{fmtD(totalVariance)}</p></div>
+        <div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Variance</p><p className={`text-lg font-bold ${varColor(totalVariance)}`}>{costedJobs.some((j: any) => j.varianceCents !== null) ? `${totalVariance > 0 ? '+' : ''}${fmtD(totalVariance)}` : none}</p></div>
       </div>
 
       {/* Job list */}
@@ -860,15 +859,16 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
                 <p className="font-medium text-gray-900">{j.quote.customerName}</p>
                 <p className="text-xs text-gray-400">{styleLabel(j.quote.fenceStyle)} • {j.entry.completionDate}</p>
               </div>
-              <div className="text-gray-700">{fmtD(j.estCOGS)}</div>
-              <div className="text-gray-700">{fmtD(j.actCOGS)}</div>
-              <div className={`font-medium ${varColor(j.variance)}`}>{j.variance > 0 ? '+' : ''}{fmtD(j.variance)}</div>
+              <div className="text-gray-700">{j.estCents === null ? none : fmtD(j.estCents)}</div>
+              <div className="text-gray-700">{j.actualCents > 0 ? fmtD(j.actualCents) : 'Not entered'}</div>
+              <div className={`font-medium ${varColor(j.varianceCents ?? 0)}`}>{j.varianceCents === null ? none : `${j.varianceCents > 0 ? '+' : ''}${fmtD(j.varianceCents)}`}</div>
               <div className="text-gray-700">{fmtP(j.estGM)}</div>
-              <div className={`font-medium ${j.actGM >= j.estGM ? 'text-green-600' : 'text-red-600'}`}>{fmtP(j.actGM)}</div>
+              <div className={`font-medium ${j.estGM === null || j.actGM === null ? 'text-gray-700' : j.actGM >= j.estGM ? 'text-green-600' : 'text-red-600'}`}>{fmtP(j.actGM)}</div>
             </div>
           ))}
         </div>
       </div>
+      <p className="text-xs text-gray-400">Margins are price less cost, before any commission.</p>
     </div>
   )
 }
@@ -1615,7 +1615,7 @@ function CustomerDetail({
             )}
 
             {shown === 'costing' && can('costs.view') && (
-              <CustomerJobCostingTab quotes={quotes} />
+              <CustomerJobCostingTab customerId={customer.id} />
             )}
 
             {shown === 'billing' && (

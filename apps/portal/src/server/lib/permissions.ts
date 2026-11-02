@@ -389,6 +389,11 @@ const KV_PRICES = new Set(['fencepro_inv_suppliers'])
 /** Lists whose entries are records (files, site plans, change orders): removing one is deleting it. */
 const KV_RECORD_LISTS = new Set(['fencepro_files', 'fencepro_siteplans', 'fencepro_changeorders'])
 
+/** Job costs are written from Budget > Job Costing only: the owner and the office. A Salesman reads hers; the crew neither. */
+const JOB_COST_WRITERS: ReadonlySet<string> = new Set(['super_admin', 'admin', 'manager', 'office_staff'])
+export const JOB_COST_KEY = 'fencepro_jobcosting'
+export const mayWriteJobCosts = (role: string | null | undefined) => JOB_COST_WRITERS.has(role ?? '')
+
 export function kvChangeRefusal(role: string | null, key: string, current: unknown, next: unknown): Action | null {
   if (sameJson(current ?? null, next ?? null)) return null
   if ((next === null || next === undefined) && !can(role, 'records.delete')) return 'records.delete'

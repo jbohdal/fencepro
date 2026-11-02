@@ -12,6 +12,7 @@
  *   POST /takeoff/:id/approve        { otherLaborCostCents? } freezes the actual cost; refused for an installer
  *   POST /takeoff/:id/reopen         back to submitted (the frozen cost is cleared)
  *   GET  /job/:jobId                 quoted vs actual, line by line
+ *   GET  /prefill/:quoteId           what Budget > Job Costing fills in on a new entry (lib/jobCostPrefill.ts)
  *   GET  /report?from=&to=           every completed job, for Reports
  *   GET  /finance                    approved crew labor, for the P&L
  *
@@ -34,6 +35,7 @@ import { salesScopedRoute, onlyScopedJobs } from '../lib/salesScope.js'
 import {
   startTakeoff, mutateTakeoff, takeoffView, linesOf, laborOf, quotedNow, actualNow, jobComparison, reportJobs, financeLabor,
 } from '../lib/jobCosting.js'
+import { prefillFor } from '../lib/jobCostPrefill.js'
 import { qty, type TakeoffLine } from '../lib/jobCostingMath.js'
 
 const router = Router()
@@ -44,6 +46,7 @@ router.use(salesScopedRoute({
   refs: async (req, first) => {
     const seg = String(req.path || '/').split('/').filter(Boolean)
     if (first === 'job' && seg[1]) return { jobs: seg[1] }
+    if (first === 'prefill' && seg[1]) return { quotes: seg[1] }
     if (first === 'takeoff' && seg[1]) {
       const t = await prisma.jobTakeoff.findFirst({ where: { id: seg[1], accountId: req.user.crmAccountId }, select: { jobId: true } })
       return t ? { jobs: t.jobId } : null
@@ -240,6 +243,14 @@ router.post('/takeoff/:id/reopen', requireCan('costs.view'), async (req: any, re
 
 router.get('/job/:jobId', requireCan('costs.view'), async (req: any, res) => {
   try { res.json({ success: true, data: await jobComparison(req.user.crmAccountId, String(req.params.jobId)) }) } catch (e) { fail(res, e, 'load the job cost') }
+})
+
+router.get('/prefill/:quoteId', requireCan('costs.view'), async (req: any, res) => {
+  try {
+    const data = await prefillFor(req.user.crmAccountId, String(req.params.quoteId))
+    if (!data) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
+    res.json({ success: true, data })
+  } catch (e) { fail(res, e, 'load the job cost prefill') }
 })
 
 router.get('/report', requireCan('costs.view'), async (req: any, res) => {

@@ -1,49 +1,35 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
-import { getQuotes } from './quoteStore'
+import { getQuotes, getArchivedQuotes } from './quoteStore'
 import { sizeText } from './moveRepair'
-import { cloudStorage } from './cloudStorage'
+import { cloudStorage, CLOUD_STORAGE_UPDATED_EVENT } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
 import { can } from './permissions'
 import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars } from './numberText'
 import { lowTarget } from './moneyLoad'
+import { loadJobCostPrefill, type JobCostPrefill } from './takeoffStore'
+import { actualKnown, costRow, crewLineCents, crewTotalCents, entryLaborCents, laborBasis, laborShown, quoteHasCost, resultOf, type CostRow, type CrewEntry, type JobCostEntry } from './jobCostLabor'
 
 /* ───────── types ───────── */
-
-interface CrewEntry {
-  name: string
-  hours: number
-  rate: number
-}
-
-interface JobCostEntry {
-  id: string
-  quoteId: string
-  completionDate: string
-  actualLaborHrs: number
-  crew: CrewEntry[]
-  actualMaterialCost: number
-  actualOtherCosts: number
-  notes: string
-}
 
 interface CostedJob {
   entry: JobCostEntry
   quote: SavedQuote
-  // Computed variances
-  laborHrsVariance: number
-  laborHrsPct: number
-  materialVariance: number
-  materialPct: number
-  totalEstCOGS: number
+  row: CostRow
+  /** A later entry for a job that already has one (two browsers): shown to delete, left out of the summaries and the P&L. */
+  second: boolean
+  /** The labor cost used for profit, in dollars. */
+  actualLaborCost: number
+  /** Null when the quote has no cost on file. */
+  laborVariance: number | null
+  /** Actual hours less the quote's, only when both are there (hours are optional and never part of the cost). */
+  laborHrsVariance: number | null
+  /** Null when the quote has no material cost on file. */
+  materialPct: number | null
   totalActCOGS: number
-  cogsVariance: number
-  cogsPct: number
-  estGM: number
-  actGM: number
 }
 
 interface BudgetState {
@@ -64,12 +50,31 @@ const fmt2 = (n: number) =>
 
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
 
+const NOT_AVAILABLE = 'Not available'
+/** A money figure, or plainly not available. */
+const orNone = (n: number | null, show: (n: number) => string) => (n === null ? NOT_AVAILABLE : show(n))
+const NO_COST = 'This quote has no cost on file.'
+const BEFORE_COMMISSION = 'Profit and margin are price less cost, before any commission.'
+
+/** Green, yellow or red against the target margin; plain when not known. */
+function gmTone(gm: number | null): string {
+  if (gm === null) return 'text-gray-500'
+  return gm >= lowTarget() ? 'text-green-600' : gm >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'
+}
+
+/** The average of the numbers, null when there are none. */
+const avgOf = (list: number[]) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : null)
+const signed = (n: number, show: (n: number) => string) => `${n >= 0 ? '+' : ''}${show(n)}`
+/** Hours are entered on few jobs: an hours average needs at least this many (1 of 8 read as a pattern). */
+const MIN_HOUR_JOBS = 3
+
 const uid = () => Math.random().toString(36).slice(2, 9)
 
 const STORAGE_KEY = 'fencepro_jobcosting'
 
+/** Archived too: the same quotes the P&L reads, so an entry reads the same on both. */
 function loadQuotes(): SavedQuote[] {
-  return getQuotes()
+  return [...getQuotes(), ...(getArchivedQuotes() as SavedQuote[])]
 }
 
 function loadEntries(): JobCostEntry[] {
@@ -111,25 +116,93 @@ function CostAJobModal({
   onSave,
   onClose,
   editEntry,
+  onOpenExisting,
 }: {
   soldQuotes: SavedQuote[]
   existingIds: Set<string>
   onSave: (entry: JobCostEntry) => void
   onClose: () => void
   editEntry?: JobCostEntry | null
+  onOpenExisting: (entry: JobCostEntry) => void
 }) {
   useBackLayer(onClose, { key: 'cost-a-job-modal' })
   const [quoteId, setQuoteId] = useState(editEntry?.quoteId || '')
   const [completionDate, setCompletionDate] = useState(editEntry?.completionDate || businessDate(new Date()))
   const [actualLaborHrs, setActualLaborHrs] = useState(Number(editEntry?.actualLaborHrs) || 0)
-  // Typed as whole cents (NumberField), kept in dollars as before.
-  const [actualMaterialCents, setActualMaterialCents] = useState(dollarsToCents(Number(editEntry?.actualMaterialCost) || 0))
   const [actualOtherCents, setActualOtherCents] = useState(dollarsToCents(Number(editEntry?.actualOtherCosts) || 0))
   const [notes, setNotes] = useState(editEntry?.notes || '')
   const [crew, setCrew] = useState<CrewEntry[]>(editEntry?.crew || [])
+  const [dateError, setDateError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const availableQuotes = soldQuotes.filter(q => !existingIds.has(q.id) || q.id === editEntry?.quoteId)
   const selectedQuote = soldQuotes.find(q => q.id === quoteId)
+
+  // Prefills come from the server (bills, Sales Orders, takeoff). A saved entry shows what was saved: they fill nothing on it.
+  const [prefill, setPrefill] = useState<JobCostPrefill | null>(null)
+  const [prefillState, setPrefillState] = useState<'idle' | 'loading' | 'done' | 'failed'>('idle')
+  // A typed number stays until changed. Not typed: labor follows the crew total, else the base (prefill, or what was saved).
+  const [laborTyped, setLaborTyped] = useState(editEntry?.laborCostTyped === true)
+  const [typedLaborCents, setTypedLaborCents] = useState(editEntry?.actualLaborCostCents ?? 0)
+  const [materialTyped, setMaterialTyped] = useState(!!editEntry)
+  const [typedMaterialCents, setTypedMaterialCents] = useState(dollarsToCents(Number(editEntry?.actualMaterialCost) || 0))
+
+  useEffect(() => {
+    if (!quoteId) { setPrefill(null); setPrefillState('idle'); return }
+    let live = true
+    setPrefill(null)
+    setPrefillState('loading')
+    loadJobCostPrefill(quoteId).then(p => {
+      if (!live) return
+      setPrefill(p)
+      setPrefillState(p ? 'done' : 'failed')
+    })
+    return () => { live = false }
+  }, [quoteId])
+
+  const crewCents = crewTotalCents(crew)
+  const quoteLaborCents = selectedQuote ? dollarsToCents(selectedQuote.laborCost) : 0
+  const quoteMaterialCents = selectedQuote ? dollarsToCents(selectedQuote.materialCost) : 0
+  const oldHoursEntry = !!editEntry && !!selectedQuote && laborBasis(editEntry) === 'hours'
+  const sub = editEntry?.laborKind ? editEntry.laborKind === 'sub' : !!prefill?.sub
+  const laborLabel = sub ? 'Paid to sub ($)' : 'Actual Labor Cost ($)'
+  const hasEstimate = !!selectedQuote && quoteHasCost(selectedQuote)
+  // A saved entry that followed its crew lines still does; on a sub job the amount wins over crew lines unless typed (an old one keeps what it shows).
+  const savedFromCrew = !sub && !!editEntry && (laborBasis(editEntry) === 'crew' || (laborBasis(editEntry) === 'saved' && editEntry.laborCostTyped !== true && crewTotalCents(editEntry.crew) > 0))
+  const crewFlows = !sub
+  // What a saved entry keeps when the box is not typed in: its own number. One saved typed or from its crew goes back to the prefill.
+  const keepsSaved = !!editEntry && !!selectedQuote && !savedFromCrew && editEntry.laborCostTyped !== true
+  const baseLaborCents = keepsSaved ? entryLaborCents(editEntry!, selectedQuote!) : prefill?.labor.cents ?? quoteLaborCents
+  const laborCents = laborShown({ typed: laborTyped, typedCents: typedLaborCents, crewCents, baseCents: baseLaborCents, crewFlows })
+  const materialCents = materialTyped ? typedMaterialCents : prefill?.material.cents ?? quoteMaterialCents
+
+  const savedLaborWords = oldHoursEntry ? 'Old entry: this came from hours x a rate. Change it to the real cost and save.' : editEntry?.laborSource || (editEntry && laborBasis(editEntry) === 'crew' ? 'From the crew lines as saved' : '')
+  const prefillWords = prefillState === 'failed' ? "From the quote's labor $. The job's bills and takeoff could not be loaded, so check this." : prefill?.labor.words ?? ''
+  const laborWords = laborTyped ? 'Typed by you' : crewCents > 0 && crewFlows ? 'From the crew breakdown' : keepsSaved ? savedLaborWords : prefillWords
+  const savedMaterialWords = editEntry?.materialSource || 'As entered before'
+  const prefillMaterialWords = prefillState === 'failed' ? 'From the quote estimate. The job\'s bills and Sales Order could not be loaded, so check this.' : prefill?.material.words ?? ''
+  const materialWords = editEntry ? (typedMaterialCents === dollarsToCents(Number(editEntry.actualMaterialCost) || 0) ? savedMaterialWords : 'Typed by you') : materialTyped ? 'Typed by you' : prefillMaterialWords
+
+  function commitLabor(cents: number) {
+    setTypedLaborCents(cents)
+    setLaborTyped(true)
+  }
+
+  function commitMaterial(cents: number) {
+    setTypedMaterialCents(cents)
+    setMaterialTyped(true)
+  }
+
+  /** Picking another job drops everything entered for the last one: crew, other costs, hours, notes, anything typed. */
+  function pickQuote(id: string) {
+    setQuoteId(id)
+    setLaborTyped(false)
+    setMaterialTyped(false)
+    setCrew([])
+    setActualOtherCents(0)
+    setActualLaborHrs(0)
+    setNotes('')
+  }
 
   function addCrewMember() {
     setCrew(prev => [...prev, { name: '', hours: 0, rate: 0 }])
@@ -143,23 +216,51 @@ function CostAJobModal({
     setCrew(prev => prev.filter((_, idx) => idx !== i))
   }
 
-  function handleSave() {
-    if (!quoteId) return
+  async function handleSave() {
+    if (!quoteId || saving) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(completionDate)) { setDateError('Pick the completion date. The P&L needs it to put this job in a month.'); return }
+    // Another screen may have costed this job since the form opened: say so here, with the entry to open, before any save.
+    if (!editEntry) {
+      setSaving(true)
+      const fresh = await loadJobCostPrefill(quoteId)
+      setSaving(false)
+      if (fresh?.existingEntry) { setPrefill(fresh); return }
+    }
+    // An old hours entry saved with its labor box untouched stays old and stays on the fix list ("don't change without my OK").
+    const keepOld = oldHoursEntry && !laborTyped && !(crewFlows && crewCents > 0)
     onSave({
       id: editEntry?.id || uid(),
       quoteId,
       completionDate,
       actualLaborHrs,
-      crew: crew.filter(c => c.name.trim()),
-      actualMaterialCost: centsToDollars(actualMaterialCents),
+      // A line with hours or pay stays even with no name: it is in the total.
+      crew: crew.filter(c => c.name.trim() || crewLineCents(c) > 0),
+      actualMaterialCost: centsToDollars(materialCents),
       actualOtherCosts: centsToDollars(actualOtherCents),
       notes,
+      materialSource: materialWords,
+      ...(keepOld
+        ? { frozenOldLaborCents: baseLaborCents }
+        : { actualLaborCostCents: laborCents, laborCostTyped: laborTyped, laborKind: sub ? 'sub' as const : 'crew' as const, laborSource: laborWords }),
     })
   }
 
+  const hasCrewPay = crewCents > 0
+  const showResult = !!selectedQuote
+  const priceCents = selectedQuote ? dollarsToCents(selectedQuote.finalPrice) : 0
+  const actualCostCents = laborCents + materialCents + actualOtherCents
+  const estCostCents = selectedQuote ? dollarsToCents(selectedQuote.totalCOGS) : 0
+  const est = resultOf(priceCents, estCostCents)
+  const hasCosts = actualCostCents > 0
+  const marginKnown = actualKnown({ hasEstimate, laborCents, materialCents, actualCents: actualCostCents })
+  const noResult = hasCosts ? NOT_AVAILABLE : 'Not entered'
+  const already = !editEntry && prefill?.existingEntry ? prefill.existingEntry as unknown as JobCostEntry : null
+  const act = resultOf(priceCents, actualCostCents)
+  const waiting = !editEntry && prefillState === 'loading'
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto overflow-x-hidden mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">{editEntry ? 'Edit Job Cost' : 'Cost a Completed Job'}</h2>
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -172,7 +273,7 @@ function CostAJobModal({
             <select
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               value={quoteId}
-              onChange={e => setQuoteId(e.target.value)}
+              onChange={e => pickQuote(e.target.value)}
               disabled={!!editEntry}
             >
               <option value="">— Choose a job —</option>
@@ -184,16 +285,24 @@ function CostAJobModal({
             </select>
           </div>
 
+          {already && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-sm text-gray-800" data-already-costed>
+              This job already has a job cost, saved on another screen.{' '}
+              <button type="button" onClick={() => onOpenExisting(already)} className="text-orange-500 hover:text-orange-600 font-semibold">Open it to edit</button>
+            </div>
+          )}
+
           {/* Estimate preview */}
           {selectedQuote && (
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-xs text-gray-400 font-semibold mb-2">Quote Estimate</p>
-              <div className="grid grid-cols-4 gap-3 text-sm">
+              {!hasEstimate && <p className="text-sm font-medium text-gray-700" data-no-cost>{NO_COST} The estimate is not available.</p>}
+              {hasEstimate && <div className="grid grid-cols-4 gap-3 text-sm">
                 <div><p className="text-gray-400 text-xs">Labor Hrs</p><p className="font-bold">{selectedQuote.adjLaborHrs?.toFixed(1) || '—'}</p></div>
                 <div><p className="text-gray-400 text-xs">Labor $</p><p className="font-bold">{fmt(selectedQuote.laborCost)}</p></div>
                 <div><p className="text-gray-400 text-xs">Materials</p><p className="font-bold">{fmt(selectedQuote.materialCost)}</p></div>
                 <div><p className="text-gray-400 text-xs">Total cost</p><p className="font-bold">{fmt(selectedQuote.totalCOGS)}</p></div>
-              </div>
+              </div>}
             </div>
           )}
 
@@ -204,26 +313,64 @@ function CostAJobModal({
                 type="date"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 value={completionDate}
-                onChange={e => setCompletionDate(e.target.value)}
+                onChange={e => { setCompletionDate(e.target.value); setDateError('') }}
               />
+              {dateError && <p className="text-xs text-red-600 mt-1" role="alert" data-date-error>{dateError}</p>}
             </div>
             <div>
-              <label htmlFor="jc-labor-hrs" className="text-xs text-gray-500 font-medium mb-1 block">Actual Total Labor Hours</label>
+              <label htmlFor="jc-labor-hrs" className="text-xs text-gray-500 font-medium mb-1 block">Actual Total Labor Hours (optional)</label>
               <NumberField id="jc-labor-hrs" kind="number" min={0} decimals={2} placeholder="e.g. 24.5" className="!text-left"
                 value={actualLaborHrs} onCommit={setActualLaborHrs} />
+              <p className="text-xs text-gray-400 mt-1">For your records. Hours never change the cost.</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label htmlFor="jc-labor-cost" className="text-xs text-gray-500 font-medium mb-1 block">{laborLabel}</label>
+              <NumberField id="jc-labor-cost" kind="money" min={0} cents={true} className="!text-left" data-labor-kind={sub ? 'sub' : 'crew'}
+                value={laborCents} onCommit={commitLabor} disabled={waiting} />
+              {selectedQuote && (
+                <p className="text-xs text-gray-500 mt-1" data-source="labor">
+                  {waiting ? 'Looking at this job…' : laborWords}
+                  {prefill && !waiting && !editEntry?.laborKind && <span className="text-gray-400"> · {sub ? 'Sub job' : 'Crew job'}: {prefill.kindWhy}</span>}
+                </p>
+              )}
+              {hasCrewPay && !crewFlows && !laborTyped && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Crew adds up to {fmt2(crewCents / 100)}. Paid to sub stays as it is.{' '}
+                  <button type="button" onClick={() => commitLabor(crewCents)} className="text-orange-500 hover:text-orange-600 font-semibold">Use the crew total</button>
+                </p>
+              )}
+              {laborTyped && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {hasCrewPay && <>Crew adds up to {fmt2(crewCents / 100)}. </>}
+                  {hasCrewPay && <button type="button" onClick={() => (crewFlows ? setLaborTyped(false) : commitLabor(crewCents))} className="text-orange-500 hover:text-orange-600 font-semibold">Use the crew total</button>}
+                  {(!hasCrewPay || !crewFlows) && <button type="button" onClick={() => setLaborTyped(false)} className="text-orange-500 hover:text-orange-600 font-semibold">{hasCrewPay ? ' or ' : ''}Use {fmt2(baseLaborCents / 100)}</button>}
+                </p>
+              )}
+              {!editEntry && prefill?.labor.note && !laborTyped && <p className="text-xs text-yellow-700 mt-1">{prefill.labor.note}</p>}
+            </div>
+            <div>
               <label htmlFor="jc-material" className="text-xs text-gray-500 font-medium mb-1 block">Actual Material Cost</label>
               <NumberField id="jc-material" kind="money" min={0} cents={true} className="!text-left"
-                value={actualMaterialCents} onCommit={setActualMaterialCents} />
+                value={materialCents} onCommit={commitMaterial} disabled={waiting} />
+              {selectedQuote && <p className="text-xs text-gray-500 mt-1" data-source="material">{waiting ? 'Looking at this job…' : materialWords}</p>}
+              {!editEntry && materialTyped && (
+                <p className="text-xs mt-1">
+                  <button type="button" onClick={() => setMaterialTyped(false)} className="text-orange-500 hover:text-orange-600 font-semibold">Use {fmt2((prefill?.material.cents ?? quoteMaterialCents) / 100)}</button>
+                </p>
+              )}
+              {!editEntry && prefill?.material.note && !materialTyped && <p className="text-xs text-yellow-700 mt-1">{prefill.material.note}</p>}
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="jc-other" className="text-xs text-gray-500 font-medium mb-1 block">Other Costs (extras, change orders)</label>
               <NumberField id="jc-other" kind="money" min={0} cents={true} className="!text-left"
                 value={actualOtherCents} onCommit={setActualOtherCents} />
+              {(prefill?.tearOutCents ?? 0) > 0 && <p className="text-xs text-gray-500 mt-1">The quote has {fmt2(prefill!.tearOutCents / 100)} tear out. It is not in labor or material here; add it here if it was paid.</p>}
             </div>
           </div>
 
@@ -236,23 +383,29 @@ function CostAJobModal({
             {crew.length > 0 && (
               <div className="space-y-2">
                 {crew.map((c, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                  <div key={i} className="flex flex-wrap sm:flex-nowrap items-center gap-2 border-b border-gray-100 sm:border-0 pb-2 sm:pb-0" data-crew-row>
                     <input
-                      className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
+                      className="min-w-0 flex-1 basis-[calc(100%-56px)] sm:basis-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
                       placeholder="Name"
                       value={c.name}
                       onChange={e => updateCrew(i, 'name', e.target.value)}
                     />
-                    <NumberField kind="number" min={0} decimals={2} width="w-20" label={`Hours for crew member ${i + 1}`} placeholder="Hours"
-                      value={c.hours} onCommit={h => updateCrew(i, 'hours', h)} />
-                    <NumberField kind="money" min={0} width="w-24" label={`Dollars an hour for crew member ${i + 1}`} placeholder="$/hr"
-                      value={dollarsToCents(c.rate)} onCommit={r => updateCrew(i, 'rate', centsToDollars(r))} />
-                    <span className="text-xs text-gray-400 w-16 text-right">{fmt(c.hours * c.rate)}</span>
-                    <button onClick={() => removeCrew(i)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                    <button onClick={() => removeCrew(i)} aria-label={`Remove crew member ${i + 1}`} className="order-2 sm:order-5 min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                    <label className="order-3 flex-1 sm:flex-none min-w-0">
+                      <span className="sm:hidden block text-xs text-gray-500 mb-0.5">Hours</span>
+                      <NumberField kind="number" min={0} decimals={2} width="w-full sm:w-20" label={`Hours for crew member ${i + 1}`} placeholder="Hours"
+                        value={c.hours} onCommit={h => updateCrew(i, 'hours', h)} />
+                    </label>
+                    <label className="order-3 flex-1 sm:flex-none min-w-0">
+                      <span className="sm:hidden block text-xs text-gray-500 mb-0.5">$ an hour</span>
+                      <NumberField kind="money" min={0} width="w-full sm:w-24" label={`Dollars an hour for crew member ${i + 1}`} placeholder="$/hr"
+                        value={dollarsToCents(c.rate)} onCommit={r => updateCrew(i, 'rate', centsToDollars(r))} />
+                    </label>
+                    <span className="order-4 text-xs text-gray-500 sm:text-gray-400 min-w-[64px] text-right self-end sm:self-auto pb-2 sm:pb-0">{fmt2(crewLineCents(c) / 100)}</span>
                   </div>
                 ))}
                 <div className="text-xs text-gray-400 text-right">
-                  Crew total: {crew.reduce((s, c) => s + c.hours, 0).toFixed(1)} hrs · {fmt(crew.reduce((s, c) => s + c.hours * c.rate, 0))}
+                  Crew total: {crew.reduce((s, c) => s + c.hours, 0).toFixed(1)} hrs · {fmt2(crewCents / 100)}
                 </div>
               </div>
             )}
@@ -268,13 +421,40 @@ function CostAJobModal({
               onChange={e => setNotes(e.target.value)}
             />
           </div>
+
+          {/* The result before saving, next to the quote estimate */}
+          {showResult && (
+            <div className="bg-gray-50 rounded-xl p-4" data-job-result>
+              <p className="text-xs text-gray-400 font-semibold mb-2">Result if saved</p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400">
+                    <th className="text-left font-medium pb-1"></th>
+                    <th className="text-right font-medium pb-1">Quote estimate</th>
+                    <th className="text-right font-medium pb-1">Actual</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td className="py-0.5 text-gray-600">Price</td><td className="py-0.5 text-right text-gray-500">{fmt2(priceCents / 100)}</td><td className="py-0.5 text-right font-semibold text-gray-900">{fmt2(priceCents / 100)}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Total cost</td><td className="py-0.5 text-right text-gray-500" data-est="cost">{hasEstimate ? fmt2(estCostCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="cost">{hasCosts ? fmt2(actualCostCents / 100) : 'Not entered'}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Profit</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? fmt2(est.profitCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="profit">{marginKnown ? fmt2(act.profitCents / 100) : noResult}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Margin</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? `${est.marginPct.toFixed(1)}%` : NOT_AVAILABLE}</td><td className={`py-0.5 text-right font-bold ${!marginKnown || !hasEstimate ? 'text-gray-900' : act.marginPct >= est.marginPct ? 'text-green-600' : 'text-red-500'}`} data-result="margin">{marginKnown ? `${act.marginPct.toFixed(1)}%` : noResult}</td></tr>
+                </tbody>
+              </table>
+              <p className="text-xs text-gray-400 mt-2">{BEFORE_COMMISSION}</p>
+              {hasCosts && !marginKnown && <p className="text-xs text-yellow-700 mt-1">Enter both labor and material to see profit and margin.</p>}
+              {(prefill?.changeOrders.count ?? 0) > 0 && (
+                <p className="text-xs text-yellow-700 mt-1">This job has approved change orders ({fmt2(prefill!.changeOrders.priceCents / 100)}). The price here is the signed quote, without them.</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={!quoteId}
+            disabled={!quoteId || waiting || saving || !!already}
             className="btn btn-primary"
           >
             {editEntry ? 'Update' : 'Save Job Cost'}
@@ -287,27 +467,36 @@ function CostAJobModal({
 
 /* ───────── Job Detail Drawer ───────── */
 
-function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void }) {
+function JobDetailDrawer({ job, onClose, onEdit }: { job: CostedJob; onClose: () => void; onEdit: () => void }) {
   useBackLayer(onClose, { key: 'job-detail-drawer' })
   const { quote: q, entry: e } = job
-  const actualLaborCost = e.crew.length > 0
-    ? e.crew.reduce((s, c) => s + c.hours * c.rate, 0)
-    : 0
+  const oldHours = laborBasis(e) === 'hours'
 
-  function VarRow({ label, est, act, unit = '$' }: { label: string; est: number; act: number; unit?: string }) {
+  function VarRow({ label, est, act, unit = '$' }: { label: string; est: number | null; act: number; unit?: string }) {
+    const fmtVal = unit === '$' ? fmt : (n: number) => n.toFixed(1)
+    if (est === null) {
+      return (
+        <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
+          <span className="text-sm text-gray-700 font-medium">{label}</span>
+          <div className="flex items-center gap-2 sm:gap-4 text-sm">
+            <span className="text-xs text-gray-400 text-right">{NOT_AVAILABLE}</span>
+            <span className="font-bold text-gray-900 w-14 sm:w-20 text-right">{fmtVal(act)}</span>
+          </div>
+        </div>
+      )
+    }
     const diff = act - est
     const pct = est > 0 ? diff / est : 0
-    const fmtVal = unit === '$' ? fmt : (n: number) => n.toFixed(1)
     return (
       <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
         <span className="text-sm text-gray-700 font-medium">{label}</span>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-gray-400 w-20 text-right">{fmtVal(est)}</span>
-          <span className="font-bold text-gray-900 w-20 text-right">{fmtVal(act)}</span>
-          <span className={`font-bold w-20 text-right ${varianceColor(pct)}`}>
+        <div className="flex items-center gap-2 sm:gap-4 text-sm">
+          <span className="text-gray-400 w-14 sm:w-20 text-right">{fmtVal(est)}</span>
+          <span className="font-bold text-gray-900 w-14 sm:w-20 text-right">{fmtVal(act)}</span>
+          <span className={`font-bold w-16 sm:w-20 text-right ${varianceColor(pct)}`}>
             {varianceArrow(diff)} {unit === '$' ? fmt(Math.abs(diff)) : Math.abs(diff).toFixed(1)}
           </span>
-          <span className={`text-xs font-bold w-14 text-right ${varianceColor(pct)}`}>
+          <span className={`hidden sm:inline text-xs font-bold w-14 text-right ${varianceColor(pct)}`}>
             {pct >= 0 ? '+' : ''}{fmtPct(pct)}
           </span>
         </div>
@@ -318,13 +507,16 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <div className="w-[520px] bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
+      <div className="w-full max-w-[520px] bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900">{q.customerName}</h2>
             <p className="text-sm text-gray-400">{styleLabel(q.fenceStyle)} · {sizeText(q.sections, q.work)} · {e.completionDate}</p>
           </div>
-          <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onEdit} className="text-sm font-semibold text-orange-500 hover:text-orange-600 px-2 min-h-[48px]">Edit</button>
+            <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          </div>
         </div>
 
         <div className="px-6 py-5 space-y-6">
@@ -336,36 +528,46 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
             </div>
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <p className="text-xs text-gray-400">Est GM</p>
-              <p className={`text-lg font-bold ${job.estGM >= lowTarget() ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(job.estGM)}</p>
+              <p className={`text-lg font-bold ${job.row.estGM === null ? 'text-gray-500' : job.row.estGM >= lowTarget() ? 'text-green-600' : 'text-yellow-600'}`}>{orNone(job.row.estGM, fmtPct)}</p>
             </div>
-            <div className={`rounded-xl p-3 text-center ${job.actGM >= lowTarget() ? 'bg-green-50' : job.actGM >= lowTarget() - 0.05 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+            <div className={`rounded-xl p-3 text-center ${job.row.actGM === null ? 'bg-gray-50' : job.row.actGM >= lowTarget() ? 'bg-green-50' : job.row.actGM >= lowTarget() - 0.05 ? 'bg-yellow-50' : 'bg-red-50'}`}>
               <p className="text-xs text-gray-400">Actual GM</p>
-              <p className={`text-lg font-bold ${job.actGM >= lowTarget() ? 'text-green-600' : job.actGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>{fmtPct(job.actGM)}</p>
+              <p className={`text-lg font-bold ${gmTone(job.row.actGM)}`}>{orNone(job.row.actGM, fmtPct)}</p>
             </div>
           </div>
+          {!job.row.hasEstimate && <p className="text-sm font-medium text-gray-700">{NO_COST} The estimate is not available.</p>}
+          <p className="text-xs text-gray-400">{BEFORE_COMMISSION}</p>
 
           {/* Variance table */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-gray-400 font-semibold">Variance Breakdown</span>
-              <div className="flex gap-4 text-xs text-gray-400">
-                <span className="w-20 text-right">Estimate</span>
-                <span className="w-20 text-right">Actual</span>
-                <span className="w-20 text-right">Variance</span>
-                <span className="w-14 text-right">%</span>
+              <div className="flex gap-2 sm:gap-4 text-xs text-gray-400">
+                <span className="w-14 sm:w-20 text-right">Estimate</span>
+                <span className="w-14 sm:w-20 text-right">Actual</span>
+                <span className="w-16 sm:w-20 text-right">Variance</span>
+                <span className="hidden sm:inline w-14 text-right">%</span>
               </div>
             </div>
-            <VarRow label="Labor Hours" est={q.adjLaborHrs || 0} act={e.actualLaborHrs} unit="hrs" />
-            <VarRow label="Labor Cost" est={q.laborCost} act={actualLaborCost > 0 ? actualLaborCost : e.actualLaborHrs * (q.adjLaborHrs > 0 ? q.laborCost / q.adjLaborHrs : 22)} />
-            <VarRow label="Material Cost" est={q.materialCost} act={e.actualMaterialCost} />
+            {Number(e.actualLaborHrs) > 0 && <VarRow label="Labor Hours" est={job.row.hasEstimate ? q.adjLaborHrs || 0 : null} act={e.actualLaborHrs} unit="hrs" />}
+            <VarRow label={e.laborKind === 'sub' ? 'Paid to sub' : 'Labor Cost'} est={job.row.hasEstimate ? q.laborCost : null} act={job.actualLaborCost} />
+            <VarRow label="Material Cost" est={job.row.hasEstimate ? q.materialCost : null} act={e.actualMaterialCost} />
             {e.actualOtherCosts > 0 && (
               <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
                 <span className="text-sm text-gray-700 font-medium">Other Costs</span>
                 <span className="text-sm font-bold text-gray-900">{fmt(e.actualOtherCosts)}</span>
               </div>
             )}
-            <VarRow label="Total COGS" est={job.totalEstCOGS} act={job.totalActCOGS} />
+            <VarRow label="Total COGS" est={job.row.estCents === null ? null : job.row.estCents / 100} act={job.totalActCOGS} />
           </div>
+
+          {(e.laborSource || oldHours || e.materialSource) && (
+            <div className="text-xs text-gray-500 space-y-1">
+              {oldHours && <p>Labor on this old entry came from hours x a rate. Tap Edit to enter the real cost.</p>}
+              {!oldHours && e.laborSource && <p>Labor: {e.laborSource}</p>}
+              {e.materialSource && <p>Material: {e.materialSource}</p>}
+            </div>
+          )}
 
           {/* Crew breakdown */}
           {e.crew.length > 0 && (
@@ -387,7 +589,7 @@ function JobDetailDrawer({ job, onClose }: { job: CostedJob; onClose: () => void
                         <td data-label="Name" className="px-4 py-2 font-medium text-gray-900">{c.name}</td>
                         <td data-label="Hours" className="px-4 py-2 text-right text-gray-700">{c.hours.toFixed(1)}</td>
                         <td data-label="Rate" className="px-4 py-2 text-right text-gray-500">{fmt2(c.rate)}/hr</td>
-                        <td data-label="Cost" className="px-4 py-2 text-right font-bold text-gray-900">{fmt(c.hours * c.rate)}</td>
+                        <td data-label="Cost" className="px-4 py-2 text-right font-bold text-gray-900">{fmt2(crewLineCents(c) / 100)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -419,85 +621,117 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
   const [editEntry, setEditEntry] = useState<JobCostEntry | null>(null)
   const [selectedJob, setSelectedJob] = useState<CostedJob | null>(null)
 
+  // A save from another browser (or one the server refused) reaches this list.
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const key = (e as CustomEvent<{ key?: string }>).detail?.key
+      if (key === STORAGE_KEY || key === '*') setEntries(loadEntries())
+    }
+    window.addEventListener(CLOUD_STORAGE_UPDATED_EVENT, onUpdate)
+    return () => window.removeEventListener(CLOUD_STORAGE_UPDATED_EVENT, onUpdate)
+  }, [])
+
   const quotes = useMemo(() => loadQuotes(), [])
   const soldQuotes = useMemo(() => quotes.filter(q => q.status === 'SOLD'), [quotes])
   const existingIds = useMemo(() => new Set(entries.map(e => e.quoteId)), [entries])
 
   // Join entries with quotes to create CostedJob[]
-  const costedJobs: CostedJob[] = useMemo(() => {
+  const allRows: CostedJob[] = useMemo(() => {
+    const seen = new Set<string>()
     return entries
       .map(entry => {
         const quote = quotes.find(q => q.id === entry.quoteId)
         if (!quote) return null
 
-        const actualLaborCost = entry.crew.length > 0
-          ? entry.crew.reduce((s, c) => s + c.hours * c.rate, 0)
-          : entry.actualLaborHrs * (quote.adjLaborHrs > 0 ? quote.laborCost / quote.adjLaborHrs : 22)
+        // One rule with the customer's tab (jobCostLabor.ts). Hours are never part of the cost.
+        const row = costRow(entry, quote)
+        const actualLaborCost = row.laborCents / 100
+        const hasHours = row.hasEstimate && Number(entry.actualLaborHrs) > 0 && (quote.adjLaborHrs || 0) > 0
 
-        const totalEstCOGS = quote.totalCOGS
-        const totalActCOGS = actualLaborCost + entry.actualMaterialCost + entry.actualOtherCosts
-
+        const second = seen.has(entry.quoteId)
+        seen.add(entry.quoteId)
         return {
           entry,
           quote,
-          laborHrsVariance: entry.actualLaborHrs - (quote.adjLaborHrs || 0),
-          laborHrsPct: (quote.adjLaborHrs || 0) > 0 ? (entry.actualLaborHrs - quote.adjLaborHrs) / quote.adjLaborHrs : 0,
-          materialVariance: entry.actualMaterialCost - quote.materialCost,
-          materialPct: quote.materialCost > 0 ? (entry.actualMaterialCost - quote.materialCost) / quote.materialCost : 0,
-          totalEstCOGS,
-          totalActCOGS,
-          cogsVariance: totalActCOGS - totalEstCOGS,
-          cogsPct: totalEstCOGS > 0 ? (totalActCOGS - totalEstCOGS) / totalEstCOGS : 0,
-          estGM: quote.gmPct,
-          actGM: quote.finalPrice > 0 ? (quote.finalPrice - totalActCOGS) / quote.finalPrice : 0,
+          row,
+          second,
+          actualLaborCost,
+          laborVariance: row.hasEstimate ? actualLaborCost - quote.laborCost : null,
+          laborHrsVariance: hasHours ? entry.actualLaborHrs - quote.adjLaborHrs : null,
+          materialPct: row.hasEstimate && quote.materialCost > 0 ? (entry.actualMaterialCost - quote.materialCost) / quote.materialCost : null,
+          totalActCOGS: row.actualCents / 100,
         } as CostedJob
       })
       .filter(Boolean) as CostedJob[]
   }, [entries, quotes])
 
+  // One job, one line in the summaries, as on the P&L.
+  const costedJobs = useMemo(() => allRows.filter(j => !j.second), [allRows])
+
   // Aggregate stats
   const stats = useMemo(() => {
     if (costedJobs.length === 0) return null
-    const avgLaborVar = costedJobs.reduce((s, j) => s + j.laborHrsVariance, 0) / costedJobs.length
-    const avgMaterialVar = costedJobs.reduce((s, j) => s + j.materialPct, 0) / costedJobs.length
-    const avgCOGSVar = costedJobs.reduce((s, j) => s + j.cogsPct, 0) / costedJobs.length
-    const avgEstGM = costedJobs.reduce((s, j) => s + j.estGM, 0) / costedJobs.length
-    const avgActGM = costedJobs.reduce((s, j) => s + j.actGM, 0) / costedJobs.length
-    const totalEstCOGS = costedJobs.reduce((s, j) => s + j.totalEstCOGS, 0)
-    const totalActCOGS = costedJobs.reduce((s, j) => s + j.totalActCOGS, 0)
+    // Estimates: only jobs whose quote has a cost on file. Actuals: only entries with a cost in them.
+    const compared = costedJobs.filter(j => j.row.hasEstimate && j.row.hasActual)
+    const laborEst = compared.filter(j => j.quote.laborCost > 0)
+    const avgLaborCostVar = avgOf(compared.map(j => j.laborVariance as number))
+    const avgLaborEst = avgOf(laborEst.map(j => j.quote.laborCost))
+    // Hours are optional: only jobs with hours on both sides count here.
+    const withHours = costedJobs.filter(j => j.laborHrsVariance !== null)
+    const avgLaborVar = avgOf(withHours.map(j => j.laborHrsVariance as number))
+    const avgMaterialVar = avgOf(compared.filter(j => j.materialPct !== null).map(j => j.materialPct as number))
+    const avgEstGM = avgOf(costedJobs.filter(j => j.row.estGM !== null).map(j => j.row.estGM as number))
+    const avgActGM = avgOf(costedJobs.filter(j => j.row.actGM !== null).map(j => j.row.actGM as number))
+    // The compare of margins is on the same jobs.
+    const bothGM = compared.filter(j => j.row.estGM !== null && j.row.actGM !== null)
+    const bothEstGM = avgOf(bothGM.map(j => j.row.estGM as number))
+    const bothActGM = avgOf(bothGM.map(j => j.row.actGM as number))
 
     // By fence style
-    const byStyle: Record<string, { jobs: number; avgLaborVar: number; avgMatVar: number; avgActGM: number }> = {}
+    const groups: Record<string, CostedJob[]> = {}
     costedJobs.forEach(j => {
       const cat = fenceCategory(j.quote.fenceStyle)
-      if (!byStyle[cat]) byStyle[cat] = { jobs: 0, avgLaborVar: 0, avgMatVar: 0, avgActGM: 0 }
-      byStyle[cat].jobs += 1
-      byStyle[cat].avgLaborVar += j.laborHrsVariance
-      byStyle[cat].avgMatVar += j.materialPct
-      byStyle[cat].avgActGM += j.actGM
+      ;(groups[cat] ??= []).push(j)
     })
-    Object.values(byStyle).forEach(s => {
-      s.avgLaborVar /= s.jobs
-      s.avgMatVar /= s.jobs
-      s.avgActGM /= s.jobs
+    const byStyle: Record<string, { jobs: number; avgLaborCostVar: number | null; hrJobs: number; avgLaborVar: number; avgMatVar: number | null; avgActGM: number | null }> = {}
+    Object.entries(groups).forEach(([cat, list]) => {
+      const both = list.filter(j => j.row.hasEstimate && j.row.hasActual)
+      const hrs = list.filter(j => j.laborHrsVariance !== null)
+      byStyle[cat] = {
+        jobs: list.length,
+        avgLaborCostVar: avgOf(both.map(j => j.laborVariance as number)),
+        hrJobs: hrs.length,
+        avgLaborVar: avgOf(hrs.map(j => j.laborHrsVariance as number)) ?? 0,
+        avgMatVar: avgOf(both.filter(j => j.materialPct !== null).map(j => j.materialPct as number)),
+        avgActGM: avgOf(list.filter(j => j.row.actGM !== null).map(j => j.row.actGM as number)),
+      }
     })
 
-    return { avgLaborVar, avgMaterialVar, avgCOGSVar, avgEstGM, avgActGM, totalEstCOGS, totalActCOGS, byStyle }
+    return { avgLaborCostVar, avgLaborEst, avgLaborVar, hourJobs: withHours.length, avgMaterialVar, avgEstGM, avgActGM, bothEstGM, bothActGM, byStyle }
   }, [costedJobs])
 
   // Insights
   const insights = useMemo(() => {
     if (!stats) return []
     const msgs: string[] = []
-    if (stats.avgLaborVar > 1) msgs.push(`You underestimate labor by an average of ${stats.avgLaborVar.toFixed(1)} hours per job.`)
-    else if (stats.avgLaborVar < -1) msgs.push(`You overestimate labor by an average of ${Math.abs(stats.avgLaborVar).toFixed(1)} hours per job — your crew is faster than expected.`)
-    if (stats.avgMaterialVar > 0.05) msgs.push(`Material costs are running ${fmtPct(stats.avgMaterialVar)} above estimates on average.`)
-    else if (stats.avgMaterialVar < -0.05) msgs.push(`Material costs are coming in ${fmtPct(Math.abs(stats.avgMaterialVar))} below estimates — good purchasing.`)
-    if (stats.avgActGM < stats.avgEstGM - 0.03) msgs.push(`Actual margins (${fmtPct(stats.avgActGM)}) are below quoted margins (${fmtPct(stats.avgEstGM)}) — review your estimating.`)
-    else if (stats.avgActGM >= stats.avgEstGM) msgs.push(`Actual margins are meeting or beating estimates — your pricing model is solid.`)
+    const costVar = stats.avgLaborCostVar ?? 0
+    const laborPct = stats.avgLaborEst ? costVar / stats.avgLaborEst : 0
+    if (laborPct > 0.05) msgs.push(`Labor costs are running ${fmt(costVar)} a job above estimates on average.`)
+    else if (laborPct < -0.05) msgs.push(`Labor costs are coming in ${fmt(Math.abs(costVar))} a job below estimates on average.`)
+    const hours = stats.avgLaborVar ?? 0
+    const across = `(${stats.hourJobs} of ${costedJobs.length} jobs have hours)`
+    if (stats.hourJobs >= MIN_HOUR_JOBS && hours > 1) msgs.push(`You underestimate labor by an average of ${hours.toFixed(1)} hours per job ${across}.`)
+    else if (stats.hourJobs >= MIN_HOUR_JOBS && hours < -1) msgs.push(`You overestimate labor by an average of ${Math.abs(hours).toFixed(1)} hours per job ${across}. Your crew is faster than expected.`)
+    const matVar = stats.avgMaterialVar ?? 0
+    if (matVar > 0.05) msgs.push(`Material costs are running ${fmtPct(matVar)} above estimates on average.`)
+    else if (matVar < -0.05) msgs.push(`Material costs are coming in ${fmtPct(Math.abs(matVar))} below estimates — good purchasing.`)
+    if (stats.bothActGM !== null && stats.bothEstGM !== null) {
+      if (stats.bothActGM < stats.bothEstGM - 0.03) msgs.push(`Actual margins (${fmtPct(stats.bothActGM)}) are below quoted margins (${fmtPct(stats.bothEstGM)}) — review your estimating.`)
+      else if (stats.bothActGM >= stats.bothEstGM) msgs.push(`Actual margins are meeting or beating estimates — your pricing model is solid.`)
+    }
 
     Object.entries(stats.byStyle).forEach(([style, d]) => {
-      if (d.jobs >= 2 && d.avgLaborVar > 2) msgs.push(`${style} jobs average ${d.avgLaborVar.toFixed(1)} extra labor hours — consider adjusting man-hour rates for this style.`)
+      if (d.hrJobs >= MIN_HOUR_JOBS && d.avgLaborVar > 2) msgs.push(`${style} jobs average ${d.avgLaborVar.toFixed(1)} extra labor hours (${d.hrJobs} of ${d.jobs} jobs have hours) — consider adjusting man-hour rates for this style.`)
     })
     return msgs
   }, [stats])
@@ -540,31 +774,31 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
 
       {/* Aggregate KPIs */}
       {stats && (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Jobs Costed</p>
-            <p className="text-2xl font-bold text-gray-900">{costedJobs.length}</p>
+            <p className="text-xl lg:text-2xl font-bold text-gray-900">{costedJobs.length}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 font-semibold mb-1">Avg Labor Hr Variance</p>
-            <p className={`text-2xl font-bold ${varianceColor(stats.avgLaborVar / 10)}`}>
-              {stats.avgLaborVar >= 0 ? '+' : ''}{stats.avgLaborVar.toFixed(1)} hrs
+            <p className="text-xs text-gray-400 font-semibold mb-1">Avg Labor Variance</p>
+            <p className={`text-xl lg:text-2xl font-bold ${stats.avgLaborCostVar === null ? 'text-gray-500' : varianceColor(stats.avgLaborEst ? stats.avgLaborCostVar / stats.avgLaborEst : 0)}`}>
+              {orNone(stats.avgLaborCostVar, n => signed(n, fmt))}
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Material Variance</p>
-            <p className={`text-2xl font-bold ${varianceColor(stats.avgMaterialVar)}`}>
-              {stats.avgMaterialVar >= 0 ? '+' : ''}{fmtPct(stats.avgMaterialVar)}
+            <p className={`text-xl lg:text-2xl font-bold ${stats.avgMaterialVar === null ? 'text-gray-500' : varianceColor(stats.avgMaterialVar)}`}>
+              {orNone(stats.avgMaterialVar, n => signed(n, fmtPct))}
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Est GM</p>
-            <p className="text-2xl font-bold text-gray-500">{fmtPct(stats.avgEstGM)}</p>
+            <p className="text-xl lg:text-2xl font-bold text-gray-500">{orNone(stats.avgEstGM, fmtPct)}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Actual GM</p>
-            <p className={`text-2xl font-bold ${stats.avgActGM >= lowTarget() ? 'text-green-600' : stats.avgActGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
-              {fmtPct(stats.avgActGM)}
+            <p className={`text-xl lg:text-2xl font-bold ${gmTone(stats.avgActGM)}`}>
+              {orNone(stats.avgActGM, fmtPct)}
             </p>
           </div>
         </div>
@@ -596,7 +830,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
               <tr>
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500">Style</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Jobs</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Labor Hr Var</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Labor Var</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Material Var</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Avg Actual GM</th>
               </tr>
@@ -606,14 +840,14 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                 <tr key={style} className="hover:bg-gray-50">
                   <td data-label="Style" className="px-6 py-3 font-medium text-gray-900">{style}</td>
                   <td data-label="Jobs" className="px-4 py-3 text-right text-gray-700">{d.jobs}</td>
-                  <td data-label="Avg Labor Hr Var" className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgLaborVar / 10)}`}>
-                    {d.avgLaborVar >= 0 ? '+' : ''}{d.avgLaborVar.toFixed(1)} hrs
+                  <td data-label="Avg Labor Var" className="px-4 py-3 text-right font-bold text-gray-900">
+                    {orNone(d.avgLaborCostVar, n => signed(n, fmt))}
                   </td>
-                  <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgMatVar)}`}>
-                    {d.avgMatVar >= 0 ? '+' : ''}{fmtPct(d.avgMatVar)}
+                  <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${d.avgMatVar === null ? 'text-gray-500' : varianceColor(d.avgMatVar)}`}>
+                    {orNone(d.avgMatVar, n => signed(n, fmtPct))}
                   </td>
-                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${d.avgActGM >= lowTarget() ? 'text-green-600' : d.avgActGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
-                    {fmtPct(d.avgActGM)}
+                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${gmTone(d.avgActGM)}`}>
+                    {orNone(d.avgActGM, fmtPct)}
                   </td>
                 </tr>
               ))}
@@ -626,7 +860,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Costed Jobs</h3>
-          <span className="text-xs text-gray-400">{costedJobs.length} jobs</span>
+          <span className="text-xs text-gray-400">{costedJobs.length} jobs · {BEFORE_COMMISSION}</span>
         </div>
         <table className="w-full text-sm table-responsive-cards">
           <thead className="bg-gray-50 border-b border-gray-200">
@@ -650,19 +884,22 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   <p className="text-sm">Click "Cost a Job" to enter actuals for a completed sold quote</p>
                 </td>
               </tr>
-            ) : costedJobs.map(j => (
+            ) : allRows.map(j => (
               <tr key={j.entry.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedJob(j)}>
-                <td data-label="Customer" className="px-5 py-3 font-medium text-gray-900">{j.quote.customerName}</td>
+                <td data-label="Customer" className="px-5 py-3 font-medium text-gray-900">
+                  {j.quote.customerName}
+                  {j.second && <span className="block text-xs font-semibold text-yellow-700">Second entry for this job, not counted. Delete one.</span>}
+                </td>
                 <td data-label="Style" className="px-3 py-3 text-gray-600 text-xs">{fenceCategory(j.quote.fenceStyle)}</td>
                 <td data-label="Price" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.quote.finalPrice)}</td>
-                <td data-label="Est COGS" className="px-3 py-3 text-right text-gray-500">{fmt(j.totalEstCOGS)}</td>
-                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.totalActCOGS)}</td>
-                <td data-label="COGS Var" className={`px-3 py-3 text-right font-bold ${varianceColor(j.cogsPct)}`}>
-                  {j.cogsVariance >= 0 ? '+' : ''}{fmt(j.cogsVariance)}
+                <td data-label="Est COGS" className="px-3 py-3 text-right text-gray-500">{j.row.estCents === null ? NOT_AVAILABLE : fmt(j.row.estCents / 100)}</td>
+                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{j.totalActCOGS > 0 ? fmt(j.totalActCOGS) : 'Not entered'}</td>
+                <td data-label="COGS Var" className={`px-3 py-3 text-right font-bold ${j.row.varianceCents === null ? 'text-gray-500' : varianceColor(j.row.estCents ? j.row.varianceCents / j.row.estCents : 0)}`}>
+                  {orNone(j.row.varianceCents === null ? null : j.row.varianceCents / 100, n => signed(n, fmt))}
                 </td>
-                <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{fmtPct(j.estGM)}</td>
-                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${j.actGM >= lowTarget() ? 'text-green-600' : j.actGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
-                  {fmtPct(j.actGM)}
+                <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{orNone(j.row.estGM, fmtPct)}</td>
+                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${gmTone(j.row.actGM)}`}>
+                  {orNone(j.row.actGM, fmtPct)}
                 </td>
                 <td data-label="Actions" className="px-2 py-3 text-right">
                   {can('ops.delete') && <button
@@ -680,17 +917,21 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       {/* Modal */}
       {showModal && (
         <CostAJobModal
-          soldQuotes={soldQuotes}
+          key={editEntry?.id ?? 'new'}
+          // A saved entry opens even if its quote is no longer Sold (its numbers need the quote).
+          soldQuotes={editEntry && !soldQuotes.some(q => q.id === editEntry.quoteId) ? [...soldQuotes, ...quotes.filter(q => q.id === editEntry.quoteId)] : soldQuotes}
           existingIds={existingIds}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditEntry(null) }}
           editEntry={editEntry}
+          onOpenExisting={setEditEntry}
         />
       )}
 
       {/* Detail drawer */}
       {selectedJob && (
-        <JobDetailDrawer job={selectedJob} onClose={() => setSelectedJob(null)} />
+        <JobDetailDrawer job={selectedJob} onClose={() => setSelectedJob(null)}
+          onEdit={() => { setEditEntry(selectedJob.entry); setSelectedJob(null); setShowModal(true) }} />
       )}
     </div>
   )
