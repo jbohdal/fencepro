@@ -24,6 +24,7 @@ import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount, signedNow } from './saved-quotes.js'
 import { sameValue } from '../lib/quoteLock.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
+import { gmPctAtSigning } from '../lib/commissionRule.js'
 import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { syncSalesOrderSafe } from '../lib/salesOrders.js'
@@ -589,7 +590,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
         fenceStyle: opt.fenceStyle,
         finalPrice: opt.finalPrice,
         sections: opt.sections,
-        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
+        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: gmPctAtSigning(q, opt, s) } : {}),
         ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
         ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
         ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),

@@ -19,8 +19,8 @@ vi.mock('../../web/src/jobStore', () => ({ getJobs: () => [], getArchivedJobs: (
 import { quoteMarginTone, quoteMarginToner } from '../../web/src/moneyLoad'
 
 const quotes = ['A', 'B', 'Not in Settings'].flatMap(fenceStyle =>
-  [0.1, 0.295, 0.31, 0.395, 0.41, 0.6].map(gmPct => ({ gmPct, totalCOGS: 100, fenceStyle })),
-).concat({ gmPct: 0.5, totalCOGS: 0, fenceStyle: 'A' })
+  [0.1, 0.295, 0.31, 0.395, 0.41, 0.6].map(margin => ({ finalPrice: 1000, totalCOGS: Math.round(1000 * (1 - margin)), fenceStyle })),
+).concat({ finalPrice: 1000, totalCOGS: 0, fenceStyle: 'A' })
 
 describe('quoteMarginToner', () => {
   beforeEach(() => { reads.n = 0 })

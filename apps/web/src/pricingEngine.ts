@@ -16,7 +16,7 @@
  *              per_foot      footage × the style's price per foot
  *              manual        a final price typed on the quote
  *
- *   Commission included      taken out of the price (margin drops)
+ *   Commission included      taken out of the price (margin drops); only with a Salesman on the job
  *              added         price is grossed up so the commission is on top
  *
  *   Rounding   whole dollar  the last step (Jonathan, Oct 21 2026): the price is
@@ -441,9 +441,10 @@ export function calculatePrice(input: PriceInputs): PriceResult {
 
   // ── Commission ──
   const commissionMode: CommissionMode = o.commissionMode ?? pricing.commissionMode ?? 'included'
-  const rawPct = typeof o.commissionPct === 'number' && Number.isFinite(o.commissionPct)
-    ? o.commissionPct
-    : (input.hasSalesman ? num(pricing.commissionSalesman) : num(pricing.commissionNonSalesman))
+  // Commission only with a Salesman on the job (Jonathan, Nov 2 2026): anything else is $0.
+  const rawPct = !input.hasSalesman ? 0
+    : typeof o.commissionPct === 'number' && Number.isFinite(o.commissionPct) ? o.commissionPct
+      : num(pricing.commissionSalesman)
   const commissionPct = Math.min(Math.max(rawPct, 0), 0.95)
 
   // ── Final price ──

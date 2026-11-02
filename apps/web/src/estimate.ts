@@ -304,6 +304,7 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
   })
   const p = calc.priced
   const good = cfg.margins?.good ?? 0.34, warning = cfg.margins?.warning ?? 0.27
+  const onPrice = p.price > 0 ? (p.price - p.totalCOGS) / p.price : 0
   return {
     label: 'Estimate',
     style,
@@ -320,7 +321,8 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
     pricePerFoot: p.pricePerFoot,
     grossMargin: p.grossMargin,
     gmPct: p.gmPct,
-    marginStatus: p.gmPct >= good ? 'good' : p.gmPct >= warning ? 'warning' : 'danger',
+    // Graded on price less cost (before commission), as the quote builder does.
+    marginStatus: onPrice >= good ? 'good' : onPrice >= warning ? 'warning' : 'danger',
     manHours: p.manHours,
     pullSheet: calc.materials.items,
     notes: [...held, ...calc.materials.warnings, ...p.notes],

@@ -10,7 +10,7 @@
 import { dayWords } from './businessDate'
 import { formatPhone } from './phoneFormat'
 import { can, canOpenOperations, jobPagePath, signedInRole } from './permissions'
-import { seesCommission, shownMargin, savedCommission } from './salesmanCommission'
+import { seesCommission, afterCommission, savedCommission } from './salesmanCommission'
 import { styleLabel } from './fenceCatalog'
 import { soldStyleLabel } from './soldStyleLabel'
 import { isSoldQuote } from '../../portal/src/server/lib/customerFenceName'
@@ -40,7 +40,7 @@ import { getConfig, overheadPctOf } from './configStore'
 import { useBackLayer, BackClose, navigate } from './nav'
 import { SaveStatus } from './SaveStatus'
 import SignedDocuments from './SignedDocuments'
-import { lowTarget } from './moneyLoad'
+import { gradeOfQuote } from './moneyLoad'
 import { quoteNumber } from './quoteNumber'
 import SalesmanOnQuote from './SalesmanOnQuote'
 
@@ -81,8 +81,11 @@ export default function QuoteDetailDrawer({
     return () => window.removeEventListener('fencepro:quotes:updated', h)
   }, [])
   const quote = (getQuoteById(opened.id) as SavedQuote | null) ?? opened
-  // A Salesman sees the margin before the commission (Oct 27 2026); the saved quote keeps its own.
-  const shownGm = shownMargin(quote, seesCommission(signedInRole(), can('costs.view')))
+  // Price less cost (before commission), graded on the Target Margin this quote was priced with. What is left after
+  // the commission is its own line, in words, for a login that sees the commission (never a Salesman, Oct 27 2026).
+  const grade = gradeOfQuote(quote)
+  const shownGm = grade.margin ?? 0
+  const afterComm = seesCommission(signedInRole(), can('costs.view')) ? afterCommission(quote) : null
   const commission = seesCommission(signedInRole(), can('costs.view')) ? savedCommission(quote) : null
   const [sendOpen, setSendOpen] = useState(false)
   // The Send box is showing its own "Show these to the customer" list: the photos section does not repeat it.
@@ -206,7 +209,7 @@ export default function QuoteDetailDrawer({
               {workSummary(quote.work)
                 ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
                 : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p>{changeNote?.pullSheetRev ? <p className="text-xs text-amber-800">as signed</p> : null}</>}
-              {internalView && <p className={`mt-1 font-semibold ${shownGm >= lowTarget() ? 'text-green-700' : shownGm >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>{fmtPct(shownGm)} margin</p>}
+              {internalView && <p className={`mt-1 font-semibold ${grade.tone === 'good' ? 'text-green-700' : grade.tone === 'near' ? 'text-yellow-600' : grade.tone === 'bad' ? 'text-red-600' : 'text-gray-400'}`} data-quote-margin={grade.tone}>{fmtPct(shownGm)} margin</p>}
             </div>
           </div>
 
@@ -250,7 +253,7 @@ export default function QuoteDetailDrawer({
           {quote.finalPrice > 0 && quote.totalCOGS > 0 && (() => {
             const cfg = getConfig()
             // Not shown to a Salesman (Oct 27 2026): her view reads as it did without the commission.
-            const pct = !seesCommission(signedInRole(), can('costs.view')) ? 0 : typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : (quote.hasSalesman ? cfg.pricing.commissionSalesman : cfg.pricing.commissionNonSalesman) ?? 0
+            const pct = !seesCommission(signedInRole(), can('costs.view')) || !quote.hasSalesman ? 0 : typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : cfg.pricing.commissionSalesman ?? 0
             // Rounded to the whole dollar: commission and overhead stay on the price before rounding (the cents are out of profit).
             const rounding = typeof quote.pricing?.roundingCents === 'number' ? quote.pricing.roundingCents : 0
             // The ± dollar adjustment is out of profit too: commission and overhead stay on the price before it.
@@ -299,9 +302,11 @@ export default function QuoteDetailDrawer({
                 <div className="flex justify-between"><span className="text-gray-600">Tear out</span><span>{fmt(quote.tearOutCost)}</span></div>
                 <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total cost</span><span>{fmt(quote.totalCOGS)}</span></div>
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
-                {/* The commission in the margin below, for logins that see it (never a Salesman): the lines add up. */}
+                {/* The commission, for logins that see it (never a Salesman): the lines add up to the margin after it. */}
                 {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%</span><span>{fmt(commission.cents / 100)}</span></div>}
-                <div className="flex justify-between pt-1 text-xs text-gray-500"><span>Gross Margin</span><span>{fmtPct(shownGm)}</span></div>
+                <div className="flex justify-between pt-1 text-xs text-gray-500" data-quote-gross-margin><span>Gross Margin (price less cost)</span><span>{fmtPct(shownGm)}</span></div>
+                {afterComm !== null && <div className="flex justify-between text-xs text-gray-500" data-quote-margin-after><span>Margin after commission</span><span>{fmtPct(afterComm)}</span></div>}
+                <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>Target Margin it was priced with</span><span>{fmtPct(grade.target)}</span></div>
               </div>
             </section>
           )}

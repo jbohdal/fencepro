@@ -42,7 +42,8 @@ import { forgetAllScopes } from './salesScope.js'
 import { audit } from './auditLog.js'
 import { enteringName, OWNER_ONLY_SALESMAN, requestIsOwner } from './salesmanChoice.js'
 
-import { SALESMAN_MOVED_NOTE_PREFIX } from './salesRep.js'
+import { SALESMAN_MOVED_NOTE_PREFIX, SALESMAN_ROLE } from './salesRep.js'
+import { carriesCommission, withoutCommission } from './commissionRule.js'
 export { SALESMAN_MOVED_NOTE_PREFIX }
 
 export interface SalesmanMoved {
@@ -101,7 +102,7 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   const hasCost = quote ? !!(await prisma.jobQuotedCost.findUnique({ where: { accountId_quoteId: { accountId, quoteId: quote.id } }, select: { id: true } })) : false
   // A job is a sale; a quote is signed when locked (lib/quoteLock.ts) or a job was made from it.
   const signed = !quote || isSignedQuote(quote, hasCost) || jobs.length > 0
-  const commissionCents = quote ? quoteCommissionCents(quote) : 0
+  const commissionCents = quote && target.role === SALESMAN_ROLE ? quoteCommissionCents(quote) : 0
   const priceCents = Math.round((quote ? quote.finalPrice : (job!.contractValue || job!.quotePrice || 0)) * 100)
   const moved: SalesmanMoved = { quoteId: quote?.id ?? null, jobIds: jobs.map(j => j.id), from, to: target.name, signed, priceCents, commissionCents }
 
@@ -113,14 +114,16 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   }
 
   const contactId = quote?.crmContactId ?? job?.crmContactId ?? null
+  // Given to someone who is not a Salesman (the owner): nobody is paid on it, its commission comes off (lib/commissionRule.ts). The price stays.
+  const noCommission = quote && carriesCommission(quote) && target.role !== SALESMAN_ROLE ? withoutCommission(quote) : null
   const changed = await prisma.$transaction(async tx => {
     if (quote) {
       // Only if nobody changed its Salesman since it was read here.
-      const q = await tx.savedQuote.updateMany({ where: { id: quote.id, accountId, deletedAt: null, salesRep: quote.salesRep }, data: { salesRep: target.name } })
+      const q = await tx.savedQuote.updateMany({ where: { id: quote.id, accountId, deletedAt: null, salesRep: quote.salesRep }, data: { salesRep: target.name, ...(noCommission ?? {}) } })
       if (q.count !== 1) return false
       await tx.jobQuotedCost.updateMany({ where: { accountId, quoteId: quote.id }, data: { salesRep: target.name } })
     }
-    if (jobs.length) await tx.savedJob.updateMany({ where: { accountId, id: { in: jobs.map(j => j.id) } }, data: { salesRep: target.name } })
+    if (jobs.length) await tx.savedJob.updateMany({ where: { accountId, id: { in: jobs.map(j => j.id) } }, data: { salesRep: target.name, ...(noCommission ? { hasSalesman: false, gmPct: noCommission.gmPct } : {}) } })
     if (contactId) {
       const what = quote ? quoteWords(quote) : 'the job'
       await tx.crmContactNote.create({ data: { crmContactId: contactId, accountId, isPinned: false, body: movedNote(what, from, target.name, input.by.name, signed), createdBy: input.by.name, createdById: input.by.id } })

@@ -63,7 +63,7 @@ import {
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
-import { salesmanSwitchDefault, seesCommission } from './salesmanCommission'
+import { salesmanSwitchDefault, seesCommission, repRulesOutCommission, SALESMAN_ROLE } from './salesmanCommission'
 import { getBookingTeam } from './bookingTeamStore'
 import { toast } from './toast'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
@@ -579,6 +579,8 @@ export default function QuoteBuilder({
   const [priceAdjust, setPriceAdjust]   = useState(init?.priceAdjust ?? 0)
   // On for a new quote by a Salesman (or for her customer); a saved quote keeps its own (Oct 27 2026, salesmanCommission.ts).
   const [hasSalesman, setHasSalesman]   = useState(() => salesmanSwitchDefault(init as any, signedInRole(), getBookingTeam()))
+  // A rep on the quote who is not a Salesman: the switch stays off (blank: the rep comes with the customer at save).
+  const repOff = !!init?.salesRep?.trim() && !hasSalesman && signedInRole() !== SALESMAN_ROLE && repRulesOutCommission(init.salesRep, getBookingTeam())
   // Pricing choices for this quote. A saved quote reopens with the choices it
   // was saved with; a new quote starts from Settings → Pricing.
   const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
@@ -916,9 +918,10 @@ export default function QuoteBuilder({
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
   const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
-  // What a Salesman sees: the margin before the commission (it is not shown to her, Oct 27 2026). The quote saves the real one.
-  const viewGrossMargin = showCommission ? grossMargin : Math.round((grossMargin + commAmt) * 100) / 100
-  const viewGmPct   = showCommission ? gmPct : (adjPrice > 0 ? viewGrossMargin / adjPrice : 0)
+  // What every login reads and what the warning grades: price less cost, before commission (a Salesman's commission
+  // is not shown to her, Oct 27 2026; a quote at target never warns for it). The quote saves the margin after it.
+  const viewGrossMargin = Math.round((grossMargin + commAmt) * 100) / 100
+  const viewGmPct   = adjPrice > 0 ? viewGrossMargin / adjPrice : 0
   // The ± dollar adjustment: the price without it (the proposal's list price), the amount applied, a reduction refused (under cost).
   const listPrice   = !internal ? (sv?.listPrice ?? adjPrice) : work ? work.listCents / 100 : newMin ? minimum.listPrice : priced.listPrice
   const adjApplied  = !internal ? (sv?.adjustmentCents ?? 0) : work ? work.adjustmentCents : newMin ? minimum.adjustmentCents : priced.adjustmentCents
@@ -1045,7 +1048,7 @@ export default function QuoteBuilder({
     // Pricing notes only once a style is picked (before that there is nothing to price).
     ...(style ? materials.warnings : []),
     ...(style ? priced.notes : []),
-    ...[internal && style && sections > 0 ? marginCheck(showCommission ? priced.gmPct : (priced.price > 0 ? (priced.grossMargin + priced.commissionAmt) / priced.price : 0), cfg.margins?.good ?? 0.34, priced.price) : null,
+    ...[internal && style && sections > 0 ? marginCheck(viewGmPct, cfg.margins?.good ?? 0.34, adjPrice) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
   ])]
 
@@ -1161,6 +1164,9 @@ export default function QuoteBuilder({
         gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds, wholeDollar: !keepCents, showDiscount: showDiscount && adjApplied < 0,
       })
     })() : undefined
+    // Commission only with a Salesman as the rep (Jonathan, Nov 2 2026): the rep is known for sure here (one already on the
+    // quote stays, routes/saved-quotes.ts, else the customer's, else the Salesman saving it). A signed quote keeps its own.
+    const commissionOn = hasSalesman && (!!signedQuote || signedInRole() === SALESMAN_ROLE || !repRulesOutCommission(init?.salesRep?.trim() || data.salesRep || mySalesRepName(), getBookingTeam()))
     const quote: SavedQuote = {
       id: quoteIdRef.current,
       customerId: data.customerId,
@@ -1188,7 +1194,7 @@ export default function QuoteBuilder({
       tearOutSections: tearOutSec,
       tearOutGates,
       adjLaborHrs: parseFloat(adjLaborHrs) || 0,
-      hasSalesman,
+      hasSalesman: commissionOn,
       priceAdjust,
       sections: work ? work.sections : sections,
       materialCost,
@@ -1196,7 +1202,7 @@ export default function QuoteBuilder({
       tearOutCost,
       totalCOGS,
       finalPrice: adjPrice,
-      gmPct,
+      gmPct: commissionOn ? gmPct : viewGmPct,
       pullSheet: materialItems,
       status: data.status,
       date: businessDate(new Date()),
@@ -1216,6 +1222,7 @@ export default function QuoteBuilder({
         // A Salesman or Installer: every option comes priced from the server.
         styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [],
         ownPrice: adjPrice,
+        ownGmPct: commissionOn ? gmPct : viewGmPct,
         ownRoundingCents: roundingCents,
         ownAdjustmentCents: adjApplied,
         showDiscount: showDiscount && adjApplied < 0,
@@ -1861,8 +1868,8 @@ export default function QuoteBuilder({
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-medium text-gray-700">Salesman on this job?</p>
-                {showCommission && <p className="text-xs text-gray-400">
-                  {commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}
+                {showCommission && <p className="text-xs text-gray-400" data-salesman-commission-words>
+                  {repOff ? `No commission: ${init?.salesRep?.trim()} is not a Salesman` : <>{commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}. Only with a Salesman as the rep.</>}
                 </p>}
               </div>
               <button
@@ -1870,8 +1877,9 @@ export default function QuoteBuilder({
                 role="switch"
                 aria-checked={hasSalesman}
                 aria-label="Salesman on this job"
+                disabled={repOff}
                 onClick={() => setHasSalesman(h => !h)}
-                className="shrink-0 w-14 h-12 grid place-items-center rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-300"
+                className={`shrink-0 w-14 h-12 grid place-items-center rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300 ${repOff ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <span className={`relative block w-11 h-6 rounded-full transition-colors ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}>
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -2118,13 +2126,19 @@ export default function QuoteBuilder({
                   </div>
                 )}
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Gross Margin</span>
+                  <span className="text-sm text-gray-500">Gross Margin <span className="text-xs text-gray-400">(price less cost)</span></span>
                   <span className={`text-2xl font-bold ${gmColor}`}>{(viewGmPct * 100).toFixed(1)}%</span>
                 </div>
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-xs text-gray-400">Margin $</span>
                   <span className={`text-sm font-semibold ${gmColor}`}>{fmt(viewGrossMargin)}</span>
                 </div>
+                {showCommission && commAmt > 0 && (
+                  <div className="flex justify-between items-center mt-1" data-quote-margin-after>
+                    <span className="text-xs text-gray-400">After commission</span>
+                    <span className="text-sm text-gray-600 tabular-nums">{(gmPct * 100).toFixed(1)}%, {fmt(grossMargin)}</span>
+                  </div>
+                )}
                 <div className="mt-2">
                   <div className="w-full bg-gray-100 rounded-full h-1.5">
                     <div className={`h-1.5 rounded-full transition-all ${viewGmPct >= gmGood ? 'bg-green-500' : viewGmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(viewGmPct * 100, 100))}%` }} />

@@ -3,6 +3,17 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-11-02: margin is graded on price less cost; commission only with a Salesman as the rep
+
+Jonathan: "Commission only applies when an actual Salesman (Christa or another salesman login) is the rep. Remove it from the 7 quotes where the rep is me, Jb or blank, including Kristi Murphy's sold job. Nobody is paid on those." "Raise the 'good' margin warning to 39.6% so a low quote shows a warning in the builder." "Fix the 3 display bugs you found (Jaziel margin, list vs report target, Jack Chappell labor) and deploy." He confirmed $5/ft and the other sub rates are what subs get paid.
+
+- **Commission:** counts only when the quote's rep names a Salesman login (full name, first name or initials; a Salesman who left counts). Owner, office, admin, a name that is no login, or blank: $0 (apps/web/src/pricingEngine.ts, apps/portal/src/server/lib/commissionRule.ts). Every save of an unsigned quote holds to it; giving a quote to someone who is not a Salesman takes its commission off. Settings' Non-Salesman Commission is gone from the screen. Commission "included" comes out of the price, so the customer price never moves. A signed quote changes only by a logged fix.
+- **The 7 quotes and the sold margin:** scripts/commission-rep-fix-2026-11-02.ts (dry run by default; the sold margin is its own choice, --jaziel-sold). Stops if the rule finds anything but the seven he named.
+- **The good margin:** Settings > Pricing > Margin Thresholds, 34% to 39.6%: scripts/margin-good-warning-2026-11-02.ts, or type it on the screen. Graded on price less cost, so a Salesman's quote at target does not warn for her commission.
+- **Margin shown and graded:** every screen reads price less cost ÷ price, against the Target Margin the quote was priced with: its saved work target or cost factor; a typed price, its saved overhead + its style's Target Profit today (Target Profit is not saved on a quote); neither saved, its style's target today. What is left after commission shows only to those who see commission, in those words. Stored gmPct stays after commission.
+- **Signing:** the margin saved is the true one at the signed price, not the option's snapshot.
+- **Quoted cost record:** stays as decided Oct 30: a sub job's unit and rate are what the sub is paid (Settings when signed), the labor total is what the quote priced; they differ on a quote priced at an older rate, and that difference is real cost. The gates the sub is paid for stay on the record in that case.
+
 ## 2026-10-30: change orders on wood jobs use the wood parts
 
 Jonathan: "Change orders on wood jobs: use the wood parts and wood pricing, not vinyl +15%."

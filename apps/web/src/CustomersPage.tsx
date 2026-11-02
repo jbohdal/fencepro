@@ -68,7 +68,7 @@ import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
 import { CustomerChangeOrderButtons } from './ChangeOrders'
 import { PastCustomerBadge, ServiceRequestButton, ServiceTicketList } from './ServiceRequests'
-import { lowTarget } from './moneyLoad'
+import { gradeOfQuote } from './moneyLoad'
 import SalesmanPicker from './SalesmanPicker'
 import { isMyRep, useOwnerChangesSalesman } from './salesmanChoice'
 import SalesmanOnCustomer, { OWNER_ONLY_WORDS } from './SalesmanOnCustomer'
@@ -122,6 +122,7 @@ interface Quote {
   sections: number | string
   price: number
   margin: number
+  marginTone?: 'good' | 'near' | 'bad' | 'none'
   status: 'DRAFT' | 'SENT' | 'SOLD' | 'LOST'
   date: string
 }
@@ -1539,7 +1540,7 @@ function CustomerDetail({
                             <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.label || styleLabel(q.type) || q.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                             <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
-                            {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.margin >= lowTarget() ? 'text-green-600' : q.margin >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
+                            {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.marginTone === 'good' ? 'text-green-600' : q.marginTone === 'near' ? 'text-yellow-600' : q.marginTone === 'bad' ? 'text-red-500' : 'text-gray-400'}`}>
                               {(q.margin * 100).toFixed(1)}%
                             </td>}
                             <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{dayWords(q.date)}</td>
@@ -1697,7 +1698,9 @@ export default function CustomersPage({ onNewQuote }: {
       // A repair: its work, never "0" (round 2 review, Oct 26 2026).
       sections: sectionsCell(q.sections, q.work),
       price: q.finalPrice || 0,
-      margin: shownMargin(q, seesCommission(signedInRole(), can('costs.view'))) || 0,
+      // Price less cost, graded on the Target Margin it was priced with (moneyTruth.quoteGrade).
+      margin: gradeOfQuote(q).margin ?? 0,
+      marginTone: gradeOfQuote(q).tone,
       status: q.status || 'DRAFT',
       date: q.date || '',
     })) as Quote[]

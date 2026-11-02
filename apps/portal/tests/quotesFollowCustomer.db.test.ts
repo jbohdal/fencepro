@@ -215,7 +215,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     expect(jc1.has(`${tag}-jc-sam`)).toBe(true)
   })
 
-  test('the owner changes the Salesman on the customer edit too (the office no longer can): the open quotes go to the owner with the same commission; sold ones stay', async () => {
+  test('the owner changes the Salesman on the customer edit too (the office no longer can): the open quotes go to the owner, their commission off (nobody is paid on them, Nov 2 2026), the price the same; sold ones stay', async () => {
     // The office's save (an older copy of the customer, as no office screen changes it): saved, Sam kept, nothing moves.
     const no = await call('PATCH', `/api/crm-contacts/${id.gwen}`, office, { salesRep: OLIVE(), notes: 'office note' })
     expect(no.status).toBe(200)
@@ -229,8 +229,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     expect(after.get(id.qDraft)!.salesRep).toBe(OLIVE())
     expect(after.get(id.qSentBySally)!.salesRep).toBe(OLIVE())
     expect(after.get(id.qSold)!.salesRep).toBe(SALLY())
-    expect([after.get(id.qDraft)!.finalPrice, after.get(id.qDraft)!.gmPct, after.get(id.qDraft)!.hasSalesman]).toEqual([PRICE, GM, true])
-    expect(quoteCommissionCents(after.get(id.qDraft)!)).toBe(120663)
+    expect([after.get(id.qDraft)!.finalPrice, after.get(id.qDraft)!.hasSalesman]).toEqual([PRICE, false])
+    expect(after.get(id.qDraft)!.gmPct).toBeGreaterThan(GM)
+    expect(quoteCommissionCents(after.get(id.qDraft)!)).toBe(0)
     forgetAllScopes()
     expect(await seesQuote(sam, id.qDraft)).toBe(false)
     const notes = await prisma.crmContactNote.findMany({ where: { crmContactId: id.gwen, body: { startsWith: 'Open quotes moved to ' } }, orderBy: { createdAt: 'asc' } })

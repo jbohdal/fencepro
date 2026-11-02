@@ -41,6 +41,7 @@
 
 import prisma from './prisma.js'
 import { sameName } from './salesRep.js'
+import { carriesCommission, repIsSalesman, withoutCommission } from './commissionRule.js'
 
 /** History lines of a quotes move start with this; followUps.ts shows them as "Quotes moved". */
 export const QUOTES_MOVED_NOTE_PREFIX = 'Open quotes moved to '
@@ -88,7 +89,7 @@ export interface MovedQuote {
 export async function openQuotesOf(accountId: string, contactId: string) {
   const quotes = await prisma.savedQuote.findMany({
     where: { accountId, crmContactId: contactId, deletedAt: null, status: { in: [...OPEN_QUOTE_STATUSES] }, soldAt: null, acceptedAt: null },
-    select: { id: true, status: true, salesRep: true, finalPrice: true, totalCOGS: true, gmPct: true, hasSalesman: true, pricing: true, work: true },
+    select: { id: true, status: true, salesRep: true, finalPrice: true, totalCOGS: true, gmPct: true, hasSalesman: true, pricing: true, work: true, proposal: true },
     orderBy: { createdAt: 'asc' },
   })
   if (!quotes.length) return []
@@ -115,14 +116,16 @@ export async function moveOpenQuotes(input: { accountId: string; contactId: stri
   const open = (await openQuotesOf(input.accountId, input.contactId)).filter(q => !samePerson(q.salesRep, toRep))
   if (!open.length) return []
   const moved: MovedQuote[] = []
+  // Given to someone who is not a Salesman: nobody is paid on them, the commission comes off (lib/commissionRule.ts). The price stays.
+  const toSalesman = await repIsSalesman(input.accountId, toRep)
   for (const q of open) {
     // The same conditions again in the write: a quote sold or changed since the read is left as it is.
     const done = await prisma.savedQuote.updateMany({
       where: { id: q.id, accountId: input.accountId, crmContactId: input.contactId, deletedAt: null, status: { in: [...OPEN_QUOTE_STATUSES] }, soldAt: null, acceptedAt: null, salesRep: q.salesRep },
-      data: { salesRep: toRep },
+      data: { salesRep: toRep, ...(!toSalesman && carriesCommission(q) ? withoutCommission(q) : {}) },
     })
     if (done.count !== 1) continue
-    moved.push({ id: q.id, status: q.status, from: q.salesRep, to: toRep, priceCents: Math.round(q.finalPrice * 100), commissionCents: quoteCommissionCents(q) })
+    moved.push({ id: q.id, status: q.status, from: q.salesRep, to: toRep, priceCents: Math.round(q.finalPrice * 100), commissionCents: toSalesman ? quoteCommissionCents(q) : 0 })
   }
   if (!moved.length) return []
   const froms = [...new Set(moved.map(m => m.from.trim()).filter(Boolean))]

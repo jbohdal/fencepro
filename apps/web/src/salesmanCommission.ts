@@ -15,6 +15,12 @@
  *     goes") is not shown to a Salesman. Her screens read as they did before
  *     the switch was on for her: commission is not part of her view.
  *
+ * Commission only when an actual Salesman is the rep (Jonathan, Nov 2 2026:
+ * "Commission only applies when an actual Salesman (Christa or another
+ * salesman login) is the rep."). Owner, office, admin or blank rep: $0. A saved
+ * quote keeps its switch only with such a rep; the server holds to the same
+ * rule on every save (portal lib/commissionRule.ts).
+ *
  * Pure: QuoteBuilder and QuoteDetailDrawer call it, tests call it directly.
  */
 
@@ -41,6 +47,30 @@ export function isSalesmanName(name: string | null | undefined, team: readonly M
   return !!n && team.some(m => m.role === SALESMAN_ROLE && norm(m.name) === n)
 }
 
+/** Initials of a name: "Christa Feagin" → "cf". */
+const initialsOf = (name: string) => norm(name).split(' ').map(w => w[0] ?? '').join('')
+
+/**
+ * Is this rep a Salesman login? The login's full name, first name alone or initials ("Christa
+ * Feagin", "Christa ", "CF"), the same as the server's lib/commissionRule.ts repIsSalesman.
+ */
+export function isSalesmanRep(rep: string | null | undefined, team: readonly Member[]): boolean {
+  const n = norm(rep)
+  if (!n) return false
+  return team.some(m => m.role === SALESMAN_ROLE && (norm(m.name) === n || norm(m.name).split(' ')[0] === n || initialsOf(m.name) === n))
+}
+
+/**
+ * A rep who rules commission out on the screen: blank, or someone on the team who is not a Salesman
+ * (the team holds active logins only, so a name it does not know is left to the server, which knows them all).
+ */
+export function repRulesOutCommission(rep: string | null | undefined, team: readonly Member[]): boolean {
+  const n = norm(rep)
+  if (!n) return true
+  if (isSalesmanRep(n, team)) return false
+  return team.some(m => m.role !== SALESMAN_ROLE && (norm(m.name) === n || norm(m.name).split(' ')[0] === n || initialsOf(m.name) === n))
+}
+
 /** A quote no one on staff has decided the switch on yet: not saved, or the website's draft not yet sent. */
 export function isFreshQuote(q: QuoteLike): boolean {
   if (!q || !q.id) return true
@@ -49,9 +79,10 @@ export function isFreshQuote(q: QuoteLike): boolean {
 
 /** Where "Salesman on this job?" starts when the quote builder opens. */
 export function salesmanSwitchDefault(q: QuoteLike, role: string | null | undefined, team: readonly Member[]): boolean {
-  if (!isFreshQuote(q)) return !!q?.hasSalesman
-  if (q?.hasSalesman) return true
-  return role === SALESMAN_ROLE || isSalesmanName(q?.salesRep, team)
+  // A signed quote keeps its own (only a change order or a logged fix changes it).
+  if (q?.acceptedAt || q?.soldAt || q?.status === 'SOLD') return !!q.hasSalesman
+  if (!isFreshQuote(q)) return !!q?.hasSalesman && (role === SALESMAN_ROLE || !repRulesOutCommission(q?.salesRep, team))
+  return role === SALESMAN_ROLE || isSalesmanRep(q?.salesRep, team)
 }
 
 /** Does this login see the commission (its % and dollars)? Everyone who sees costs except a Salesman. */
@@ -86,6 +117,15 @@ export function carriesCommission(q: SavedMargin): boolean {
 export function marginBeforeCommission(q: SavedMargin): number {
   if (!carriesCommission(q) || !(q.finalPrice > 0) || !(q.totalCOGS > 0)) return q.gmPct
   return (q.finalPrice - q.totalCOGS) / q.finalPrice
+}
+
+/**
+ * The margin left after the commission, for a login that sees the commission. Null when the quote carries no
+ * commission, or its saved margin is not under price less cost (nothing was taken out).
+ */
+export function afterCommission(q: SavedMargin): number | null {
+  if (!carriesCommission(q) || !(q.finalPrice > 0) || !(q.totalCOGS > 0)) return null
+  return q.gmPct < (q.finalPrice - q.totalCOGS) / q.finalPrice - 0.00005 ? q.gmPct : null
 }
 
 /** The margin this login sees on a saved quote: the saved one, or for a Salesman the margin before the commission. */

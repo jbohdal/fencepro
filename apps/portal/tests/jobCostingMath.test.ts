@@ -30,6 +30,23 @@ const quote = {
 const pricing = { laborMode: 'subcontractor', subUnit: 'section', manHourRate: 25, subRateByCategory: { Vinyl: 24 } }
 const quoted = quotedCostOf(quote, { inventory, pricing, style: { name: 'WV-ND 6x8 Privacy', category: 'Vinyl' }, signedVia: 'proposal', signedAt: new Date('2026-10-01T15:00:00Z') })
 
+describe('a quoted cost record priced at an older sub rate', () => {
+  // Jack Chappell: priced at $16 a section + a $10 walk gate, $458; signed after Settings went to $4 a foot, what the sub is paid
+  // (Oct 30 2026: the unit goes with the rate; Nov 2: Jonathan confirmed those rates). The record says what the sub is paid, gates too.
+  const chappell = { ...quote, sections: 28, runs: [6, 34, 84, 28, 12], walkGates: 1, dblGates: 0, tearOutSections: 0, tearOutGates: 0, adjLaborHrs: 0, laborCost: 458, materialCost: 3729.28, totalCOGS: 4187.28, pricing: { laborMode: 'subcontractor', subUnit: 'section' } }
+  const settings = { laborMode: 'subcontractor', subUnit: 'foot', manHourRate: 25, subWalkGate: 10, subRateByCategory: { Aluminum: 4 } }
+  const ctx = { signedAt: new Date('2026-10-31T12:00:00Z'), signedVia: 'proposal', style: { name: 'Alum', category: 'Aluminum' }, pricing: settings, inventory: [] } as any
+  test('per foot at today\'s rate, the gate kept: $666 to pay on $458 quoted, the labor total as priced', () => {
+    const r = quotedCostOf(chappell as any, ctx)
+    expect(r.laborCents).toBe(45800)
+    expect(r.labor).toMatchObject({ mode: 'sub', subUnit: 'foot', subUnits: 164, subRateCostCents: 400, subOtherCents: 1000 })
+  })
+  test('a quote priced at today\'s rate reads as it always did', () => {
+    expect(quotedCostOf({ ...chappell, pricing: { laborMode: 'subcontractor', subUnit: 'foot' }, laborCost: 666 } as any, ctx).labor).toMatchObject({ subUnits: 164, subRateCostCents: 400, subOtherCents: 1000 })
+    expect(quotedCostOf({ ...chappell, pricing: { laborMode: 'subcontractor', subUnit: 'foot' }, laborCost: 656 } as any, ctx).labor.subOtherCents).toBe(0)
+  })
+})
+
 describe('quoted cost at signing', () => {
   test('the pull sheet as priced, in cents, matched to Inventory', () => {
     expect(quoted.lines.map(l => [l.part, l.inventoryItemId, l.qty, l.unitCostCents, l.totalCostCents])).toEqual([

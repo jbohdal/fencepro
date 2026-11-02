@@ -53,7 +53,8 @@ export function heldSavedNumbers(q: SavedNumbers): { price: number; perFoot: num
   const gm = Number(q.gmPct)
   return {
     price, perFoot: ft > 0 ? Math.round((price / ft) * 100) / 100 : null, material, labor, cogs,
-    marginPct: Number.isFinite(gm) && price > 0 ? gm : null,
+    // Price less cost (before commission): the saved margin only with no cost to work it from.
+    marginPct: price > 0 && cogs > 0 ? (price - cogs) / price : Number.isFinite(gm) && price > 0 ? gm : null,
     pullSheet: (Array.isArray(q.pullSheet) ? q.pullSheet : []).filter(l => l && typeof l === 'object' && typeof (l as any).item === 'string')
       .map((l: any) => ({ item: String(l.item), qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, total: Number(l.total) || 0, ...(l.jobLotPiece ? { jobLotPiece: true } : {}), ...(l.costSource ? { costSource: l.costSource } : {}) })),
   }

@@ -128,6 +128,18 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     expect((await notices(q)).map(x => x.read)).toEqual([true])
   })
 
+  test('a typed price signed on the link: the true margin on the quote and the job, not the option\'s list price margin', async () => {
+    // The Jaziel Ortiz case: the proposal went out with the option's margin at its own priced figure; the typed price is lower.
+    const typed = { ...opt('No dig', "WV-ND 6'x8' Privacy", 12145), snapshot: { ...opt('No dig', "WV-ND 6'x8' Privacy", 12145).snapshot, materialCost: 5983.44, laborCost: 1078, tearOutCost: 0, totalCOGS: 7061.44, gmPct: 0.44 } }
+    const q = await makeQuote('E2E Sold Typed', { status: 'SENT', finalPrice: 12145, materialCost: 5983.44, laborCost: 1078, totalCOGS: 7061.44, gmPct: 0.41856, proposal: { version: 1, company: { name: 'Getter Done Fence', phone: '3528442677' }, customer: { name: 'E2E Sold Typed' }, depositPct: 50, recommended: 0, terms: [], options: [typed] } })
+    expect((await accept(q.shareToken!, 0, 'Pat Typed')).status).toBe(200)
+    const now = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
+    expect(now.finalPrice).toBe(12145)
+    expect(now.gmPct).toBeCloseTo(0.41856, 4)
+    const job = await prisma.savedJob.findFirst({ where: { quoteId: q.id } })
+    expect(job?.gmPct).toBeCloseTo(0.41856, 4)
+  })
+
   test('sold for a fence no longer on the proposal: nothing to sign on the link, the fence in plain words', async () => {
     const q = await makeQuote('E2E Sold Changed', { status: 'SOLD', soldAt: new Date(), finalPrice: 7000 })
     const html = await page(q.shareToken!)

@@ -231,6 +231,35 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect((await prisma.crmContact.findUnique({ where: { id: id.cara } }))!.salesRep).toBe(OLIVE())
   })
 
+  test('commission only with a Salesman as the rep: a save with the switch on and the owner as rep comes off; a Salesman\'s stays; the price never moves', async () => {
+    const body = (salesRep: string) => ({ customerName: `Rule ${tag}`, crmContactId: id.cara, salesRep, fenceStyle: 'WV ND 6x8', runs: [150], sections: 25, corners: 0, ends: 2, hasSalesman: true, materialCost: 4000, laborCost: 1600, totalCOGS: 5600, finalPrice: 10000, gmPct: 0.35, pullSheet: [], status: 'DRAFT', date: '2026-11-02', pricing: { overheadPct: 30, costFactor: 0.56, commissionPct: 0.09 } })
+    const owner = await call('POST', '/api/saved-quotes', tok.owner, body(OLIVE()))
+    expect(owner.status).toBeLessThan(300)
+    const off = await quoteOf(owner.json.data.id)
+    expect(off).toMatchObject({ hasSalesman: false, finalPrice: 10000, totalCOGS: 5600 })
+    expect(off!.gmPct).toBeCloseTo(0.44, 6)
+    expect((off!.pricing as any).commissionPct).toBeUndefined()
+    const blank = await call('POST', '/api/saved-quotes', tok.owner, body(''))
+    expect((await quoteOf(blank.json.data.id))!.hasSalesman).toBe(false)
+    const on = await call('POST', '/api/saved-quotes', tok.owner, body(SAM()))
+    const kept = await quoteOf(on.json.data.id)
+    expect(kept).toMatchObject({ hasSalesman: true, gmPct: 0.35, finalPrice: 10000 })
+    // A later save of the Salesman's quote with the rep on it stays; a first name counts.
+    const first = await call('POST', '/api/saved-quotes', tok.owner, body('Sam'))
+    expect((await quoteOf(first.json.data.id))!.hasSalesman).toBe(true)
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [owner.json.data.id, blank.json.data.id, on.json.data.id, first.json.data.id] } } })
+  })
+
+  test('given to the owner, a quote\'s commission comes off (nobody is paid on it), the price stays; the customer\'s open quotes too', async () => {
+    const qid = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })).id
+    const r = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.owner, confirm: true })
+    expect(r.status).toBeLessThan(300)
+    expect(await quoteOf(qid)).toMatchObject({ hasSalesman: false, finalPrice: 10000, salesRep: OLIVE() })
+    expect((await quoteOf(qid))!.gmPct).toBeCloseTo(0.44, 6)
+    await prisma.crmContactNote.deleteMany({ where: { accountId, body: { contains: qid.slice(-6).toUpperCase() } } })
+    await prisma.savedQuote.delete({ where: { id: qid } })
+  })
+
   test('scope follows: Sam has the moved quotes and the job; Sally no longer has them, not even the quote she wrote; her older copy neither saves nor takes it back', async () => {
     expect(await sees(tok.sam, 'saved-quotes', id.qOpen)).toBe(true)
     expect(await sees(tok.sam, 'saved-quotes', id.qSigned)).toBe(true)

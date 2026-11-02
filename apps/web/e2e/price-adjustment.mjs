@@ -96,7 +96,7 @@ try {
   const list = await barPrice()
   const box = page.locator('[data-price-adjustment]')
   check('the price step has Final price and ± dollars under the slider', await box.isVisible() && await box.locator('[data-adjust-final]').isVisible() && await box.locator('[data-adjust-dollars]').isVisible(), String(list))
-  const gm0 = parseFloat(await page.locator('span', { hasText: /^Gross Margin$/ }).locator('xpath=following-sibling::span[1]').first().innerText().catch(() => 'NaN'))
+  const gm0 = parseFloat(await page.locator('span', { hasText: /^Gross Margin/ }).locator('xpath=following-sibling::span[1]').first().innerText().catch(() => 'NaN'))
   const profit0 = dollars(await page.locator('[data-dollar-part="profit"]').innerText())
   await box.locator('[data-adjust-dollars]').fill('30')
   await box.locator('[data-adjust-sign]').click()

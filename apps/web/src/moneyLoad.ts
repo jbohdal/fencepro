@@ -14,8 +14,8 @@ import { businessDate } from './businessDate'
 import type { SavedQuote } from './QuotesPage'
 import {
   legacyPaymentsReceived, receivablesTotal, targetMargins, withChangeOrders, soldInYear, budgetActuals, installedRevenue, projectYear, toCents,
-  targetOfStyle, marginTone, hasCost,
-  type ReceivedPayment, type TargetMargins, type BudgetActuals,
+  targetOfStyle, quoteGrade, weightedTarget, hasCost,
+  type ReceivedPayment, type TargetMargins, type BudgetActuals, type QuoteForGrade, type QuoteForMargin, type QuoteGrade, type MarginTone,
 } from './moneyTruth'
 
 /** An open invoice on a job's payment schedule (portal lib/jobTruth.ts receivables). */
@@ -75,27 +75,50 @@ export function styleTarget(styleName: string): number {
   return targetOfStyle(cfg.fenceStyles ?? [], styleName) ?? companyTargets().minPct / 100
 }
 
-/** One quote's margin against its own style's Target Margin; 'none' when it has no cost. */
-export function quoteMarginTone(q: { gmPct: number; totalCOGS: number; fenceStyle: string }): 'good' | 'near' | 'bad' | 'none' {
-  return marginTone(hasCost(q) ? q.gmPct : null, styleTarget(q.fenceStyle))
+/** One quote's price less cost against the Target Margin it was priced with (moneyTruth.quoteGrade). */
+export function gradeOfQuote(q: QuoteForGrade): QuoteGrade {
+  const cfg = getConfig()
+  return quoteGrade(q, cfg.fenceStyles ?? [], targetMargins(cfg.fenceStyles ?? [], overheadPctOf(cfg)).minPct / 100)
+}
+
+/** One quote's grade as a tone; 'none' when it has no cost. */
+export function quoteMarginTone(q: QuoteForGrade): MarginTone {
+  return gradeOfQuote(q).tone
 }
 
 /**
- * quoteMarginTone for a whole list: Settings read once, not once per quote.
+ * The grade for a whole list: Settings read once, not once per quote.
  * getConfig() works every fence style out from Inventory, so counting 2,000
  * quotes one at a time held a phone's screen for seconds on every draw of the
  * Quotes page (Oct 31 2026). Same answers as quoteMarginTone.
  */
-export function quoteMarginToner(): (q: { gmPct: number; totalCOGS: number; fenceStyle: string }) => 'good' | 'near' | 'bad' | 'none' {
+export function quoteGrader(): (q: QuoteForGrade) => QuoteGrade {
   const cfg = getConfig()
   const styles = cfg.fenceStyles ?? []
   const lowest = targetMargins(styles, overheadPctOf(cfg)).minPct / 100
-  const target = new Map<string, number>()
-  return q => {
-    let t = target.get(q.fenceStyle)
-    if (t === undefined) { t = targetOfStyle(styles, q.fenceStyle) ?? lowest; target.set(q.fenceStyle, t) }
-    return marginTone(hasCost(q) ? q.gmPct : null, t)
-  }
+  return q => quoteGrade(q, styles, lowest)
+}
+
+/** quoteGrader as a tone. Same answers as quoteMarginTone. */
+export function quoteMarginToner(): (q: QuoteForGrade) => MarginTone {
+  const grade = quoteGrader()
+  return q => grade(q).tone
+}
+
+/** A group of quotes' Target Margin: each priced target, by price (moneyTruth.weightedTarget). */
+export function groupTarget(quotes: Array<QuoteForMargin & Pick<QuoteForGrade, 'fenceStyle' | 'pricing' | 'work'>>): number {
+  const t = companyTargets()
+  return weightedTarget(getConfig().fenceStyles ?? [], quotes, t.minPct / 100) ?? t.minPct / 100
+}
+
+/**
+ * A job's margin: graded through its quote (a job keeps only the saved after
+ * commission figure, no price less cost). Null when no quote with a cost is on file.
+ */
+export function gradeOfJob(job: { quoteId?: string | null }): QuoteGrade | null {
+  if (!job.quoteId) return null
+  const q = getQuotes().find(x => x.id === job.quoteId) ?? (getArchivedQuotes() as SavedQuote[]).find(x => x.id === job.quoteId)
+  return q && hasCost(q) ? gradeOfQuote(q) : null
 }
 
 /** Every quote (archived too) with sold ones at their contract (change orders added): what Reports and the Dashboard count. */

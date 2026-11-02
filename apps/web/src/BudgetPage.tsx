@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import JobCostingTab from './JobCostingTab'
 import { getQuotes } from './quoteStore'
-import { companyTargets, yearActuals } from './moneyLoad'
+import { companyTargets, yearActuals, groupTarget } from './moneyLoad'
 import { marginOf, type TargetMargins } from './moneyTruth'
 import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars, fractionToPercent, percentToFraction, parseCents } from './numberText'
@@ -1531,6 +1531,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
         revenue: soldQuotes.reduce((s, q) => s + q.finalPrice, 0),
         // Gross margin of the month's sold quotes with costs (null: none has a cost).
         margin: marginOf(soldQuotes).margin,
+        marginTarget: groupTarget(soldQuotes),
         quotedValue: monthQuotes.reduce((s, q) => s + q.finalPrice, 0),
       }
     })
@@ -1647,7 +1648,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     {monthlyData[i].margin !== null && (
-                      <span className={`text-xs font-bold ${monthlyData[i].margin! * 100 >= targets.minPct - 0.5 ? 'text-green-600' : 'text-yellow-600'}`}>
+                      <span className={`text-xs font-bold ${monthlyData[i].margin! >= monthlyData[i].marginTarget - 0.005 ? 'text-green-600' : 'text-yellow-600'}`}>
                         {fmtPct(monthlyData[i].margin!)}
                       </span>
                     )}
@@ -1672,7 +1673,7 @@ function KPIsTab({ state }: { state: BudgetState }) {
                 <span className={`text-xs ${closingRate >= 0.40 ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(closingRate)}</span>
               </td>
               <td className="px-4 py-3 text-right">
-                {act.grossMargin !== null && <span className={`text-xs ${act.grossMargin * 100 >= targets.minPct - 0.5 ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(act.grossMargin)}</span>}
+                {act.grossMargin !== null && <span className={`text-xs ${act.grossMargin >= groupTarget(yearQuotes.filter(q => q.status === 'SOLD')) - 0.005 ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(act.grossMargin)}</span>}
               </td>
             </tr>
           </tfoot>

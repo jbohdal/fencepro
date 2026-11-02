@@ -213,6 +213,8 @@ export function buildProposal(args: {
   styles: QuoteStyle[]
   /** The quote's own price, as shown on the quote (it may be typed by hand). */
   ownPrice: number
+  /** The quote's own margin at that price: a typed price is not the price the snapshot's margin was worked out on. */
+  ownGmPct?: number
   /** The cents the quote's own price was rounded down by. */
   ownRoundingCents?: number
   /** The ± dollar adjustment in the quote's own price (cents). */
@@ -244,6 +246,8 @@ export function buildProposal(args: {
       o.finalPrice = args.ownPrice
       o.perFoot = feet > 0 ? Math.round((args.ownPrice / feet) * 100) / 100 : 0
       if (typeof args.ownRoundingCents === 'number') o.snapshot = { ...o.snapshot, roundingCents: args.ownRoundingCents }
+      // Signing copies this margin onto the quote: it has to be the margin at this price (Jaziel Ortiz, 44.00% saved on $12,145 that made 41.86%).
+      if (typeof args.ownGmPct === 'number') o.snapshot = { ...o.snapshot, gmPct: args.ownGmPct }
       if (typeof args.ownAdjustmentCents === 'number') {
         if (args.ownAdjustmentCents) o.adjustmentCents = args.ownAdjustmentCents
         else delete o.adjustmentCents

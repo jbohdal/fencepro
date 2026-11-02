@@ -270,8 +270,9 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
     labor: {
       mode: laborMode, subUnit, subUnits, subRateCostCents, hourlyCostCents: toCents(ctx.pricing.manHourRate),
       // The gates (and tear out, extra hours) the sub is paid for besides the sections, as priced.
+      // Settings' rate past what the quote priced (Jack Chappell: 164 ft at $4 on $458 of labor priced per section): the sub is still paid for the gates.
       ...(laborMode === 'sub' ? { subOtherCents: Math.min(
-        Math.max(0, laborCents - Math.round(subUnits * subRateCostCents)),
+        laborCents < Math.round(subUnits * subRateCostCents) ? Number.MAX_SAFE_INTEGER : laborCents - Math.round(subUnits * subRateCostCents),
         toCents(num(q.walkGates) * num(ctx.pricing.subWalkGate) + num(q.dblGates) * num(ctx.pricing.subDblGate)
           + num(q.tearOutSections) * num(ctx.pricing.subTearOutSection) + num(q.tearOutGates) * num(ctx.pricing.subTearOutGate)
           + num(q.adjLaborHrs) * num(ctx.pricing.manHourRate)),
