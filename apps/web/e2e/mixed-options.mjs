@@ -382,7 +382,7 @@ try {
   await fx9.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(1200)
   await fx9.page.locator('textarea[placeholder^="HOA"]').fill('Old Best note')
   await fx9.page.locator('[data-save-submit]').tap(); await sleep(1500)
-  await fx9.page.getByText('Keep the sent prices').first().tap({ timeout: 3000 }).catch(() => {})
+  await fx9.page.getByRole('button', { name: 'Keep the sent prices' }).first().tap({ timeout: 3000 }).catch(() => {})
   await sleep(3000)
   const qo2 = (await (await fx9.ctx.request.get(`${API}/api/saved-quotes/${qt.id}`)).json()).data
   check('a sent quote with an old Best: the note saves, the cards stay as sent, nothing refused', qo2.notes === 'Old Best note' && qo2.proposal.options.length === 4 && qo2.proposal.options[2].fenceStyle.startsWith('TV-ND') && !/Not saved/.test(await fx9.page.locator('body').textContent()), `${qo2.proposal.options.length} options`)

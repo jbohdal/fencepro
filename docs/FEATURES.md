@@ -733,7 +733,7 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Signing names what the customer read: the option's fence and price, compared with the saved option under a lock on the quote. Changed while the page was open: nothing is signed and the page reloads to the current options and says why. Every proposal, mixed or not. **DEV**
 * Every option is lifted to the minimum job price, tiers included, on the stored price; the card says so. **DEV**
 * No Most popular: no option is labeled. A proposal saved before keeps its label. **DEV**
-* 3 options at most: Compare options stops at the limit and the server refuses a save that adds past it. A proposal that already has more keeps them or comes down. Good, Better, Best plus a quote's own fence that is none of them stays at 4 cards, as it always was. **DEV**
+* 3 options at most: Compare options stops at the limit and the server refuses a save that adds past it. A save is refused only when it brings a style the customer did not already have and goes past 3; the phone and the server use one count (proposalOptions.ts addsPastLimit), and the phone asks before anything says Quote stored. A proposal that already has more keeps them or comes down, and a tier's old option (an old Best) never returns as a tick. Good, Better, Best plus a quote's own fence that is none of them stays at 4 cards, as it always was. **DEV**
 * Public JSON carries only what the customer reads, by a list of fields (lib/customerProposal.ts). **DEV**
 * An option with no fence or price cannot be signed. A style picked on an option and later turned off says so on the card. **DEV**
 * Odd gate sizes: an amber line on every option with no parts list for that gate, for staff only; sending is not blocked. **DEV**
