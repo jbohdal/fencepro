@@ -12,7 +12,8 @@ import { setSavedKitSets } from '../../web/src/materialKits'
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from '../../web/src/quoteCalc'
 import { estimateConfig, quoteJobFor, type EstimateData } from '../../web/src/estimate'
 import { changeOrderDraft } from '../../web/src/changeOrderDraft'
-import { changeBaseOf, changeOrderInput, changeOrderPrice, gatePostsOf } from '../../web/src/changeOrderPricing'
+import { changeBaseOf, changeOrderInput, changeOrderPrice, gateCharges, gatePostsOf, type EarlierOrder } from '../../web/src/changeOrderPricing'
+import { ownGateSides } from '../src/server/lib/changeOrderMerge'
 import { priceMove, moveRepairSettings, type WorkCommon } from '../../web/src/moveRepair'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { deriveLayout, layoutForShape, teePostFor, type YardLayout } from '../../web/src/yardLayout'
@@ -307,5 +308,248 @@ describe('the other ways a change order is priced', () => {
       overrides: {}, jobType: 'repair', repair: { what: 'other', items: { replaceSection: 2 }, postType: 'ds', newPostCaps: false, gateKind: 'walk', debrisCleared: true },
     }
     expect(quoteJobFor(data, { ...req, changeBase: changeBaseOf(signedOf(input(CL, [100])) as never) }).changePrice).toBeNull()
+  })
+})
+
+/**
+ * Jonathan, Nov 2 2026. "A change order adds a gate (2 new posts), a later one
+ * takes it out. Today the credit is smaller [...] Answer CREDIT IN FULL or KEEP
+ * IT": CREDIT IN FULL. "a job sold in vinyl changed to chain link has no chain
+ * link rolls sold [...] FOOT FROM SOLD LENGTH [...] or FULL NEW FABRIC": FULL NEW
+ * FABRIC.
+ */
+describe('a gate an earlier change order added, taken out by a later one: credited in full', () => {
+  const draftOf = (was: QuoteCalcInput, now: QuoteCalcInput, opts: { drawing?: Parameters<typeof changeOrderDraft>[0]['now']; signed?: Record<string, unknown>; orders?: EarlierOrder[]; sold?: QuoteCalcInput } = {}) =>
+    changeOrderDraft({
+      signed: signedOf(was, opts.signed), current: now, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: calculateQuote(now).sections, now: opts.drawing ?? null, priceNow: 0, simple: false,
+      earlier: opts.orders ? { orders: opts.orders, sold: opts.sold ?? { walkGates: 0, dblGates: 0 } as never } : null,
+    })
+  /** A change order as the server's view hands it to the next one. */
+  const saved = (number: number, d: ReturnType<typeof changeOrderDraft>, yards?: { base: YardLayout; work: YardLayout }, extra: Partial<EarlierOrder> = {}): EarlierOrder => ({
+    number, status: 'approved', lines: d.lines, scope: d.scope as never, work: {},
+    gateSides: yards ? ownGateSides({ base: { layout: { yard: yards.base } }, layout: { yard: yards.work } }) : null, ...extra,
+  })
+  /** The fence with the gate, drawn, in and back out: CO-1's and CO-2's lines. */
+  function drawnRound(name: string, ft: number, gate: () => YardLayout['sides'][number]['gate'] = () => ({ type: 'walk', widthIn: 48, position: 'middle' }), length = ft) {
+    const no = yard(ft), yes = yard(length)
+    yes.sides[0] = { ...yes.sides[0], gate: gate() }
+    const a = drawn(name, no, yes)
+    const co1 = draftOf(a.was, a.now, { drawing: a.drawing, signed: a.signed })
+    const b = drawn(name, yes, no)
+    const co2 = draftOf(b.was, b.now, { drawing: b.drawing, signed: b.signed, orders: [saved(1, co1, { base: no, work: yes })] })
+    return { co1, co2, b }
+  }
+
+  test.each([CL, VINYL] as const)('a gate drawn into a side and taken out nets $0 (%s), at every length', name => {
+    for (const ft of [60, 72, 100, 110, 133]) {
+      const { co1, co2 } = drawnRound(name, ft)
+      expect(total(co1)).toBeGreaterThan(0)
+      expect(total(co2) + total(co1)).toBe(0)
+      expect(co2.lines).toHaveLength(1)
+      expect(co2.lines[0].description).toMatch(/^Remove 1 walk gate.*: the full CO-1 charge back \(4 ft of fence goes back in\)$/)
+      expect(co2.scope).toMatchObject({ walkGates: -1, footageFt: 4 })
+    }
+  })
+
+  test('the figures before: the credit was $33 short on chain link, and the same fence on vinyl', () => {
+    for (const [name, short] of [[CL, 33], [VINYL, 121]] as const) {
+      const { co1, co2, b } = drawnRound(name, 100)
+      const old = draftOf(b.was, b.now, { drawing: b.drawing, signed: b.signed })
+      expect(total(co1) + total(old)).toBe(short * 100)
+      expect(total(co1) + total(co2)).toBe(0)
+    }
+  })
+
+  test('a double gate, and a gate at a side\'s end', () => {
+    const dbl = drawnRound(CL, 100, () => ({ type: 'double', widthIn: 120, position: 'middle' }))
+    expect(total(dbl.co1) + total(dbl.co2)).toBe(0)
+    expect(dbl.co2.lines[0].description).toMatch(/^Remove 1 double gate/)
+    const end = drawnRound(VINYL, 72, () => ({ type: 'walk', widthIn: 48, position: 'left' }))
+    expect(total(end.co1) + total(end.co2)).toBe(0)
+  })
+
+  test('a run list: a gate typed with no change to the runs, and one that split a run', () => {
+    for (const name of [CL, VINYL]) {
+      const was = input(name, [100]), typed = input(name, [100], { walkGates: 1 })
+      const co1 = draftOf(was, typed)
+      const co2 = draftOf(typed, was, { orders: [saved(1, co1)] })
+      expect(total(co1) + total(co2)).toBe(0)
+      expect(co2.lines[0].description).toBe('Remove 1 walk gate: the full CO-1 charge back')
+      const split = input(name, [48, 48], { walkGates: 1, ends: 4 })
+      const a = draftOf(was, split)
+      const b = draftOf(split, was, { orders: [saved(1, a)] })
+      expect(total(a) + total(b)).toBe(0)
+      expect(b.lines).toHaveLength(1)
+    }
+  })
+
+  test('end posts typed with the gate are not credited twice', () => {
+    const was = input(CL, [100]), typed = input(CL, [100], { walkGates: 1, ends: 4 })
+    const co1 = draftOf(was, typed)
+    expect(total(co1) + total(draftOf(typed, was, { orders: [saved(1, co1)] }))).toBe(0)
+  })
+
+  test('a picked gate: the credit is its picked line, whatever the amount', () => {
+    const was = input(CL, [100]), picked = input(CL, [100], { walkGates: 1 })
+    const co1: EarlierOrder = { number: 1, status: 'approved', scope: { walkGates: 1 }, work: {}, gateSides: null, lines: [{ description: 'Add a 5 ft walk gate', amountCents: 41200, qty: 1, source: { ref: 'add:walk:5' } }] }
+    expect(total(draftOf(picked, was, { orders: [co1] }))).toBe(-41200)
+  })
+
+  test('what it really charged: a cost change since, or a price typed by hand, still nets $0', () => {
+    const was = input(CL, [100]), typed = input(CL, [100], { walkGates: 1 })
+    const co1 = draftOf(was, typed)
+    const edited = { ...co1, lines: co1.lines.map(l => ({ ...l, amountCents: 29900 })) }
+    expect(total(draftOf(typed, was, { orders: [saved(1, edited)] }))).toBe(-29900)
+    const dearer = { ...pricing, tearOutFence: 13.5, manHourRate: 40 }
+    const later = (i: QuoteCalcInput) => ({ ...i, pricing: dearer })
+    expect(total(draftOf(later(typed), later(was), { orders: [saved(1, co1)] }))).toBe(-total(co1))
+  })
+
+  test('the rest of the change is priced from the fence before the gate', () => {
+    // CO-2 takes the gate out and adds 12 ft to the same side: the credit, then those 12 ft alone.
+    const no = yard(100), yes = yard(100, true), longer = yard(112)
+    const a = drawn(VINYL, no, yes)
+    const co1 = draftOf(a.was, a.now, { drawing: a.drawing, signed: a.signed })
+    const b = drawn(VINYL, yes, longer)
+    const co2 = draftOf(b.was, b.now, { drawing: b.drawing, signed: b.signed, orders: [saved(1, co1, { base: no, work: yes })] })
+    expect(co2.lines[0].amountCents).toBe(-total(co1))
+    const alone = draftOf(drawn(VINYL, no, longer).was, drawn(VINYL, no, longer).now, { drawing: drawn(VINYL, no, longer).drawing, signed: { layout: { yard: no } } })
+    expect(total(co2) + total(co1)).toBe(total(alone))
+    // The other way: fence lengthened with the gate, whose opening stays off its charge and is billed as fence.
+    const bigger = yard(110, true), plain = yard(110)
+    const c = drawn(VINYL, no, bigger)
+    const co1b = draftOf(c.was, c.now, { drawing: c.drawing, signed: c.signed })
+    expect(co1b.lines.length).toBeGreaterThan(1)
+    const gateLine = co1b.lines.find(l => /^Add 1 walk gate/.test(l.description))!
+    const d = drawn(VINYL, bigger, plain)
+    const co2b = draftOf(d.was, d.now, { drawing: d.drawing, signed: d.signed, orders: [saved(1, co1b, { base: no, work: bigger })] })
+    expect(co2b.lines[0].amountCents).toBe(-gateLine.amountCents)
+    expect(co2b.lines[1].description).toMatch(/^Add 4 ft of fence/)
+  })
+
+  test('two gates added on one change order and both taken out; the second of two change orders', () => {
+    const was = input(CL, [100]), two = input(CL, [100], { walkGates: 2 }), one = input(CL, [100], { walkGates: 1 })
+    const co1 = draftOf(was, two)
+    expect(total(co1) + total(draftOf(two, was, { orders: [saved(1, co1)] }))).toBe(0)
+    const first = draftOf(was, one), second = draftOf(one, two)
+    expect(total(first) + total(second) + total(draftOf(two, was, { orders: [saved(1, first), saved(2, second)] }))).toBe(0)
+  })
+
+  test('a gate taken out, put back and taken out again: the credit is the last charge, once', () => {
+    const was = input(CL, [100]), gate = input(CL, [100], { walkGates: 1 })
+    const co1 = saved(1, draftOf(was, gate))
+    const co2 = saved(2, draftOf(gate, was, { orders: [co1] }))
+    const back = draftOf(was, gate, { orders: [co1, co2] })
+    const co3 = saved(3, { ...back, lines: back.lines.map(l => ({ ...l, amountCents: 30000 })) })
+    expect(gateCharges([co1, co2, co3]).map(c => c.number)).toEqual([3])
+    expect(total(draftOf(gate, was, { orders: [co1, co2, co3] }))).toBe(-30000)
+  })
+
+  test('a gate changed since it was added has lost its charge (today, a question)', () => {
+    const no = yard(100), walk = yard(100, true), dbl = yard(100)
+    dbl.sides[0] = { ...dbl.sides[0], gate: { type: 'double', widthIn: 120, position: 'middle' } }
+    const a = drawn(CL, no, walk)
+    const co1 = saved(1, draftOf(a.was, a.now, { drawing: a.drawing, signed: a.signed }), { base: no, work: walk })
+    const co2 = saved(2, { lines: [], scope: {}, reason: '' }, { base: walk, work: dbl })
+    expect(co2.gateSides).toEqual({ added: [], removed: ['a'] })
+    expect(gateCharges([co1, co2])).toEqual([])
+  })
+
+  test('void change orders charge nothing; an open one is in the drawing and counts', () => {
+    const was = input(CL, [100]), gate = input(CL, [100], { walkGates: 1 })
+    const co1 = draftOf(was, gate)
+    expect(gateCharges([saved(1, co1, undefined, { status: 'void' })])).toEqual([])
+    expect(gateCharges([saved(1, co1, undefined, { status: 'sent' })])).toHaveLength(1)
+  })
+
+  describe('kept as it prices today (questions for Jonathan)', () => {
+    const today = (was: QuoteCalcInput, now: QuoteCalcInput, o: Parameters<typeof draftOf>[2]) => {
+      const { orders: _o, sold: _s, ...rest } = o!; void _o; void _s
+      expect(total(draftOf(was, now, o))).toBe(total(draftOf(was, now, rest)))
+    }
+    test('a gate of the sold job', () => {
+      const yes = yard(100, true), no = yard(100)
+      const b = drawn(CL, yes, no)
+      today(b.was, b.now, { drawing: b.drawing, signed: b.signed, orders: [] })
+      const sold = input(CL, [100], { walkGates: 1 })
+      today(sold, input(CL, [100]), { orders: [], sold })
+    })
+    test('a run list on a job sold with a gate of that kind: which one went?', () => {
+      const sold = input(CL, [100], { walkGates: 1 }), two = input(CL, [100], { walkGates: 2 })
+      today(two, sold, { orders: [saved(1, draftOf(sold, two))], sold })
+    })
+    test('one of two gates charged on one line', () => {
+      const was = input(CL, [100]), two = input(CL, [100], { walkGates: 2 }), one = input(CL, [100], { walkGates: 1 })
+      today(two, one, { orders: [saved(1, draftOf(was, two))] })
+    })
+    test('a gate swapped for another, or moved', () => {
+      const was = input(CL, [100]), walk = input(CL, [100], { walkGates: 1 })
+      today(walk, input(CL, [100], { dblGates: 1 }), { orders: [saved(1, draftOf(was, walk))] })
+    })
+    test('a charge that can\'t be read: a line retyped, or typed lines with no work', () => {
+      const was = input(CL, [100]), walk = input(CL, [100], { walkGates: 1 })
+      const co1 = draftOf(was, walk)
+      today(walk, was, { orders: [saved(1, { ...co1, lines: co1.lines.map(l => ({ ...l, description: 'Gate at the back' })) })] })
+      today(walk, was, { orders: [saved(1, co1, undefined, { work: null })] })
+    })
+    test('a run list with its fence changed beyond the opening', () => {
+      const was = input(CL, [100]), split = input(CL, [48, 48], { walkGates: 1, ends: 4 })
+      today(split, input(CL, [130]), { orders: [saved(1, draftOf(was, split))] })
+    })
+  })
+
+  test('the one price difference line credits in full by itself: the contract holds the charge', () => {
+    const was = input(CL, [100]), gate = input(CL, [100], { walkGates: 1 })
+    const original = changeBaseOf(signedOf(was) as never)
+    const co1 = Math.floor(changeOrderPrice(gate, original)) - Math.floor(calculateQuote(was).priced.price)
+    const contract = { finalPrice: Math.floor(calculateQuote(was).priced.price) + co1 }
+    const line = changeOrderDraft({ signed: signedOf(gate, contract), current: was, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: 0, now: null, priceNow: changeOrderPrice(was, original), simple: true })
+    expect(Math.abs(total(line) + co1 * 100)).toBeLessThanOrEqual(100)
+  })
+})
+
+describe('a job sold in another style changed to chain link: full new fabric', () => {
+  const draft = (was: QuoteCalcInput, now: QuoteCalcInput) => changeOrderDraft({ signed: signedOf(was), current: now, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: calculateQuote(now).sections, now: null, priceNow: 0, simple: false })
+  const wholeRolls = (now: QuoteCalcInput) => fabricOf(now)[0].qty
+  const reqOf = (i: QuoteCalcInput): QuoteJobRequest => ({
+    fenceStyle: i.style!.name, runs: i.runs, corners: i.corners, ends: i.ends, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, overrides: {}, jobType: 'new',
+  })
+
+  test('whole rolls for all its feet, as a new fence, not the sold length then by the foot', () => {
+    const was = input(VINYL, [100]), now = input(CL, [110])
+    const base = changeBaseOf(signedOf(was) as never, null, styleOf(VINYL))
+    expect(base.feet).toBeNull()
+    expect(fabricOf(changeOrderInput(now, base))[0].qty).toBe(3)
+    const before = fabricOf(changeOrderInput(now, changeBaseOf(signedOf(was) as never)))[0].qty
+    expect(before).toBe(2.2)
+    expect(wholeRolls(now)).toBe(3)
+  })
+
+  test('the change order bills 0.8 of a roll more than before; the same on the one line', () => {
+    const was = input(VINYL, [100]), now = input(CL, [110])
+    const steps = total(draft(was, now))
+    const one = changeOrderPrice(now, changeBaseOf(signedOf(was) as never, null, styleOf(VINYL)))
+    expect(Math.abs(steps - (Math.floor(one) - Math.floor(calculateQuote(was).priced.price)) * 100)).toBeLessThanOrEqual(100)
+    expect(one).toBe(calculateQuote({ ...now }).priced.price)
+    expect(one).toBeGreaterThan(changeOrderPrice(now, changeBaseOf(signedOf(was) as never)))
+  })
+
+  test('the same length: 2 rolls either way; aluminum too', () => {
+    expect(fabricOf(changeOrderInput(input(CL, [100]), changeBaseOf(signedOf(input(VINYL, [100])) as never, null, styleOf(VINYL))))[0].qty).toBe(2)
+    expect(fabricOf(changeOrderInput(input(CL, [75]), changeBaseOf(signedOf(input(ALUM, [100])) as never, null, styleOf(ALUM))))[0].qty).toBe(2)
+  })
+
+  test('a job already chain link keeps moving by the foot, a second change after the switch too; so does another chain link (today, a question)', () => {
+    expect(fabricOf(changeOrderInput(input(CL, [110]), changeBaseOf(signedOf(input(CL, [100])) as never, null, styleOf(CL))))[0].qty).toBe(2.2)
+    expect(fabricOf(changeOrderInput(input(BLACK, [110]), changeBaseOf(signedOf(input(CL, [100])) as never, null, styleOf(CL))))[0].qty).toBe(2.2)
+  })
+
+  test('the server\'s price: no fabric sold, whole rolls', () => {
+    const co = quoteJobFor(data, { ...reqOf(input(CL, [110])), changeBase: changeBaseOf(signedOf(input(VINYL, [100])) as never, null, styleOf(VINYL)) })
+    expect(co.changePrice).toBe(quoteJobFor(data, reqOf(input(CL, [110]))).totals.price)
+  })
+
+  test('the pull sheet is whole rolls as ever', () => {
+    expect(fabricOf(input(CL, [110]))[0].qty).toBe(3)
   })
 })

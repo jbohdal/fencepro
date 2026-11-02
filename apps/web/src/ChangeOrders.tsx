@@ -114,6 +114,8 @@ export interface ChangeOrder {
   jobWork?: ChangeOrderWork | null
   /** Its own change side by side, from its drawing ("Left side 40 ft → 50 ft"; server ownChangeWords). */
   change?: string | null
+  /** Its gates by the drawing's side ids (server ownGateSides): a later change order credits what it charged for one it takes out. */
+  gateSides?: { added: Array<{ side: string; type: 'walk' | 'double' }>; removed: string[] } | null
   /** The other change orders whose change its drawing also shows (open when it was drawn). */
   alsoInDrawing?: Array<{ number: number; status: ChangeOrderStatus; signed: boolean; change: string | null }>
   warrantyBefore?: { name: string; text: string } | null

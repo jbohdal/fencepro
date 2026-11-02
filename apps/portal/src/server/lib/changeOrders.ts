@@ -31,7 +31,7 @@ import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { Prisma } from '@prisma/client'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
-import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
+import { shapeOf, sameShape, ownChangeWords, ownGateSides, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
 import { dataFor } from './quotePricing.js'
 
@@ -159,7 +159,7 @@ export function view(r: Row, siblings: Row[] = []) {
     id: r.id, quoteId: r.quoteId, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason,
     lines: shownLines(r), totalCents: r.totalCents,
     // Its own change side by side, and the other change orders its drawing also shows (round 3 recheck).
-    change: ownChangeWords(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
+    change: ownChangeWords(r.work), gateSides: ownGateSides(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,

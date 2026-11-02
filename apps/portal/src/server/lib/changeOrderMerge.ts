@@ -334,7 +334,7 @@ export function ownChangeWords(work: Json): string | null {
 
 /** Gate widths when a drawing's gate has none (yardLayout.ts GATE_WIDTH_IN). */
 const GATE_IN: Record<string, number> = { walk: 48, double: 120 }
-const gateKind = (g: Json) => (g?.type === 'double' ? 'double' : 'walk')
+const gateKind = (g: Json): 'walk' | 'double' => (g?.type === 'double' ? 'double' : 'walk')
 const gateFt = (g: Json) => Math.round(((num(g?.widthIn) || GATE_IN[gateKind(g)]) / 12) * 100) / 100
 /** "the Back side", "the Left side" (a name that says side already), "the Left return" (as changeOrderDraft.ts names it). */
 export const theSide = (name: string) => `the ${/(^|\s)(side|return|run)$/i.test(name) ? name : `${name} side`}`
@@ -370,6 +370,27 @@ export function sideGateChanges(base: WorkShape, mine: WorkShape): Array<{ kind:
 export function ownGateChanges(work: Json): Array<{ kind: 'added' | 'removed' | 'changed'; words: string }> {
   if (!isObj(work) || !isObj(work.base)) return []
   return sideGateChanges(shapeOf(work.base), shapeOf(work))
+}
+
+/**
+ * A change order's gates by the drawing's side ids: the ones it put in, and the
+ * sides whose gate it took out or changed. Null when it has no drawing: a
+ * later change order takes a gate out by its side (web changeOrderPricing.ts).
+ */
+export function ownGateSides(work: Json): { added: Array<{ side: string; type: 'walk' | 'double' }>; removed: string[] } | null {
+  if (!isObj(work) || !isObj(work.base)) return null
+  const base = shapeOf(work.base).yard, mine = shapeOf(work).yard
+  if (!Array.isArray(base?.sides) || !Array.isArray(mine?.sides)) return null
+  const gateOf = (s: Json) => (s && s.on !== false ? s.gate ?? null : null)
+  const was = new Map<string, Json>((base.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), gateOf(s)]))
+  const now = new Map<string, Json>((mine.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), gateOf(s)]))
+  const added: Array<{ side: string; type: 'walk' | 'double' }> = [], removed: string[] = []
+  for (const [side, g] of now) if (g && !was.get(side)) added.push({ side, type: gateKind(g) })
+  for (const [side, g] of was) {
+    const n = now.get(side)
+    if (g && (!n || gateKind(g) !== gateKind(n) || gateFt(g) !== gateFt(n))) removed.push(side)
+  }
+  return { added, removed }
 }
 
 /**

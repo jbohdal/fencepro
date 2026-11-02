@@ -811,7 +811,7 @@ export default function QuoteBuilder({
   const customerPrice: number | null = signedQuote ? signedQuoteOf(init!).finalPrice : heldSaved ? init!.finalPrice : sentQuote && !fenceChanged ? init!.finalPrice : null
   // A signed quote changed: the drawing now and what a change order starts from (the signed quote, so it holds across change orders).
   const changeNow: ChangeNow | null = entry === 'layout' && yard ? { yard, nearIn: widthFt * 12, teeAs } : null
-  const changeBase = signedQuote ? changeBaseOf(signedQuoteOf(init!), changeNow) : null
+  const changeBase = signedQuote ? changeBaseOf(signedQuoteOf(init!), changeNow, FENCE_STYLES.find(s => s.name === signedQuoteOf(init!).fenceStyle)) : null
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
@@ -1390,6 +1390,7 @@ export default function QuoteBuilder({
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       now: changeNow, priceNow, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
+      earlier: { orders: getOrdersForQuote(init.id), sold: signedQuoteOf(init) },
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
       sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard

@@ -16,7 +16,10 @@
  * today's price of the new version minus the signed price.
  *
  * Both price a change the way changeOrderPricing.ts does (Jonathan, Oct 31
- * 2026): chain link fabric by the foot, 2 new posts for each gate added.
+ * 2026): chain link fabric by the foot, 2 new posts for each gate added. A
+ * gate an earlier change order added and this one takes out comes off first,
+ * at what it charged, on one line of its own (Jonathan, Nov 2 2026: "CREDIT IN
+ * FULL"); the other lines are priced from there.
  *
  * Every amount is whole dollars (Jonathan, Oct 21 2026): each step is priced
  * to the whole dollar, even on a quote signed with cents, and the one price
@@ -24,7 +27,7 @@
  * whole dollar), so the cents never go on the customer.
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
-import { changeBaseOf, changeOrderInput, gateOpeningFt, type ChangeBase, type ChangeNow } from './changeOrderPricing'
+import { changeBaseOf, changeOrderInput, gateCreditOf, gateOpeningFt, type ChangeBase, type ChangeNow, type EarlierOrder, type GateCredit } from './changeOrderPricing'
 import { wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
@@ -80,13 +83,28 @@ export interface DraftInput {
   sides?: string | null
   /** The drawing as it is now, for its gates' posts (changeOrderPricing.ts changeBaseOf); null: a run list. */
   now?: ChangeNow | null
+  /** The job's other change orders and the gates it was sold with: a gate one added, taken out here, is credited what it charged (changeOrderPricing.ts gateCreditOf). */
+  earlier?: { orders: EarlierOrder[]; sold: { walkGates: number; dblGates: number } } | null
+}
+
+/** "Remove 1 walk gate in the Back side: the full CO-1 charge back (its 4 ft of fence goes back in)". */
+function creditWords(c: GateCredit): string {
+  const what = [c.walk ? plural(c.walk, 'walk gate') : '', c.dbl ? plural(c.dbl, 'double gate') : ''].filter(Boolean).join(' and ')
+  const names = c.sides.map(n => (/(^|\s)(side|return|run)$/i.test(n) ? n : `${n} side`))
+  const where = names.length ? ` in the ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(', the ')} and the ${names[names.length - 1]}`}` : ''
+  const orders = c.numbers.map(n => `CO-${n}`).join(' and ')
+  return `Remove ${what}${where}: the full ${orders} charge back${c.openingFt ? ` (${c.openingFt} ft of fence goes back in)` : ''}`
 }
 
 /** What changed on the signed quote, as lines with amounts in cents. */
 export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const s = d.signed, cur = d.current
   const signedStyle = d.styles.find(x => x.name === s.fenceStyle) ?? cur.style
-  const signedRuns = s.runs.map((f, i) => ({ ft: f, rail: s.runRails?.[i] ?? 'auto' as const }))
+  const soldRuns = s.runs.map((f, i) => ({ ft: f, rail: s.runRails?.[i] ?? 'auto' as const }))
+  // Gates an earlier change order added come off first, at what it charged; the rest is the change from there.
+  const credit = !d.simple && signedStyle && d.earlier ? gateCreditOf(d.earlier.orders, d.earlier.sold, { ...s, runs: soldRuns }, cur, d.now) : null
+  const from = credit ? credit.work : { runs: soldRuns, corners: s.corners, ends: s.ends, walkGates: s.walkGates, dblGates: s.dblGates }
+  const signedRuns = from.runs
   const ftWas = ft(signedRuns), ftNow = ft(cur.runs)
   const scope: ChangeOrderScope = {}
   const words: Array<{ text: string; step: (x: QuoteCalcInput) => QuoteCalcInput; runs?: boolean }> = []
@@ -96,16 +114,16 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
     scope.fromStyle = s.fenceStyle; scope.toStyle = styleNow
     words.push({ text: `Change the fence from ${styleLabel(s.fenceStyle)} to ${styleLabel(styleNow)}`, step: x => ({ ...x, style: cur.style }) })
   }
-  const runsChanged = JSON.stringify(cur.runs.filter(r => r.ft > 0).map(r => r.ft)) !== JSON.stringify(s.runs) || cur.corners !== s.corners || cur.ends !== s.ends
-  const gatesToo = cur.walkGates !== s.walkGates || cur.dblGates !== s.dblGates
-  const walkIn = Math.max(0, cur.walkGates - s.walkGates), dblIn = Math.max(0, cur.dblGates - s.dblGates)
+  const runsChanged = JSON.stringify(cur.runs.filter(r => r.ft > 0).map(r => r.ft)) !== JSON.stringify(signedRuns.map(r => r.ft)) || cur.corners !== from.corners || cur.ends !== from.ends
+  const gatesToo = cur.walkGates !== from.walkGates || cur.dblGates !== from.dblGates
+  const walkIn = Math.max(0, cur.walkGates - from.walkGates), dblIn = Math.max(0, cur.dblGates - from.dblGates)
   const delta = Math.round((ftNow - ftWas) * 100) / 100
-  const openingFt = Math.round((d.gatesIn?.openingFt ?? gateOpeningFt(cur, s)) * 100) / 100
+  const openingFt = Math.round((d.gatesIn?.openingFt ?? gateOpeningFt(cur, from)) * 100) / 100
   // A gate put into a side (round 3, Oct 26 2026): "Remove 4 ft of fence, 1 panel more +$128" then "Add 1 walk gate
   // +$202" read as paying for fence taken away. When the fence taken out is just the new gates' opening, it is one
   // change: "Add 1 walk gate in the Back side (4 ft of fence becomes the gate)", the two price steps as one.
   const gateIntoSide = runsChanged && (walkIn + dblIn) > 0 && delta < 0 && Math.abs(-delta - openingFt) < 0.01
-    && cur.walkGates >= s.walkGates && cur.dblGates >= s.dblGates
+    && cur.walkGates >= from.walkGates && cur.dblGates >= from.dblGates
   if (gateIntoSide) {
     if (delta) scope.footageFt = delta
     if (walkIn) scope.walkGates = walkIn
@@ -131,13 +149,13 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
       runs: true,
     })
   }
-  if (gateIntoSide) { /* the gates are on the line above */ } else if (cur.walkGates !== s.walkGates) {
-    const n = cur.walkGates - s.walkGates
+  if (gateIntoSide) { /* the gates are on the line above */ } else if (cur.walkGates !== from.walkGates) {
+    const n = cur.walkGates - from.walkGates
     scope.walkGates = n
     words.push({ text: n > 0 ? `Add ${plural(n, 'walk gate')}` : `Remove ${plural(-n, 'walk gate')}`, step: x => ({ ...x, walkGates: cur.walkGates }) })
   }
-  if (!gateIntoSide && cur.dblGates !== s.dblGates) {
-    const n = cur.dblGates - s.dblGates
+  if (!gateIntoSide && cur.dblGates !== from.dblGates) {
+    const n = cur.dblGates - from.dblGates
     scope.dblGates = n
     words.push({ text: n > 0 ? `Add ${plural(n, 'double gate')}` : `Remove ${plural(-n, 'double gate')}`, step: x => ({ ...x, dblGates: cur.dblGates }) })
   }
@@ -152,6 +170,12 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
 
   const sectionsDelta = d.sectionsNow - s.sections
   if (sectionsDelta) scope.sections = sectionsDelta
+  if (credit) {
+    const feet = Math.round((ftNow - ft(soldRuns)) * 100) / 100
+    if (feet) scope.footageFt = feet; else delete scope.footageFt
+    if (cur.walkGates !== s.walkGates) scope.walkGates = cur.walkGates - s.walkGates; else delete scope.walkGates
+    if (cur.dblGates !== s.dblGates) scope.dblGates = cur.dblGates - s.dblGates; else delete scope.dblGates
+  }
   // The reason is typed by whoever makes it (required, Oct 26 2026), never a generic sentence.
   const done = (lines: ChangeOrderLine[]): ChangeOrderPrefill => ({ reason: '', lines, scope: Object.keys(scope).length ? scope : null })
 
@@ -164,17 +188,17 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
 
   // Price the signed work today, then put each change on it in turn.
   let at: QuoteCalcInput = {
-    ...cur, style: signedStyle, runs: signedRuns, corners: s.corners, ends: s.ends, walkGates: s.walkGates, dblGates: s.dblGates,
+    ...cur, style: signedStyle, ...from,
     tearOutSections: s.tearOutSections, tearOutGates: s.tearOutGates, extraLaborHrs: s.adjLaborHrs || 0, hasSalesman: !!s.hasSalesman,
     priceAdjust: s.priceAdjust || 0, overrides: d.signedOverrides,
   }
-  const base = changeBaseOf(s, d.now)
+  const base = changeBaseOf(s, d.now, signedStyle)
   let was = priced(at, base)
   // The one side whose length changed (same sides otherwise), for "still 7 panels on that side".
   const ftNowRuns = cur.runs.map(r => r.ft)
   const diffs = ftNowRuns.length === signedRuns.length ? ftNowRuns.map((f, i) => (f === signedRuns[i].ft ? -1 : i)).filter(i => i >= 0) : []
   const oneSide = diffs.length === 1 ? diffs[0] : null
-  const lines: ChangeOrderLine[] = []
+  const lines: ChangeOrderLine[] = credit ? [{ id: newId(), description: creditWords(credit), amountCents: -credit.cents }] : []
   for (const w of words) {
     at = w.step(at)
     const now = priced(at, base)
