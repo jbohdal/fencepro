@@ -42,6 +42,7 @@ import { useBookingTeam } from './bookingTeamStore'
 import { bookingMemberFor, memberNamed, memberOf, isWith, homeOf } from './bookingTeamModel'
 import type { Customer } from './customerStore'
 import { signedInUserId } from './crmAuth'
+import { signedInRole } from './permissions'
 import { loadSchedule, isScheduleHydrated } from './scheduleStore'
 import { fetchWeekendJobs } from './installScheduleApi'
 import { crewDaysOfWeek, crewDayProblem } from '../../portal/src/server/lib/installDays'
@@ -379,6 +380,14 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                       </button>
                     ))}
                   </div>
+                  {/* Nothing found: said here, not just a grey Book. A Salesman's list has only the Salesman's own customers (Nov 2, 2026). */}
+                  {search.trim().length >= 2 && !customerMatches.length && (
+                    <p className="mt-1 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-no-customer-match>
+                      {signedInRole() === 'sales_rep'
+                        ? 'No customer on your list matches that. You only see customers assigned to you: ask Jonathan or the office to assign this one to you, and it shows up here in about a minute.'
+                        : 'No customer matches that. Check the spelling, or try the phone number or address.'}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
@@ -592,6 +601,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                 className="btn btn-primary btn-lg w-full disabled:opacity-40">
                 {saving ? 'Saving…' : existing ? 'Save changes' : 'Book'}
               </button>
+              {!customerId && <p className="text-[11px] text-gray-500 text-center" data-pick-customer-first>Pick a customer first.</p>}
               {!allDay && !time && <p className="text-[11px] text-gray-400 text-center">Pick a time, or one of the best open times.</p>}
               {existing && isOpen(existing) && (
                 <button data-cancel-appointment onClick={async () => {
