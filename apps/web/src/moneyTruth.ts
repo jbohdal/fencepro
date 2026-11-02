@@ -64,7 +64,7 @@ export function cashReceived(payments: ReceivedPayment[], from: string, to: stri
   return { cents, count }
 }
 
-export interface JobForRevenue { completedDate?: string | null; contractValue?: number | null; quotePrice?: number | null }
+export interface JobForRevenue { id?: string; quoteId?: string | null; completedDate?: string | null; contractValue?: number | null; quotePrice?: number | null }
 
 /** A job's contract value in cents: the contract (with change orders) when there is one, else the quote's price. */
 export const jobContractCents = (j: JobForRevenue): number => toCents(Number(j.contractValue) || Number(j.quotePrice) || 0)

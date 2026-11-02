@@ -113,3 +113,14 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - Playwright's WebKit page crashed twice on a second `page.goto` after the quote builder had been open. A fresh context did not, and iphone-safari passes. Could be the #17 memory question; not traced.
 - The dev database has no active office login, so salesman-choice and salesman-choice-booking fail their office checks until one is made.
 - builderProposalBetter (dev data) fails the same on main.
+
+## From the Nov 2 job cost labor change
+
+- Two job costings: Budget > Job Costing (hand entries) and the takeoff (job page, Reports > Job Costing) do not read each other. A typed labor cost never reaches the Reports tab.
+- Job Costing's price is the signed quote, without approved change orders (the job page uses the contract value). The form warns when a job has some.
+- Tear out is in the estimate but not in actual cost unless typed in Other Costs. The form says so.
+- Crew hours on a takeoff are not used to fill in hours or labor here.
+- A bill filed as Other or Equipment on a job is not counted as material; the form says so.
+- P&L bill dates: `new Date(b.billDate)` reads a date alone as midnight UTC, the evening before here, so a bill dated the 1st lands in the month before. Job cost entries are fixed; bills are left, since changing them moves existing month totals.
+- Vendor record, a refused save from an installer: the 403 (and a stale 409) sends back the vendor list, bill numbers, categories and line descriptions. The dollar fields are already taken out by the cost scrubber. It should send none of it, as the GET does.
+

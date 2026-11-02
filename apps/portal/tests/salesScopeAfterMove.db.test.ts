@@ -134,6 +134,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
         { id: `${tag}-jc-dina`, quoteId: id.qDina, laborCents: 60000, materialCents: 100000 },
         { id: `${tag}-jc-mina`, quoteId: id.qMina, laborCents: 50000, materialCents: 90000 },
       ] as any },
+      { accountId, key: 'fencepro_quote_shares', value: [
+        { id: `${tag}-jc-cleo-draft`, quoteId: id.qCleoDraft, laborCents: 120000, materialCents: 340000 },
+        { id: `${tag}-jc-dina`, quoteId: id.qDina, laborCents: 60000, materialCents: 100000 },
+        { id: `${tag}-jc-mina`, quoteId: id.qMina, laborCents: 50000, materialCents: 90000 },
+      ] as any },
     ] })
 
     const app = express(); app.use(express.json({ limit: '10mb' }))
@@ -220,7 +225,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     expect(idsOf(phoneKv.data.fencepro_customer_activity)).toEqual([`${tag}-ac-cleo`, `${tag}-ac-fay`, `${tag}-ac-dina`])
     for (const col of ['invoices', 'payments', 'pullSheets', 'pendingOrders']) stored[col] = await businessRows(col)
     stored.activity = await kvRows('fencepro_customer_activity')
-    stored.jobcosting = await kvRows('fencepro_jobcosting')
+    stored.jobcosting = await kvRows('fencepro_quote_shares')
     storedChecklists = (await checklistsRaw())!
   })
 
@@ -390,10 +395,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     const ac1 = await kvRows('fencepro_customer_activity')
     for (const [k, t] of stored.activity) expect([k, ac1.get(k)]).toEqual([k, t])
     expect(ac1.has(`${tag}-ac-mina`)).toBe(true)
-    // Job costing: the phone clears its list. Cleo's draft and Dina's quote moved: their lines stay; Mina's (hers) goes.
-    const jc = await call('PUT', '/api/kv/fencepro_jobcosting', tok.sally, { value: [], baseVersion: phoneKv.versions.fencepro_jobcosting })
+    // A per customer list the Salesman may write (job costing is the owner's and office's): the phone clears it. Cleo's draft and Dina's quote moved: their lines stay; Mina's (hers) goes.
+    const jc = await call('PUT', '/api/kv/fencepro_quote_shares', tok.sally, { value: [], baseVersion: phoneKv.versions.fencepro_quote_shares })
     expect(jc.status).toBe(200)
-    const jc1 = await kvRows('fencepro_jobcosting')
+    const jc1 = await kvRows('fencepro_quote_shares')
     expect(jc1.get(`${tag}-jc-cleo-draft`)).toBe(stored.jobcosting.get(`${tag}-jc-cleo-draft`))
     expect(jc1.get(`${tag}-jc-dina`)).toBe(stored.jobcosting.get(`${tag}-jc-dina`))
     expect(jc1.has(`${tag}-jc-mina`)).toBe(false)
@@ -409,7 +414,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     expect(Object.keys(biz.json.data.jobChecklists)).toEqual([id.jCleo])
     const k = await call('GET', '/api/kv', tok.sally)
     expect(idsOf(k.json.data.fencepro_customer_activity).sort()).toEqual([`${tag}-ac-cleo`, `${tag}-ac-dina`, `${tag}-ac-mina`].sort())
-    expect(idsOf(k.json.data.fencepro_jobcosting)).toEqual([])
+    expect(idsOf(k.json.data.fencepro_quote_shares)).toEqual([])
     const before = { inv: await businessRows('invoices'), ps: await businessRows('pullSheets'), so: await businessRows('pendingOrders'), ac: await kvRows('fencepro_customer_activity') }
     const d = biz.json.data
     const again = await call('PATCH', '/api/business-state', tok.sally, { invoices: d.invoices, payments: d.payments, pullSheets: d.pullSheets, pendingOrders: d.pendingOrders, jobChecklists: d.jobChecklists, baseVersion: d.version })
