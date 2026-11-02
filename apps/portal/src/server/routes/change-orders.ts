@@ -87,6 +87,8 @@ const lineSchema = z.object({
   id: z.string().min(1).max(64),
   description: z.string().max(500),
   amountCents: z.number().int().min(-100_000_000).max(100_000_000),
+  // Filled in from the change itself, not typed beside it (web changeOrderPricing.ts changeCents).
+  fromChange: z.boolean().optional(),
   // Picked from the pick list: how many, and where it came from (kept for history).
   qty: z.number().int().min(1).max(10_000).optional(),
   source: z.object({
@@ -267,6 +269,8 @@ router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
       ...start.shape, layout, sections: same ? (known?.sections ?? null) : null,
       planSvg: same ? (last ? known?.planSvg ?? null : known?.proposal?.planSvg ?? null) : null,
       open: start.steps.filter(s => ['needs_ok', 'draft', 'sent'].includes(s.row.status)).map(s => ({ id: s.row.id, number: s.row.number, status: s.row.status })),
+      // The job's state after each one, in the order the work really happened; a void one is in none of them.
+      states: start.steps.map(s => ({ number: s.row.number, state: s.shape })),
     } })
   } catch (e) { fail(res, e, 'load the drawing') }
 })

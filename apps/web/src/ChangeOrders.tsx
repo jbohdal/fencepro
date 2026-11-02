@@ -36,6 +36,7 @@ import { wholeDollarCents } from './pricingEngine'
 import { SignaturePad } from './SignaturePad'
 import { LIVE_REFRESH_EVENT } from './liveRefresh'
 import type { SavedQuote } from './QuotesPage'
+import type { FoldedState } from './changeOrderPricing'
 
 /* ───────── types ───────── */
 
@@ -44,6 +45,8 @@ export interface ChangeOrderLine {
   description: string
   /** Positive adds to the contract, negative is a credit. */
   amountCents: number
+  /** Filled in from the change itself, not typed beside it: a later change order undoes it, never a typed line. */
+  fromChange?: boolean
   /** Picked from the pick list: how many. */
   qty?: number
   /** Picked from the pick list: where it came from (kept for history). */
@@ -285,6 +288,7 @@ export async function quoteForChange(quote: SavedQuote): Promise<SavedQuote> {
     proposal: now.proposal ? { ...now.proposal, ...(d.planSvg ? { planSvg: d.planSvg } : {}) } : now.proposal,
   }
   signedOf.set(out, signedQuoteOf(quote))
+  if (Array.isArray(d.states)) foldedOf.set(out, d.states as FoldedState[])
   if (open.length) {
     const rows = getOrdersForQuote(quote.id)
     openOf.set(out, open.map(o => ({ number: o.number, change: rows.find(r => r.id === o.id)?.change ?? null })).sort((a, b) => a.number - b.number))
@@ -294,6 +298,10 @@ export async function quoteForChange(quote: SavedQuote): Promise<SavedQuote> {
   }
   return out
 }
+
+/** The job's state after each change order, from the server (changeOrderPricing.ts FoldedState): the quote builder's history of the job. */
+const foldedOf = new WeakMap<object, FoldedState[]>()
+export const foldedStates = (q: object): FoldedState[] | null => foldedOf.get(q) ?? null
 
 /** The open (not signed) change orders whose change is in the drawing quoteForChange opened. */
 const openOf = new WeakMap<object, Array<{ number: number; change: string | null }>>()
@@ -592,6 +600,7 @@ export function QuickChangeOrderModal({
     setBusy(true)
     const lines: ChangeOrderLine[] = items.filter(i => i.description.trim() || centsOf(i) !== 0).map(i => ({
       id: i.id, description: i.description.trim(), amountCents: centsOf(i), ...(i.source ? { qty: i.qty ?? 1, source: i.source } : {}),
+      ...(prefill?.lines.some(l => l.id === i.id && l.fromChange) ? { fromChange: true } : {}),
     }))
     const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null })
     setBusy(false)

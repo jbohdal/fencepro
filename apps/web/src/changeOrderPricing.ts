@@ -22,13 +22,13 @@
  *   "FULL NEW FABRIC"  a job sold in another style changed to chain link has no
  *            rolls sold, so nothing moves by the foot: the fabric is whole
  *            rolls for all its feet, as a new fence (changeBaseOf, feet null)
- *   "CREDIT IN FULL"   the price of a change is a matter of what the work is,
- *            never of how it got there: every change order prices from the
- *            sold job (soldBaseOf), so the gates over the sold count carry their
- *            2 posts in the work before a change as in the work after it. A
- *            gate taken out comes off at what it costs on the fence as it is
- *            now, whatever came between. Back at a state the job was already
- *            in, the contract is what it was in that state (backToState)
+ *   "CREDIT IN FULL"   a gate added keeps its 2 posts when it goes: a change
+ *            order that takes a gate out or changes the style prices the job
+ *            with the posts the gates over the sold count were charged
+ *            (gatesOnJob), so the gate comes off at what it costs on the fence
+ *            as it is now, whatever came between. Back at a state the job was
+ *            already in, in the order the work really happened, the contract
+ *            is what it was in that state (backToState)
  *
  * A gate of the sold job taken out, or one swapped for another, prices as it
  * always has. The pull sheet, crew packet, Sales Order and a change order's
@@ -39,7 +39,7 @@
 import { calculateQuote, isChainLink, type QuoteCalcInput, type QuoteRun, type QuoteStyle } from './quoteCalc'
 import { calculateLinePostsPerRun } from './sectionCount'
 import { priceMove, type MoveInputs, type NewLine, type WorkCommon } from './moveRepair'
-import { deriveLayout, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type TeePost, type YardLayout } from './yardLayout'
+import { deriveLayout, gateWidthsOf, teePostFor, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type TeePost, type YardLayout } from './yardLayout'
 
 /** The work a change order starts from. */
 export interface ChangeBase {
@@ -178,7 +178,7 @@ export function changeOrderPrice(input: QuoteCalcInput, base: ChangeBase, move?:
 
 // ── The job's earlier states ─────────────────────────────────────────────────
 
-/** The fence, gates and style of a state of the job. */
+/** The fence, gates and style of a state of the job: a saved quote, a change order's work, or the server's shape of it. */
 export interface WorkState {
   fenceStyle: string
   runs: number[]
@@ -188,6 +188,9 @@ export interface WorkState {
   dblGates: number
   tearOutSections: number
   tearOutGates: number
+  yard?: YardLayout | null
+  gateWidths?: { walk: number[]; dbl: number[] } | null
+  layout?: { yard?: YardLayout | null; gateWidths?: { walk: number[]; dbl: number[] } | null } | null
 }
 
 /** An earlier change order as a later one reads it (ChangeOrders.tsx ChangeOrder). */
@@ -195,6 +198,9 @@ export interface EarlierOrder {
   number: number
   status: string
   totalCents: number
+  approvedAt?: string | null
+  /** `fromChange`: the line came from the change itself, not typed beside it. */
+  lines?: Array<{ amountCents: number; fromChange?: boolean; source?: { ref: string } | null }>
   scope?: { walkGates?: number; dblGates?: number; footageFt?: number; sections?: number; fromStyle?: string; toStyle?: string } | null
   /** The work after it. Typed lines keep none: they change the price, never the job's state. */
   work?: WorkState | null
@@ -202,10 +208,49 @@ export interface EarlierOrder {
   jobWork?: WorkState | null
 }
 
-/** The change orders that made a state of the job, in order: never a void one, or one with typed lines only. */
-export const workOrders = (orders: EarlierOrder[]) => orders.filter(o => o.status !== 'void' && o.work).sort((a, b) => a.number - b.number)
-const stateOf = (o: EarlierOrder) => (o.jobWork ?? o.work)!
-const stateKey = (w: WorkState) => JSON.stringify([w.fenceStyle, w.runs.filter(f => f > 0).sort((a, b) => a - b), w.corners, w.ends, w.walkGates, w.dblGates, w.tearOutSections, w.tearOutGates])
+/** The server's word on the job's states after each change order (lib/changeOrderWork.ts foldShapes): never a void one's work, in any state. */
+export interface FoldedState { number: number; state: WorkState }
+
+/** The job's earlier change orders. */
+export interface JobHistory { orders: EarlierOrder[]; states?: FoldedState[] | null }
+
+/** A change order and the job's state after it. */
+export interface JobStep { order: EarlierOrder; state: WorkState }
+
+/**
+ * The change orders that made a state of the job, in the order the work really
+ * happened: signed ones in the order they were signed, then open ones. Never a
+ * void one, or one with typed lines only. The server's fold when there is one.
+ */
+export const workOrders = (orders: EarlierOrder[]) => {
+  const live = orders.filter(o => o.status !== 'void' && o.work)
+  const signed = live.filter(o => o.status === 'approved').sort((a, b) => (a.approvedAt ?? '').localeCompare(b.approvedAt ?? '') || a.number - b.number)
+  return [...signed, ...live.filter(o => o.status !== 'approved').sort((a, b) => a.number - b.number)]
+}
+export function jobSteps(h: JobHistory): JobStep[] {
+  if (h.states) return h.states.flatMap(x => { const order = h.orders.find(o => o.number === x.number); return order && order.status !== 'void' ? [{ order, state: x.state }] : [] })
+  return workOrders(h.orders).map(order => ({ order, state: (order.jobWork ?? order.work)! }))
+}
+
+/** What a change order's own change was priced at: not the lines typed beside it, which stay on the contract. */
+function changeCents(o: EarlierOrder): number {
+  const cents = (ls: NonNullable<EarlierOrder['lines']>) => ls.reduce((t, l) => t + l.amountCents, 0)
+  const ls = o.lines ?? []
+  const own = ls.filter(l => l.fromChange), picked = ls.filter(l => l.source?.ref.startsWith('add:'))
+  return own.length ? cents(own) : picked.length ? cents(picked) : o.totalCents
+}
+
+const yardOf = (w: Pick<WorkState, 'yard' | 'layout'>) => w.yard ?? w.layout?.yard ?? null
+function widthsOf(w: Pick<WorkState, 'yard' | 'layout' | 'gateWidths'>) {
+  const yard = yardOf(w)
+  return yard ? gateWidthsOf(yard) : w.gateWidths ?? w.layout?.gateWidths ?? null
+}
+/** A gate's width is part of the state: 4 ft then 6 ft is not back where it was. No width kept: the typed defaults. */
+function gatesKey(walk: number, dbl: number, w: { walk: number[]; dbl: number[] } | null | undefined) {
+  const list = (n: number, a: number[] | undefined, typed: number) => Array.from({ length: n }, (_, i) => a?.[i] ?? typed).sort((x, y) => x - y)
+  return [list(walk, w?.walk, TYPED_WALK_GATE_FT), list(dbl, w?.dbl, TYPED_DBL_GATE_FT)]
+}
+const stateKey = (w: WorkState) => JSON.stringify([w.fenceStyle, w.runs.filter(f => f > 0).sort((a, b) => a - b), w.corners, w.ends, gatesKey(w.walkGates, w.dblGates, widthsOf(w)), w.tearOutSections, w.tearOutGates])
 
 /**
  * What the contract moves by to come back to `now`, when the job was already
@@ -213,29 +258,69 @@ const stateKey = (w: WorkState) => JSON.stringify([w.fenceStyle, w.runs.filter(f
  * were priced at. Null when it never was, or it is there still. Lines typed
  * since stay on the contract: they changed no state.
  */
-export function backToState(orders: EarlierOrder[], sold: WorkState, was: WorkState, now: WorkState): number | null {
+export function backToState(steps: JobStep[], sold: WorkState, was: WorkState, now: WorkState): number | null {
   const key = stateKey(now)
   if (key === stateKey(was)) return null
-  const steps = workOrders(orders)
-  const states = [sold, ...steps.map(stateOf)]
-  const at = states.map(stateKey).lastIndexOf(key)
-  return at < 0 ? null : -steps.slice(at).reduce((t, o) => t + o.totalCents, 0)
+  const at = [sold, ...steps.map(x => x.state)].map(stateKey).lastIndexOf(key)
+  return at < 0 ? null : -steps.slice(at).reduce((t, x) => t + changeCents(x.order), 0)
 }
 
-/**
- * The change order's starting point when every change is priced from the sold
- * job: the sold work, with its drawing against `now`. A job that changed style
- * since it was sold has the rolls of its last change to chain link, or none.
- */
-export function soldBaseOf(sold: WorkBefore & { fenceStyle: string }, orders: EarlierOrder[], styles: Array<QuoteStyle>, now?: ChangeNow | null): ChangeBase {
-  const chainLink = (name: string) => { const st = styles.find(s => s.name === name); return st ? isChainLink(st) : null }
-  const base = changeBaseOf(sold, now, styles.find(s => s.name === sold.fenceStyle))
-  let feet = base.feet, was = sold.fenceStyle
-  for (const w of workOrders(orders).map(stateOf)) {
-    const on = chainLink(w.fenceStyle)
-    if (on === false) feet = null
-    else if (on && chainLink(was) === false) feet = Math.round(w.runs.reduce((t, f) => t + (f > 0 ? f : 0), 0) * 100) / 100
-    was = w.fenceStyle
+/** The feet a job's chain link fabric moves from: the sold length, or the length at its last change to chain link. Null: none now. */
+export function fabricFeet(steps: JobStep[], sold: WorkState, styles: QuoteStyle[]): number | null {
+  const chain = (name: string) => { const st = styles.find(s => s.name === name); return st ? isChainLink(st) : false }
+  const feet = (w: WorkState) => Math.round(w.runs.reduce((t, f) => t + (f > 0 ? f : 0), 0) * 100) / 100
+  let from = chain(sold.fenceStyle) ? feet(sold) : null, was = sold
+  for (const { state } of steps) {
+    if (!chain(state.fenceStyle)) from = null
+    else if (!chain(was.fenceStyle)) from = feet(state)
+    was = state
   }
-  return { ...base, feet }
+  return from
+}
+
+/** The posts a gate over the sold count was priced with beyond the work's own, and what its change order charged (null: that one changed more than gates). */
+export interface GateOnJob { ends: number; linePosts: number; number: number; cents: number | null; side?: string; whole?: boolean }
+
+/** Which of the gates on the job go when n come off: on a drawing the sides that lost theirs, else the newest. */
+export function gatesGoing(on: GateOnJob[], n: number, yardNow?: YardLayout | null): GateOnJob[] {
+  if (n <= 0) return []
+  const gated = new Set((yardNow?.sides ?? []).filter(s => s.on && s.gate).map(s => s.id))
+  const bySide = yardNow ? on.filter(g => g.side && !gated.has(g.side)) : []
+  return [...bySide, ...on.filter(g => !bySide.includes(g)).reverse()].slice(0, n)
+}
+
+/** The gates over the sold count still on the job, oldest first. */
+export function gatesOnJob(steps: JobStep[], sold: WorkState, like: QuoteCalcInput, styles: QuoteStyle[]): GateOnJob[] {
+  let on: GateOnJob[] = []
+  let prev = sold
+  for (const { order, state } of steps) {
+    const was = prev.walkGates + prev.dblGates, now = state.walkGates + state.dblGates, yard = yardOf(state), yardBefore = yardOf(prev)
+    const going = gatesGoing(on, was - now, yard)
+    on = on.filter(g => !going.includes(g))
+    const style = styles.find(s => s.name === state.fenceStyle)
+    if (now > was) {
+      const s = order.scope ?? {}
+      const cents = !s.toStyle && !((s.footageFt ?? 0) > 0) ? changeCents(order) / (now - was) : null
+      const nearIn = (style?.panelWidth ?? 6) * 12, teeAs = style ? teePostFor(style) : ('line' as TeePost)
+      const baseFor = (y: YardLayout | null) => changeBaseOf({ ...prev, layout: { yard: yardBefore } }, y ? { yard: y, nearIn, teeAs } : null)
+      const inputOf = (w: Pick<QuoteCalcInput, 'runs' | 'corners' | 'ends' | 'walkGates' | 'dblGates' | 'gateWidths'>) => ({ ...like, style, ...w })
+      const had = new Set((yardBefore?.sides ?? []).filter(x => x.on && x.gate).map(x => x.id))
+      const added = yard && yardBefore ? yard.sides.filter(x => x.on && x.gate && !had.has(x.id)).map(x => x.id) : []
+      if (style && added.length === now - was) {
+        // Each gate by its own side: the line posts one drops are not the other's.
+        for (const side of added) {
+          const one = { ...yard!, sides: yard!.sides.map(x => (x.gate && !had.has(x.id) && x.id !== side ? { ...x, gate: null } : x)) }
+          const d = deriveLayout(one, nearIn, { teeAs })
+          const p = gatePostsOf(inputOf({ runs: d.runs.map(r => ({ ft: r.ft, rail: 'auto' as const })), corners: d.corners, ends: d.ends, walkGates: d.walkGates, dblGates: d.dblGates, gateWidths: d.gateWidthsFt }), baseFor(one))
+          on.push({ ...p, number: order.number, cents, side, whole: now - was === 1 })
+        }
+      } else {
+        const p = style ? gatePostsOf(inputOf({ runs: state.runs.map(ft => ({ ft, rail: 'auto' as const })), corners: state.corners, ends: state.ends, walkGates: state.walkGates, dblGates: state.dblGates, gateWidths: widthsOf(state) }), baseFor(yard)) : { ends: 0, linePosts: 0 }
+        const share = (n: number, i: number, of: number) => Math.floor(n / of) + (i < n % of ? 1 : 0)
+        for (let i = 0; i < now - was; i++) on.push({ ends: share(p.ends, i, now - was), linePosts: share(p.linePosts, i, now - was), number: order.number, cents, whole: now - was === 1 })
+      }
+    }
+    prev = state
+  }
+  return on
 }

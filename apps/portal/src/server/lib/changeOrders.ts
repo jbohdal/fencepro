@@ -51,7 +51,7 @@ export const WAITING_OK = 'This change order waits for Jonathan or the office to
  * or "catalog:<Inventory item id>", the job's style it was priced for and the
  * price the list gave (its amount may have been changed by hand since).
  */
-export interface ChangeOrderLine { id: string; description: string; amountCents: number; qty?: number; source?: LineSource | null }
+export interface ChangeOrderLine { id: string; description: string; amountCents: number; fromChange?: boolean; qty?: number; source?: LineSource | null }
 export interface LineSource { kind: 'repair' | 'catalog'; ref: string; label: string; fenceStyle?: string; listCents?: number }
 
 type Row = NonNullable<Awaited<ReturnType<typeof prisma.changeOrder.findUnique>>>
@@ -72,7 +72,7 @@ export const linesOf = (r: { lines: unknown }): ChangeOrderLine[] =>
     const qty = Number(l?.qty), source = sourceOf(l?.source)
     return {
       id: String(l?.id ?? ''), description: String(l?.description ?? ''), amountCents: Math.round(Number(l?.amountCents) || 0),
-      ...(Number.isInteger(qty) && qty > 0 ? { qty } : {}), ...(source ? { source } : {}),
+      ...(l?.fromChange === true ? { fromChange: true } : {}), ...(Number.isInteger(qty) && qty > 0 ? { qty } : {}), ...(source ? { source } : {}),
     }
   })
 
@@ -134,7 +134,7 @@ export function alsoInDrawingWords(also: ReturnType<typeof alsoInDrawing>): stri
 }
 
 /** A line as the customer sees it: what changes, how many and the amount (never where it was picked from). */
-const customerLine = ({ source, ...l }: ChangeOrderLine) => { void source; return l }
+const customerLine = ({ source, fromChange, ...l }: ChangeOrderLine) => { void source; void fromChange; return l }
 
 export const totalOf = (lines: ChangeOrderLine[]) => lines.reduce((s, l) => s + l.amountCents, 0)
 
