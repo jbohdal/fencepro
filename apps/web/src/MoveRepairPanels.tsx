@@ -127,10 +127,21 @@ export function MovePanel({ style, move, setMove, oldPostsNote, defaultPostType,
       {gates > 0 && (
         <div data-move-gates>
           <p className="text-xs font-semibold text-gray-600">Gates: every gate gets a new hinge and latch kit. Replace a gate to use a whole new gate kit.</p>
-          {Array.from({ length: gates }, (_, i) => (
-            <Toggle key={i} data={`replace-gate-${i}`} label={`Replace gate ${i + 1} (${i < newLine.walkGates ? 'walk' : 'double'})`} on={!!move.replaceGates?.[i]}
-              onChange={v => setMove(m => { const r = [...(m.replaceGates ?? [])]; while (r.length < gates) r.push(false); r[i] = v; return { ...m, replaceGates: r } })} />
-          ))}
+          {/* Each kind by itself (moveGateFlags). A gate added on the new line is a whole new gate already. */}
+          {(['replaceWalk', 'replaceDbl'] as const).flatMap(key => {
+            const walk = key === 'replaceWalk'
+            const n = Math.min(walk ? move.oldWalkGates || 0 : move.oldDblGates || 0, walk ? newLine.walkGates : newLine.dblGates)
+            return Array.from({ length: n }, (_, i) => (
+              <Toggle key={`${key}${i}`} data={`replace-gate-${walk ? 'walk' : 'double'}-${i}`} label={`Replace ${walk ? 'walk' : 'double'} gate ${i + 1}`} on={!!move[key]?.[i]}
+                onChange={v => setMove(m => {
+                  const r = [...(m[key] ?? [])]
+                  while (r.length <= i) r.push(false)
+                  r[i] = v
+                  while (r.length && !r[r.length - 1]) r.pop()
+                  return { ...m, [key]: r }
+                })} />
+            ))
+          })}
         </div>
       )}
       {yard && layoutResult && sides.length > 0 && (

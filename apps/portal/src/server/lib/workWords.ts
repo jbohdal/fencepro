@@ -45,6 +45,21 @@ export function chargedRepairItems(repair: { items?: Partial<Record<RepairItemKe
   return items
 }
 
+/**
+ * A move's "Replace gate" flags, walk and double apart (Nov 2 2026). They were
+ * one list, walk gates first, so a walk gate added by a change order moved a
+ * double's flag onto it: the replacement the customer paid for came off and
+ * nothing said so. `replaceWalk`, `replaceDbl`: the gates of that kind on the
+ * old line, in order. An old list is read with the walk gates it was saved
+ * with, as it priced then.
+ */
+export function moveGateFlags<T extends { replaceGates?: boolean[]; replaceWalk?: boolean[]; replaceDbl?: boolean[]; oldWalkGates?: number; oldDblGates?: number }>(m: T, walkGates: number): T {
+  if (!m.replaceGates) return m
+  const { replaceGates, ...rest } = m
+  const walks = Math.min(walkGates, m.oldWalkGates ?? walkGates)
+  return { ...rest, replaceWalk: replaceGates.slice(0, walks), replaceDbl: replaceGates.slice(walkGates, walkGates + (m.oldDblGates ?? replaceGates.length)) } as unknown as T
+}
+
 /** The parts of a quote's saved work (SavedQuote.work) these read. */
 export interface WorkWordsInput {
   type?: string

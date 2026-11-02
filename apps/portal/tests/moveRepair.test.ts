@@ -9,6 +9,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { setSavedKitSets, builtInKitSet, KIT_KINDS } from '../../web/src/materialKits'
 import {
+  moveGateFlags,
   priceMove, priceRepair, moveRepairSettings, latestRateChange, blankSettings, seesCosts, newFenceBetter, styleRates, oldLine, postTypeOf,
   DEFAULT_MOVE_REPAIR, toSavedWork, matchRisk, type WorkCommon, type MoveInputs,
 } from '../../web/src/moveRepair'
@@ -344,5 +345,37 @@ describe('wood moves and repairs (wood kit material; labor × the Wood factor on
     const c2 = estimateConfig({ fenceStyles: plan.state.fenceStyles, pricing: { ...PRICING, overheadPct: 30 } as any, moveRepair: { woodFactorPct: 120 } } as any)
     expect(c2.fenceStyles.find(s => s.name === 'wood/privacy/6/nd/6')!.woodFactor).toBe(1.2)
     expect(c2.fenceStyles.find(s => s.name === WOOD_REAL_STYLES[2])!.woodFactor).toBe(1.2)
+  })
+})
+
+describe('a move\'s "Replace gate" flags stay with their kind (Nov 2 2026: a walk gate added took the double\'s replacement off)', () => {
+  const two = { oldWalkGates: 1, oldDblGates: 1 }
+  const kept = (m: ReturnType<typeof priceMove>) => m.pullSheet.filter(l => /Gate/.test(l.item)).map(l => `${l.item} ${l.qty}`).join()
+  const line = (walk: number, dbl: number) => ({ ...straight(100, walk), dblGates: dbl, ends: 2 + 2 * (walk + dbl) })
+
+  test('an old list reads with the walk gates it was saved with, as it priced then', () => {
+    expect(moveGateFlags({ ...two, replaceGates: [false, true] } as never, 1)).toMatchObject({ replaceWalk: [false], replaceDbl: [true] })
+    const old = priceMove(common(style(WV)), mv({ ...two, replaceGates: [false, true] }), line(1, 1))
+    const now = priceMove(common(style(WV)), mv({ ...two, replaceDbl: [true] }), line(1, 1))
+    expect(now.priceCents).toBe(old.priceCents)
+    expect(kept(now)).toBe(kept(old))
+  })
+
+  test('a walk gate added: the double stays replaced, and it costs more, never less', () => {
+    const was = priceMove(common(style(WV)), mv({ ...two, replaceDbl: [true] }), line(1, 1))
+    const more = priceMove(common(style(WV)), mv({ ...two, replaceDbl: [true] }), line(2, 1))
+    const plain = priceMove(common(style(WV)), mv(two), line(2, 1))
+    expect(more.priceCents).toBeGreaterThan(was.priceCents)
+    expect(more.priceCents).toBeGreaterThan(plain.priceCents)
+  })
+
+  test.each([['a walk gate taken out', 0, 1], ['a double added', 1, 2], ['a walk swapped for a double', 0, 2]])('%s: the same', (_n, walk, dbl) => {
+    const yes = priceMove(common(style(WV)), mv({ ...two, replaceDbl: [true] }), line(walk, dbl))
+    const no = priceMove(common(style(WV)), mv(two), line(walk, dbl))
+    expect(yes.priceCents).toBeGreaterThan(no.priceCents)
+  })
+
+  test('no double on the new line: nothing to replace, no charge', () => {
+    expect(priceMove(common(style(WV)), mv({ ...two, replaceDbl: [true] }), line(1, 0)).priceCents).toBe(priceMove(common(style(WV)), mv(two), line(1, 0)).priceCents)
   })
 })

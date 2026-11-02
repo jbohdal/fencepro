@@ -28,7 +28,7 @@ import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { getConfig } from './configStore'
 import { toast } from './toast'
 import type { SavedQuote } from './QuotesPage'
-import { refreshChangeOrders, quoteWithChanges, signedQuoteOf, CO_EVENT } from './ChangeOrders'
+import { refreshChangeOrders, quoteWithChanges, signedQuoteOf, workWithDetail, CO_EVENT } from './ChangeOrders'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import { installWord } from './moveRepair'
 
@@ -177,7 +177,7 @@ export async function sendInstallPacket(jobId: string, job: { fenceStyle?: strin
     else {
       // This login may not read change orders (the installer sees no prices): the work now, price free, from the packet route.
       const w = await call<{ number: number; work: any } | null>(`/work?jobId=${encodeURIComponent(jobId)}`)
-      if (w?.work) quote = { ...quote, ...w.work, layout: w.work.layout ?? quote.layout, pullSheet: (w.work.pullSheet ?? []).map((l: any) => ({ item: l.item, qty: l.qty, unitCost: 0, total: 0 })), proposal: quote.proposal ? { ...quote.proposal, ...(w.work.planSvg ? { planSvg: w.work.planSvg } : {}) } : quote.proposal } as SavedQuote
+      if (w?.work) quote = { ...quote, ...w.work, ...workWithDetail(quote, w.work.workDetail), layout: w.work.layout ?? quote.layout, pullSheet: (w.work.pullSheet ?? []).map((l: any) => ({ item: l.item, qty: l.qty, unitCost: 0, total: 0 })), proposal: quote.proposal ? { ...quote.proposal, ...(w.work.planSvg ? { planSvg: w.work.planSvg } : {}) } : quote.proposal } as SavedQuote
     }
   }
   if (quote && (quote.walkGates !== signedQuote?.walkGates || quote.dblGates !== signedQuote?.dblGates)) job = { ...job, walkGates: quote.walkGates, dblGates: quote.dblGates }

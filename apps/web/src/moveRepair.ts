@@ -58,6 +58,7 @@ export const installWord = workWords.installWord
 export const FOOTER_DIG_SET_REASON = workWords.FOOTER_DIG_SET_REASON
 export const footerCounts = workWords.footerCounts
 export const chargedRepairItems = workWords.chargedRepairItems
+export const moveGateFlags = workWords.moveGateFlags
 export type { RepairItemKey }
 
 export interface MoveRepairSettings {
@@ -347,7 +348,10 @@ export interface MoveInputs {
   newPostCaps: boolean
   /** 0 to 100; blank: the style's (Settings). */
   damagePct?: number | null
-  /** Gates on the new line to replace with a whole new gate kit, by index (walk gates first, then double gates). */
+  /** Old walk gates, then old double gates, to replace with a whole new gate kit, each list by itself (moveGateFlags). */
+  replaceWalk?: boolean[]
+  replaceDbl?: boolean[]
+  /** The old form: one list, walk gates first. Read once, by moveGateFlags, with the walk gates it was saved with. */
   replaceGates?: boolean[]
   /** Optional: the old line drawn dashed on the site plan, along a side of the new line, this many feet inside it. */
   oldLinePlan?: { sideId: string; offsetFt: number } | null
@@ -529,10 +533,9 @@ export function priceMove(c: WorkCommon, m: MoveInputs, nl: NewLine): WorkResult
   const reWalk = Math.min(oldGates.walk, nl.walkGates), reDbl = Math.min(oldGates.dbl, nl.dblGates)
   const addWalk = Math.max(0, nl.walkGates - oldGates.walk), addDbl = Math.max(0, nl.dblGates - oldGates.dbl)
   const goneWalk = Math.max(0, oldGates.walk - nl.walkGates), goneDbl = Math.max(0, oldGates.dbl - nl.dblGates)
-  const replace = m.replaceGates ?? []
-  const repl = { walk: 0, dbl: 0 }
-  for (let i = 0; i < reWalk; i++) if (replace[i]) repl.walk++
-  for (let i = 0; i < reDbl; i++) if (replace[nl.walkGates + i]) repl.dbl++
+  // How many of each kind, never which position: a gate added, taken out or swapped leaves a paid replacement where it was.
+  const flags = moveGateFlags(m, nl.walkGates)
+  const repl = { walk: Math.min(reWalk, (flags.replaceWalk ?? []).filter(Boolean).length), dbl: Math.min(reDbl, (flags.replaceDbl ?? []).filter(Boolean).length) }
   const damagePct = Math.min(100, Math.max(0, typeof m.damagePct === 'number' && Number.isFinite(m.damagePct) ? m.damagePct : damagePctFor(s, style.name)))
   const damaged = Math.ceil(reused * damagePct / 100 - 1e-9)
 
@@ -1251,6 +1254,59 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
     },
     description: r.description, crew: r.crew, needs811: r.needs811, warnings: r.warnings, ...extra,
   }
+}
+
+/** Each repair item as a customer reads it on a change order: one, many. */
+const REPAIR_CHANGE_WORDS: Record<RepairItemKey, [string, string]> = {
+  resetPost: ['leaning post reset', 'leaning post resets'],
+  replacePost: ['post replacement', 'post replacements'],
+  repairSection: ['section repair', 'section repairs'],
+  replaceSection: ['whole section replacement', 'whole section replacements'],
+  rehangGate: ['gate rehang with new hardware', 'gate rehangs with new hardware'],
+  replaceGate: ['gate replacement', 'gate replacements'],
+  haulDebris: ['section of debris to haul away', 'sections of debris to haul away'],
+  footerDisposal: ['concrete footer to haul away', 'concrete footers to haul away'],
+}
+const POST_WORDS: Record<PostType, string> = { nd: 'no dig', ds: 'dig set' }
+const postWords = (t: PostType | null | undefined) => (t ? POST_WORDS[t] ?? t : 'as the fence style')
+const capWords = (on: boolean) => (on ? 'Add new post caps' : 'Reuse the old post caps')
+
+/** A repair's change in words: "Add 1 leaning post reset", "Remove 2 section repairs", every input that prices. */
+export function repairChangeWords(was: RepairInputs | null | undefined, now: RepairInputs | null | undefined): string[] {
+  const a = chargedRepairItems(was), b = chargedRepairItems(now)
+  const out = REPAIR_ITEMS.flatMap(k => {
+    const d = (b[k] ?? 0) - (a[k] ?? 0)
+    return d ? [`${d > 0 ? 'Add' : 'Remove'} ${Math.abs(d)} ${REPAIR_CHANGE_WORDS[k][Math.abs(d) === 1 ? 0 : 1]}`] : []
+  })
+  if (was?.postType !== now?.postType) out.push(`Old posts: ${postWords(was?.postType)} to ${postWords(now?.postType)}`)
+  if (!!was?.newPostCaps !== !!now?.newPostCaps) out.push(capWords(!!now?.newPostCaps))
+  if ((was?.gateKind ?? 'walk') !== (now?.gateKind ?? 'walk')) out.push(`Gate work is on a ${now?.gateKind === 'double' ? 'double' : 'walk'} gate, not a ${now?.gateKind === 'double' ? 'walk' : 'double'} gate`)
+  if (JSON.stringify(was?.repairParts ?? null) !== JSON.stringify(now?.repairParts ?? null)) out.push('Change the parts used for the section repair')
+  if (!!was?.debrisCleared !== !!now?.debrisCleared) out.push(now?.debrisCleared ? 'Tree and debris cleared before we start' : 'Tree and debris not cleared before we start')
+  return out
+}
+
+/** A move's own change in words (its footage and gates have their lines already), every input that prices. */
+export function moveChangeWords(was: MoveInputs | null | undefined, now: MoveInputs | null | undefined): string[] {
+  const out: string[] = []
+  const count = (what: string, a: number | null | undefined, b: number | null | undefined) => {
+    if ((a ?? null) === (b ?? null)) return
+    out.push(a == null ? `${what}: ${b}` : b == null ? `${what}: back to the count from the old line` : `${what}: ${a} to ${b}`)
+  }
+  if (was?.oldFt !== now?.oldFt) out.push(`Old fence to move: ${was?.oldFt ?? 0} ft to ${now?.oldFt ?? 0} ft`)
+  count('Old sections', was?.oldSections, now?.oldSections)
+  count('Old posts', was?.oldPosts, now?.oldPosts)
+  count('Old walk gates', was?.oldWalkGates, now?.oldWalkGates)
+  count('Old double gates', was?.oldDblGates, now?.oldDblGates)
+  if (was?.oldPostType !== now?.oldPostType) out.push(`Old posts: ${postWords(was?.oldPostType)} to ${postWords(now?.oldPostType)}`)
+  if (!!was?.newPostCaps !== !!now?.newPostCaps) out.push(capWords(!!now?.newPostCaps))
+  if ((was?.damagePct ?? null) !== (now?.damagePct ?? null)) out.push(`Damage allowance: ${was?.damagePct ?? 'standard'}${was?.damagePct != null ? '%' : ''} to ${now?.damagePct ?? 'standard'}${now?.damagePct != null ? '%' : ''}`)
+  const flagged = (l: boolean[] | undefined) => (l ?? []).filter(Boolean).length
+  for (const [what, a, b] of [['walk', was?.replaceWalk, now?.replaceWalk], ['double', was?.replaceDbl, now?.replaceDbl]] as const) {
+    const d = flagged(b) - flagged(a)
+    if (d) out.push(`${d > 0 ? 'Replace' : 'Rehang, not replace,'} ${Math.abs(d)} ${what} gate${Math.abs(d) === 1 ? '' : 's'}`)
+  }
+  return out
 }
 
 type WorkLike = Parameters<typeof workSummary>[0]

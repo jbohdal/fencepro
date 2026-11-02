@@ -107,6 +107,24 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
 
+  test('the job\'s states for the next change order: in the order signed, and never a void one\'s work (Nov 2 2026)', async () => {
+    const co = async (quoteId: string, ft: number, walk: number, why: string) => (await call(owner, 'POST', '/api/change-orders', { quoteId, reason: why, lines: [{ id: `l${ft}${walk}`, description: why, amountCents: 10000, fromChange: true }], work: { request: request(ft, walk), layout: { yard: null, runSections: [14] } } })).json.data
+    const sign = async (r: any) => expect((await call(owner, 'PATCH', `/api/change-orders/${r.id}`, { baseVersion: r.version, status: 'approved', verbalReason: 'Customer agreed' })).status).toBe(200)
+    const a = await signedJob()
+    const gate = await co(a.quoteId, 112, 1, 'A gate'), fence = await co(a.quoteId, 132, 1, 'More fence')
+    expect(gate.lines[0].fromChange).toBe(true)
+    await sign(fence); await sign(gate)
+    const signed = (await call(owner, 'GET', `/api/change-orders/start?quoteId=${a.quoteId}`)).json.data
+    expect(signed.states.map((s: any) => s.number)).toEqual([2, 1])
+    expect(signed.states.map((s: any) => [s.state.runs[0], s.state.walkGates])).toEqual([[132, 0], [132, 1]])
+    const b = await signedJob()
+    const gone = await co(b.quoteId, 112, 1, 'A gate')
+    await co(b.quoteId, 132, 1, 'More fence')
+    expect((await call(owner, 'PATCH', `/api/change-orders/${gone.id}`, { baseVersion: gone.version, status: 'void' })).status).toBe(200)
+    const after = (await call(owner, 'GET', `/api/change-orders/start?quoteId=${b.quoteId}`)).json.data
+    expect(after.states.map((s: any) => [s.number, s.state.runs[0], s.state.walkGates])).toEqual([[2, 132, 0]])
+  })
+
   afterAll(async () => {
     const jobs = made.jobs
     const docs = await prisma.signedDocument.findMany({ where: { quoteId: { in: made.quotes } } })
@@ -533,11 +551,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const pk = await call(owner, 'GET', `/api/install-packets/work?jobId=${jobId}`)
     expect(pk.json.data.work).toMatchObject({ footage: 106, walkGates: 1 })
 
-    // Two open ones changing the same thing: said when the second is made.
+    // Two open ones on the same length: they add up, so nothing to say.
     const co3 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Even longer', lines: [{ id: 'c', description: 'Add 10 ft of fence', amountCents: 25000 }], work: work(yardOf(840, true)) })
     expect(co3.json.notice).toBeUndefined()
     const co4 = await call(owner, 'POST', '/api/change-orders', { jobId, reason: 'Longer still', lines: [{ id: 'd', description: 'Add 10 ft of fence', amountCents: 25000 }], work: work(yardOf(960, true)) })
-    expect(co4.json.notice).toMatch(/changes the same thing as CO-3 \(Back: length\)/)
+    expect(co4.json.notice).not.toMatch(/same thing/)
   })
 
   // Round 3 recheck (Oct 26 2026): CO-1 said "(146 ft to 156 ft)" on its signing screen and signed PDF after CO-2 was

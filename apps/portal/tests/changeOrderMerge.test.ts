@@ -76,13 +76,35 @@ describe('change orders: two drawings on one job', () => {
     expect(now.walkGates).toBe(2)
   })
 
-  test('both change the same thing: the one signed last decides, and it is said', () => {
+  test('two on the same side: the lengths add up, in any order, and no clash is said', () => {
     const co3 = shape(yardOf(840)) // Back 70, drawn from the signed quote
     const r = foldChanges(quote, [{ number: 1, base: quote, work: co1 }, { number: 3, base: quote, work: co3 }], derive)
-    expect(r.shape.yard.sides.find((s: any) => s.name === 'Back').lengthIn).toBe(840)
-    expect(r.after[1].conflicts).toEqual(['Back: length'])
-    expect(clashes({ number: 1, base: quote, work: co1 }, { number: 3, base: quote, work: co3 })).toEqual(['Back: length'])
+    expect(r.shape.yard.sides.find((s: any) => s.name === 'Back').lengthIn).toBe(960) // 50 + 10 + 20
+    expect(r.after[1].conflicts).toEqual([])
+    expect(clashes({ number: 1, base: quote, work: co1 }, { number: 3, base: quote, work: co3 })).toEqual([])
     expect(clashes({ number: 1, base: quote, work: co1 }, { number: 2, base: co1, work: both })).toEqual([])
+  })
+
+  test('a change drawn on another, signed before it: the job has both, by drawing and by run list', () => {
+    const back = (s: WorkShape) => s.yard.sides.find((x: any) => x.name === 'Back').lengthIn
+    const longer = shape(yardOf(864)) // Back 60 -> 72, drawn on co1
+    const first = { number: 1, base: quote, work: co1 }, second = { number: 2, base: co1, work: longer }
+    const alone = foldChanges(quote, [second], derive)
+    expect(back(alone.shape)).toBe(744) // its own 12 ft on the signed 50
+    expect(back(foldChanges(quote, [second, first], derive).shape)).toBe(back(foldChanges(quote, [first, second], derive).shape))
+    expect(back(foldChanges(quote, [second, first], derive).shape)).toBe(864)
+    const rq = shapeOf({ fenceStyle: STYLE, runs: [100], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
+    const r1 = shapeOf({ fenceStyle: STYLE, runs: [120], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
+    const r2 = shapeOf({ fenceStyle: STYLE, runs: [140], corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
+    const a = { number: 1, base: rq, work: r1 }, b = { number: 2, base: r1, work: r2 }
+    expect(foldChanges(rq, [b, a], derive).shape.runs).toEqual([140])
+    expect(foldChanges(rq, [b], derive).shape.runs).toEqual([120])
+  })
+
+  test('a run added by one and one more by a later one, signed backwards: every run is there', () => {
+    const s = (runs: number[]) => shapeOf({ fenceStyle: STYLE, runs, corners: 0, ends: 2, walkGates: 0, dblGates: 0 })
+    const a = { number: 1, base: s([100]), work: s([100, 20]) }, b = { number: 2, base: s([100, 20]), work: s([100, 20, 30]) }
+    expect(foldChanges(s([100]), [b, a], derive).shape.runs).toEqual([100, 30, 20])
   })
 
   test('a side added by a change goes after the side before it in that drawing', () => {

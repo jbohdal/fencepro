@@ -11,7 +11,7 @@
 
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
-import { approvedText, signedUsd, whatChanged, currentWorkRow } from './changeOrderWork.js'
+import { approvedText, signedUsd, whatChanged, currentWorkRow, sheetEvents } from './changeOrderWork.js'
 import { scheduleFit } from './changeOrderWork.js'
 import { moneyText } from './paymentMath.js'
 import { AUTO_MOVE_KIND, HELD_FOR_DRAWING_KIND } from './waitingStageMove.js'
@@ -47,6 +47,8 @@ export async function changeOrderItems(accountId: string, quoteIds: string[]): P
     if (r.signedAt) items.push({ at: r.signedAt.toISOString(), kind: 'change_order', title: `Change order CO-${r.number} signed by ${r.signedBy ?? 'the customer'}${r.signedVia ? ` ${VIA[r.signedVia] ?? ''}` : ''}`.trim(), detail: '', by: '' })
     if (r.approvedAt && (r.status === 'approved' || r.voidedAt)) items.push({ at: r.approvedAt.toISOString(), kind: 'change_order', title: approvedText(r, style), detail: `${rev}change order CO-${r.number}.${r.warrantyAfter ? ` Warranty now ${(r.warrantyAfter as any).name}.` : ''}`, by: r.verbalBy ?? r.approvedBy ?? '' })
     if (r.voidedAt) items.push({ at: r.voidedAt.toISOString(), kind: 'change_order', title: `Change order CO-${r.number} voided${r.approvedAt ? ': taken off the contract' : ''}`, detail: '', by: '' })
+    const left = (r.work as any)?.afterVoid
+    if (r.voidedAt && left) items.push({ at: r.voidedAt.toISOString(), kind: 'change_order', title: `The job after CO-${r.number} was voided: ${left.feet} ft, ${left.sections} sections`, detail: '', by: '' })
   }
   return items
 }
@@ -62,10 +64,12 @@ export async function jobTimeline(accountId: string, jobId: string): Promise<{ i
     const at = q?.acceptedAt ?? q?.soldAt
     if (at) items.push({ at: at.toISOString(), kind: 'contract', title: `Contract rev 1 signed: ${moneyText(Math.round((q!.finalPrice || job.quotePrice) * 100))}`, detail: q?.acceptedBy ? `Accepted online by ${q.acceptedBy}.` : 'Marked sold.', by: '' })
     items.push(...await changeOrderItems(accountId, [job.quoteId]))
-    const rows = await prisma.changeOrder.findMany({ where: { accountId, quoteId: job.quoteId, deletedAt: null }, select: { id: true, number: true, status: true, approvedAt: true, work: true, contractRev: true, deletedAt: true } })
+    const rows = await prisma.changeOrder.findMany({ where: { accountId, quoteId: job.quoteId, deletedAt: null }, select: { id: true, number: true, status: true, approvedAt: true, voidedAt: true, work: true, contractRev: true, deletedAt: true } })
     contractRev = Math.max(1, ...rows.filter(r => r.status === 'approved').map(r => r.contractRev ?? 1))
-    for (const r of rows) {
-      if (r.status === 'approved' && r.work && r.approvedAt) items.push({ at: new Date(r.approvedAt.getTime() + 1).toISOString(), kind: 'pull_sheet', title: `Pull sheet rev ${r.contractRev ?? ''} for the crew (change order CO-${r.number})`.replace('rev  ', 'rev '), detail: currentWorkRow(rows)?.id === r.id ? 'The current pull sheet; the earlier ones are kept in the Pullsheets tab.' : 'Replaced by a later change.', by: '' })
+    // The same numbers the pull sheet shows: a void is a revision too.
+    for (const { row: r, voided, at, rev } of sheetEvents(rows)) {
+      if (voided) items.push({ at: new Date(at.getTime() + 1).toISOString(), kind: 'pull_sheet', title: `Pull sheet rev ${rev} for the crew (CO-${r.number} voided)`, detail: '', by: '' })
+      else items.push({ at: new Date(at.getTime() + 1).toISOString(), kind: 'pull_sheet', title: `Pull sheet rev ${rev} for the crew (change order CO-${r.number})`, detail: currentWorkRow(rows)?.id === r.id ? 'The current pull sheet; the earlier ones are kept in the Pullsheets tab.' : 'Replaced by a later change.', by: '' })
     }
   }
   const logs = await prisma.billingLog.findMany({ where: { accountId, jobId, kind: { in: ['final_follows', 'change_order_invoice', 'change_order_invoice_void', 'made'] } }, orderBy: { at: 'desc' }, take: 50 })
