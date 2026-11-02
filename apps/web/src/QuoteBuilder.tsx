@@ -615,7 +615,7 @@ export default function QuoteBuilder({
   const [openSide, setOpenSide] = useState<string | null>(null)
   const [photosOpen, setPhotosOpen] = useState(false)
   // Options offered on the proposal besides this quote's own style.
-  const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).map(o => o.fenceStyle))
+  const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).filter(o => !o.tier?.swapped).map(o => o.fenceStyle))  // A style picked on an option stays with the option: removed, it is gone.
   const [showCompare, setShowCompare] = useState(false)
   // Voice: off by default, remembered per user (Settings → Voice).
   const [userId, setUserId] = useState<string | null>(null)
@@ -1042,8 +1042,9 @@ export default function QuoteBuilder({
   const removeAdded = (key: TierKey) => setTierPrefs(p => {
     const swap = { ...p.swap }; delete swap[key]
     const added = (p.added ?? []).filter(a => a.key !== key)
-    const { added: _a, popular, ...rest } = p
-    return { ...rest, swap, ...(added.length ? { added } : {}), ...(popular !== undefined && popular !== key ? { popular } : {}) }
+    const { added: _a, ...rest } = p
+    // The Most popular pick goes with it: no option stands in for it (null: none).
+    return { ...rest, swap, ...(added.length ? { added } : {}), ...(p.popular === key ? { popular: null } : {}) }
   })
   const offeredNow = offeredCount(tiers, style?.name, !!foldedTier || !!twinTier, offer)
   // Every style on for quoting, by material, for "Change style" and "Add option".

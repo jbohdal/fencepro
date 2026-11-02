@@ -721,6 +721,17 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Reviewed by a separate agent as the owner on a computer (Sales Orders listed, filtered, one marked Ordered and seen in a second browser, then put back; no signal and Try again; a job's milestone checklist) and as the Salesman on a phone (Today, Pipeline badges, Follow ups, Visits, a sold quote and its change order builder; an appointment moved on the computer showed on the phone without a reload, read as 1.6 KB). Its notes fixed: the photo lists read twice one after another; one wording. **DEV**
 * Tests: phoneLoad.test.ts, phoneLoad.db.test.ts (business state left out and kept on save and on a stale save; appointments ?since= with a move, a cancel and a renamed customer; the board table equals the board on the dev company). e2e on a 4091 dev server: every-screen, salesman, sales-orders, follow-ups, pipeline-paging, customer-page, appointments, change-order-flow, visit-photos, media; iphone-safari 84 of 84. **DEV**
 
+## 9ax. Proposal options of any fence style (Nov 2 2026)
+
+* On the Price step every option has Change style: any style on for quoting, by material (vinyl, wood, aluminum, chain link, any color, height, no dig or dig set). Automatic puts it back. **DEV**
+* Add option adds an option of any style on this quote; Remove this option takes it off. 1 to 3 options; the box says how many are on. The main option stays on. **DEV**
+* Most popular on each card: one at most, and removing the option clears the pick. **DEV**
+* Same yard for every option. Each option has its own sections (per run, at its own section length), kit, labor, margin, warranty and pull sheet ("This option's pull sheet" on the card). **DEV**
+* The customer's page shows each option's name, price, warranty and its photo or words. Signing makes the quote that option: price, costs, pull sheet, sections, margin and post counts, and from them the contract, deposit, Sales Order, warranty and job. Change orders follow it. **DEV**
+* The server prices a Salesman's options; a style it did not price is dropped, never taken at the phone's price. The customer sends only which option. **DEV**
+* A picked style the customer would read wrong (no warranty, parts left out, no price or labor) is not sent, on screen and on the server. **DEV**
+* Tests: tests/mixedOptions.db.test.ts (DEV_DB=1). e2e/mixed-options.mjs: as the Salesman on an iPhone size WebKit, the customer and the owner, through two signed quotes and their change orders. All 1,078 new fence quotes on dev priced on main and on this branch: the same but one, Dave Diamond's, whose swapped Best reads the words of its own fence if it is saved again; his sent proposal is unchanged. **DEV**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

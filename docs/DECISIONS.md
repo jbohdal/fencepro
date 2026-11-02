@@ -420,3 +420,23 @@ Jonathan: "8 ft tall vinyl is underpriced, fix tonight. My piece prices cover on
 Left as today, not covered by the decision: taking a gate out (its posts and kit credit as before, with the fence the opening gets back priced by the foot); a gate moved or swapped (no net gate added); repair quotes (priced by section, not feet, so a chain link repair's fabric still rounds up per line); a move's damage allowance fabric. A run list does not say which feet a gate took: the line posts the opening itself drops stay priced (a changed run with the gate's pieces put back and the opening's own width returned, compared to now; a typed gate with no width is 4 ft walk, 8 ft double), the ones the fence taken out with it takes are credited, a gate in new fence or in fence left alone keeps none, and end posts typed with the gate count as its 2.
 
 Who uses which path: every login that makes change orders sees costs, a Salesman too, so new fence is priced on the step lines in the browser. The one price difference line is used today by moves (priced in the browser) and repairs. The server's changePrice is for a login that sees prices only; none makes change orders today.
+
+## Proposal options of any fence style (Jonathan, Nov 2 2026)
+
+"Fast, top priority, deploy as soon as it passes: proposal options can be ANY fence style, not just tiers of the same one." "On the quote's options step (Good / Better / Best), each option gets a 'Change style' choice: any material and style that's on for quoting." "Every option uses the same yard: same drawing, footage, corners, ends and gates. Each option is priced with its own kit, labor and margin, and gets its own warranty and its own pull sheet." "I can add or remove options (1 to 3) and pick which one is 'Most popular'." "When they sign one, the contract, deposit, Sales Order, pull sheet, warranty and job all use that option's style." "Change orders on a signed job follow the signed option's style." "Keep today's automatic options as the starting point, so nothing changes unless someone swaps a style."
+
+No schema change: it all lives on the saved proposal (`tierPrefs.added`, `.popular`, `.pin`, `tier.swapped`, `problems`, and `snapshot.costFactor`, `.otherMaterial`, `.posts`). Web tiers.ts, proposal.ts; portal routes/proposal.ts signedPricing.
+
+Decided by the builder (none of these change an automatic option):
+
+- **A swapped option's name.** A rank word (Good, Better, Best) stays. A name that describes the tier ("Dig set with concrete", "No dig") would be wrong on another fence, so it becomes the material (Chain link, Wood, Aluminum, Vinyl). An added option is always named by its material.
+- **A swapped option's words and photo.** Styles have no description of their own, and none is made up. The words and tier photo come from the owner's own tier in that style's category set (a chain link no dig option reads "Thick Schedule 40 steel pipe, no concrete."). No tier says that fence: no words, and the card tells staff.
+- **The main option.** It stays on the proposal, so its tick box is off; make another option main first. Change style on the main card changes the quote's own style. On a mixed quote, Make main keeps every option where it is, and the tier set stays the one the quote had (`pin`).
+- **Labor and per foot price typed on the quote** do not follow to an option of another material. Same material: as today. Signing that option clears them from the quote, so a change order does not pick them up.
+- **Tees** are posted as each option's style posts them (chain link, aluminum, wood: corner; vinyl: line). The post counts go on the quote when signed.
+- **Section counts on the drawing.** One drawing can only show one style's sections, so a proposal whose options differ shows no line posts or section counts. Each option's own sections are on its card.
+- **Blocked from sending** (a picked style only): no warranty in Settings, parts left out, no price, no labor. The card says so in red; the send box and the server refuse (`OPTION_NOT_READY`). A save onto a link already out is refused the same way.
+- **Said to staff, not blocked:** a gate width with no parts list of its own for that style (priced with the 4 ft or 8 ft gate's parts, as a vinyl quote's own gate is today), and no photo or description.
+- **A tier's Price adjust %** stays on a swapped option, as today.
+
+Open questions for Jonathan are in the Nov 2 report; each was left as today.

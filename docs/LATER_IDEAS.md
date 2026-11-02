@@ -106,3 +106,10 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - devDbScrubbed: (352) 789-4314 is the company's own office line on a dev contact, not a customer's number. The test could allow it.
 - E2E_SALES_TOKEN and E2E_SALES_COOKIE mean a file path to salesman-live-overhead but the value itself to option-lists, pipeline-stages, round4-co and visit-quote-send, so no single setting works for all five in `all`. Make salesman-live-overhead accept the value.
 - Still failing, known: sales-orders (AUD Web Chainlink fixture), quotable-styles (stale), builderProposalBetter (dev data).
+
+## From proposal options of any style (Nov 2)
+
+- A new fence's minimum job price lifts only the quote's own option: other options, tiers included, can read under the minimum. Same as before; a cheap chain link option on a small yard makes it more likely. Needs Jonathan's word.
+- Playwright's WebKit page crashed twice on a second `page.goto` after the quote builder had been open. A fresh context did not, and iphone-safari passes. Could be the #17 memory question; not traced.
+- The dev database has no active office login, so salesman-choice and salesman-choice-booking fail their office checks until one is made.
+- builderProposalBetter (dev data) fails the same on main.
