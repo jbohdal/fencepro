@@ -156,6 +156,29 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
     await prisma.accountKeyValue.deleteMany({ where: { accountId } })
   })
 
+  test('one job, one entry: a second list entry is refused, the saved list comes back; prefill names the entry already saved', async () => {
+    const entry = { id: 'dup1', quoteId: bare, completionDate: '2026-10-01', crew: [], actualLaborHrs: 0, actualMaterialCost: 1, actualOtherCosts: 0, notes: '' }
+    await prisma.accountKeyValue.create({ data: { accountId, key: KV, value: [entry] } })
+    const r = await fetch(`${base}/api/kv/${KV}`, { method: 'PUT', headers: { Authorization: `Bearer ${token('super_admin')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ value: [{ ...entry, id: 'dup2' }, entry], baseVersion: 1 }) })
+    const j = await r.json() as any
+    expect([r.status, j.code]).toEqual([403, 'NOT_ALLOWED'])
+    expect(j.error).toMatch(/already has a job cost/)
+    expect(j.data).toEqual([entry])
+    expect((await entries()).map(e => e.id)).toEqual(['dup1'])
+    expect((await prefillFor(accountId, bare))!.existingEntry).toEqual(entry)
+    await prisma.accountKeyValue.deleteMany({ where: { accountId } })
+  })
+
+  test('an approved crew takeoff fills labor in with what it froze', async () => {
+    await prisma.jobTakeoff.deleteMany({ where: { accountId } })
+    await prisma.vendorState.deleteMany({ where: { accountId } })
+    await prisma.jobTakeoff.create({ data: { id: crypto.randomUUID(), accountId, jobId, quoteId, status: 'approved', labor: { mode: 'crew', subUnits: 0, crew: [{ id: 'c1', name: 'D', hours: 40 }] }, actualCost: { laborCents: 123400, totalCents: 123400 } } })
+    const p = (await prefillFor(accountId, quoteId))!
+    expect([p.sub, p.labor.cents, p.labor.source]).toEqual([false, 123400, 'takeoff'])
+    expect(p.labor.words).toMatch(/approved takeoff/)
+    await prisma.jobTakeoff.deleteMany({ where: { accountId } })
+  })
+
   test('the fix: dry run changes nothing; apply writes only hours entries, with an audit entry each; run again changes nothing', async () => {
     const list = [
       { id: 'old1', quoteId: fixed, completionDate: '2026-10-01', actualLaborHrs: 30, crew: [], actualMaterialCost: 4000, actualOtherCosts: 10, notes: 'keep' }, // 30 x ($600 / 20) = $900 → $600

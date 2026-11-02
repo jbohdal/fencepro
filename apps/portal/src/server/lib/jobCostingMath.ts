@@ -170,8 +170,22 @@ export interface PrefillAnswer {
 export interface JobCostPrefill extends PrefillAnswer {
   quoteId: string
   jobId: string | null
+  /** The saved entry for this job, when there is one (one job, one entry). */
+  existingEntry: Record<string, unknown> | null
   tearOutCents: number
   changeOrders: { count: number; priceCents: number }
+}
+
+/** The first quote this list gives more job cost entries than the saved list had (one job, one entry; old doubles can still be saved and deleted). */
+export function secondEntryFor(current: unknown, next: unknown): string | null {
+  const count = (list: unknown) => {
+    const m = new Map<string, number>()
+    for (const e of Array.isArray(list) ? list : []) { const q = (e as any)?.quoteId; if (typeof q === 'string' && q) m.set(q, (m.get(q) ?? 0) + 1) }
+    return m
+  }
+  const had = count(current)
+  for (const [q, n] of count(next)) if (n > 1 && n > (had.get(q) ?? 0)) return q
+  return null
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────

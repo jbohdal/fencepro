@@ -62,7 +62,10 @@ async function main() {
   for (const row of rows) {
     const entries = (Array.isArray(row.value) ? row.value : []) as Json[]
     const fixes: Array<{ entry: Json; oldCents: number; newCents: number; sub: boolean; why: string }> = []
+    const seen = new Set<string>()
     for (const e of entries) {
+      if (seen.has(e.quoteId)) say(`\n  TWICE  quote ${String(e.quoteId).slice(0, 8)} has a second entry (${e.id}): the P&L counts the newest; ask Jonathan which to delete`)
+      seen.add(e.quoteId)
       const basis = laborBasis({ actualLaborCostCents: e.actualLaborCostCents, crew: e.crew, frozenOldLaborCents: e.frozenOldLaborCents })
       if (basis === 'saved') { saved++; continue }
       const q = await prisma.savedQuote.findFirst({ where: { id: e.quoteId, accountId: row.accountId } }) as Json

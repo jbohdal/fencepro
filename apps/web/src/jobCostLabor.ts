@@ -98,6 +98,15 @@ export function resultOf(priceCents: number, costCents: number): JobResult {
 /** A sold quote says something about cost only when it carries one (moneyTruth.hasCost: 659 of 679 sold on dev do not). */
 export const quoteHasCost = (q: { totalCOGS?: number | null }) => (Number(q.totalCOGS) || 0) > 0
 
+/**
+ * Is the actual good for a margin? With an estimate, any cost entered. A quote
+ * with no cost has nothing to fall back on, so both labor and material must be
+ * in: $0 labor and $123 material on a $3,700 job is not a 96.7% margin.
+ */
+export function actualKnown(f: { hasEstimate: boolean; laborCents: number; materialCents: number; actualCents: number }): boolean {
+  return f.hasEstimate ? f.actualCents > 0 : f.laborCents > 0 && f.materialCents > 0
+}
+
 export interface RowQuote extends QuoteLabor { finalPrice: number; totalCOGS: number }
 
 export interface CostRow {
@@ -106,7 +115,7 @@ export interface CostRow {
   actualCents: number
   /** The quote has a cost on file. */
   hasEstimate: boolean
-  /** The entry has a cost in it. */
+  /** The actual is good for a margin (actualKnown). */
   hasActual: boolean
   /** Null: the quote has no cost on file. */
   estCents: number | null
@@ -125,7 +134,8 @@ export function costRow(e: Pick<JobCostEntry, 'actualLaborCostCents' | 'crew' | 
   const actualCents = laborCents + dollarsCents(e.actualMaterialCost) + dollarsCents(e.actualOtherCosts)
   const priceCents = dollarsCents(q.finalPrice)
   const hasEstimate = quoteHasCost(q)
-  const hasActual = actualCents > 0
+  const materialCents = dollarsCents(e.actualMaterialCost)
+  const hasActual = actualKnown({ hasEstimate, laborCents, materialCents, actualCents })
   const estCents = hasEstimate ? dollarsCents(q.totalCOGS) : null
   const margin = (cost: number) => (priceCents > 0 ? (priceCents - cost) / priceCents : null)
   return {
@@ -139,20 +149,23 @@ export function costRow(e: Pick<JobCostEntry, 'actualLaborCostCents' | 'crew' | 
 export interface PlBill { jobId?: string | null; category: string; status: string; totalCents: number }
 
 /**
- * Job labor on the P&L (the coordinator's decision for Jonathan, Nov 2 2026):
- * each job's labor counts once and nothing vanishes. The bills are already on
- * the P&L by their own date, so a hand entry (or an approved crew takeoff) adds
- * only what it is above the job's Subcontractor and Labor bills: the larger of
- * the two. The top up lands with the bills: Subcontractors when the job has a
- * Subcontractor bill, else Direct Labor. An entry whose quote is gone is left
- * out, as the Job Costing screen leaves it out.
+ * Job labor on the P&L (the coordinator's decisions for Jonathan, Nov 2 2026):
+ * each job's labor counts once, nothing vanishes, the typed number is the one
+ * used, and the P&L agrees with the screen. The number is the job's entry; with
+ * no entry (or one that holds no labor), its approved crew takeoff. The bills
+ * are already on the P&L by their own date, so that number adds only what it is
+ * above the job's Subcontractor and Labor bills: the larger of the two. The top
+ * up lands with the bills: Subcontractors when the job has a Subcontractor bill,
+ * else Direct Labor. An entry whose quote is gone is left out, as the Job
+ * Costing screen leaves it out. Two entries for one job (two browsers, before
+ * that was stopped) count once: the newest, the first in the list.
  */
 export function plJobLabor(i: {
   records: JobCostEntry[]
   quotes: Array<QuoteLabor & { id: string }>
   jobs: Array<{ id?: string; quoteId?: string | null }>
   bills: PlBill[]
-  /** Approved crew takeoffs; a hand entry for the same quote is left out. */
+  /** Approved crew takeoffs: used for a job with no entry. */
   takeoffs: Array<{ jobId: string; quoteId: string | null; installDate: string; crewLaborCostCents: number }>
   inPeriod: (day: string) => boolean
 }): { directLabor: number; subcontractors: number } {
@@ -169,15 +182,18 @@ export function plJobLabor(i: {
     const topUp = Math.max(0, cents - b.sub - b.labor)
     if (b.sub > 0) out.subcontractors += topUp; else out.directLabor += topUp
   }
-  const taken = new Set(i.takeoffs.map(t => t.quoteId).filter(Boolean))
-  for (const t of i.takeoffs) if (i.inPeriod(t.installDate)) add(t.jobId, t.crewLaborCostCents)
   const quoteById = new Map(i.quotes.map(q => [q.id, q]))
   const jobOfQuote = new Map(i.jobs.filter(j => j.quoteId).map(j => [j.quoteId as string, j.id]))
+  const entered = new Set<string>()
   for (const r of i.records) {
-    if (taken.has(r.quoteId)) continue
     const q = quoteById.get(r.quoteId)
-    if (!q || !r.completionDate || !i.inPeriod(r.completionDate)) continue
-    add(jobOfQuote.get(r.quoteId), entryLaborCents(r, q))
+    if (!q || entered.has(r.quoteId)) continue
+    const cents = entryLaborCents(r, q)
+    // An old entry with no labor in it says nothing about labor: the takeoff still speaks. A saved $0 was typed.
+    if (cents <= 0 && laborBasis(r) !== 'saved') continue
+    entered.add(r.quoteId)
+    if (r.completionDate && i.inPeriod(r.completionDate)) add(jobOfQuote.get(r.quoteId), cents)
   }
+  for (const t of i.takeoffs) if (!(t.quoteId && entered.has(t.quoteId)) && i.inPeriod(t.installDate)) add(t.jobId, t.crewLaborCostCents)
   return out
 }

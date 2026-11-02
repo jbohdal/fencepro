@@ -30,6 +30,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { kvChangeRefusal, refuse, roleOf, JOB_COST_KEY, mayWriteJobCosts } from '../lib/permissions.js'
 import { hidesCosts, KV_COST_KEYS } from '../lib/costRedact.js'
+import { secondEntryFor } from '../lib/jobCostingMath.js'
 import { OPS_STAGES_KEY } from '../lib/opsStages.js'
 import { PIPELINE_STAGES_KEY } from '../lib/pipelineStages.js'
 import { OPTION_LIST_KEY } from '../lib/optionLists.js'
@@ -159,6 +160,10 @@ router.put('/:key', async (req: any, res) => {
     // The phone keeps what it sent as its copy of the new version: remembered for its next save.
     const remember = (version: number) => {
       if (salesUser && had && sentByPhone) handedOutHad(salesUser.userId, salesUser.accountId, `kv:${key}`, version, afterOwnSave(had, new Map([[KV_LIST, sentByPhone]])))
+    }
+    // One job, one entry: two browsers costing the same job at once. The phone keeps the saved list and says why.
+    if (key === JOB_COST_KEY && secondEntryFor(saved ? saved.value : null, value)) {
+      res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'This job already has a job cost. Open that one and edit it.', data: saved ? saved.value : null, version: saved?.version ?? 0 }); return
     }
     const refused = kvChangeRefusal(roleOf(req), key, saved ? saved.value : null, value ?? null)
     if (refused) { refuse(res, refused, { data: saved ? saved.value : null, version: saved?.version ?? 0 }); return }

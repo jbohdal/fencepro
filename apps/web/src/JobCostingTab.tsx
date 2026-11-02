@@ -3,7 +3,7 @@ import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
 import { getQuotes, getArchivedQuotes } from './quoteStore'
 import { sizeText } from './moveRepair'
-import { cloudStorage } from './cloudStorage'
+import { cloudStorage, CLOUD_STORAGE_UPDATED_EVENT } from './cloudStorage'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
 import { can } from './permissions'
@@ -11,7 +11,7 @@ import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars } from './numberText'
 import { lowTarget } from './moneyLoad'
 import { loadJobCostPrefill, type JobCostPrefill } from './takeoffStore'
-import { costRow, crewLineCents, crewTotalCents, entryLaborCents, laborBasis, laborShown, quoteHasCost, resultOf, type CostRow, type CrewEntry, type JobCostEntry } from './jobCostLabor'
+import { actualKnown, costRow, crewLineCents, crewTotalCents, entryLaborCents, laborBasis, laborShown, quoteHasCost, resultOf, type CostRow, type CrewEntry, type JobCostEntry } from './jobCostLabor'
 
 /* ───────── types ───────── */
 
@@ -19,6 +19,8 @@ interface CostedJob {
   entry: JobCostEntry
   quote: SavedQuote
   row: CostRow
+  /** A later entry for a job that already has one (two browsers): shown to delete, left out of the summaries and the P&L. */
+  second: boolean
   /** The labor cost used for profit, in dollars. */
   actualLaborCost: number
   /** Null when the quote has no cost on file. */
@@ -114,12 +116,14 @@ function CostAJobModal({
   onSave,
   onClose,
   editEntry,
+  onOpenExisting,
 }: {
   soldQuotes: SavedQuote[]
   existingIds: Set<string>
   onSave: (entry: JobCostEntry) => void
   onClose: () => void
   editEntry?: JobCostEntry | null
+  onOpenExisting: (entry: JobCostEntry) => void
 }) {
   useBackLayer(onClose, { key: 'cost-a-job-modal' })
   const [quoteId, setQuoteId] = useState(editEntry?.quoteId || '')
@@ -128,6 +132,8 @@ function CostAJobModal({
   const [actualOtherCents, setActualOtherCents] = useState(dollarsToCents(Number(editEntry?.actualOtherCosts) || 0))
   const [notes, setNotes] = useState(editEntry?.notes || '')
   const [crew, setCrew] = useState<CrewEntry[]>(editEntry?.crew || [])
+  const [dateError, setDateError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const availableQuotes = soldQuotes.filter(q => !existingIds.has(q.id) || q.id === editEntry?.quoteId)
   const selectedQuote = soldQuotes.find(q => q.id === quoteId)
@@ -161,16 +167,16 @@ function CostAJobModal({
   const sub = editEntry?.laborKind ? editEntry.laborKind === 'sub' : !!prefill?.sub
   const laborLabel = sub ? 'Paid to sub ($)' : 'Actual Labor Cost ($)'
   const hasEstimate = !!selectedQuote && quoteHasCost(selectedQuote)
-  // A saved entry that followed its crew lines still does (an old one on a sub job too); otherwise a sub job's amount wins over crew lines unless typed.
-  const savedFromCrew = !!editEntry && (laborBasis(editEntry) === 'crew' || (laborBasis(editEntry) === 'saved' && editEntry.laborCostTyped !== true && editEntry.laborKind !== 'sub' && crewTotalCents(editEntry.crew) > 0))
-  const crewFlows = !sub || (savedFromCrew && laborBasis(editEntry!) === 'crew')
+  // A saved entry that followed its crew lines still does; on a sub job the amount wins over crew lines unless typed (an old one keeps what it shows).
+  const savedFromCrew = !sub && !!editEntry && (laborBasis(editEntry) === 'crew' || (laborBasis(editEntry) === 'saved' && editEntry.laborCostTyped !== true && crewTotalCents(editEntry.crew) > 0))
+  const crewFlows = !sub
   // What a saved entry keeps when the box is not typed in: its own number. One saved typed or from its crew goes back to the prefill.
   const keepsSaved = !!editEntry && !!selectedQuote && !savedFromCrew && editEntry.laborCostTyped !== true
   const baseLaborCents = keepsSaved ? entryLaborCents(editEntry!, selectedQuote!) : prefill?.labor.cents ?? quoteLaborCents
   const laborCents = laborShown({ typed: laborTyped, typedCents: typedLaborCents, crewCents, baseCents: baseLaborCents, crewFlows })
   const materialCents = materialTyped ? typedMaterialCents : prefill?.material.cents ?? quoteMaterialCents
 
-  const savedLaborWords = oldHoursEntry ? 'Old entry: this came from hours x a rate. Change it to the real cost and save.' : editEntry?.laborSource || ''
+  const savedLaborWords = oldHoursEntry ? 'Old entry: this came from hours x a rate. Change it to the real cost and save.' : editEntry?.laborSource || (editEntry && laborBasis(editEntry) === 'crew' ? 'From the crew lines as saved' : '')
   const prefillWords = prefillState === 'failed' ? "From the quote's labor $. The job's bills and takeoff could not be loaded, so check this." : prefill?.labor.words ?? ''
   const laborWords = laborTyped ? 'Typed by you' : crewCents > 0 && crewFlows ? 'From the crew breakdown' : keepsSaved ? savedLaborWords : prefillWords
   const savedMaterialWords = editEntry?.materialSource || 'As entered before'
@@ -210,8 +216,16 @@ function CostAJobModal({
     setCrew(prev => prev.filter((_, idx) => idx !== i))
   }
 
-  function handleSave() {
-    if (!quoteId) return
+  async function handleSave() {
+    if (!quoteId || saving) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(completionDate)) { setDateError('Pick the completion date. The P&L needs it to put this job in a month.'); return }
+    // Another screen may have costed this job since the form opened: say so here, with the entry to open, before any save.
+    if (!editEntry) {
+      setSaving(true)
+      const fresh = await loadJobCostPrefill(quoteId)
+      setSaving(false)
+      if (fresh?.existingEntry) { setPrefill(fresh); return }
+    }
     // An old hours entry saved with its labor box untouched stays old and stays on the fix list ("don't change without my OK").
     const keepOld = oldHoursEntry && !laborTyped && !(crewFlows && crewCents > 0)
     onSave({
@@ -237,13 +251,16 @@ function CostAJobModal({
   const actualCostCents = laborCents + materialCents + actualOtherCents
   const estCostCents = selectedQuote ? dollarsToCents(selectedQuote.totalCOGS) : 0
   const est = resultOf(priceCents, estCostCents)
-  const hasActual = actualCostCents > 0
+  const hasCosts = actualCostCents > 0
+  const marginKnown = actualKnown({ hasEstimate, laborCents, materialCents, actualCents: actualCostCents })
+  const noResult = hasCosts ? NOT_AVAILABLE : 'Not entered'
+  const already = !editEntry && prefill?.existingEntry ? prefill.existingEntry as unknown as JobCostEntry : null
   const act = resultOf(priceCents, actualCostCents)
   const waiting = !editEntry && prefillState === 'loading'
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] overflow-y-auto overflow-x-hidden mx-4 lg:mx-0 modal-responsive" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-bold text-gray-900 text-lg">{editEntry ? 'Edit Job Cost' : 'Cost a Completed Job'}</h2>
           <button onClick={onClose} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -268,6 +285,13 @@ function CostAJobModal({
             </select>
           </div>
 
+          {already && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-sm text-gray-800" data-already-costed>
+              This job already has a job cost, saved on another screen.{' '}
+              <button type="button" onClick={() => onOpenExisting(already)} className="text-orange-500 hover:text-orange-600 font-semibold">Open it to edit</button>
+            </div>
+          )}
+
           {/* Estimate preview */}
           {selectedQuote && (
             <div className="bg-gray-50 rounded-xl p-4">
@@ -289,8 +313,9 @@ function CostAJobModal({
                 type="date"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
                 value={completionDate}
-                onChange={e => setCompletionDate(e.target.value)}
+                onChange={e => { setCompletionDate(e.target.value); setDateError('') }}
               />
+              {dateError && <p className="text-xs text-red-600 mt-1" role="alert" data-date-error>{dateError}</p>}
             </div>
             <div>
               <label htmlFor="jc-labor-hrs" className="text-xs text-gray-500 font-medium mb-1 block">Actual Total Labor Hours (optional)</label>
@@ -358,19 +383,25 @@ function CostAJobModal({
             {crew.length > 0 && (
               <div className="space-y-2">
                 {crew.map((c, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                  <div key={i} className="flex flex-wrap sm:flex-nowrap items-center gap-2 border-b border-gray-100 sm:border-0 pb-2 sm:pb-0" data-crew-row>
                     <input
-                      className="flex-1 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
+                      className="min-w-0 flex-1 basis-[calc(100%-56px)] sm:basis-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
                       placeholder="Name"
                       value={c.name}
                       onChange={e => updateCrew(i, 'name', e.target.value)}
                     />
-                    <NumberField kind="number" min={0} decimals={2} width="w-20" label={`Hours for crew member ${i + 1}`} placeholder="Hours"
-                      value={c.hours} onCommit={h => updateCrew(i, 'hours', h)} />
-                    <NumberField kind="money" min={0} width="w-24" label={`Dollars an hour for crew member ${i + 1}`} placeholder="$/hr"
-                      value={dollarsToCents(c.rate)} onCommit={r => updateCrew(i, 'rate', centsToDollars(r))} />
-                    <span className="text-xs text-gray-400 w-16 text-right">{fmt2(crewLineCents(c) / 100)}</span>
-                    <button onClick={() => removeCrew(i)} className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                    <button onClick={() => removeCrew(i)} aria-label={`Remove crew member ${i + 1}`} className="order-2 sm:order-5 min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                    <label className="order-3 flex-1 sm:flex-none min-w-0">
+                      <span className="sm:hidden block text-xs text-gray-500 mb-0.5">Hours</span>
+                      <NumberField kind="number" min={0} decimals={2} width="w-full sm:w-20" label={`Hours for crew member ${i + 1}`} placeholder="Hours"
+                        value={c.hours} onCommit={h => updateCrew(i, 'hours', h)} />
+                    </label>
+                    <label className="order-3 flex-1 sm:flex-none min-w-0">
+                      <span className="sm:hidden block text-xs text-gray-500 mb-0.5">$ an hour</span>
+                      <NumberField kind="money" min={0} width="w-full sm:w-24" label={`Dollars an hour for crew member ${i + 1}`} placeholder="$/hr"
+                        value={dollarsToCents(c.rate)} onCommit={r => updateCrew(i, 'rate', centsToDollars(r))} />
+                    </label>
+                    <span className="order-4 text-xs text-gray-500 sm:text-gray-400 min-w-[64px] text-right self-end sm:self-auto pb-2 sm:pb-0">{fmt2(crewLineCents(c) / 100)}</span>
                   </div>
                 ))}
                 <div className="text-xs text-gray-400 text-right">
@@ -405,12 +436,13 @@ function CostAJobModal({
                 </thead>
                 <tbody>
                   <tr><td className="py-0.5 text-gray-600">Price</td><td className="py-0.5 text-right text-gray-500">{fmt2(priceCents / 100)}</td><td className="py-0.5 text-right font-semibold text-gray-900">{fmt2(priceCents / 100)}</td></tr>
-                  <tr><td className="py-0.5 text-gray-600">Total cost</td><td className="py-0.5 text-right text-gray-500" data-est="cost">{hasEstimate ? fmt2(estCostCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="cost">{hasActual ? fmt2(actualCostCents / 100) : 'Not entered'}</td></tr>
-                  <tr><td className="py-0.5 text-gray-600">Profit</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? fmt2(est.profitCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="profit">{hasActual ? fmt2(act.profitCents / 100) : 'Not entered'}</td></tr>
-                  <tr><td className="py-0.5 text-gray-600">Margin</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? `${est.marginPct.toFixed(1)}%` : NOT_AVAILABLE}</td><td className={`py-0.5 text-right font-bold ${!hasActual || !hasEstimate ? 'text-gray-900' : act.marginPct >= est.marginPct ? 'text-green-600' : 'text-red-500'}`} data-result="margin">{hasActual ? `${act.marginPct.toFixed(1)}%` : 'Not entered'}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Total cost</td><td className="py-0.5 text-right text-gray-500" data-est="cost">{hasEstimate ? fmt2(estCostCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="cost">{hasCosts ? fmt2(actualCostCents / 100) : 'Not entered'}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Profit</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? fmt2(est.profitCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="profit">{marginKnown ? fmt2(act.profitCents / 100) : noResult}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Margin</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? `${est.marginPct.toFixed(1)}%` : NOT_AVAILABLE}</td><td className={`py-0.5 text-right font-bold ${!marginKnown || !hasEstimate ? 'text-gray-900' : act.marginPct >= est.marginPct ? 'text-green-600' : 'text-red-500'}`} data-result="margin">{marginKnown ? `${act.marginPct.toFixed(1)}%` : noResult}</td></tr>
                 </tbody>
               </table>
               <p className="text-xs text-gray-400 mt-2">{BEFORE_COMMISSION}</p>
+              {hasCosts && !marginKnown && <p className="text-xs text-yellow-700 mt-1">Enter both labor and material to see profit and margin.</p>}
               {(prefill?.changeOrders.count ?? 0) > 0 && (
                 <p className="text-xs text-yellow-700 mt-1">This job has approved change orders ({fmt2(prefill!.changeOrders.priceCents / 100)}). The price here is the signed quote, without them.</p>
               )}
@@ -422,7 +454,7 @@ function CostAJobModal({
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={!quoteId || waiting}
+            disabled={!quoteId || waiting || saving || !!already}
             className="btn btn-primary"
           >
             {editEntry ? 'Update' : 'Save Job Cost'}
@@ -589,12 +621,23 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
   const [editEntry, setEditEntry] = useState<JobCostEntry | null>(null)
   const [selectedJob, setSelectedJob] = useState<CostedJob | null>(null)
 
+  // A save from another browser (or one the server refused) reaches this list.
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const key = (e as CustomEvent<{ key?: string }>).detail?.key
+      if (key === STORAGE_KEY || key === '*') setEntries(loadEntries())
+    }
+    window.addEventListener(CLOUD_STORAGE_UPDATED_EVENT, onUpdate)
+    return () => window.removeEventListener(CLOUD_STORAGE_UPDATED_EVENT, onUpdate)
+  }, [])
+
   const quotes = useMemo(() => loadQuotes(), [])
   const soldQuotes = useMemo(() => quotes.filter(q => q.status === 'SOLD'), [quotes])
   const existingIds = useMemo(() => new Set(entries.map(e => e.quoteId)), [entries])
 
   // Join entries with quotes to create CostedJob[]
-  const costedJobs: CostedJob[] = useMemo(() => {
+  const allRows: CostedJob[] = useMemo(() => {
+    const seen = new Set<string>()
     return entries
       .map(entry => {
         const quote = quotes.find(q => q.id === entry.quoteId)
@@ -605,10 +648,13 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
         const actualLaborCost = row.laborCents / 100
         const hasHours = row.hasEstimate && Number(entry.actualLaborHrs) > 0 && (quote.adjLaborHrs || 0) > 0
 
+        const second = seen.has(entry.quoteId)
+        seen.add(entry.quoteId)
         return {
           entry,
           quote,
           row,
+          second,
           actualLaborCost,
           laborVariance: row.hasEstimate ? actualLaborCost - quote.laborCost : null,
           laborHrsVariance: hasHours ? entry.actualLaborHrs - quote.adjLaborHrs : null,
@@ -618,6 +664,9 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       })
       .filter(Boolean) as CostedJob[]
   }, [entries, quotes])
+
+  // One job, one line in the summaries, as on the P&L.
+  const costedJobs = useMemo(() => allRows.filter(j => !j.second), [allRows])
 
   // Aggregate stats
   const stats = useMemo(() => {
@@ -835,13 +884,16 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   <p className="text-sm">Click "Cost a Job" to enter actuals for a completed sold quote</p>
                 </td>
               </tr>
-            ) : costedJobs.map(j => (
+            ) : allRows.map(j => (
               <tr key={j.entry.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedJob(j)}>
-                <td data-label="Customer" className="px-5 py-3 font-medium text-gray-900">{j.quote.customerName}</td>
+                <td data-label="Customer" className="px-5 py-3 font-medium text-gray-900">
+                  {j.quote.customerName}
+                  {j.second && <span className="block text-xs font-semibold text-yellow-700">Second entry for this job, not counted. Delete one.</span>}
+                </td>
                 <td data-label="Style" className="px-3 py-3 text-gray-600 text-xs">{fenceCategory(j.quote.fenceStyle)}</td>
                 <td data-label="Price" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.quote.finalPrice)}</td>
                 <td data-label="Est COGS" className="px-3 py-3 text-right text-gray-500">{j.row.estCents === null ? NOT_AVAILABLE : fmt(j.row.estCents / 100)}</td>
-                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{j.row.hasActual ? fmt(j.totalActCOGS) : 'Not entered'}</td>
+                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{j.totalActCOGS > 0 ? fmt(j.totalActCOGS) : 'Not entered'}</td>
                 <td data-label="COGS Var" className={`px-3 py-3 text-right font-bold ${j.row.varianceCents === null ? 'text-gray-500' : varianceColor(j.row.estCents ? j.row.varianceCents / j.row.estCents : 0)}`}>
                   {orNone(j.row.varianceCents === null ? null : j.row.varianceCents / 100, n => signed(n, fmt))}
                 </td>
@@ -865,12 +917,14 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       {/* Modal */}
       {showModal && (
         <CostAJobModal
+          key={editEntry?.id ?? 'new'}
           // A saved entry opens even if its quote is no longer Sold (its numbers need the quote).
           soldQuotes={editEntry && !soldQuotes.some(q => q.id === editEntry.quoteId) ? [...soldQuotes, ...quotes.filter(q => q.id === editEntry.quoteId)] : soldQuotes}
           existingIds={existingIds}
           onSave={handleSave}
           onClose={() => { setShowModal(false); setEditEntry(null) }}
           editEntry={editEntry}
+          onOpenExisting={setEditEntry}
         />
       )}
 

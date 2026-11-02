@@ -4,8 +4,9 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { costRow, crewTotalCents, crewLineCents, entryLaborCents, laborBasis, laborShown, oldHoursCents, plJobLabor, resultOf, type JobCostEntry } from '../../web/src/jobCostLabor'
+import { actualKnown, costRow, crewTotalCents, crewLineCents, entryLaborCents, laborBasis, laborShown, oldHoursCents, plJobLabor, resultOf, type JobCostEntry } from '../../web/src/jobCostLabor'
 import { workOutPrefill, type PrefillInput } from '../src/server/lib/jobCostPrefill'
+import { secondEntryFor } from '../src/server/lib/jobCostingMath'
 
 const quote = { laborCost: 769, adjLaborHrs: 0 }
 
@@ -98,6 +99,34 @@ describe('one saved entry against its quote (Job Costing and the customer tab)',
   })
 })
 
+describe('a quote with no cost, partly filled', () => {
+  const q = { finalPrice: 3700, totalCOGS: 0, laborCost: 0, adjLaborHrs: 0 }
+  const base = { crew: [], actualLaborHrs: 0, actualOtherCosts: 0 }
+  test('$0 labor and $123 material: no margin, not 96.7%', () => {
+    const r = costRow({ ...base, actualLaborCostCents: 0, actualMaterialCost: 123 }, q)
+    expect([r.hasActual, r.actGM, r.actualCents]).toEqual([false, null, 12300])
+  })
+  test('labor only: no margin', () => {
+    expect(costRow({ ...base, actualLaborCostCents: 50000, actualMaterialCost: 0 }, q).actGM).toBe(null)
+  })
+  test('with an estimate, one cost is enough: the rest of the job is on the quote side of the compare', () => {
+    expect(actualKnown({ hasEstimate: true, laborCents: 0, materialCents: 100, actualCents: 100 })).toBe(true)
+    expect(actualKnown({ hasEstimate: false, laborCents: 1, materialCents: 1, actualCents: 2 })).toBe(true)
+  })
+})
+
+describe('one job, one entry', () => {
+  test('a second entry for a job is caught; an old double already saved can still be saved or deleted', () => {
+    const a = { id: 'a', quoteId: 'q' }, b = { id: 'b', quoteId: 'q' }, c = { id: 'c', quoteId: 'r' }
+    expect(secondEntryFor([a], [b, a])).toBe('q')
+    expect(secondEntryFor([], [a, b])).toBe('q')
+    expect(secondEntryFor([a], [a, c])).toBe(null)
+    expect(secondEntryFor([a, b], [a, b])).toBe(null)
+    expect(secondEntryFor([a, b], [a])).toBe(null)
+    expect(secondEntryFor(null, [])).toBe(null)
+  })
+})
+
 describe('the P&L: labor counts once and nothing vanishes', () => {
   const quotes = [{ id: 'q1', laborCost: 600, adjLaborHrs: 20 }]
   const jobs = [{ id: 'j1', quoteId: 'q1' }]
@@ -129,10 +158,25 @@ describe('the P&L: labor counts once and nothing vanishes', () => {
     expect(run([old]).directLabor).toBe(120000)
     expect(run([e({ quoteId: 'gone', actualLaborHrs: 5 })]).directLabor).toBe(0)
   })
-  test('a crew takeoff replaces the hand entry, and a Labor bill on it counts once', () => {
-    const takeoffs = [{ jobId: 'j1', quoteId: 'q1', installDate: '2026-10-05', crewLaborCostCents: 70000 }]
-    expect(run([e({ actualLaborCostCents: 99900 })], [], { takeoffs }).directLabor).toBe(70000)
-    expect(run([], [bill('labor', 60000)], { takeoffs }).directLabor).toBe(10000)
+  const takeoff = (cents: number) => [{ jobId: 'j1', quoteId: 'q1', installDate: '2026-10-05', crewLaborCostCents: cents }]
+  test('a job with a takeoff and an entry: the typed number is the one used, as on the screen', () => {
+    expect(run([e({ actualLaborCostCents: 81600 })], [], { takeoffs: takeoff(0) }).directLabor).toBe(81600)
+    // $1,000 entry, $300 takeoff, $600 bill: $1,000 in all ($600 is the bill).
+    expect(run([e({ actualLaborCostCents: 100000 })], [bill('labor', 60000)], { takeoffs: takeoff(30000) }).directLabor).toBe(40000)
+  })
+  test('a typed $0 is used; an old entry with no labor in it leaves the takeoff to speak', () => {
+    expect(run([e({ actualLaborCostCents: 0 })], [], { takeoffs: takeoff(30000) }).directLabor).toBe(0)
+    expect(run([e({})], [], { takeoffs: takeoff(30000) }).directLabor).toBe(30000)
+  })
+  test('a takeoff with no entry still counts, and a Labor bill on it counts once', () => {
+    expect(run([], [], { takeoffs: takeoff(70000) }).directLabor).toBe(70000)
+    expect(run([], [bill('labor', 60000)], { takeoffs: takeoff(70000) }).directLabor).toBe(10000)
+  })
+  test('two entries for one job count once, the newest', () => {
+    expect(run([e({ id: 'a', actualLaborCostCents: 30000 }), e({ id: 'b', actualLaborCostCents: 90000 })]).directLabor).toBe(30000)
+  })
+  test('an entry dated out of the period keeps its takeoff out too: the job counts once, on the entry date', () => {
+    expect(run([e({ actualLaborCostCents: 100 })], [], { takeoffs: takeoff(5000), inPeriod: (d: string) => d !== '2026-10-05' }).directLabor).toBe(0)
   })
   test('out of the period: nothing', () => {
     expect(run([e({ actualLaborCostCents: 100 })], [], { inPeriod: () => false }).directLabor).toBe(0)
@@ -194,6 +238,20 @@ describe('what a new entry fills in', () => {
   test('material: a job lot invoice with no bill counts with the bills', () => {
     const p = workOutPrefill({ ...base, bills: [bill('materials', 100000)], invoices: [{ invoiceNumber: 'I9', totalCents: 5000 }] })
     expect(p.material.cents).toBe(105000)
+  })
+  test('crew pay on the takeoff fills in labor, and says so', () => {
+    const crew = { mode: 'crew' as const, subPaidCents: null, crewHours: 40, crewPayCents: 100000, approved: true }
+    const p = workOutPrefill({ ...base, takeoff: crew })
+    expect([p.sub, p.labor.cents, p.labor.source]).toEqual([false, 100000, 'takeoff'])
+    expect(p.labor.words).toMatch(/approved takeoff/)
+    expect(workOutPrefill({ ...base, takeoff: { ...crew, approved: false } }).labor.words).toMatch(/not approved yet/)
+    expect(workOutPrefill({ ...base, takeoff: { ...crew, crewPayCents: 0, crewHours: 0 } }).labor.cents).toBe(76900)
+  })
+  test('a $0 Sales Order is no order: the quote estimate', () => {
+    const p = workOutPrefill({ ...base, quote: { ...base.quote, materialCents: 68528 }, orders: [{ status: 'pending', totalCostCents: 0 }] })
+    expect([p.material.cents, p.material.source]).toEqual([68528, 'quote'])
+    const bills = workOutPrefill({ ...base, bills: [bill('materials', 5000)], orders: [{ status: 'pending', totalCostCents: 0 }] })
+    expect(bills.material.note).toBe('')
   })
   test('a sub bill on the job does not read as no bill at all', () => {
     const p = workOutPrefill({ ...base, bills: [bill('subcontractor', 10000)], orders: [{ status: 'pending', totalCostCents: 400000 }] })
