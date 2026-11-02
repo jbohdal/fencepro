@@ -1,6 +1,7 @@
 // Shared helpers for the browser tests. See README.md in this folder.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
+import { execFileSync } from 'child_process'
 export { chromium }
 
 // The dev copy serves the app too. (5173 is the old ~/fencepro build's dev server on this Mac: never test there.)
@@ -138,7 +139,8 @@ export async function makeTestLogin({ role = 'sales_rep', firstName = 'E2E', las
   const last = lastName || `${role.replace('_', ' ')} ${code}`
   const email = `e2e-${role.replace('_', '-')}-${code}@example.invalid`
   const H = { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }
-  const inv = await fetch(`${api}/api/crm-auth/invite`, { method: 'POST', headers: { ...H, Authorization: `Bearer ${ownerToken}` }, body: JSON.stringify({ firstName, lastName: last, email, role }) })
+  // Inviting an admin asks the owner's password, which is not known here: invited one step down, raised on the dev copy.
+  const inv = await fetch(`${api}/api/crm-auth/invite`, { method: 'POST', headers: { ...H, Authorization: `Bearer ${ownerToken}` }, body: JSON.stringify({ firstName, lastName: last, email, role: role === 'admin' ? 'manager' : role }) })
   const ij = await inv.json().catch(() => null)
   if (!ij?.data?.inviteUrl) throw new Error(`invite ${role}: ${inv.status} ${JSON.stringify(ij).slice(0, 200)}`)
   const password = `E2e-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2, 6).toUpperCase()}!`
@@ -147,6 +149,7 @@ export async function makeTestLogin({ role = 'sales_rep', firstName = 'E2E', las
   const token = aj?.data?.accessToken
   if (!token) throw new Error(`accept invite ${role}: ${acc.status} ${JSON.stringify(aj).slice(0, 200)}`)
   const me = await (await fetch(`${api}/api/crm-auth/me`, { headers: { Authorization: `Bearer ${token}` } })).json().catch(() => null)
+  if (role === 'admin') execFileSync('psql', ['-d', 'ezbiz_dev', '-Atc', `update "CrmUser" set role = 'admin' where email = '${email}'`])
   return { id: me?.data?.id ?? null, email, password, token, firstName, lastName: last, name: `${firstName} ${last}`, role }
 }
 

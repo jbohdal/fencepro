@@ -28,6 +28,8 @@ import { normalizeDirectPhone } from '../lib/appointmentRep.js'
 import { isOwnerLogin } from '../lib/salesmanChoice.js'
 import { changeLoginEmail, EMAIL_IN_USE, OWNER_ONLY } from '../lib/loginEmailChange.js'
 import { tryPassword } from '../lib/passwordTries.js'
+import { sendPush } from '../lib/automations/push.js'
+import { ownerLoginIds } from '../lib/codeMessages.js'
 
 const router = Router()
 
@@ -430,6 +432,25 @@ const inviteSchema = z.object({
   phone: z.string().optional(),
 })
 
+// A signed in session on a stolen phone must not be enough to make another admin or owner, or to move an admin's
+// sign in. These ask the caller's own password, in the same limit as every other check of it (lib/passwordTries.ts).
+async function passwordGiven(req: any, res: any, userId: string, source: string): Promise<boolean> {
+  const password = req.body?.currentPassword
+  if (typeof password !== 'string' || !password || password.length > 200) { res.status(403).json({ success: false, code: 'PASSWORD_NEEDED', error: 'Enter your own password to do this.' }); return false }
+  const me = await prisma.crmUser.findUnique({ where: { id: userId } })
+  const tried = me ? await tryPassword(req, me, password, source) : null
+  if (tried?.ok) return true
+  res.status(tried?.status ?? 403).json({ success: false, code: tried && !tried.ok ? tried.code : 'NOT_ALLOWED', error: tried && !tried.ok ? tried.error : 'Not allowed.' })
+  return false
+}
+
+/** The owner hears of every new admin or owner, on his phone. */
+async function tellOwnerOfTeamChange(accountId: string | null | undefined, title: string) {
+  if (!accountId) return
+  const userIds = await ownerLoginIds(accountId).catch(() => [] as string[])
+  if (userIds.length) await sendPush(accountId, { title, body: 'Open Team to see it. If this was not you, change your password.', url: '/team', tag: 'team-change' }, { userIds }).catch(() => null)
+}
+
 router.post('/invite', async (req, res) => {
   // Require admin auth
   const auth = req.headers.authorization
@@ -443,6 +464,7 @@ router.post('/invite', async (req, res) => {
     const email = data.email.toLowerCase()
     const invitePhone = normalizeDirectPhone(data.phone)
     if (!invitePhone.ok) { res.status(400).json({ success: false, error: invitePhone.error }); return }
+    if (data.role === 'admin' && !(await passwordGiven(req, res, payload.sub, 'invite_admin'))) return
 
     // Check if user exists
     const existing = await prisma.crmUser.findUnique({ where: { email } })
@@ -505,6 +527,7 @@ router.post('/invite', async (req, res) => {
     }).catch(() => {})
 
     await audit(req, 'invite_sent', 'CrmUser', user.id, { newValues: { email, role: data.role, firstName: data.firstName, lastName: data.lastName } })
+    if (data.role === 'admin') await tellOwnerOfTeamChange(inviter.crmAccountId, 'New admin invited')
     // The link goes back to the owner or admin too, to text it when the email is slow or lands in spam.
     // emailSent is only true when a mail server took it; otherwise the screen says not sent (and why).
     res.status(201).json({ success: true, data: { id: user.id, email, status: 'invited', role: data.role, inviteUrl, expiresInHours: INVITE_EXPIRY_HOURS, ...emailOutcome(mail) } })
@@ -942,6 +965,9 @@ router.patch('/users/:id', async (req, res) => {
     if (userId === payload.sub && ((data.role && data.role !== payload.role) || (data.status && data.status !== 'active'))) {
       res.status(400).json({ success: false, error: 'You cannot change your own role or switch off your own login.' }); return
     }
+    // The Edit window always sends the role: only a real rise asks.
+    const raised = !!data.role && data.role !== target.role && (data.role === 'super_admin' || data.role === 'admin')
+    if (raised && !(await passwordGiven(req, res, payload.sub, 'raise_role'))) return
     const user = await prisma.crmUser.update({
       where: { id: userId },
       data: data as any,
@@ -955,6 +981,7 @@ router.patch('/users/:id', async (req, res) => {
     // Who made the change goes in History too (this router sets no req.user of its own).
     ;(req as any).user = { id: payload.sub, email: payload.email }
     await audit(req, 'update', 'CrmUser', user.id, { newValues: data }).catch(() => {})
+    if (raised) await tellOwnerOfTeamChange(me.crmAccountId, data.role === 'super_admin' ? 'A login was made an owner' : 'A login was made an admin')
 
     res.json({ success: true, data: { id: user.id, role: user.role, status: user.status } })
   } catch (err) {
@@ -989,8 +1016,10 @@ router.patch('/users/:id/email', async (req, res) => {
       res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: OWNER_ONLY }); return
     }
     const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
-    const target = await prisma.crmUser.findUnique({ where: { id: userId }, select: { crmAccountId: true, firstName: true, lastName: true } })
+    const target = await prisma.crmUser.findUnique({ where: { id: userId }, select: { crmAccountId: true, firstName: true, lastName: true, role: true } })
     if (!target || target.crmAccountId !== me.crmAccountId) { res.status(404).json({ success: false, error: 'Login not found' }); return }
+    // An owner's or admin's email is where their reset link goes: moving it is as good as taking the login.
+    if ((userId === payload.sub || target.role === 'super_admin' || target.role === 'admin') && !(await passwordGiven(req, res, payload.sub, 'change_email'))) return
     const r = await changeLoginEmail(userId, req.body?.email)
     if (!r.ok) { res.status(r.status).json({ success: false, error: r.error }); return }
     if (r.changed) {
