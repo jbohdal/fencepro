@@ -158,6 +158,36 @@ export interface ActualCost {
   frozen: boolean
 }
 
+/** What Budget > Job Costing fills in on a new entry (lib/jobCostPrefill.ts). */
+export interface PrefillAnswer {
+  sub: boolean
+  /** Why it counts as a sub job or a crew job, in words. */
+  kindWhy: string
+  labor: { cents: number; source: 'quote' | 'takeoff' | 'bills'; words: string; note: string }
+  material: { cents: number; source: 'quote' | 'bills' | 'sales_order'; words: string; note: string }
+}
+
+export interface JobCostPrefill extends PrefillAnswer {
+  quoteId: string
+  jobId: string | null
+  /** The saved entry for this job, when there is one (one job, one entry). */
+  existingEntry: Record<string, unknown> | null
+  tearOutCents: number
+  changeOrders: { count: number; priceCents: number }
+}
+
+/** The first quote this list gives more job cost entries than the saved list had (one job, one entry; old doubles can still be saved and deleted). */
+export function secondEntryFor(current: unknown, next: unknown): string | null {
+  const count = (list: unknown) => {
+    const m = new Map<string, number>()
+    for (const e of Array.isArray(list) ? list : []) { const q = (e as any)?.quoteId; if (typeof q === 'string' && q) m.set(q, (m.get(q) ?? 0) + 1) }
+    return m
+  }
+  const had = count(current)
+  for (const [q, n] of count(next)) if (n > 1 && n > (had.get(q) ?? 0)) return q
+  return null
+}
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : d)

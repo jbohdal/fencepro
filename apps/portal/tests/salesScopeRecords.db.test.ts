@@ -375,6 +375,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
         { id: `${tag}-jc-o`, quoteId: ids.qOther, laborCents: 120000, materialCents: 340000 },
         { id: `${tag}-jc-m`, quoteId: ids.qMine, laborCents: 50000, materialCents: 90000 },
       ]],
+      ['fencepro_quote_shares', [
+        { id: `${tag}-jc-o`, quoteId: ids.qOther, laborCents: 120000, materialCents: 340000 },
+        { id: `${tag}-jc-m`, quoteId: ids.qMine, laborCents: 50000, materialCents: 90000 },
+      ]],
       ['fencepro_customer_activity', [
         { id: `${tag}-ac-o`, customerId: ids.cOther, body: 'Called Otto', at: '2026-10-29T10:00:00Z', kind: 'note', actor: 'Olive' },
         { id: `${tag}-ac-m`, customerId: ids.cMine, body: 'Called Mina', at: '2026-10-29T09:00:00Z', kind: 'note', actor: 'Sally' },
@@ -428,16 +432,29 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     expect([...(await businessRows('pendingOrders')).keys()]).toEqual([`${tag}-so-m`])
   })
 
-  test('reviewer\'s case, kv: Otto given to the Salesman after the phone read job costing and activity; Otto\'s entries stay byte for byte', async () => {
+  test('job costing: the Salesman reads her own lines and cannot write any; no copy comes back', async () => {
     await fixture(false)
     const read = await call('GET', '/api/kv', sales)
     expect(idsOf(read.json.data.fencepro_jobcosting)).toEqual([`${tag}-jc-m`])
-    const jc0 = await kvRows('fencepro_jobcosting'), ac0 = await kvRows('fencepro_customer_activity')
+    const jc0 = await kvRows('fencepro_jobcosting')
+    for (const baseVersion of [read.json.versions.fencepro_jobcosting, 9999]) {
+      const put = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: [], baseVersion })
+      expect(put.status).toBe(403)
+      expect(JSON.stringify(put.json)).not.toMatch(/jc-m|jc-o|120000|50000/)
+    }
+    expect(await kvRows('fencepro_jobcosting')).toEqual(jc0)
+  })
+
+  test('reviewer\'s case, kv: Otto given to the Salesman after the phone read job costing and activity; Otto\'s entries stay byte for byte', async () => {
+    await fixture(false)
+    const read = await call('GET', '/api/kv', sales)
+    expect(idsOf(read.json.data.fencepro_quote_shares)).toEqual([`${tag}-jc-m`])
+    const jc0 = await kvRows('fencepro_quote_shares'), ac0 = await kvRows('fencepro_customer_activity')
     await giveOtto(true)
-    // Job costing: the phone changes Mina's line.
-    const jc = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: read.json.data.fencepro_jobcosting.map((x: any) => ({ ...x, laborCents: 51000 })), baseVersion: read.json.versions.fencepro_jobcosting })
+    // A per customer list the Salesman may write (job costing is the owner's and office's, below): the phone changes Mina's line.
+    const jc = await call('PUT', '/api/kv/fencepro_quote_shares', sales, { value: read.json.data.fencepro_quote_shares.map((x: any) => ({ ...x, laborCents: 51000 })), baseVersion: read.json.versions.fencepro_quote_shares })
     expect(jc.status).toBe(200)
-    const jc1 = await kvRows('fencepro_jobcosting')
+    const jc1 = await kvRows('fencepro_quote_shares')
     expect(jc1.get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
     expect(JSON.parse(jc1.get(`${tag}-jc-m`)!).laborCents).toBe(51000)
     // Activity: the phone logs a call for Mina.
@@ -457,12 +474,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
     const wiped = await call('PUT', '/api/kv/fencepro_customer_activity', sales, { value: [], baseVersion: read.json.versions.fencepro_customer_activity })
     expect(wiped.status).toBe(200)
     expect(await kvRows('fencepro_customer_activity')).toEqual(ac0)
-    // Job costing lines can be removed in the app (JobCostingTab): the Salesman's own, which the phone had.
+    // Quote share lines can be removed: the Salesman's own, which the phone had.
     await giveOtto(false)
-    const jc0 = await kvRows('fencepro_jobcosting')
-    const cleared = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: [], baseVersion: read.json.versions.fencepro_jobcosting })
+    const jc0 = await kvRows('fencepro_quote_shares')
+    const cleared = await call('PUT', '/api/kv/fencepro_quote_shares', sales, { value: [], baseVersion: read.json.versions.fencepro_quote_shares })
     expect(cleared.status).toBe(200)
-    const jc1 = await kvRows('fencepro_jobcosting')
+    const jc1 = await kvRows('fencepro_quote_shares')
     expect([...jc1.keys()]).toEqual([`${tag}-jc-o`])
     expect(jc1.get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
   })
@@ -487,15 +504,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
       for (const id of ottoIds(before[k])) expect(m.get(id), id).toBe(before[k].get(id))
     }
     expect(JSON.parse(after.so.get(`${tag}-so-m`)!).notes).toBe('changed on the phone')
-    // kv the same way: job costing read with Otto in, saved after he was taken back, his line left out.
+    // kv the same way: a list read with Otto in, saved after he was taken back, his line left out.
     await giveOtto(true)
     const kvRead = await call('GET', '/api/kv', sales)
-    expect(idsOf(kvRead.json.data.fencepro_jobcosting)).toEqual([`${tag}-jc-o`, `${tag}-jc-m`])
-    const jc0 = await kvRows('fencepro_jobcosting')
+    expect(idsOf(kvRead.json.data.fencepro_quote_shares)).toEqual([`${tag}-jc-o`, `${tag}-jc-m`])
+    const jc0 = await kvRows('fencepro_quote_shares')
     await giveOtto(false)
-    const put = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: kvRead.json.data.fencepro_jobcosting.filter((x: any) => x.id !== `${tag}-jc-o`), baseVersion: kvRead.json.versions.fencepro_jobcosting })
+    const put = await call('PUT', '/api/kv/fencepro_quote_shares', sales, { value: kvRead.json.data.fencepro_quote_shares.filter((x: any) => x.id !== `${tag}-jc-o`), baseVersion: kvRead.json.versions.fencepro_quote_shares })
     expect(put.status).toBe(200)
-    expect((await kvRows('fencepro_jobcosting')).get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
+    expect((await kvRows('fencepro_quote_shares')).get(`${tag}-jc-o`)).toBe(jc0.get(`${tag}-jc-o`))
   })
 
   test('a stale or unknown base: refused with the 409 the app merges, nothing changed; the retry on the 409\'s copy keeps Otto\'s entries', async () => {
@@ -529,12 +546,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
 
     // kv: an unknown base is a 409 too, with nothing saved.
     forgetHandedOut()
-    const jc0 = await kvRows('fencepro_jobcosting')
-    const v = (await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'fencepro_jobcosting' } } }))!.version
-    const kvUnknown = await call('PUT', '/api/kv/fencepro_jobcosting', sales, { value: [], baseVersion: v })
+    const jc0 = await kvRows('fencepro_quote_shares')
+    const v = (await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: 'fencepro_quote_shares' } } }))!.version
+    const kvUnknown = await call('PUT', '/api/kv/fencepro_quote_shares', sales, { value: [], baseVersion: v })
     expect(kvUnknown.status).toBe(409)
     expect(idsOf(kvUnknown.json.data)).toEqual([`${tag}-jc-o`, `${tag}-jc-m`])
-    expect(await kvRows('fencepro_jobcosting')).toEqual(jc0)
+    expect(await kvRows('fencepro_quote_shares')).toEqual(jc0)
   })
 
   test('both sides save at once: the office\'s change to Otto and the Salesman\'s pull sheet both land; Otto\'s other entries byte for byte', async () => {

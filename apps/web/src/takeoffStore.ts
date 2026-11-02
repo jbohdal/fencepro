@@ -16,7 +16,7 @@ import { noteMoved } from './movedNotice'
 import { registerKind, enqueue, allOps, type Op } from './outbox'
 import { sendJson, API_ORIGIN } from './syncHttp'
 import { fetchWithAuth } from './crmAuth'
-import type { TakeoffLine, TakeoffLabor, TakeoffStatus, Comparison, ActualCost, ReportJob } from '../../portal/src/server/lib/jobCostingMath'
+import type { TakeoffLine, TakeoffLabor, TakeoffStatus, Comparison, ActualCost, ReportJob, JobCostPrefill } from '../../portal/src/server/lib/jobCostingMath'
 
 export * from '../../portal/src/server/lib/jobCostingMath'
 
@@ -231,6 +231,13 @@ export async function loadJobCost(jobId: string): Promise<JobCost | null> {
   if (r && r.status === 404) noteMoved(await r.json().catch(() => null))
   if (!r?.ok) return null
   return (await r.json())?.data ?? null
+}
+
+/** What Budget > Job Costing fills in on a new entry; null when it could not be loaded. */
+export async function loadJobCostPrefill(quoteId: string): Promise<JobCostPrefill | null> {
+  const r = await fetchWithAuth(`${API_ORIGIN}/api/job-costing/prefill/${encodeURIComponent(quoteId)}`).catch(() => null)
+  if (!r?.ok) return null
+  return (await r.json().catch(() => null))?.data ?? null
 }
 
 export async function loadReport(): Promise<ReportJob[] | null> {
