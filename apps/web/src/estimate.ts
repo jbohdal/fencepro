@@ -57,7 +57,7 @@ export { kitSetFor } from './materialKits'
 // The contract terms frozen on a proposal and the company's address (server routes/proposal.ts, lib/contractPdf.ts).
 export { stampTerms, proposalTerms, frozenTerms, companyAddressOf, termsAsAsked } from './contractTerms'
 // Which proposal options are shown and which starts selected (server routes/proposal.ts).
-export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp, proposalStamp } from './proposalOptions'
+export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp, proposalStamp, addsPastLimit } from './proposalOptions'
 export { optionBlocks } from './proposal'
 // What a save would change on a sent proposal's cards (server routes/saved-quotes.ts refuses it unless chosen).
 export { proposalPriceChanges } from './sentReprice'
@@ -307,6 +307,7 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
   })
   const p = calc.priced
   const good = cfg.margins?.good ?? 0.34, warning = cfg.margins?.warning ?? 0.27
+  const onPrice = p.price > 0 ? (p.price - p.totalCOGS) / p.price : 0
   return {
     label: 'Estimate',
     style,
@@ -323,7 +324,8 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
     pricePerFoot: p.pricePerFoot,
     grossMargin: p.grossMargin,
     gmPct: p.gmPct,
-    marginStatus: p.gmPct >= good ? 'good' : p.gmPct >= warning ? 'warning' : 'danger',
+    // Graded on price less cost (before commission), as the quote builder does.
+    marginStatus: onPrice >= good ? 'good' : onPrice >= warning ? 'warning' : 'danger',
     manHours: p.manHours,
     pullSheet: calc.materials.items,
     notes: [...held, ...calc.materials.warnings, ...p.notes],

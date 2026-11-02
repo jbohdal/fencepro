@@ -69,7 +69,8 @@ describe('the quote builder: a held style\'s saved quote keeps its price', () =>
     const saved = { finalPrice: 11412, materialCost: 6100, laborCost: 1200, tearOutCost: 100, totalCOGS: 7400, gmPct: 0.3516, runs: [100, 50],
       pullSheet: [{ item: '8 ft tall White: section, 8 ft wide', qty: 19, unitCost: 300, total: 5700, jobLotPiece: true }, { item: 'ND, Donut', qty: 40, unitCost: 4.12, total: 164.8, costSource: 'inventory' }] }
     const n = heldSavedNumbers(saved)
-    expect(n).toMatchObject({ price: 11412, perFoot: 76.08, material: 6100, labor: 1300, cogs: 7400, marginPct: 0.3516 })
+    expect(n).toMatchObject({ price: 11412, perFoot: 76.08, material: 6100, labor: 1300, cogs: 7400 })
+    expect(n.marginPct).toBeCloseTo(0.3516, 4)
     expect(n.pullSheet).toHaveLength(2)
     expect(n.pullSheet[0]).toMatchObject({ item: '8 ft tall White: section, 8 ft wide', total: 5700, jobLotPiece: true })
     // Footage from the proposal when the runs are not saved; none at all: no per foot line.

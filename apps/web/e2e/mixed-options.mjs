@@ -371,6 +371,22 @@ try {
   const qg = (await (await fx8.ctx.request.get(`${API}/api/saved-quotes/${qt.id}`)).json()).data
   check('a proposal with more than 3: her edit saves, the options stay, nothing refused', qg.notes === 'Gate code 1234' && qg.proposal.options.length > 3 && !/Not saved/.test(await fx8.page.locator('body').textContent()), `${qg.proposal.options.length} options, note: ${qg.notes}`)
 
+  // A sent quote holding an old Best (tan 6x8) as its fourth card, as two real quotes do: a note saves, nothing grows.
+  const old = [{ ...extra, tier: { key: 'good', label: 'Good', blurb: '' }, fenceStyle: "WV-DS 6'x8' Privacy" }, { ...extra, tier: { key: 'better', label: 'Better', blurb: '' }, fenceStyle: "WV-ND 6'x8' Privacy" }, { ...extra, tier: { key: 'best', label: 'Best', blurb: '' }, fenceStyle: "TV-ND 6'x8' Privacy" }, { ...extra, tier: undefined, fenceStyle: qg.fenceStyle }]
+  execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `update "SavedQuote" set status = 'SENT', proposal = jsonb_set(proposal::jsonb, '{options}', '${JSON.stringify(old).replace(/'/g, "''")}'::jsonb)::json where id = '${qt.id}' and "customerName" like 'Mixed e2e tiny%'`])
+  await fx8.ctx.close()
+  const fx9 = await phone(browser, SALES)
+  await fx9.page.goto(`${APP}/quotes?quote=${qt.id}`)
+  const ob2 = fx9.page.locator('[data-quote-builder]')
+  await ob2.waitFor({ timeout: 30000 }); await ob2.locator('[data-tiers]').waitFor({ timeout: 20000 }); await sleep(2500)
+  await fx9.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(1200)
+  await fx9.page.locator('textarea[placeholder^="HOA"]').fill('Old Best note')
+  await fx9.page.locator('[data-save-submit]').tap(); await sleep(1500)
+  await fx9.page.getByText('Keep the sent prices').first().tap({ timeout: 3000 }).catch(() => {})
+  await sleep(3000)
+  const qo2 = (await (await fx9.ctx.request.get(`${API}/api/saved-quotes/${qt.id}`)).json()).data
+  check('a sent quote with an old Best: the note saves, the cards stay as sent, nothing refused', qo2.notes === 'Old Best note' && qo2.proposal.options.length === 4 && qo2.proposal.options[2].fenceStyle.startsWith('TV-ND') && !/Not saved/.test(await fx9.page.locator('body').textContent()), `${qo2.proposal.options.length} options`)
+
   // Compare options stop at the limit.
   const fx7 = await phone(browser, SALES)
   b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall, 6 ft panels.*No dig')

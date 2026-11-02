@@ -39,6 +39,7 @@ import { salesmanMoveRoute } from '../lib/salesmanMove.js'
 import { requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
+import { commissionSettings, hasCommissionFigures, ruleLogins, saveTakesCommissionOff, withCommission, withoutCommission } from '../lib/commissionRule.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { isSignedQuote, lockedChanges, lockMessage, LOCKED_CODE, keepPrices } from '../lib/quoteLock.js'
 import { markEverSold } from '../lib/everSold.js'
@@ -252,6 +253,52 @@ router.get('/:id/deposit-terms', requireUser, requireAccount, async (req: any, r
   }
 })
 
+/**
+ * What is about to be saved, held to the commission rule (lib/commissionRule.ts). `existing`: the saved quote, as a
+ * save may send only some fields: the figures are the two together. The switch sent alone, with no margin, moves the margin with it.
+ */
+async function holdCommissionRule(accountId: string, data: any, rep: string | null | undefined, ownerId: string | null | undefined, existing: any | null): Promise<void> {
+  await commissionForSave(accountId, data, rep, ownerId, existing)
+  // Switch off: no commission figure stays in any copy (a move's or repair's saved work, a proposal option's copy).
+  const after = { ...(existing ?? {}), ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) }
+  if (!after.hasSalesman && hasCommissionFigures(after)) { const gmPct = data.gmPct; Object.assign(data, withoutCommission(after)); if (gmPct !== undefined) data.gmPct = gmPct }
+  // A move took it off: said on the quote until a Salesman has it back (lib/commissionRule.ts). A save does not lose that; the switch turned on does.
+  if (existing?.pricing?.commissionMovedOff === true && data.pricing && typeof data.pricing === 'object') {
+    if (after.hasSalesman) { const { commissionMovedOff: _off, ...rest } = data.pricing; data.pricing = rest } else data.pricing = { ...data.pricing, commissionMovedOff: true }
+  }
+}
+
+async function commissionForSave(accountId: string, data: any, rep: string | null | undefined, ownerId: string | null | undefined, existing: any | null): Promise<void> {
+  if (typeof data.hasSalesman !== 'boolean') return
+  const whole = { ...(existing ?? {}), ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) }
+  const settings = await commissionSettings(accountId)
+  if (data.hasSalesman && saveTakesCommissionOff({ salesRep: rep, ownerId, pricing: whole.pricing }, await ruleLogins(accountId), settings.mode)) {
+    Object.assign(data, withoutCommission(whole))
+    return
+  }
+  if (!existing || data.gmPct !== undefined || data.hasSalesman === !!existing.hasSalesman) return
+  const added = (whole.pricing?.commissionMode ?? settings.mode) === 'added'
+  if (added) { delete data.hasSalesman; return }
+  Object.assign(data, data.hasSalesman ? withCommission(whole, settings.pct) : withoutCommission(whole))
+}
+
+/**
+ * Would a save take this quote's commission off? What the quote builder asks before it saves, so the switch it shows
+ * is what a save does. POST { quoteId?, rep? }: the rep on the quote stays, else the one given; a new quote is made by this login.
+ */
+router.post('/commission-rule', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const accountId = req.user.crmAccountId
+    const q = typeof req.body?.quoteId === 'string' ? await prisma.savedQuote.findFirst({ where: { id: req.body.quoteId, accountId, deletedAt: null }, select: { salesRep: true, ownerId: true, pricing: true } }) : null
+    const rep = q?.salesRep?.trim() || (typeof req.body?.rep === 'string' ? req.body.rep : '')
+    const off = saveTakesCommissionOff({ salesRep: rep, ownerId: q ? q.ownerId : req.user.id, pricing: q?.pricing }, await ruleLogins(accountId), (await commissionSettings(accountId)).mode)
+    res.json({ success: true, data: { off, rep: rep.trim() } })
+  } catch (err) {
+    console.error('[saved-quotes] commission rule error:', err)
+    res.status(500).json({ success: false, error: 'Could not check the commission.' })
+  }
+})
+
 // ── Create ──
 /**
  * A Salesman's or Installer's save (they see prices only): the costs are
@@ -293,6 +340,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
     const over = await overOptionLimit(data, null)
     if (over) { refusePrices(res, over); return }
+    const repNow = (await repForSave(req, data.salesRep)) ?? ''
+    await holdCommissionRule(req.user.crmAccountId, data, repNow, req.user.id, null)
     const created = await prisma.savedQuote.create({
       data: {
         ...(decision.kind === 'use' ? { id: decision.id } : {}),
@@ -305,7 +354,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
         customerAddress: data.customerAddress,
         leadSource: data.leadSource,
         // A Salesman's own quote is hers when no rep is given (lib/salesRep.ts).
-        salesRep: (await repForSave(req, data.salesRep)) ?? '',
+        salesRep: repNow,
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),
@@ -430,6 +479,9 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         : null
       data.salesRep = customer?.salesRep?.trim() || existing.salesRep
     }
+    // A signed quote keeps its switch (only a logged fix changes it).
+    const repNow = data.salesRep?.trim() ? data.salesRep : existing.salesRep?.trim() ? existing.salesRep : await repForSave(req, data.salesRep, existing.ownerId ?? null)
+    if (!(await signedNow(existing))) await holdCommissionRule(existing.accountId, data, repNow, existing.ownerId, existing)
     const updated = await prisma.savedQuote.update({
       // Signed on the link since this save read the quote: it stands (routes/proposal.ts acceptQuote locks the row).
       where: { id: existing.id, ...(existing.acceptedAt ? {} : { acceptedAt: null }) },
@@ -441,7 +493,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         customerAddress: data.customerAddress,
         leadSource: data.leadSource,
         // A rep already on the quote stays when a blank one is sent (a phone's older copy); a Salesman's own quote with none is hers (lib/salesRep.ts).
-        salesRep: data.salesRep?.trim() ? data.salesRep : existing.salesRep?.trim() ? undefined : await repForSave(req, data.salesRep, existing.ownerId ?? null),
+        salesRep: data.salesRep?.trim() ? data.salesRep : existing.salesRep?.trim() ? undefined : repNow,
         fenceStyle: data.fenceStyle,
         runs: toJsonValue(data.runs),
         runRails: toNullableJson(data.runRails),
@@ -584,6 +636,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
         if (c && c.accountId === req.user.crmAccountId) safeContactId = c.id
       }
 
+      await holdCommissionRule(req.user.crmAccountId, q, q.salesRep, req.user.id, null)
       try {
         await prisma.savedQuote.create({
           data: {

@@ -24,6 +24,7 @@ import { audit } from '../lib/auditLog.js'
 import { requireUser, requireAccount, signedNow } from './saved-quotes.js'
 import { sameValue } from '../lib/quoteLock.js'
 import { onProposalAccepted, ensureJobForAcceptedQuote } from '../lib/proposalAccepted.js'
+import { gmPctAtSigning } from '../lib/commissionRule.js'
 import { scheduleAfterSigning } from '../lib/contractBilling.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
 import { syncSalesOrderSafe } from '../lib/salesOrders.js'
@@ -609,10 +610,10 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   const termsWere = frozenWas ?? await currentTerms(q.accountId, { repair: p?.kind === 'repair' })
   const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : termsWere
   const termsNow = frozenWas && sameValue(termsAsShown, frozenWas) ? null : termsAsShown
-  // The quote becomes the option the customer chose, exactly as it was priced. In one transaction with the row locked:
-  // a save that came in after the page's read waits, or has already changed what is read here.
+  // The quote becomes the option the customer chose, exactly as it was priced. In one transaction with the row held: a
+  // save or a Salesman move that came in after the page's read waits, or has already changed what is read here.
   const claimed = await prisma.$transaction(async tx => {
-    await tx.$queryRaw`SELECT id FROM "SavedQuote" WHERE id = ${q.id} FOR UPDATE`
+    await tx.$queryRaw`SELECT 1 FROM "SavedQuote" WHERE id = ${q.id} FOR UPDATE`
     const row = (await tx.savedQuote.findUnique({ where: { id: q.id } })) as any
     const rowOpt = (row?.proposal as Proposal | null)?.options?.[body.option]
     if (!row?.acceptedAt && (!rowOpt || optionSeen(rowOpt) !== body.seen || !rowOpt.fenceStyle || !(Number(rowOpt.finalPrice) > 0))) return null
@@ -636,7 +637,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
           fenceStyle: rowOpt!.fenceStyle,
           finalPrice: rowOpt!.finalPrice,
           sections: rowOpt!.sections,
-          ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
+          ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: gmPctAtSigning({ ...q, ...row }, rowOpt!, s) } : {}),
           ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
           // An option of a fixed width style leaves no 6 ft / 8 ft picks of the quote's own best price style behind.
           ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : Array.isArray(s.runSections) && rowOpt!.fenceStyle !== row.fenceStyle ? { runRails: Prisma.JsonNull } : {}),

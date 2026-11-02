@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import PhoneLink from './PhoneLink'
-import { can } from './permissions'
+import { can, signedInRole } from './permissions'
 import { soldStyleLabel } from './soldStyleLabel'
 import { getQuoteById } from './quoteStore'
 import { jobSectionsCell } from './jobWork'
@@ -23,9 +23,23 @@ import { scheduleInstall, type PreparedText } from './installScheduleApi'
 import { InstallTextSheet } from './ScheduleInstall'
 import { toast } from './toast'
 import { crewDaysOfWeek, isCrewDay, plusDays } from '../../portal/src/server/lib/installDays'
-import { lowTarget } from './moneyLoad'
+import { gradeOfJob } from './moneyLoad'
+import { seesCommission } from './salesmanCommission'
 
 /** A job's fence name: a sold best price job names the panels its runs used, never "(best price)". */
+
+/**
+ * A job's margin: price less cost, graded through its quote on the Target Margin it was priced with. A job with no
+ * quote on file has only the saved figure, in gray; with a Salesman on it that is after commission, and says so
+ * (never shown to a Salesman).
+ */
+function JobMargin({ job }: { job: { quoteId?: string | null; gmPct: number; hasSalesman?: boolean } }) {
+  const grade = gradeOfJob(job)
+  if (grade?.margin != null) return <span className={`font-medium ${grade.tone === 'good' ? 'text-green-600' : grade.tone === 'near' ? 'text-yellow-600' : 'text-red-600'}`} data-job-margin={grade.tone}>{(grade.margin * 100).toFixed(1)}%</span>
+  if (job.hasSalesman && !seesCommission(signedInRole(), can('costs.view'))) return <span className="font-medium text-gray-400">—</span>
+  return <span className="font-medium text-gray-500" data-job-margin="none">{(job.gmPct * 100).toFixed(1)}%{job.hasSalesman ? ' after commission' : ''}</span>
+}
+
 const jobStyle = (j: Pick<Job, 'fenceStyle' | 'quoteId'>) => soldStyleLabel(j.fenceStyle, j.quoteId ? getQuoteById(j.quoteId) as any : null)
 
 /* ═══════════════════════════════════════════════
@@ -945,9 +959,7 @@ function JobDetailPanel({
         </div>
         {can('costs.view') && <div className="flex justify-between">
           <span className="text-gray-400">Margin</span>
-          <span className={`font-medium ${job.gmPct >= lowTarget() ? 'text-green-600' : job.gmPct >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-600'}`}>
-            {(job.gmPct * 100).toFixed(1)}%
-          </span>
+          <JobMargin job={job} />
         </div>}
         <div className="flex justify-between">
           <span className="text-gray-400">Est. Days</span>

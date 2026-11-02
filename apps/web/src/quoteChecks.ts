@@ -48,10 +48,12 @@ export function gateChecks(layout: YardLayout | null): string[] {
   return out
 }
 
-/** Margin under the target in Settings. */
-export function marginCheck(gmPct: number, target: number, price: number): string | null {
-  if (!(price > 0) || !(target > 0) || gmPct >= target) return null
-  return `Margin is ${(gmPct * 100).toFixed(1)}%, under your ${(target * 100).toFixed(0)}% target in Settings.`
+const pctWords = (n: number) => `${Math.round(n * 1000) / 10}%`
+
+/** Price less cost (before commission: a Salesman's quote at target never warns for her commission) under the "good" margin in Settings. */
+export function marginCheck(margin: number, target: number, price: number): string | null {
+  if (!(price > 0) || !(target > 0) || margin >= target) return null
+  return `Margin is ${(margin * 100).toFixed(1)}% (price less cost), under your ${pctWords(target)} good margin in Settings.`
 }
 
 export interface PastQuote { id?: string; fenceStyle: string; finalPrice: number; runs?: number[]; status?: string }

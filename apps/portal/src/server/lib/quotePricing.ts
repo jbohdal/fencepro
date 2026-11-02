@@ -176,7 +176,8 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
         if (own && t.price > 0) {
           next.finalPrice = t.price; next.perFoot = feet > 0 ? Math.round((t.price / feet) * 100) / 100 : 0
           if (t.adjustmentCents) next.adjustmentCents = t.adjustmentCents; else delete next.adjustmentCents
-          if (next.snapshot) next.snapshot = { ...next.snapshot, roundingCents: t.roundingCents }
+          // The margin too: signing copies it, and a typed price or the minimum job price is not what the option was priced at.
+          if (next.snapshot) next.snapshot = { ...next.snapshot, roundingCents: t.roundingCents, gmPct: t.gmPct }
         }
         return [next]
       }),

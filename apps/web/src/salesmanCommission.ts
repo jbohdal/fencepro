@@ -15,6 +15,12 @@
  *     goes") is not shown to a Salesman. Her screens read as they did before
  *     the switch was on for her: commission is not part of her view.
  *
+ * Commission only when an actual Salesman is the rep (Jonathan, Nov 2 2026:
+ * "Commission only applies when an actual Salesman (Christa or another
+ * salesman login) is the rep."), never removed on a guess: the server's
+ * lib/commissionRule.ts is the one rule, and the quote builder asks it before a
+ * save (POST /api/saved-quotes/commission-rule) and says so first.
+ *
  * Pure: QuoteBuilder and QuoteDetailDrawer call it, tests call it directly.
  */
 
@@ -41,6 +47,19 @@ export function isSalesmanName(name: string | null | undefined, team: readonly M
   return !!n && team.some(m => m.role === SALESMAN_ROLE && norm(m.name) === n)
 }
 
+/** Initials of a name: "Christa Feagin" → "cf". */
+const initialsOf = (name: string) => norm(name).split(' ').map(w => w[0] ?? '').join('')
+
+/**
+ * Is this rep a Salesman login? The login's full name, first name alone or initials ("Christa
+ * Feagin", "Christa ", "CF"), the same matching as the server's lib/commissionRule.ts repNamesLogin.
+ */
+export function isSalesmanRep(rep: string | null | undefined, team: readonly Member[]): boolean {
+  const n = norm(rep)
+  if (!n) return false
+  return team.some(m => m.role === SALESMAN_ROLE && (norm(m.name) === n || norm(m.name).split(' ')[0] === n || initialsOf(m.name) === n))
+}
+
 /** A quote no one on staff has decided the switch on yet: not saved, or the website's draft not yet sent. */
 export function isFreshQuote(q: QuoteLike): boolean {
   if (!q || !q.id) return true
@@ -50,8 +69,7 @@ export function isFreshQuote(q: QuoteLike): boolean {
 /** Where "Salesman on this job?" starts when the quote builder opens. */
 export function salesmanSwitchDefault(q: QuoteLike, role: string | null | undefined, team: readonly Member[]): boolean {
   if (!isFreshQuote(q)) return !!q?.hasSalesman
-  if (q?.hasSalesman) return true
-  return role === SALESMAN_ROLE || isSalesmanName(q?.salesRep, team)
+  return role === SALESMAN_ROLE || isSalesmanRep(q?.salesRep, team)
 }
 
 /** Does this login see the commission (its % and dollars)? Everyone who sees costs except a Salesman. */
@@ -88,6 +106,15 @@ export function marginBeforeCommission(q: SavedMargin): number {
   return (q.finalPrice - q.totalCOGS) / q.finalPrice
 }
 
+/**
+ * The margin left after the commission, for a login that sees the commission. Null when the quote carries no
+ * commission, or its saved margin is not under price less cost (nothing was taken out).
+ */
+export function afterCommission(q: SavedMargin): number | null {
+  if (!carriesCommission(q) || !(q.finalPrice > 0) || !(q.totalCOGS > 0)) return null
+  return q.gmPct < (q.finalPrice - q.totalCOGS) / q.finalPrice - 0.00005 ? q.gmPct : null
+}
+
 /** The margin this login sees on a saved quote: the saved one, or for a Salesman the margin before the commission. */
 export function shownMargin(q: SavedMargin, showCommission: boolean): number {
   return showCommission ? q.gmPct : marginBeforeCommission(q)
@@ -98,6 +125,24 @@ export function withShownMargin<T extends SavedMargin>(q: T, showCommission: boo
   if (showCommission) return q
   const gmPct = marginBeforeCommission(q)
   return gmPct === q.gmPct ? q : { ...q, gmPct }
+}
+
+/**
+ * A saved quote's copies with its commission cleared, when "Save without commission" is chosen: a move's or repair's
+ * saved work, and each proposal option's copy of it (the same as the server's lib/commissionRule.ts withoutCommission).
+ */
+export function clearedCommission<W, P>(work: W, proposal: P): { work: W; proposal: P } {
+  const clear = (w: any) => {
+    const c = w?.priced?.commissionCents
+    return pos(c) ? { ...w, priced: { ...w.priced, commissionCents: 0, grossMarginCents: (Number(w.priced.grossMarginCents) || 0) + c } } : w
+  }
+  const p = proposal as any
+  return {
+    work: clear(work),
+    proposal: Array.isArray(p?.options)
+      ? { ...p, options: p.options.map((o: any) => (o?.snapshot?.work ? { ...o, snapshot: { ...o.snapshot, work: clear(o.snapshot.work) } } : o)) }
+      : proposal,
+  }
 }
 
 type Login = { firstName?: string | null; lastName?: string | null } | null | undefined

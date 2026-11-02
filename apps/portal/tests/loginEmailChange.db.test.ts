@@ -43,7 +43,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('changing a login email through t
 
   const login = (email: string) => fetch(`${base}/api/crm-auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
     .then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
-  const change = (as: string, id: string, email: unknown) => fetch(`${base}/api/crm-auth/users/${id}/email`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens[as]}` }, body: JSON.stringify({ email }) })
+  const change = (as: string, id: string, email: unknown, currentPassword?: string) => fetch(`${base}/api/crm-auth/users/${id}/email`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens[as]}` }, body: JSON.stringify({ email, ...(currentPassword ? { currentPassword } : {}) }) })
     .then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
   const get = (as: string, path: string) => fetch(`${base}/api/crm-auth${path}`, { headers: { Authorization: `Bearer ${tokens[as]}` } })
     .then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
@@ -160,7 +160,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('changing a login email through t
 
   test('the owner can change his own email too', async () => {
     const own = `${tag}-owner-new@example.test`
-    const r = await change('owner', users.owner, own)
+    const r = await change('owner', users.owner, own, password)
     expect(r.status).toBe(200)
     expect((await login(own)).status).toBe(200)
     expect((await login(mail('owner'))).status).toBe(401)

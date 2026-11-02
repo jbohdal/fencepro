@@ -14,15 +14,13 @@
  *     their jobs and their commission stay with whoever sold them. Lost
  *     quotes stay too: their close rate belongs to who lost them.
  *   - What changes: the quote's Sales rep, nothing else. The price, the cost,
- *     the margin and "Salesman on this job?" (hasSalesman, the commission
- *     switch that is part of the price) are left as saved. The commission
- *     is a share of the price that the quote carries (price − cost − margin),
- *     not a figure per rep: the Salesman % in Settings is the same for every
- *     Salesman, so a quote moved from one Salesman to another carries to the
- *     new one exactly the commission the app would work out for them. Moved
- *     to the owner, the quote keeps the same commission too (the switch is a
- *     staff choice per quote, never set by who the rep is), credited to the
- *     owner. What groups the commission by person (Sales by rep, the board,
+ *     the commission is a share of the price that the quote carries (price −
+ *     cost − margin), not a figure per rep: the Salesman % in Settings is the
+ *     same for every Salesman, so a quote moved from one Salesman to another
+ *     carries to the new one exactly the commission the app would work out
+ *     for them. Commission follows the rep both ways (Nov 2 2026,
+ *     lib/commissionRule.ts commissionOnMove): off to someone positively not
+ *     a Salesman, on to a Salesman, added on top of the price left alone. What groups the commission by person (Sales by rep, the board,
  *     the quote list) reads the rep, so it follows.
  *   - Written down: a "Quotes moved" line on the customer's History (who,
  *     how many, from whom; no money: the History is read by the Salesman,
@@ -41,6 +39,7 @@
 
 import prisma from './prisma.js'
 import { sameName } from './salesRep.js'
+import { commissionOnMove, commissionSettings, ruleLogins } from './commissionRule.js'
 
 /** History lines of a quotes move start with this; followUps.ts shows them as "Quotes moved". */
 export const QUOTES_MOVED_NOTE_PREFIX = 'Open quotes moved to '
@@ -88,7 +87,7 @@ export interface MovedQuote {
 export async function openQuotesOf(accountId: string, contactId: string) {
   const quotes = await prisma.savedQuote.findMany({
     where: { accountId, crmContactId: contactId, deletedAt: null, status: { in: [...OPEN_QUOTE_STATUSES] }, soldAt: null, acceptedAt: null },
-    select: { id: true, status: true, salesRep: true, finalPrice: true, totalCOGS: true, gmPct: true, hasSalesman: true, pricing: true, work: true },
+    select: { id: true, status: true, salesRep: true, finalPrice: true, totalCOGS: true, gmPct: true, hasSalesman: true, pricing: true, work: true, proposal: true },
     orderBy: { createdAt: 'asc' },
   })
   if (!quotes.length) return []
@@ -115,14 +114,21 @@ export async function moveOpenQuotes(input: { accountId: string; contactId: stri
   const open = (await openQuotesOf(input.accountId, input.contactId)).filter(q => !samePerson(q.salesRep, toRep))
   if (!open.length) return []
   const moved: MovedQuote[] = []
+  // Open quotes: commission follows the rep both ways, added on top of the price left alone (lib/commissionRule.ts). The price stays.
+  const logins = await ruleLogins(input.accountId), settings = await commissionSettings(input.accountId)
+  let off = 0, on = 0, added = 0
   for (const q of open) {
+    const commission = commissionOnMove(q, { signed: false, toRep, logins, settings })
     // The same conditions again in the write: a quote sold or changed since the read is left as it is.
     const done = await prisma.savedQuote.updateMany({
       where: { id: q.id, accountId: input.accountId, crmContactId: input.contactId, deletedAt: null, status: { in: [...OPEN_QUOTE_STATUSES] }, soldAt: null, acceptedAt: null, salesRep: q.salesRep },
-      data: { salesRep: toRep },
+      data: { salesRep: toRep, ...((commission.fields ?? {}) as any) },
     })
     if (done.count !== 1) continue
-    moved.push({ id: q.id, status: q.status, from: q.salesRep, to: toRep, priceCents: Math.round(q.finalPrice * 100), commissionCents: quoteCommissionCents(q) })
+    if (commission.change === 'off') off++
+    else if (commission.change === 'on') on++
+    else if (commission.why === 'added') added++
+    moved.push({ id: q.id, status: q.status, from: q.salesRep, to: toRep, priceCents: Math.round(q.finalPrice * 100), commissionCents: quoteCommissionCents({ ...q, ...(commission.fields ?? {}) }) })
   }
   if (!moved.length) return []
   const froms = [...new Set(moved.map(m => m.from.trim()).filter(Boolean))]
@@ -130,7 +136,7 @@ export async function moveOpenQuotes(input: { accountId: string; contactId: stri
   await prisma.crmContactNote.create({
     data: {
       crmContactId: input.contactId, accountId: input.accountId, isPinned: false,
-      body: `${QUOTES_MOVED_NOTE_PREFIX}${toRep} with the customer by ${input.by.name}: ${n} quote${n === 1 ? '' : 's'} not sold yet${froms.length ? `, ${n === 1 ? 'it was' : 'they were'} ${froms.join(' and ')}'s` : ''}. Signed jobs stay with whoever sold them.`,
+      body: `${QUOTES_MOVED_NOTE_PREFIX}${toRep} with the customer by ${input.by.name}: ${n} quote${n === 1 ? '' : 's'} not sold yet${froms.length ? `, ${n === 1 ? 'it was' : 'they were'} ${froms.join(' and ')}'s` : ''}.${off ? ` Commission off for ${off}: not a Salesman.` : ''}${on ? ` Commission back on for ${on}, with the Salesman.` : ''}${added ? ` Commission left as it was for ${added}: it is added on top of the price.` : ''} Signed jobs stay with whoever sold them.`,
       createdBy: input.by.name, createdById: input.by.id,
     },
   })

@@ -20,6 +20,10 @@
  *                            left out, counted and named, never 100% margin.
  *   Target Margin            Settings › Pricing: Overhead % + each style's
  *                            Target Profit %, the number quotes are priced at.
+ *   A quote's grade          price less cost ÷ price (before commission),
+ *                            against the Target Margin it was priced with, so
+ *                            a Salesman's quote at target reads as at target
+ *                            and an old quote keeps its own overhead.
  *   Balance sheet            Assets = Liabilities + Equity always; equity not
  *                            entered is worked out (assets minus liabilities)
  *                            and said so, with what is missing.
@@ -193,7 +197,7 @@ export function leftOutWords(m: Pick<MarginResult, 'leftOut'>): string {
 export function withChangeOrders<Q extends { id: string; status: string; finalPrice: number }>(quotes: Q[], jobs: Array<{ quoteId?: string | null; changeOrderTotal?: number | null }>): Q[] {
   const co = new Map<string, number>()
   for (const j of jobs) if (j.quoteId && j.changeOrderTotal) co.set(j.quoteId, Number(j.changeOrderTotal) || 0)
-  return quotes.map(q => (q.status === 'SOLD' && co.get(q.id) ? { ...q, finalPrice: (toCents(q.finalPrice) + toCents(co.get(q.id))) / 100 } : q))
+  return quotes.map(q => (q.status === 'SOLD' && co.get(q.id) ? { ...q, signedPrice: q.finalPrice, finalPrice: (toCents(q.finalPrice) + toCents(co.get(q.id))) / 100 } : q))
 }
 
 /** Sold quotes whose sale date (the quote's date) is in `year`, read off the date text. */
@@ -203,7 +207,7 @@ export function soldInYear<Q extends { status: string; date?: string | null }>(q
 
 // ── Target Margin (Settings › Pricing) ──────────────────────────────────────
 
-export interface StyleForTarget { name: string; margin: number; isActive?: boolean; woodOf?: string }
+export interface StyleForTarget { name: string; margin: number; isActive?: boolean; woodOf?: string; targetProfitPct?: number; colorTargetProfitPct?: number }
 
 export interface TargetMargins {
   /** Overhead % in use (typed, or live from the budget when switched on). */
@@ -244,24 +248,81 @@ export function targetOfStyle(styles: StyleForTarget[], styleName: string): numb
   return s ? 1 - (Number(s.margin) || 0) : null
 }
 
+/** What a quote keeps about how it was priced, for grading it. */
+export interface QuoteForGrade {
+  finalPrice: number
+  totalCOGS: number
+  /** The signed price, when finalPrice has change orders added (withChangeOrders): its cost is the signed work's. */
+  signedPrice?: number
+  fenceStyle?: string
+  pricing?: { costFactor?: number; overheadPct?: number } | null
+  work?: { priced?: { targetMarginPct?: number } } | null
+}
+
+/** Price less cost ÷ price: the margin before commission, the basis Target Margin is set on. Null with no cost or no price. */
+export function marginOnPrice(q: Pick<QuoteForGrade, 'finalPrice' | 'totalCOGS' | 'signedPrice'>): number | null {
+  if (!hasCost(q)) return null
+  const price = toCents(q.signedPrice ?? q.finalPrice)
+  return price > 0 ? (price - toCents(q.totalCOGS)) / price : null
+}
+
+const inRange = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 100
+
 /**
- * The Target Margin a group of quotes should reach: each quote's style
- * target, weighted by its price (a style not in Settings counts at the
- * lowest target). Only quotes with costs. Null when there are none.
+ * The Target Margin a quote was priced with (a fraction), best known first:
+ *   1. a move or repair's own, saved on its work;
+ *   2. the number its price was divided by, saved as its cost factor (its overhead + its Target Profit at the time);
+ *   3. a typed or per foot price saves no cost factor: its saved Overhead % + its style's Target Profit today
+ *      (Target Profit is not saved on a quote);
+ *   4. a quote that saved neither (from before overhead was saved): its style's Target Margin today;
+ *   5. a style not in Settings: `fallback`.
  */
-export function weightedTarget(styles: StyleForTarget[], quotes: Array<QuoteForMargin & { fenceStyle?: string }>, fallback: number): number | null {
+export function pricedTarget(q: Pick<QuoteForGrade, 'fenceStyle' | 'pricing' | 'work'>, styles: StyleForTarget[], fallback: number): number {
+  const saved = q.work?.priced?.targetMarginPct
+  if (inRange(saved)) return saved / 100
+  const factor = q.pricing?.costFactor
+  if (inRange(factor) && factor < 1) return 1 - factor
+  const style = styles.find(s => s.name === q.fenceStyle)
+  if (!style) return fallback
+  const overhead = q.pricing?.overheadPct
+  const profit = inRange(style.colorTargetProfitPct) ? style.colorTargetProfitPct : style.targetProfitPct
+  if (typeof overhead === 'number' && Number.isFinite(overhead) && overhead >= 0 && inRange(profit)) return (overhead + profit) / 100
+  return 1 - (Number(style.margin) || 0)
+}
+
+/** Does the quote keep what its target came from? No: pricedTarget read today's Settings, and a screen must say so. */
+export function targetIsSaved(q: Pick<QuoteForGrade, 'pricing' | 'work'>): boolean {
+  return inRange(q.work?.priced?.targetMarginPct) || inRange(q.pricing?.costFactor) || typeof q.pricing?.overheadPct === 'number'
+}
+
+export type MarginTone = 'good' | 'near' | 'bad' | 'none'
+export interface QuoteGrade { margin: number | null; target: number; tone: MarginTone }
+
+/** One quote: its price less cost against the Target Margin it was priced with. */
+export function quoteGrade(q: QuoteForGrade, styles: StyleForTarget[], fallback: number): QuoteGrade {
+  const margin = marginOnPrice(q)
+  const target = pricedTarget(q, styles, fallback)
+  return { margin, target, tone: marginTone(margin, target) }
+}
+
+/**
+ * The Target Margin a group of quotes should reach: each quote's priced
+ * target (pricedTarget), weighted by its price. Only quotes with costs. Null
+ * when there are none.
+ */
+export function weightedTarget(styles: StyleForTarget[], quotes: Array<QuoteForMargin & Pick<QuoteForGrade, 'fenceStyle' | 'pricing' | 'work'>>, fallback: number): number | null {
   let price = 0, weighted = 0
   for (const q of quotes) {
     if (!hasCost(q)) continue
     const p = toCents(q.finalPrice)
     price += p
-    weighted += p * (targetOfStyle(styles, q.fenceStyle ?? '') ?? fallback)
+    weighted += p * pricedTarget(q, styles, fallback)
   }
   return price > 0 ? weighted / price : null
 }
 
 /** On target (green), up to 5 points under (amber), or further under (red). */
-export function marginTone(margin: number | null, target: number): 'good' | 'near' | 'bad' | 'none' {
+export function marginTone(margin: number | null, target: number): MarginTone {
   if (margin === null) return 'none'
   if (margin >= target - 0.005) return 'good'
   if (margin >= target - 0.05) return 'near'

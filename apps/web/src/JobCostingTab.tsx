@@ -9,7 +9,8 @@ import { businessDate } from './businessDate'
 import { can } from './permissions'
 import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars } from './numberText'
-import { lowTarget } from './moneyLoad'
+import { gradeOfQuote, groupTarget } from './moneyLoad'
+import { marginTone } from './moneyTruth'
 import { loadJobCostPrefill, type JobCostPrefill } from './takeoffStore'
 import { actualKnown, costRow, crewLineCents, crewTotalCents, entryLaborCents, laborBasis, laborShown, quoteHasCost, resultOf, type CostRow, type CrewEntry, type JobCostEntry } from './jobCostLabor'
 
@@ -56,10 +57,9 @@ const orNone = (n: number | null, show: (n: number) => string) => (n === null ? 
 const NO_COST = 'This quote has no cost on file.'
 const BEFORE_COMMISSION = 'Profit and margin are price less cost, before any commission.'
 
-/** Green, yellow or red against the target margin; plain when not known. */
-function gmTone(gm: number | null): string {
-  if (gm === null) return 'text-gray-500'
-  return gm >= lowTarget() ? 'text-green-600' : gm >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'
+/** Green, yellow or red against the Target Margin the quote (or quotes, by price) was priced with; plain when not known. */
+function gmTone(gm: number | null, target: number): string {
+  return { good: 'text-green-600', near: 'text-yellow-600', bad: 'text-red-500', none: 'text-gray-500' }[marginTone(gm, target)]
 }
 
 /** The average of the numbers, null when there are none. */
@@ -468,6 +468,7 @@ function CostAJobModal({
 /* ───────── Job Detail Drawer ───────── */
 
 function JobDetailDrawer({ job, onClose, onEdit }: { job: CostedJob; onClose: () => void; onEdit: () => void }) {
+  const target = gradeOfQuote(job.quote).target
   useBackLayer(onClose, { key: 'job-detail-drawer' })
   const { quote: q, entry: e } = job
   const oldHours = laborBasis(e) === 'hours'
@@ -528,11 +529,11 @@ function JobDetailDrawer({ job, onClose, onEdit }: { job: CostedJob; onClose: ()
             </div>
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <p className="text-xs text-gray-400">Est GM</p>
-              <p className={`text-lg font-bold ${job.row.estGM === null ? 'text-gray-500' : job.row.estGM >= lowTarget() ? 'text-green-600' : 'text-yellow-600'}`}>{orNone(job.row.estGM, fmtPct)}</p>
+              <p className={`text-lg font-bold ${gmTone(job.row.estGM, target)}`}>{orNone(job.row.estGM, fmtPct)}</p>
             </div>
-            <div className={`rounded-xl p-3 text-center ${job.row.actGM === null ? 'bg-gray-50' : job.row.actGM >= lowTarget() ? 'bg-green-50' : job.row.actGM >= lowTarget() - 0.05 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+            <div className={`rounded-xl p-3 text-center ${{ good: 'bg-green-50', near: 'bg-yellow-50', bad: 'bg-red-50', none: 'bg-gray-50' }[marginTone(job.row.actGM, target)]}`}>
               <p className="text-xs text-gray-400">Actual GM</p>
-              <p className={`text-lg font-bold ${gmTone(job.row.actGM)}`}>{orNone(job.row.actGM, fmtPct)}</p>
+              <p className={`text-lg font-bold ${gmTone(job.row.actGM, target)}`}>{orNone(job.row.actGM, fmtPct)}</p>
             </div>
           </div>
           {!job.row.hasEstimate && <p className="text-sm font-medium text-gray-700">{NO_COST} The estimate is not available.</p>}
@@ -693,7 +694,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       const cat = fenceCategory(j.quote.fenceStyle)
       ;(groups[cat] ??= []).push(j)
     })
-    const byStyle: Record<string, { jobs: number; avgLaborCostVar: number | null; hrJobs: number; avgLaborVar: number; avgMatVar: number | null; avgActGM: number | null }> = {}
+    const byStyle: Record<string, { jobs: number; avgLaborCostVar: number | null; hrJobs: number; avgLaborVar: number; avgMatVar: number | null; avgActGM: number | null; target: number }> = {}
     Object.entries(groups).forEach(([cat, list]) => {
       const both = list.filter(j => j.row.hasEstimate && j.row.hasActual)
       const hrs = list.filter(j => j.laborHrsVariance !== null)
@@ -704,6 +705,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
         avgLaborVar: avgOf(hrs.map(j => j.laborHrsVariance as number)) ?? 0,
         avgMatVar: avgOf(both.filter(j => j.materialPct !== null).map(j => j.materialPct as number)),
         avgActGM: avgOf(list.filter(j => j.row.actGM !== null).map(j => j.row.actGM as number)),
+        target: groupTarget(list.map(j => j.quote)),
       }
     })
 
@@ -797,7 +799,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Actual GM</p>
-            <p className={`text-xl lg:text-2xl font-bold ${gmTone(stats.avgActGM)}`}>
+            <p className={`text-xl lg:text-2xl font-bold ${gmTone(stats.avgActGM, groupTarget(costedJobs.map(j => j.quote)))}`}>
               {orNone(stats.avgActGM, fmtPct)}
             </p>
           </div>
@@ -846,7 +848,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${d.avgMatVar === null ? 'text-gray-500' : varianceColor(d.avgMatVar)}`}>
                     {orNone(d.avgMatVar, n => signed(n, fmtPct))}
                   </td>
-                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${gmTone(d.avgActGM)}`}>
+                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${gmTone(d.avgActGM, d.target)}`}>
                     {orNone(d.avgActGM, fmtPct)}
                   </td>
                 </tr>
@@ -898,7 +900,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   {orNone(j.row.varianceCents === null ? null : j.row.varianceCents / 100, n => signed(n, fmt))}
                 </td>
                 <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{orNone(j.row.estGM, fmtPct)}</td>
-                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${gmTone(j.row.actGM)}`}>
+                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${gmTone(j.row.actGM, gradeOfQuote(j.quote).target)}`}>
                   {orNone(j.row.actGM, fmtPct)}
                 </td>
                 <td data-label="Actions" className="px-2 py-3 text-right">

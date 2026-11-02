@@ -43,7 +43,7 @@ import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf } from './warranties'
-import { proposalSent, ownTierToStamp, proposalStamp } from './proposalOptions'
+import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
 import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
@@ -65,7 +65,9 @@ import {
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
-import { salesmanSwitchDefault, seesCommission } from './salesmanCommission'
+import { sendJson } from './syncHttp'
+import { salesmanSwitchDefault, seesCommission, clearedCommission } from './salesmanCommission'
+import { marginTone, pricedTarget } from './moneyTruth'
 import { getBookingTeam } from './bookingTeamStore'
 import { toast } from './toast'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
@@ -581,6 +583,17 @@ export default function QuoteBuilder({
   const [priceAdjust, setPriceAdjust]   = useState(init?.priceAdjust ?? 0)
   // On for a new quote by a Salesman (or for her customer); a saved quote keeps its own (Oct 27 2026, salesmanCommission.ts).
   const [hasSalesman, setHasSalesman]   = useState(() => salesmanSwitchDefault(init as any, signedInRole(), getBookingTeam()))
+  // A saved quote whose rep is positively not a Salesman (the server's one rule, lib/commissionRule.ts): a save would
+  // take commission off, so the switch does not offer it. A new quote's rep comes with the customer at save.
+  const [repOff, setRepOff] = useState<{ rep: string } | null>(null)
+  useEffect(() => {
+    if (!init?.id || !seesCommission(signedInRole(), can('costs.view'))) return
+    let live = true
+    void sendJson('POST', '/api/saved-quotes/commission-rule', { quoteId: init.id }).then(r => { if (live && r.result.ok && r.json?.data?.off) setRepOff({ rep: String(r.json.data.rep ?? '') }) })
+    return () => { live = false }
+  }, [init?.id])
+  // A save that would take commission off: said first, and it saves only when that is chosen.
+  const [commissionAsk, setCommissionAsk] = useState<{ data: Parameters<typeof handleSave>[0]; rep: string } | null>(null)
   // Pricing choices for this quote. A saved quote reopens with the choices it
   // was saved with; a new quote starts from Settings → Pricing.
   const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
@@ -616,7 +629,7 @@ export default function QuoteBuilder({
   const [openSide, setOpenSide] = useState<string | null>(null)
   const [photosOpen, setPhotosOpen] = useState(false)
   // Options offered on the proposal besides this quote's own style.
-  const [offer, setOffer] = useState<string[]>(() => (init?.proposal?.options ?? []).slice(1).filter(o => !o.tier?.swapped).map(o => o.fenceStyle))  // A style picked on an option stays with the option: removed, it is gone.
+  const [offer, setOffer] = useState<string[]>(() => tickedStyles(init?.proposal, init?.fenceStyle))
   const [showCompare, setShowCompare] = useState(false)
   // Voice: off by default, remembered per user (Settings → Voice).
   const [userId, setUserId] = useState<string | null>(null)
@@ -933,9 +946,10 @@ export default function QuoteBuilder({
   const commAmt     = work ? work.commissionCents / 100 : newMin ? Math.round(mr.minimumJobCents * priced.commissionPct) / 100 : priced.commissionAmt
   const grossMargin = work ? work.grossMarginCents / 100 : newMin ? Math.round((adjPrice - totalCOGS - commAmt) * 100) / 100 : priced.grossMargin
   const gmPct       = work ? work.gmPct : newMin ? (adjPrice > 0 ? grossMargin / adjPrice : 0) : priced.gmPct
-  // What a Salesman sees: the margin before the commission (it is not shown to her, Oct 27 2026). The quote saves the real one.
-  const viewGrossMargin = showCommission ? grossMargin : Math.round((grossMargin + commAmt) * 100) / 100
-  const viewGmPct   = showCommission ? gmPct : (adjPrice > 0 ? viewGrossMargin / adjPrice : 0)
+  // What every login reads and what the warning grades: price less cost, before commission (a Salesman's commission
+  // is not shown to her, Oct 27 2026; a quote at target never warns for it). The quote saves the margin after it.
+  const viewGrossMargin = Math.round((grossMargin + commAmt) * 100) / 100
+  const viewGmPct   = adjPrice > 0 ? viewGrossMargin / adjPrice : 0
   // The ± dollar adjustment: the price without it (the proposal's list price), the amount applied, a reduction refused (under cost).
   const listPrice   = !internal ? (sv?.listPrice ?? adjPrice) : work ? work.listCents / 100 : newMin ? minimum.listPrice : priced.listPrice
   const adjApplied  = !internal ? (sv?.adjustmentCents ?? 0) : work ? work.adjustmentCents : newMin ? minimum.adjustmentCents : priced.adjustmentCents
@@ -946,9 +960,10 @@ export default function QuoteBuilder({
   const shownItems: LineItem[] = heldNums ? (heldNums.pullSheet as LineItem[]) : materialItems
   const shownMaterial = heldNums ? heldNums.material : null
   const materialCost = work ? work.materialCents / 100 : newFenceMaterial
-  const gmGood      = cfg.margins?.good ?? 0.34
-  const gmWarn      = cfg.margins?.warning ?? 0.27
-  const gmColor     = viewGmPct >= gmGood ? 'text-green-600' : viewGmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
+  // Graded as every screen grades a quote (moneyTruth.quoteGrade): against its Target Margin. The "good" margin in Settings is its own warning line.
+  const quoteTarget = pricedTarget({ fenceStyle: style?.name, pricing: { costFactor: work ? work.costFactor : priced.priceMethod === 'cost_factor' ? priced.costFactor : undefined, overheadPct: overheadNow }, work: work ? { priced: { targetMarginPct: work.targetMarginPct } } : null }, cfg.fenceStyles, 0)
+  const gmTone      = marginTone(viewGmPct, quoteTarget)
+  const gmColor     = gmTone === 'good' ? 'text-green-600' : gmTone === 'near' ? 'text-yellow-500' : 'text-red-500'
   const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
   totalsRef.current = { footage: totalFootage, sections, price: adjPrice }
   // What the quote prices at today, as it opened (before any change): a sent quote compares it with the price sent.
@@ -1095,7 +1110,7 @@ export default function QuoteBuilder({
     // Pricing notes only once a style is picked (before that there is nothing to price).
     ...(style ? materials.warnings : []),
     ...(style ? priced.notes : []),
-    ...[internal && style && sections > 0 ? marginCheck(showCommission ? priced.gmPct : (priced.price > 0 ? (priced.grossMargin + priced.commissionAmt) / priced.price : 0), cfg.margins?.good ?? 0.34, priced.price) : null,
+    ...[internal && style && sections > 0 ? marginCheck(viewGmPct, cfg.margins?.good ?? 0.34, adjPrice) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
   ])]
 
@@ -1161,7 +1176,18 @@ export default function QuoteBuilder({
     status: SavedQuote['status']
     notes: string
     leadTemp: number
-  }, opts: { pricesChecked?: boolean } = {}) {
+  }, opts: { pricesChecked?: boolean; commissionOff?: boolean } = {}) {
+    // The switch shows commission on: what a save would do is asked first, so nothing changes silently. No signal: it is saved
+    // as shown and the server holds to the rule when it arrives.
+    if (hasSalesman && !opts.commissionOff && showCommission && !signedQuote && !directCo.current) {
+      const r = await sendJson('POST', '/api/saved-quotes/commission-rule', { ...(init?.id ? { quoteId: init.id } : {}), rep: data.salesRep || mySalesRepName() })
+      if (r.result.ok && r.json?.data?.off) {
+        setShowSaveModal(false)
+        keepSaveWindow(data)
+        setCommissionAsk({ data, rep: String(r.json.data.rep ?? '') })
+        return
+      }
+    }
     // Before a quote priced here is saved, its prices are the server's current ones (broken list #58): a part that
     // changed is read again, the quote reprices, and a changed price is shown and confirmed first (never saved
     // silently at old prices). No signal: it is saved, and the server checks it when it arrives.
@@ -1211,6 +1237,8 @@ export default function QuoteBuilder({
         gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds, wholeDollar: !keepCents, showDiscount: showDiscount && adjApplied < 0,
       })
     })() : undefined
+    // Commission as the switch shows it, unless "Save without commission" was chosen above.
+    const commissionOn = hasSalesman && !opts.commissionOff
     const quote: SavedQuote = {
       id: quoteIdRef.current,
       customerId: data.customerId,
@@ -1238,7 +1266,7 @@ export default function QuoteBuilder({
       tearOutSections: tearOutSec,
       tearOutGates,
       adjLaborHrs: parseFloat(adjLaborHrs) || 0,
-      hasSalesman,
+      hasSalesman: commissionOn,
       priceAdjust,
       sections: work ? work.sections : sections,
       materialCost,
@@ -1246,7 +1274,7 @@ export default function QuoteBuilder({
       tearOutCost,
       totalCOGS,
       finalPrice: adjPrice,
-      gmPct,
+      gmPct: commissionOn ? gmPct : viewGmPct,
       pullSheet: materialItems,
       status: data.status,
       date: businessDate(new Date()),
@@ -1268,6 +1296,7 @@ export default function QuoteBuilder({
         // A Salesman or Installer: every option comes priced from the server.
         styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [],
         ownPrice: adjPrice,
+        ownGmPct: commissionOn ? gmPct : viewGmPct,
         ownRoundingCents: roundingCents,
         ownAdjustmentCents: adjApplied,
         showDiscount: showDiscount && adjApplied < 0,
@@ -1288,6 +1317,7 @@ export default function QuoteBuilder({
         tierSet: tierSet ?? undefined,
       }) : undefined),
     }
+    if (hasSalesman && !commissionOn) Object.assign(quote, clearedCommission(quote.work, quote.proposal))
     setShowSaveModal(false)
     if (init?.id && signedQuote) {
       // Only what was changed counts (today's costs moving the figures does not): the work, the choices.
@@ -1362,17 +1392,31 @@ export default function QuoteBuilder({
   }
   /** Save / Update quote: prices are checked before the Save window opens (nothing, a new customer included, is made first). */
   const [checkingPrices, setCheckingPrices] = useState(false)
-  /** Options added past the limit, a picked style not fit to go on a link already out, or options someone else changed since this opened. Offline: the server decides. */
+  /**
+   * What the server would refuse, said here, before anything says the quote is stored: options someone else changed
+   * since this opened, styles brought past the limit (the server's own count, on the server's copy), a picked style not
+   * fit to go on a link already out. With more than 3 options and no answer from the server, the outcome is not known: not saved.
+   */
   async function saveWouldBeRefused(): Promise<boolean> {
     const opened = init?.proposal ? proposalStamp(init.proposal) : null
-    if (init?.id && opened !== null && !signedQuote) {
+    let saved: SavedQuote | undefined
+    let reached = true
+    if (init?.id && !signedQuote) {
       const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(init.id)}`).catch(() => null)
-      const saved = r?.result.ok ? (r.json?.data as SavedQuote | undefined) : undefined
-      if (saved?.proposal && proposalStamp(saved.proposal) !== opened) { toast.error('Not saved', 'This quote was changed on another phone or computer while you had it open. Close it and open it again to see the changes.'); return true }
+      reached = !!r?.result.ok
+      saved = reached ? (r!.json?.data as SavedQuote | undefined) : undefined
+      if (opened !== null && saved?.proposal && proposalStamp(saved.proposal) !== opened) { toast.error('Not saved', 'This quote was changed on another phone or computer while you had it open. Close it and open it again to see the changes.'); return true }
     }
-    if (jobType !== 'new' || signedQuote) return false
-    const had = init?.proposal?.options?.length ?? 0
-    if (offeredNow > MAX_TIERS && offeredNow > had && (offer.length > 0 || !!tierPrefs.added?.length)) { toast.error('Not saved', `A proposal has ${MAX_TIERS} options at most, and this one has ${offeredNow}. Take one off, then save again.`); return true }
+    if (jobType !== 'new' || signedQuote || !style) return false
+    const after = buildProposal({
+      input: calcInput, styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [], ownPrice: adjPrice,
+      company: { name: '', phone: '', email: '' }, customer: { name: '', address: '' }, warranty: '', settings: {}, photoIds: {},
+      tiers: internal ? tierOptions(tiers, {}, tierSets) : viewProposalOptions(sv),
+    })
+    const was = saved ?? init
+    const shown = addsPastLimit(after, was?.proposal ?? null, { ...(was ?? {}), fenceStyle: style.name }, n => cfg.fenceStyles.find(s => s.name === n))
+    if (shown !== null) { toast.error('Not saved', `A proposal has ${MAX_TIERS} options at most, and this one would have ${shown}. Take one off, then save again.`); return true }
+    if (!reached && after.options.length > MAX_TIERS) { toast.error('Not saved', 'This proposal has more than 3 options and the app could not reach the server to check it. Try again when you have signal.'); return true }
     const blocked = init?.shareToken ? tiers.filter(t => !t.off).flatMap(t => tierCards[t.spec.key]?.block ?? []) : []
     if (blocked.length) { toast.error('Not saved', `This proposal is on the customer's link. ${blocked.join(' ')}`); return true }
     return false
@@ -1946,8 +1990,8 @@ export default function QuoteBuilder({
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-medium text-gray-700">Salesman on this job?</p>
-                {showCommission && <p className="text-xs text-gray-400">
-                  {commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}
+                {showCommission && <p className="text-xs text-gray-400" data-salesman-commission-words>
+                  {repOff ? `No commission: ${repOff.rep || 'no rep, and this quote was not made by a Salesman'}${repOff.rep ? ' is not a Salesman' : ''}` : <>{commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}. Only with a Salesman as the rep.</>}
                 </p>}
               </div>
               <button
@@ -1955,8 +1999,9 @@ export default function QuoteBuilder({
                 role="switch"
                 aria-checked={hasSalesman}
                 aria-label="Salesman on this job"
+                disabled={!!repOff && !hasSalesman}
                 onClick={() => setHasSalesman(h => !h)}
-                className="shrink-0 w-14 h-12 grid place-items-center rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-300"
+                className={`shrink-0 w-14 h-12 grid place-items-center rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300 ${repOff && !hasSalesman ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <span className={`relative block w-11 h-6 rounded-full transition-colors ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}>
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -2247,19 +2292,25 @@ export default function QuoteBuilder({
                   </div>
                 )}
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Gross Margin</span>
+                  <span className="text-sm text-gray-500">Gross Margin <span className="text-xs text-gray-400">(price less cost)</span></span>
                   <span className={`text-2xl font-bold ${gmColor}`}>{(viewGmPct * 100).toFixed(1)}%</span>
                 </div>
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-xs text-gray-400">Margin $</span>
                   <span className={`text-sm font-semibold ${gmColor}`}>{fmt(viewGrossMargin)}</span>
                 </div>
+                {showCommission && commAmt > 0 && (
+                  <div className="flex justify-between items-center mt-1" data-quote-margin-after>
+                    <span className="text-xs text-gray-400">After commission</span>
+                    <span className="text-sm text-gray-600 tabular-nums">{(gmPct * 100).toFixed(1)}%, {fmt(grossMargin)}</span>
+                  </div>
+                )}
                 <div className="mt-2">
                   <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full transition-all ${viewGmPct >= gmGood ? 'bg-green-500' : viewGmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(viewGmPct * 100, 100))}%` }} />
+                    <div className={`h-1.5 rounded-full transition-all ${gmTone === 'good' ? 'bg-green-500' : gmTone === 'near' ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(viewGmPct * 100, 100))}%` }} />
                   </div>
                   <p className={`text-xs mt-1 ${gmColor}`}>
-                    {viewGmPct >= gmGood ? '✓ Above target' : viewGmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
+                    {`${gmTone === 'good' ? '✓ At or above' : gmTone === 'near' ? '⚠ Below' : '✗ Well below'} its ${Math.round(quoteTarget * 1000) / 10}% Target Margin`}
                   </p>
                 </div>
               </div>
@@ -2630,6 +2681,18 @@ export default function QuoteBuilder({
         </div>
       )}
       {recheck?.asked && recheckOutcome && recheckOutcome.kind !== 'save' && <BackClose name="price-recheck" onClose={() => setRecheck(null)} />}
+      {commissionAsk && (
+        <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-3" data-commission-ask>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            <p className="text-base font-bold text-gray-900">Commission comes off when this saves</p>
+            <p className="text-sm text-gray-600">{commissionAsk.rep ? `${commissionAsk.rep} is not a Salesman` : 'This quote has no rep and was not made by a Salesman'}, so nobody is paid on it. The price stays {priceText(adjPrice)}.</p>
+            <div className="flex flex-col gap-2">
+              <button type="button" className="btn btn-primary min-h-[48px]" data-commission-ask-save onClick={() => { const d = commissionAsk.data; setCommissionAsk(null); setHasSalesman(false); void handleSave(d, { commissionOff: true }) }}>Save without commission</button>
+              <button type="button" className="min-h-[44px] text-sm text-gray-600" data-commission-ask-back onClick={() => setCommissionAsk(null)}>Back to the quote</button>
+            </div>
+          </div>
+        </div>
+      )}
       {recheck?.asked && recheckOutcome && recheckOutcome.kind !== 'save' && (
         <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-3" data-price-recheck={recheckOutcome.kind}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">

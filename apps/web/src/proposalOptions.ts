@@ -79,6 +79,34 @@ export function startingOption(options: OptionLike[] | null | undefined, quote: 
   return dup[pick] >= 0 ? dup[pick] : pick
 }
 
+/** Most options on a proposal ("I can add or remove options (1 to 3)", Jonathan). */
+export const OPTION_LIMIT = 3
+
+/**
+ * The styles ticked on a saved proposal (Compare options): its options with no tier, past the quote's own. A tier's
+ * option is the tier's to bring back, so an old Best (tan 6x8 before Best became all 6 ft) never returns as a tick
+ * beside today's Best (review Nov 2 2026: 4 saved options read as 5, 7 went to 8 on a save).
+ */
+export function tickedStyles(p: { options?: Array<OptionLike | null> | null } | null | undefined, ownStyle: string | null | undefined): string[] {
+  return (Array.isArray(p?.options) ? p!.options! : []).filter(o => !!o?.fenceStyle && !o.tier && o.fenceStyle !== ownStyle).map(o => o!.fenceStyle!)
+}
+
+/**
+ * The one count for the limit, the phone's and the server's: how many cards the customer would read when this save
+ * brings a style by hand (Compare, Add option) that the proposal did not already have and takes it past the limit;
+ * null otherwise. A proposal that holds more keeps them or comes down, and automatic options never count as brought.
+ */
+export function addsPastLimit(after: (FoldProposal & { kind?: unknown }) | null | undefined, before: { options?: Array<OptionLike | null> | null } | null | undefined, quote: Parameters<typeof proposalFold>[1], styleOf: StyleRecordOf = () => null): number | null {
+  const options = Array.isArray(after?.options) ? after!.options! : []
+  if (after?.kind) return null
+  const own = quote?.fenceStyle
+  const had = new Set((Array.isArray(before?.options) ? before!.options! : []).map(o => o?.fenceStyle))
+  const brought = options.some(o => !had.has(o?.fenceStyle) && ((!o?.tier && o?.fenceStyle !== own) || (!!o?.tier?.swapped && String(o.tier.key).startsWith('added'))))
+  if (!brought) return null
+  const shown = shownOptions(options, proposalFold(after, quote, styleOf)).length
+  return shown > OPTION_LIMIT ? shown : null
+}
+
 /** An option's fence and price, as the portal's lib/optionSeen.ts says it (this file is pure: the server loads it from source, so it imports no server file; a test pins the two together). */
 const optionSeen = (o: OptionLike | null | undefined): string => `${String(o?.fenceStyle ?? '')}|${cents(o?.finalPrice)}`
 
@@ -180,7 +208,7 @@ export function proposalSent(q: { status?: string | null; acceptedAt?: unknown; 
 }
 
 type Fold = { own: number; tier: number }
-interface FoldProposal { options?: OptionLike[] | null; tierSet?: { tiers?: Array<{ key: string; width?: string }> } | null; ownTier?: Fold | null }
+export interface FoldProposal { options?: OptionLike[] | null; tierSet?: { tiers?: Array<{ key: string; width?: string }> } | null; ownTier?: Fold | null }
 
 /**
  * The fold the customer sees ("Sent proposals must never reprice", Jonathan, Oct 27 2026): the one frozen on

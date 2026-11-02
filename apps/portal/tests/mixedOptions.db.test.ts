@@ -22,7 +22,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
   const { acceptQuote, signedPricing, proposalPage, renderProposal } = await import('../src/server/routes/proposal.js')
   const { contractForQuote, acceptedOptionText } = await import('../src/server/lib/contractPdf.js')
   const { optionBlocks, priceOption } = await import('../../web/src/proposal')
-  const { ownTierFold } = await import('../../web/src/proposalOptions')
+  const { ownTierFold, tickedStyles } = await import('../../web/src/proposalOptions')
   const { pinnedForMain, offeredCount } = await import('../../web/src/tiers')
   const { overOptionLimit, quoteChangedSince } = await import('../src/server/lib/quotePriceCheck.js')
   const { optionSeen } = await import('../src/server/lib/optionSeen.js')
@@ -231,6 +231,32 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options } }, was)).toBeNull()
     expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: options.slice(0, 4) } }, { ...was, proposal: { version: 1, options: five } })).toBeNull()
     expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: five } }, was)).toMatchObject({ code: 'TOO_MANY_OPTIONS' })
+  })
+
+  test('a sent quote with an old Best card: nothing grows, nothing is refused; bringing a new style past 3 is', async () => {
+    const plain = (fenceStyle: string, finalPrice: number) => ({ fenceStyle, label: fenceStyle, finalPrice, snapshot: { pullSheet: [{ item: fenceStyle, qty: 1 }] } })
+    const tier = (key: string, fenceStyle: string, finalPrice: number) => ({ ...plain(fenceStyle, finalPrice), tier: { key } })
+    const WV8 = "WV-ND 6'x8' Privacy", TV8 = "TV-ND 6'x8' Privacy", WV6 = "WV-ND 6'x6' Privacy", DS8 = "WV-DS 6'x8' Privacy"
+    const shapes = [
+      { fenceStyle: DS8, options: [tier('good', DS8, 10655.85), tier('better', WV8, 12900.91), tier('best', TV8, 14814.7), plain(WV6, 13744.71)], ticked: [WV6] },
+      { fenceStyle: VINYL, options: [tier('good', DS8, 7396.53), tier('better', WV8, 9012.29), tier('best', TV8, 10509.95), plain(VINYL, 8920.46)], ticked: [] },
+    ]
+    for (const q of shapes) {
+      const saved = { version: 1, options: q.options }
+      expect(tickedStyles(saved, q.fenceStyle)).toEqual(q.ticked)
+      expect(tickedStyles(saved, q.fenceStyle)).not.toContain(TV8)
+      // Saved again as it stands today: today's tiers, the quote's own and its ticks. Never more than it had.
+      const j = job(request(q.fenceStyle, setOf('Vinyl'), { off: [], swap: {} }, { offer: tickedStyles(saved, q.fenceStyle) }))
+      expect(j.proposalOptions.length).toBeLessThanOrEqual(q.options.length)
+      for (const status of ['SENT', 'DRAFT']) {
+        const existing = { fenceStyle: q.fenceStyle, status, proposal: saved }
+        expect(await overOptionLimit({ fenceStyle: q.fenceStyle, proposal: { version: 1, options: j.proposalOptions } }, existing)).toBeNull()
+        // A style the customer did not have, by hand, with the cards past 3: refused, on the phone's count too.
+        const more = { version: 1, options: [...q.options, plain(CHAIN, 5000), plain(ALUM, 6000)] }
+        expect(await overOptionLimit({ fenceStyle: q.fenceStyle, proposal: more }, existing)).toMatchObject({ code: 'TOO_MANY_OPTIONS' })
+        expect(m.addsPastLimit(more, saved, { ...existing }, () => null)).toBeGreaterThan(3)
+      }
+    }
   })
 
   test('odd gates: a warning on every option with no parts list, not only swapped ones, never a block', () => {

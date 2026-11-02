@@ -390,14 +390,8 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
               <span className="text-gray-400 text-sm ml-2">%</span>
             </div>
           </div>
-          <div>
-            <label className={LABEL}>Non-Salesman Commission</label>
-            <div className="flex items-center">
-              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={Math.round(p.commissionNonSalesman * 1000) / 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setP('commissionNonSalesman', Math.round(v * 10) / 1000) }} />
-              <span className="text-gray-400 text-sm ml-2">%</span>
-            </div>
-          </div>
         </div>
+        <p className={HELP}>Commission counts only when the quote's Sales Rep is a Salesman login. Owner, office or no rep: no commission.</p>
       </div>
 
       <div>

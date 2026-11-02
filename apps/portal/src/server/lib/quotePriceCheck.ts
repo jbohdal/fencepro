@@ -128,23 +128,15 @@ export async function checkQuotePrices(accountId: string, body: Json, data: Json
 }
 
 /**
- * The limit: 1 to 3 options on a proposal ("I can add or remove options (1 to 3)", Jonathan). Refused only when styles
- * ticked in Compare options or added by hand take the customer's cards over 3 and past what the quote already shows: a
- * proposal saved with more keeps them, or comes down (10 of 36 real proposals hold 4 to 7). Good, Better, Best plus a
- * quote's own fence that is none of them, nothing ticked, stays as it always was.
+ * The limit: refused only when this save brings a style the customer did not already have and takes the cards past 3
+ * (web/src/proposalOptions.ts addsPastLimit, the phone's own count: it asks the same before anything says "Quote stored").
  */
 export async function overOptionLimit(data: Json, existing: Json | null): Promise<Extract<PriceCheck, { kind: 'refuse' }> | null> {
-  const p = data?.proposal
-  if (!p || !Array.isArray(p.options) || p.kind) return null
-  const own = data?.fenceStyle ?? existing?.fenceStyle
-  const chosen = p.options.some((o: Json) => (!o?.tier && o?.fenceStyle !== own) || (o?.tier?.swapped && String(o.tier.key).startsWith('added')))
-  if (!chosen) return null
+  if (!data?.proposal) return null
   const m = await pricingModule() as Json
-  const styleOf = await styleRecords()
-  const cards = (x: Json, q: Json) => (Array.isArray(x?.options) ? m.shownOptions(x.options, m.proposalFold(x, q, styleOf)).length : 0)
-  const shown = cards(p, { ...(existing ?? {}), ...data, fenceStyle: own })
-  if (shown <= 3 || shown <= cards(existing?.proposal, existing ?? {})) return null
-  return { kind: 'refuse', code: TOO_MANY_OPTIONS_CODE, error: `A proposal has 3 options at most, and this one would have ${shown}. Take one off, then save again.` }
+  const quote = { ...(existing ?? {}), ...data, fenceStyle: data?.fenceStyle ?? existing?.fenceStyle }
+  const shown = m.addsPastLimit(data.proposal, existing?.proposal ?? null, quote, await styleRecords())
+  return shown === null ? null : { kind: 'refuse', code: TOO_MANY_OPTIONS_CODE, error: `A proposal has 3 options at most, and this one would have ${shown}. Take one off, then save again.` }
 }
 
 /**

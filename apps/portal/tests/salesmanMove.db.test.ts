@@ -3,7 +3,7 @@
  * Jonathan, Oct 29 2026): "lets me (owner only) change the salesman from the
  * customer page AND from a single quote, including a signed one, to fix a
  * wrong pick. Changing a signed job's salesman asks first and moves its
- * commission too, with a History note. Christa can't change it."
+ * commission too, with a History note. Christa can't change it." (Nov 2 2026: a signed job's commission does not change on a move.)
  *
  * Against the dev database (DEV_DB=1; refuses any other), on a throwaway
  * company, through the same middleware order as index.ts: who may change it
@@ -199,7 +199,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect(ask.status).toBe(409)
     expect(ask.json.code).toBe('CONFIRM_SIGNED')
     expect(ask.json.confirm).toMatchObject({ from: SALLY(), to: SAM(), signed: true, commissionCents: 85000 })
-    expect(ask.json.confirm.question).toBe(`This job is signed. Move it and its $850.00 commission from ${SALLY()} to ${SAM()}?`)
+    expect(ask.json.confirm.question).toBe(`This job is signed. Move it from ${SALLY()} to ${SAM()}? Its $850.00 commission stays on the job, unchanged.`)
     expect((await quoteOf(id.qSigned))!.salesRep).toBe(SALLY())
     // The job page asks the same; Yes there moves the quote and the job together.
     expect((await call('POST', `/api/saved-jobs/${id.job}/salesman`, tok.owner, { to: id.sam })).json.code).toBe('CONFIRM_SIGNED')
@@ -221,7 +221,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect(quoteCommissionCents(q1)).toBe(85000)
     // The History says so, with no money; the audit log has the amounts in cents.
     const lines = await history(tok.owner, id.cara)
-    expect(lines.map(l => l.detail)).toContain(`Salesman on quote #${num(id.qSigned)} changed from ${SALLY()} to ${SAM()} by ${OLIVE()} (signed job; its commission went with it). The customer's own Salesman is unchanged.`)
+    expect(lines.map(l => l.detail)).toContain(`Salesman on quote #${num(id.qSigned)} changed from ${SALLY()} to ${SAM()} by ${OLIVE()} (signed job; its commission stays on the job, unchanged). The customer's own Salesman is unchanged.`)
     for (const l of lines) expect(l.detail).not.toMatch(/\$|\d+\.\d\d/)
     const log = await prisma.crmAuditLog.findFirst({ where: { userId: id.owner, entityId: id.qSigned }, orderBy: { createdAt: 'desc' } }) as any
     expect(log.newValues.salesmanMoved).toMatchObject({ from: SALLY(), to: SAM(), signed: true, priceCents: 900000, commissionCents: 85000, jobIds: [id.job] })
@@ -229,6 +229,169 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect(jobLog.newValues.salesmanMoved.commissionCents).toBe(85000)
     // The customer's own Salesman stays the owner.
     expect((await prisma.crmContact.findUnique({ where: { id: id.cara } }))!.salesRep).toBe(OLIVE())
+  })
+
+  test('commission only with a Salesman as the rep: a save with the switch on and the owner as rep comes off; a Salesman\'s stays; the price never moves', async () => {
+    const body = (salesRep: string) => ({ customerName: `Rule ${tag}`, crmContactId: id.cara, salesRep, fenceStyle: 'WV ND 6x8', runs: [150], sections: 25, corners: 0, ends: 2, hasSalesman: true, materialCost: 4000, laborCost: 1600, totalCOGS: 5600, finalPrice: 10000, gmPct: 0.35, pullSheet: [], status: 'DRAFT', date: '2026-11-02', pricing: { overheadPct: 30, costFactor: 0.56, commissionPct: 0.09 } })
+    const owner = await call('POST', '/api/saved-quotes', tok.owner, body(OLIVE()))
+    expect(owner.status).toBeLessThan(300)
+    const off = await quoteOf(owner.json.data.id)
+    expect(off).toMatchObject({ hasSalesman: false, finalPrice: 10000, totalCOGS: 5600 })
+    expect(off!.gmPct).toBeCloseTo(0.44, 6)
+    expect((off!.pricing as any).commissionPct).toBeUndefined()
+    const blank = await call('POST', '/api/saved-quotes', tok.owner, body(''))
+    expect((await quoteOf(blank.json.data.id))!.hasSalesman).toBe(false)
+    const on = await call('POST', '/api/saved-quotes', tok.owner, body(SAM()))
+    const kept = await quoteOf(on.json.data.id)
+    expect(kept).toMatchObject({ hasSalesman: true, gmPct: 0.35, finalPrice: 10000 })
+    // A later save of the Salesman's quote with the rep on it stays; a first name counts.
+    const first = await call('POST', '/api/saved-quotes', tok.owner, body('Sam'))
+    expect((await quoteOf(first.json.data.id))!.hasSalesman).toBe(true)
+    // Initials too (Gary Escourse's quote says "CF" for Christa Feagin).
+    const initials = await call('POST', '/api/saved-quotes', tok.owner, body('SS'))
+    expect(await quoteOf(initials.json.data.id)).toMatchObject({ hasSalesman: true, gmPct: 0.35, finalPrice: 10000 })
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [owner.json.data.id, blank.json.data.id, on.json.data.id, first.json.data.id, initials.json.data.id] } } })
+  })
+
+  test('never on a guess: office saves a quote Sally made with no rep, or a rep spelled any way: the commission stays', async () => {
+    const make = (salesRep: string, ownerId: string) => prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep, ownerId, status: 'DRAFT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })
+    for (const rep of ['', 'Sally F', 'Sally F.', 'S. Feagin', 'Crista Feagin', 'Sally/Olive', 'S.S.', 'Nobody Known']) {
+      const q = await make(rep, id.sally)
+      const r = await call('PATCH', `/api/saved-quotes/${q.id}`, tok.office, { hasSalesman: true, gmPct: 0.35, finalPrice: 10000, totalCOGS: 5600, notes: 'office' })
+      expect(r.status, rep).toBe(200)
+      expect(await quoteOf(q.id), rep).toMatchObject({ hasSalesman: true, gmPct: 0.35, notes: 'office' })
+      await prisma.savedQuote.delete({ where: { id: q.id } })
+    }
+    // A named owner, or blank on the owner's own quote: positively not a Salesman.
+    for (const [rep, by] of [[OLIVE(), id.sally], ['Olive', id.sally], ['', id.owner]] as const) {
+      const q = await make(rep, by)
+      await call('PATCH', `/api/saved-quotes/${q.id}`, tok.office, { hasSalesman: true, gmPct: 0.35, finalPrice: 10000, totalCOGS: 5600 })
+      expect(await quoteOf(q.id), rep).toMatchObject({ hasSalesman: false, finalPrice: 10000 })
+      await prisma.savedQuote.delete({ where: { id: q.id } })
+    }
+  })
+
+  test('a save with the switch alone, or a price and no cost: handled from the saved figures, never a 0% margin or a 500', async () => {
+    const q = await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: OLIVE(), ownerId: id.owner, status: 'DRAFT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.44, hasSalesman: false } })
+    const alone = await call('PATCH', `/api/saved-quotes/${q.id}`, tok.owner, { hasSalesman: true })
+    expect(alone.status).toBe(200)
+    expect(await quoteOf(q.id)).toMatchObject({ hasSalesman: false, finalPrice: 10000 })
+    expect((await quoteOf(q.id))!.gmPct).toBeCloseTo(0.44, 6)
+    const price = await call('PATCH', `/api/saved-quotes/${q.id}`, tok.owner, { hasSalesman: true, finalPrice: 11000 })
+    expect(price.status).toBe(200)
+    expect((await quoteOf(q.id))!.gmPct).toBeCloseTo((11000 - 5600) / 11000, 6)
+    // A Salesman's quote: off alone adds the commission back; on alone takes it out again.
+    const s = await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), ownerId: id.sam, status: 'DRAFT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })
+    await call('PATCH', `/api/saved-quotes/${s.id}`, tok.owner, { hasSalesman: false })
+    expect((await quoteOf(s.id))!.gmPct).toBeCloseTo(0.44, 6)
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [q.id, s.id] } } })
+  })
+
+  test('a quote signed between the move\'s read and its write: nothing changes, and it says so', async () => {
+    const qid = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 6500, totalCOGS: 2932.35, gmPct: 0.4661, hasSalesman: true } })).id
+    // The customer's acceptance lands after the move has read the quote as unsigned, as the two do at once.
+    const real = prisma.$transaction.bind(prisma)
+    Object.defineProperty(prisma, '$transaction', { configurable: true, value: async (fn: any) => {
+      delete (prisma as any).$transaction
+      await prisma.savedQuote.update({ where: { id: qid }, data: { status: 'SOLD', acceptedAt: new Date(), soldAt: new Date(), acceptedBy: 'Pat' } })
+      await prisma.savedJob.create({ data: { id: `${tag}-race`, accountId, quoteId: qid, crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), quotePrice: 6500, contractValue: 6500, gmPct: 0.4661, hasSalesman: true } })
+      return real(fn)
+    } })
+    const r = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.owner, confirm: true })
+    delete (prisma as any).$transaction
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'CHANGED' })
+    expect(r.json.error).toMatch(/changed a moment ago/)
+    const now = (await quoteOf(qid))! as any
+    expect(now).toMatchObject({ status: 'SOLD', salesRep: SAM(), hasSalesman: true, gmPct: 0.4661 })
+    expect(now.pricing?.commissionMovedOff).toBeUndefined()
+    expect(await prisma.savedJob.findUnique({ where: { id: `${tag}-race` } })).toMatchObject({ salesRep: SAM(), gmPct: 0.4661, hasSalesman: true })
+    expect(await prisma.crmContactNote.count({ where: { accountId, body: { contains: qid.slice(-6).toUpperCase() } } })).toBe(0)
+    // Asked again it is a signed move: the owner's question, and its commission stays.
+    const ask = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.owner })
+    expect(ask.json.code).toBe('CONFIRM_SIGNED')
+    await prisma.savedJob.delete({ where: { id: `${tag}-race` } })
+    await prisma.savedQuote.delete({ where: { id: qid } })
+  })
+
+  test('Save without commission on a move or a repair: no commission left in any copy, and a move says so', async () => {
+    for (const type of ['move', 'repair']) {
+      const work = { version: 1, type, description: 'd', priced: { commissionCents: 53227, grossMarginCents: 283000, priceCents: 591400, costCents: 255000 } }
+      const q = await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: OLIVE(), ownerId: id.owner, status: 'SENT', finalPrice: 5914, totalCOGS: 2550, gmPct: 0.479, hasSalesman: true, work, proposal: { version: 1, options: [{ label: 'x', fenceStyle: 'WV ND 6x8', finalPrice: 5914, snapshot: { totalCOGS: 2550, gmPct: 0.479, work } }] } as any } })
+      // As an older copy of the builder sends it: the switch off, the margin, the work and proposal as they were.
+      const r = await call('PATCH', `/api/saved-quotes/${q.id}`, tok.owner, { hasSalesman: false, gmPct: 0.5688, finalPrice: 5914, totalCOGS: 2550, work, proposal: q.proposal })
+      expect(r.status).toBe(200)
+      const now = (await quoteOf(q.id))! as any
+      expect(now).toMatchObject({ hasSalesman: false, gmPct: 0.5688, finalPrice: 5914 })
+      expect(now.work.priced).toMatchObject({ commissionCents: 0, grossMarginCents: 336227, priceCents: 591400 })
+      expect(now.proposal.options[0].snapshot.work.priced.commissionCents).toBe(0)
+      expect(now.proposal.options[0].finalPrice).toBe(5914)
+      expect(quoteCommissionCents(now)).toBe(0)
+      const move = await call('POST', `/api/saved-quotes/${q.id}/salesman`, tok.owner, { to: id.sam })
+      expect(move.json.data.commissionWords).toBe('It carries no commission.')
+      await prisma.crmContactNote.deleteMany({ where: { accountId, body: { contains: q.id.slice(-6).toUpperCase() } } })
+      await prisma.savedQuote.delete({ where: { id: q.id } })
+    }
+  })
+
+  test('a switch turned off on purpose stays off on a move; a quote moved off and saved still comes back', async () => {
+    await prisma.businessState.create({ data: { accountId, config: { pricing: { commissionSalesman: 0.09, commissionMode: 'included' } } } as any })
+    const off = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SALLY(), status: 'SENT', finalPrice: 6500, totalCOGS: 3470, gmPct: 0.4662, hasSalesman: false } })).id
+    await call('POST', `/api/saved-quotes/${off}/salesman`, tok.owner, { to: id.sam })
+    expect(await quoteOf(off)).toMatchObject({ hasSalesman: false, gmPct: 0.4662, salesRep: SAM() })
+    await call('POST', `/api/saved-quotes/${off}/salesman`, tok.owner, { to: id.owner })
+    await call('POST', `/api/saved-quotes/${off}/salesman`, tok.owner, { to: id.sam })
+    expect(await quoteOf(off)).toMatchObject({ hasSalesman: false, gmPct: 0.4662 })
+    const moved = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })).id
+    await call('POST', `/api/saved-quotes/${moved}/salesman`, tok.owner, { to: id.owner })
+    // A builder save sends pricing with no word of the move: the record stays.
+    await call('PATCH', `/api/saved-quotes/${moved}`, tok.owner, { hasSalesman: false, gmPct: 0.44, pricing: { overheadPct: 30 } })
+    expect(((await quoteOf(moved))!.pricing as any).commissionMovedOff).toBe(true)
+    await call('POST', `/api/saved-quotes/${moved}/salesman`, tok.owner, { to: id.sam })
+    expect(await quoteOf(moved)).toMatchObject({ hasSalesman: true })
+    expect((await quoteOf(moved))!.gmPct).toBeCloseTo(0.35, 6)
+    expect(((await quoteOf(moved))!.pricing as any).commissionMovedOff).toBeUndefined()
+    await prisma.businessState.delete({ where: { accountId } })
+    await prisma.crmContactNote.deleteMany({ where: { accountId, OR: [off, moved].map(q => ({ body: { contains: q.slice(-6).toUpperCase() } })) } })
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [off, moved] } } })
+  })
+
+  test('commission follows the rep on an unsigned quote, both ways; a signed job does not change, and every word says so', async () => {
+    await prisma.businessState.create({ data: { accountId, config: { pricing: { commissionSalesman: 0.09, commissionMode: 'included' } } } as any })
+    const qid = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true } })).id
+    const off = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.owner, confirm: true })
+    expect(off.json.data).toMatchObject({ commissionCents: 0, commissionWords: 'Its commission is off: this person is not a Salesman.' })
+    expect(await quoteOf(qid)).toMatchObject({ hasSalesman: false, finalPrice: 10000, salesRep: OLIVE() })
+    expect((await quoteOf(qid))!.gmPct).toBeCloseTo(0.44, 6)
+    const on = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.sam, confirm: true })
+    expect(on.json.data.commissionWords).toBe('Commission is on, with the Salesman.')
+    expect(await quoteOf(qid)).toMatchObject({ hasSalesman: true, finalPrice: 10000 })
+    expect((await quoteOf(qid))!.gmPct).toBeCloseTo(0.35, 6)
+    // Signed, to the owner and back: nothing but the rep.
+    const sq = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SOLD', soldAt: new Date(), finalPrice: 6500, totalCOGS: 2932.35, gmPct: 0.4661, hasSalesman: true } })).id
+    const sj = (await prisma.savedJob.create({ data: { accountId, quoteId: sq, crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), quotePrice: 6500, contractValue: 6500, gmPct: 0.4661, hasSalesman: true } })).id
+    const ask = await call('POST', `/api/saved-quotes/${sq}/salesman`, tok.owner, { to: id.owner })
+    expect(ask.status).toBe(409)
+    expect(ask.json.confirm.question).toMatch(/Its \$538\.\d\d commission stays on the job, unchanged\.$/)
+    const yes = await call('POST', `/api/saved-quotes/${sq}/salesman`, tok.owner, { to: id.owner, confirm: true })
+    expect(yes.json.data.commissionWords).toBe('Its commission stays on the job, unchanged.')
+    expect(await quoteOf(sq)).toMatchObject({ hasSalesman: true, gmPct: 0.4661, salesRep: OLIVE() })
+    expect(await prisma.savedJob.findUnique({ where: { id: sj } })).toMatchObject({ hasSalesman: true, gmPct: 0.4661, salesRep: OLIVE() })
+    const log = await prisma.crmAuditLog.findFirst({ where: { entityType: 'SavedQuote', entityId: sq }, orderBy: { createdAt: 'desc' } }) as any
+    expect(log.newValues.salesmanMoved).toMatchObject({ commissionChange: 'none', commissionCents: log.newValues.salesmanMoved.commissionWas })
+    expect(log.newValues.salesmanMoved.commissionCents).toBeGreaterThan(0)
+    const note = await prisma.crmContactNote.findFirst({ where: { accountId, body: { contains: sq.slice(-6).toUpperCase() } }, orderBy: { createdAt: 'desc' } })
+    expect(note!.body).toContain('(signed job; its commission stays on the job, unchanged)')
+    // Added on top of the price: left alone, and said.
+    await prisma.businessState.update({ where: { accountId }, data: { config: { pricing: { commissionSalesman: 0.09, commissionMode: 'added' } } } as any })
+    const add = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 11000, totalCOGS: 5600, gmPct: 0.4, hasSalesman: true } })).id
+    const addMove = await call('POST', `/api/saved-quotes/${add}/salesman`, tok.owner, { to: id.owner, confirm: true })
+    expect(addMove.json.data.commissionWords).toMatch(/added on top of the price/)
+    expect(await quoteOf(add)).toMatchObject({ hasSalesman: true, finalPrice: 11000, gmPct: 0.4 })
+    await prisma.businessState.delete({ where: { accountId } })
+    await prisma.crmContactNote.deleteMany({ where: { accountId, OR: [qid, sq, add].map(q => ({ body: { contains: q.slice(-6).toUpperCase() } })) } })
+    await prisma.savedJob.delete({ where: { id: sj } })
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [qid, sq, add] } } })
   })
 
   test('scope follows: Sam has the moved quotes and the job; Sally no longer has them, not even the quote she wrote; her older copy neither saves nor takes it back', async () => {

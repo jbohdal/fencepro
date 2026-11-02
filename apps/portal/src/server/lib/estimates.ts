@@ -72,6 +72,7 @@ interface EstimateModule {
   liveOverheadPctIn(pricing: unknown, now: unknown): number | null
   optionBlocks(p: unknown): string[]
   proposalStamp(p: unknown): string
+  addsPastLimit(after: unknown, before: unknown, quote: unknown, styleOf?: unknown): number | null
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>

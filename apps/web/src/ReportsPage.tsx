@@ -7,9 +7,8 @@ import JobCostingReport from './JobCostingReport'
 import ServiceReport from './ServiceReport'
 import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
-import { marginOf, weightedTarget, hasCost, leftOutWords } from './moneyTruth'
-import { companyTargets, yearActuals } from './moneyLoad'
-import { seesCommission, withShownMargin } from './salesmanCommission'
+import { marginOf, weightedTarget, marginOnPrice, hasCost, leftOutWords } from './moneyTruth'
+import { companyTargets, yearActuals, quoteGrader, groupTarget } from './moneyLoad'
 import { can, signedInRole } from './permissions'
 
 /* ───────── helpers ───────── */
@@ -181,22 +180,22 @@ function HorizontalBarChart({ items, valueLabel }: {
 
 /* ───────── Margin distribution histogram ───────── */
 
-function MarginHistogram({ quotes, target }: { quotes: SavedQuote[]; target: number }) {
-  const t = Math.round(target * 100) / 100
+function MarginHistogram({ quotes, gradeOf }: { quotes: SavedQuote[]; gradeOf: ReturnType<typeof quoteGrader> }) {
+  // Points from the Target Margin each quote was priced with: a mix of styles and overheads reads on one scale.
   const buckets = [
-    { label: '< 20%', min: -Infinity, max: 0.20, color: 'bg-red-500' },
-    { label: `20-${Math.round((t - 0.10) * 100)}%`, min: 0.20, max: t - 0.10, color: 'bg-red-400' },
-    { label: `${Math.round((t - 0.10) * 100)}-${Math.round((t - 0.05) * 100)}%`, min: t - 0.10, max: t - 0.05, color: 'bg-orange-400' },
-    { label: `${Math.round((t - 0.05) * 100)}-${Math.round(t * 100)}%`, min: t - 0.05, max: t - 0.005, color: 'bg-yellow-400' },
-    { label: `${Math.round(t * 100)}-${Math.round((t + 0.05) * 100)}%`, min: t - 0.005, max: t + 0.05, color: 'bg-green-500' },
-    { label: `> ${Math.round((t + 0.05) * 100)}%`, min: t + 0.05, max: Infinity, color: 'bg-green-600' },
+    { label: '15+ under', min: -Infinity, max: -0.15, color: 'bg-red-500' },
+    { label: '10-15 under', min: -0.15, max: -0.10, color: 'bg-red-400' },
+    { label: '5-10 under', min: -0.10, max: -0.05, color: 'bg-orange-400' },
+    { label: 'Up to 5 under', min: -0.05, max: -0.005, color: 'bg-yellow-400' },
+    { label: 'On target', min: -0.005, max: 0.05, color: 'bg-green-500' },
+    { label: '5+ over', min: 0.05, max: Infinity, color: 'bg-green-600' },
   ]
 
   // Only quotes with costs: a price with no cost says nothing about margin.
-  quotes = quotes.filter(hasCost)
+  const points = quotes.filter(hasCost).map(q => { const g = gradeOf(q); return (g.margin ?? 0) - g.target })
   const counts = buckets.map(b => ({
     ...b,
-    count: quotes.filter(q => q.gmPct >= b.min && q.gmPct < b.max).length,
+    count: points.filter(p => p >= b.min && p < b.max).length,
   }))
   const maxCount = Math.max(...counts.map(c => c.count), 1)
 
@@ -225,9 +224,8 @@ interface ReportsPageProps {
 }
 
 export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
-  // A Salesman sees each quote's margin before the commission (Oct 27 2026). For the screen only: nothing here saves a quote.
-  const showCommission = seesCommission(signedInRole(), can('costs.view'))
-  const quotes = useMemo(() => savedQuotes.map(q => withShownMargin(q, showCommission)), [savedQuotes, showCommission])
+  // Every margin here is price less cost (before commission), graded on the Target Margin the quotes were priced with.
+  const quotes = savedQuotes
   const currentYear = new Date().getFullYear()
   const years = useMemo(() => {
     const yrs = new Set<number>()
@@ -305,8 +303,8 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
   const styles = useMemo(() => getConfig().fenceStyles ?? [], [])
   const lowTarget = targets.minPct / 100
   const yearTarget = useMemo(() => weightedTarget(styles, costedQuotes, lowTarget) ?? lowTarget, [styles, costedQuotes, lowTarget])
-  const marginColor = (pct: number | null) => marginColorAt(pct, lowTarget)
-  const marginBg = (pct: number | null) => marginBgAt(pct, lowTarget)
+  const gradeOf = useMemo(() => quoteGrader(), [])
+  const quoteMargin = (q: SavedQuote) => marginOnPrice(q) ?? 0
 
   // ── Margin by fence style ──
   const styleBreakdown = useMemo(() => {
@@ -316,7 +314,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
       .map(([label, qs]) => {
         // Margin only over the style's quotes with costs; the others are named as left out, never 100% margin.
         const m = marginOf(qs)
-        return { label, revenue: qs.reduce((t, q) => t + q.finalPrice, 0), margin: m.margin, withCosts: m.withCosts, leftOut: m.leftOut.length, count: qs.length }
+        return { label, revenue: qs.reduce((t, q) => t + q.finalPrice, 0), margin: m.margin, target: groupTarget(qs), withCosts: m.withCosts, leftOut: m.leftOut.length, count: qs.length }
       })
       .sort((a, b) => b.revenue - a.revenue)
   }, [soldQuotes])
@@ -394,6 +392,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
         closeRate: d.total > 0 ? d.sold / d.total : 0,
         revenue: d.revenue,
         avgMargin: marginOf(d.soldQuotes).margin,
+        target: groupTarget(d.soldQuotes),
       }))
       .sort((a, b) => b.revenue - a.revenue)
   }, [yearQuotes])
@@ -419,6 +418,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
         closeRate: d.total > 0 ? d.sold / d.total : 0,
         revenue: d.revenue,
         avgMargin: marginOf(d.soldQuotes).margin,
+        target: groupTarget(d.soldQuotes),
         avgDeal: d.sold > 0 ? d.revenue / d.sold : 0,
       }))
       .sort((a, b) => b.revenue - a.revenue)
@@ -546,6 +546,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
         revenue: d.revenue,
         count: d.count,
         avgMargin: marginOf(d.quotes).margin,
+        target: groupTarget(d.quotes),
         avgDeal: d.count > 0 ? d.revenue / d.count : 0,
         firstDate: d.firstDate,
         lastDate: d.lastDate,
@@ -868,7 +869,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
               <div>
                 <h4 className="font-semibold text-gray-900">Gross Margin Distribution</h4>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  How {year} sold quotes with costs ({costedQuotes.length}) distribute across margin ranges · Target Margin {targets.words} (Settings › Pricing){costNote}
+                  How {year} sold quotes with costs ({costedQuotes.length}) stand against the Target Margin each was priced with. Margin is price less cost, before commission{costNote}
                 </p>
               </div>
               <div className="text-right">
@@ -876,11 +877,11 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                 <p className="text-xs text-gray-400">gross margin</p>
               </div>
             </div>
-            <MarginHistogram quotes={soldQuotes} target={lowTarget} />
+            <MarginHistogram quotes={soldQuotes} gradeOf={gradeOf} />
             <div className="flex items-center justify-center gap-2 mt-3 text-xs text-gray-400">
               <span className="w-3 h-3 rounded bg-red-500 inline-block" /> More than 5 points under
               <span className="w-3 h-3 rounded bg-yellow-400 inline-block ml-2" /> Up to 5 under
-              <span className="w-3 h-3 rounded bg-green-500 inline-block ml-2" /> {targets.minPct}%+ (target)
+              <span className="w-3 h-3 rounded bg-green-500 inline-block ml-2" /> On its target or over
             </div>
           </div>
 
@@ -906,14 +907,14 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
               <h4 className="font-semibold text-green-700 mb-3">Top 5 Margin Quotes</h4>
               <div className="space-y-2">
-                {[...costedQuotes].sort((a, b) => b.gmPct - a.gmPct).slice(0, 5).map(q => (
+                {[...costedQuotes].sort((a, b) => quoteMargin(b) - quoteMargin(a)).slice(0, 5).map(q => (
                   <div key={q.id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
                     <div>
                       <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
                       <p className="text-xs text-gray-400">{styleLabel(q.fenceStyle)} · {q.date}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-green-700">{fmtPct(q.gmPct)}</p>
+                      <p className="text-sm font-bold text-green-700">{fmtPct(quoteMargin(q))}</p>
                       <p className="text-xs text-gray-400">{fmt(q.finalPrice)}</p>
                     </div>
                   </div>
@@ -924,14 +925,14 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
             <div className="bg-white rounded-2xl border border-gray-200 p-6">
               <h4 className="font-semibold text-red-700 mb-3">Bottom 5 Margin Quotes</h4>
               <div className="space-y-2">
-                {[...costedQuotes].sort((a, b) => a.gmPct - b.gmPct).slice(0, 5).map(q => (
+                {[...costedQuotes].sort((a, b) => quoteMargin(a) - quoteMargin(b)).slice(0, 5).map(q => (
                   <div key={q.id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
                     <div>
                       <p className="text-sm font-medium text-gray-900">{q.customerName}</p>
                       <p className="text-xs text-gray-400">{styleLabel(q.fenceStyle)} · {q.date}</p>
                     </div>
                     <div className="text-right">
-                      <p className={`text-sm font-bold ${marginColor(q.gmPct)}`}>{fmtPct(q.gmPct)}</p>
+                      <p className={`text-sm font-bold ${marginColorAt(quoteMargin(q), gradeOf(q).target)}`}>{fmtPct(quoteMargin(q))}</p>
                       <p className="text-xs text-gray-400">{fmt(q.finalPrice)}</p>
                     </div>
                   </div>
@@ -969,13 +970,13 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                   <span className="text-sm font-medium text-gray-700 w-28">{s.label}</span>
                   <div className="flex-1 bg-gray-100 rounded-full h-5 relative min-w-[120px]">
                     <div
-                      className={`h-5 rounded-full transition-all ${marginBg(s.margin)}`}
+                      className={`h-5 rounded-full transition-all ${marginBgAt(s.margin, s.target)}`}
                       style={{ width: `${(s.margin ?? 0) * 100}%` }}
                     />
-                    {/* Target Margin marker (Settings › Pricing) */}
-                    <div className="absolute top-0 h-5 border-l-2 border-dashed border-gray-600" style={{ left: `${targets.minPct}%` }} />
+                    {/* These quotes' Target Margin */}
+                    <div className="absolute top-0 h-5 border-l-2 border-dashed border-gray-600" style={{ left: `${s.target * 100}%` }} />
                   </div>
-                  <span className={`text-sm font-bold w-14 text-right ${marginColor(s.margin)}`}>
+                  <span className={`text-sm font-bold w-14 text-right ${marginColorAt(s.margin, s.target)}`}>
                     {pctOrDash(s.margin)}
                   </span>
                   <span className="w-full sm:w-auto text-xs text-gray-500">{s.withCosts} with costs{s.leftOut ? `, ${s.leftOut} without left out` : ''}</span>
@@ -1011,7 +1012,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="% of Total" className="px-6 py-3 text-right text-gray-500">
                       {ytdRevenue > 0 ? fmtPct(s.revenue / ytdRevenue) : '0%'}
                     </td>
-                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(s.margin)}`}>
+                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(s.margin, s.target)}`}>
                       {pctOrDash(s.margin)}{s.leftOut ? <span className="block text-[11px] font-normal text-gray-400">{s.withCosts} of {s.count} with costs</span> : null}
                     </td>
                     <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">
@@ -1025,7 +1026,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="Jobs" className="px-6 py-3 text-right text-gray-900">{soldQuotes.length}</td>
                     <td data-label="Revenue" className="px-6 py-3 text-right text-gray-900">{fmt(ytdRevenue)}</td>
                     <td data-label="% of Total" className="px-6 py-3 text-right text-gray-500">100%</td>
-                    <td data-label="Margin" className={`px-6 py-3 text-right ${marginColor(avgMargin)}`}>{pctOrDash(avgMargin)}</td>
+                    <td data-label="Margin" className={`px-6 py-3 text-right ${marginColorAt(avgMargin, yearTarget)}`}>{pctOrDash(avgMargin)}</td>
                     <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-900">{fmt(avgDeal)}</td>
                   </tr>
                 )}
@@ -1114,7 +1115,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="Style" className="px-6 py-3 text-gray-600">{styleLabel(q.fenceStyle)}</td>
                     <td data-label="Date" className="px-6 py-3 text-gray-500">{q.date}</td>
                     <td data-label="Price" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(q.finalPrice)}</td>
-                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(hasCost(q) ? q.gmPct : null)}`}>{hasCost(q) ? fmtPct(q.gmPct) : 'No cost'}</td>
+                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(marginOnPrice(q), gradeOf(q).target)}`}>{hasCost(q) ? fmtPct(quoteMargin(q)) : 'No cost'}</td>
                   </tr>
                 ))}
                 {soldQuotes.length === 0 && (
@@ -1296,7 +1297,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                       {fmtPct(s.closeRate)}
                     </td>
                     <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(s.revenue)}</td>
-                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(s.avgMargin)}`}>
+                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(s.avgMargin, s.target)}`}>
                       {pctOrDash(s.avgMargin)}
                     </td>
                   </tr>
@@ -1340,7 +1341,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Avg Margin</p>
-                    <p className={`text-sm font-semibold ${marginColor(r.avgMargin)}`}>{pctOrDash(r.avgMargin)}</p>
+                    <p className={`text-sm font-semibold ${marginColorAt(r.avgMargin, r.target)}`}>{pctOrDash(r.avgMargin)}</p>
                   </div>
                 </div>
               </div>
@@ -1380,7 +1381,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     </td>
                     <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(r.revenue)}</td>
                     <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{r.sold > 0 ? fmt(r.avgDeal) : '—'}</td>
-                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(r.avgMargin)}`}>
+                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(r.avgMargin, r.target)}`}>
                       {pctOrDash(r.avgMargin)}
                     </td>
                   </tr>
@@ -1885,7 +1886,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="Jobs" className="px-6 py-3 text-right text-gray-700">{c.count}</td>
                     <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(c.revenue)}</td>
                     <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{fmt(c.avgDeal)}</td>
-                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColor(c.avgMargin)}`}>{pctOrDash(c.avgMargin)}</td>
+                    <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(c.avgMargin, c.target)}`}>{pctOrDash(c.avgMargin)}</td>
                     <td data-label="Styles" className="px-6 py-3 text-gray-500 text-xs">{c.styles.join(', ')}</td>
                   </tr>
                 ))}

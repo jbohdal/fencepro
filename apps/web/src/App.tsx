@@ -86,7 +86,7 @@ import { signedInUserId } from './crmAuth'
 import { MOVED_EVENT, recentMoved } from './movedNotice'
 import { forgetQuote, quoteStillMine } from './quoteStore'
 import { possessive } from './personName'
-import { seesCommission, withShownMargin } from './salesmanCommission'
+import { seesCommission } from './salesmanCommission'
 import { roleName } from './teamRoles'
 import { REFUSED_EVENT } from './outbox'
 import StageBlockedNotice from './StageBlockedNotice'
@@ -99,7 +99,7 @@ import { stockWarningsForSheet } from './pendingOrderStore'
 import { fireQuoteSold } from './automationTrigger'
 import { installedRevenueForYear, soldNotInstalled } from './quoteStats'
 import { marginOf, soldInYear, weightedTarget, leftOutWords } from './moneyTruth'
-import { companyTargets, yearActuals, reportQuotes, quoteMarginTone } from './moneyLoad'
+import { companyTargets, yearActuals, reportQuotes, gradeOfQuote } from './moneyLoad'
 import { initAppointments, isAppointmentsHydrated, getAppointments } from './appointmentsStore'
 import { initBookingTeam, isBookingTeamLoaded } from './bookingTeamStore'
 const AppointmentsPage = lazy(() => import('./AppointmentsPage'))
@@ -237,9 +237,8 @@ const fmt = (n: number) =>
 
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
 
-/** A quote's margin against its own style's Target Margin (Settings › Pricing). */
-function marginColor(q: { gmPct: number; totalCOGS: number; fenceStyle: string }) {
-  const tone = quoteMarginTone(q)
+/** A quote's price less cost against the Target Margin it was priced with. */
+function marginColor(tone: 'good' | 'near' | 'bad' | 'none') {
   return tone === 'good' ? 'text-green-600 font-semibold' : tone === 'near' ? 'text-yellow-600 font-semibold' : tone === 'bad' ? 'text-red-600 font-semibold' : 'text-gray-400'
 }
 
@@ -1511,7 +1510,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                           <p className="text-sm text-gray-500">{[quoteStyleLabel(q as any), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          {q.totalCOGS > 0 && <span className={`text-sm ${marginColor(withShownMargin(q, showCommissionHere))}`}>{fmtPct(withShownMargin(q, showCommissionHere).gmPct)}</span>}
+                          {q.totalCOGS > 0 && (() => { const g = gradeOfQuote(q); return <span className={`text-sm ${marginColor(g.tone)}`}>{fmtPct(g.margin ?? 0)}</span> })()}
                           <span className="text-sm font-semibold text-gray-900">{fmt(q.finalPrice)}</span>
                           <span className={`chip ${STATUS_COLORS[q.status]}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                         </div>
