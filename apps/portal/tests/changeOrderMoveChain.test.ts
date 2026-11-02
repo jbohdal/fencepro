@@ -9,7 +9,7 @@
  */
 import { describe, test, expect } from 'vitest'
 import { changeOrderDraft } from '../../web/src/changeOrderDraft'
-import { noWorkCents, noWorkNote, type EarlierOrder, type WorkState } from '../../web/src/changeOrderPricing'
+import { noWorkCents, noWorkNote, voidGaps, type EarlierOrder, type WorkState } from '../../web/src/changeOrderPricing'
 import { moveChangeWords, repairChangeWords, type RepairInputs } from '../../web/src/moveRepair'
 import { whatChanged } from '../src/server/lib/changeOrderWork'
 import type { QuoteCalcInput } from '../../web/src/quoteCalc'
@@ -56,7 +56,7 @@ describe('how a change is said', () => {
 
   test('a repair: words a customer reads, each item on its own', () => {
     expect(repairChangeWords(repair({ resetPost: 1 }), repair({ resetPost: 2 }))).toEqual(['Add 1 leaning post reset'])
-    expect(repairChangeWords(repair({ resetPost: 3, replacePost: 1 }), repair({ resetPost: 1, replaceSection: 2 }))).toEqual(['Remove 2 leaning post resets', 'Remove 1 post replaced', 'Add 2 whole sections replaced'])
+    expect(repairChangeWords(repair({ resetPost: 3, replacePost: 1 }), repair({ resetPost: 1, replaceSection: 2 }))).toEqual(['Remove 2 leaning post resets', 'Remove 1 post replacement', 'Add 2 whole section replacements'])
   })
 
   test('one change of a repair carries the amount on its own line, not "Changes to the work"', () => {
@@ -65,12 +65,39 @@ describe('how a change is said', () => {
   })
 
   test('more than one: each said, one price difference line', () => {
-    const d = draft({ ft: 100, walk: 0, contract: 5000 }, input(100), 5900, [], ['Add 1 leaning post reset', 'Add 1 post replaced'])
-    expect(d.lines.map(l => [l.description, l.amountCents])).toEqual([['Add 1 leaning post reset', 0], ['Add 1 post replaced', 0], ["Price difference at today's prices", 90000]])
+    const d = draft({ ft: 100, walk: 0, contract: 5000 }, input(100), 5900, [], ['Add 1 leaning post reset', 'Add 1 post replacement'])
+    expect(d.lines.map(l => [l.description, l.amountCents])).toEqual([['Add 1 leaning post reset', 0], ['Add 1 post replacement', 0], ["Price difference at today's prices", 90000]])
   })
 
   test('nothing to say in words: the general line, as before', () => {
     expect(draft({ ft: 100, walk: 0, contract: 5000 }, input(100), 5100).lines.map(l => l.description)).toEqual(["Changes to the work, at today's prices"])
+  })
+
+  test('every input that prices is said, never only the general line', () => {
+    const r = repair({ resetPost: 1 })
+    expect(repairChangeWords(r, { ...r, postType: 'ds' })).toEqual(['Old posts: no dig to dig set'])
+    expect(repairChangeWords(r, { ...r, newPostCaps: true })).toEqual(['Add new post caps'])
+    expect(repairChangeWords(r, { ...r, gateKind: 'double' })).toEqual(['Gate work is on a double gate, not a walk gate'])
+    expect(repairChangeWords(r, { ...r, repairParts: [{ part: 'Rail', qty: 1 }] })).toEqual(['Change the parts used for the section repair'])
+    const m = { oldFt: 100, oldWalkGates: 0, oldDblGates: 0, oldPostType: 'nd' as const, newPostCaps: false }
+    expect(moveChangeWords(m, { ...m, oldPostType: 'ds' })).toEqual(['Old posts: no dig to dig set'])
+    expect(moveChangeWords(m, { ...m, oldFt: 110 })).toEqual(['Old fence to move: 100 ft to 110 ft'])
+    expect(moveChangeWords(m, { ...m, oldWalkGates: 1 })).toEqual(['Old walk gates: 0 to 1'])
+    expect(moveChangeWords(m, { ...m, damagePct: 20 })).toEqual(['Damage allowance: standard to 20%'])
+  })
+
+  test('a void\'s gap is its own line until the next change order after it, the total as it was', () => {
+    const at = (d: string) => `2026-11-0${d}T12:00:00Z`
+    const v: EarlierOrder = { number: 1, status: 'void', totalCents: -28200, voidGapCents: 42900, voidedAt: at('2'), createdAt: at('1') }
+    const later: EarlierOrder = { ...kept, number: 2, createdAt: at('1') }
+    const d = draft({ ft: 110, walk: 0, contract: 4191 }, input(112), 4640, [v, later])
+    expect(d.lines.map(l => [l.description, l.amountCents])).toEqual([['Add 2 ft of fence (110 ft to 112 ft)', 0], ["Price difference at today's prices", 2000], ["Contract back to today's price after CO-1 was cancelled", 42900]])
+    expect(total(d)).toBe(44900)
+    expect(d.warnings?.[0]).toMatch(/Voiding CO-1 left the contract \$429 under/)
+    // Shown once: a change order made after the void has it in.
+    expect(voidGaps([v, later, { ...kept, number: 3, createdAt: at('3') }])).toEqual([])
+    // A typed one voided has none.
+    expect(voidGaps([typed(1, 10000, 'void')])).toEqual([])
   })
 
   test('a move input: said', () => {
@@ -91,11 +118,11 @@ describe('what the person is told', () => {
 
   test('which change, and that it must not go in twice; it never says to put it in', () => {
     const note = noWorkNote([old(1, 80500)])!
-    expect(note).toBe('CO-1 (made earlier, +$805: Add 20 ft of fence (100 ft to 120 ft)) is on the contract but not in the work shown here. Its price stays on the job and this change order does not touch it. Do not put it in here: that would count it twice.')
+    expect(note).toBe('CO-1 (made earlier, +$805: Add 20 ft of fence (100 ft to 120 ft)) is on the contract but not in the work shown here, and stays off the pull sheet: the crew packet lists its words. Its price stays on the job and this change order does not touch it. Do not put it in here: that would count it twice.')
     expect(note).not.toMatch(/back\./)
   })
 
   test('an old credit is a credit, typed and picked are said apart, and the grammar counts', () => {
-    expect(noWorkNote([old(1, -30000), typed(2, 10000), picked(3, 86400)])).toBe('CO-1 (made earlier, -$300: Add 20 ft of fence (100 ft to 120 ft)), CO-2 (typed, +$100: Haul off the old slab) and CO-3 (picked from the price list, +$864: 1 × Add a section) are on the contract but not in the work shown here. Their prices stay on the job and this change order does not touch them. Do not put them in here: that would count them twice.')
+    expect(noWorkNote([old(1, -30000), typed(2, 10000), picked(3, 86400)])).toBe('CO-1 (made earlier, -$300: Add 20 ft of fence (100 ft to 120 ft)), CO-2 (typed, +$100: Haul off the old slab) and CO-3 (picked from the price list, +$864: 1 × Add a section) are on the contract but not in the work shown here, and stay off the pull sheet: the crew packet lists their words. Their prices stay on the job and this change order does not touch them. Do not put them in here: that would count them twice.')
   })
 })

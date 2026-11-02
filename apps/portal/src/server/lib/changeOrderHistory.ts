@@ -47,6 +47,8 @@ export async function changeOrderItems(accountId: string, quoteIds: string[]): P
     if (r.signedAt) items.push({ at: r.signedAt.toISOString(), kind: 'change_order', title: `Change order CO-${r.number} signed by ${r.signedBy ?? 'the customer'}${r.signedVia ? ` ${VIA[r.signedVia] ?? ''}` : ''}`.trim(), detail: '', by: '' })
     if (r.approvedAt && (r.status === 'approved' || r.voidedAt)) items.push({ at: r.approvedAt.toISOString(), kind: 'change_order', title: approvedText(r, style), detail: `${rev}change order CO-${r.number}.${r.warrantyAfter ? ` Warranty now ${(r.warrantyAfter as any).name}.` : ''}`, by: r.verbalBy ?? r.approvedBy ?? '' })
     if (r.voidedAt) items.push({ at: r.voidedAt.toISOString(), kind: 'change_order', title: `Change order CO-${r.number} voided${r.approvedAt ? ': taken off the contract' : ''}`, detail: '', by: '' })
+    const left = (r.work as any)?.afterVoid
+    if (r.voidedAt && left) items.push({ at: r.voidedAt.toISOString(), kind: 'change_order', title: `The job after CO-${r.number} was voided: ${left.feet} ft, ${left.sections} sections; a new pull sheet revision for the crew`, detail: '', by: '' })
   }
   return items
 }

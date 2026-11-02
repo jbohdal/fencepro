@@ -37,7 +37,7 @@ import { mediaDir, serializeMedia, processMediaQueue } from '../lib/media.js'
 import { serveSignedMedia } from './media.js'
 import { plainZod } from '../lib/plainZod.js'
 import { plainStyleName } from '../lib/estimates.js'
-import { packetChange, packetWithChange, packetChangeHeading, sheetChanges } from '../lib/changeOrderWork.js'
+import { packetChange, packetWithChange, packetChangeHeading, sheetChanges, typedLinesFor } from '../lib/changeOrderWork.js'
 import { coveredWorkOn } from '../lib/serviceTickets.js'
 import { issueLabel } from '../lib/serviceTicketModel.js'
 import { isWalkthroughCaption, replacedWalkthroughPhotos } from '../lib/walkthrough.js'
@@ -243,7 +243,7 @@ packetStaff.get('/', async (req: any, res) => {
   const job = p ? await prisma.savedJob.findUnique({ where: { id: p.jobId }, select: { quoteId: true } }) : null
   const co = p ? await packetChange(p.accountId, job?.quoteId, p.sentAt).catch(() => null) : null
   // The 811 locate is the job's (lib/locates.ts): the job page shows and edits it; the packet saves the same fields.
-  res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, sentAt: p.sentAt, changedBy: co ? { number: co.number, what: co.what, all: co.all.map(a => ({ number: a.number, what: a.what })) } : null } : null })
+  res.json({ success: true, data: p ? { id: p.id, token: p.token, disabledAt: p.disabledAt, sentAt: p.sentAt, changedBy: co ? { number: co.all.length || !co.voided?.length ? co.number : co.voided[co.voided.length - 1].number, what: co.all.length || !co.voided?.length ? co.what : 'voided, so its change is off the job', all: [...co.all.map(a => ({ number: a.number, what: a.what })), ...(co.all.length ? (co.voided ?? []).map(v => ({ number: v.number, what: 'voided, so its change is off the job' })) : [])] } : null } : null })
 })
 
 // The work as it is now for a packet (the newest approved change order's drawing, runs, gates and quantities;
@@ -436,6 +436,7 @@ packetPublic.get('/:token', async (req, res) => {
   // An approved change order changed the work after this packet was sent: the work as it is now, what changed marked.
   const coChange = await packetChange(p.accountId, job!.quoteId, p.sentAt).catch(() => null)
   const s = packetWithChange(p.snapshot as Snapshot, coChange)
+  const typed = await typedLinesFor(p.accountId, job!.quoteId)
   const coLines = coChange ? sheetChanges((p.snapshot as Snapshot).pullSheet ?? [], s.pullSheet ?? []) : []
   // The fence's plain name (packets made before plain names carry the style's code).
   const styleText = panelWords(await plainStyleName(s.style ?? job!.fenceStyle), s.runs ?? [])
@@ -479,7 +480,9 @@ packetPublic.get('/:token', async (req, res) => {
     <h1>${esc(job_.customerName)}</h1>
     <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">${service ? `Original ${installWord(s.work).toLowerCase()}` : W}: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
-    ${coChange && !service ? `<section class="notes" data-packet-change-order><h2>${esc(packetChangeHeading(coChange))}</h2>${coChange.all.map(a => `<p data-packet-co-item="${a.number}">${coChange.all.length > 1 ? `CO-${a.number}: ` : ''}<b>${esc(a.what)}</b> (approved ${esc(a.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${a.rev ? `, contract rev ${a.rev}` : ''}).</p>`).join('')}<p>The fence, runs and pull sheet below are the new ones, with ${coChange.all.length > 1 ? 'every change above' : 'this change'}.${coChange.work.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
+    ${coChange && !service ? `<section class="notes" data-packet-change-order><h2>${esc(packetChangeHeading(coChange))}</h2>${coChange.all.map(a => `<p data-packet-co-item="${a.number}">${coChange.all.length > 1 ? `CO-${a.number}: ` : ''}<b>${esc(a.what)}</b> (approved ${esc(a.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${a.rev ? `, contract rev ${a.rev}` : ''}).</p>`).join('')}<p>${coChange.all.length ? `The fence, runs and pull sheet below are the new ones, with ${coChange.all.length > 1 ? 'every change above' : 'this change'}.` : 'The fence, runs and pull sheet below are the job as it is now.'}${s.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
+    ${coChange?.voided?.length && !service ? `<section class="notes" data-packet-voided>${coChange.voided!.map(v => `<p>CO-${v.number} was voided on ${esc(v.voidedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}: its change is off the job. The fence and pull sheet here are the job as it is now. Go by the feet here, not the site plan, if they differ.</p>`).join('')}</section>` : ''}
+    ${typed.length && !service ? `<section class="notes" data-packet-typed><h2>Also agreed on change orders</h2><ul>${typed.map(t => `<li>${esc(t)}</li>`).join('')}</ul><p class="small">These are not on the pull sheet.</p></section>` : ''}
     ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
     ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}

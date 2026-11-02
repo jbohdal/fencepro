@@ -30,7 +30,7 @@ import crypto from 'crypto'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { Prisma } from '@prisma/client'
-import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
+import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, signingClash, inputs, type StoredWork, type WorkInput } from './changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
 import { dataFor } from './quotePricing.js'
@@ -51,7 +51,7 @@ export const WAITING_OK = 'This change order waits for Jonathan or the office to
  * or "catalog:<Inventory item id>", the job's style it was priced for and the
  * price the list gave (its amount may have been changed by hand since).
  */
-export interface ChangeOrderLine { id: string; description: string; amountCents: number; qty?: number; source?: LineSource | null }
+export interface ChangeOrderLine { id: string; description: string; amountCents: number; fromChange?: boolean; qty?: number; source?: LineSource | null }
 export interface LineSource { kind: 'repair' | 'catalog'; ref: string; label: string; fenceStyle?: string; listCents?: number }
 
 type Row = NonNullable<Awaited<ReturnType<typeof prisma.changeOrder.findUnique>>>
@@ -72,7 +72,7 @@ export const linesOf = (r: { lines: unknown }): ChangeOrderLine[] =>
     const qty = Number(l?.qty), source = sourceOf(l?.source)
     return {
       id: String(l?.id ?? ''), description: String(l?.description ?? ''), amountCents: Math.round(Number(l?.amountCents) || 0),
-      ...(Number.isInteger(qty) && qty > 0 ? { qty } : {}), ...(source ? { source } : {}),
+      ...(l?.fromChange === true ? { fromChange: true } : {}), ...(Number.isInteger(qty) && qty > 0 ? { qty } : {}), ...(source ? { source } : {}),
     }
   })
 
@@ -134,7 +134,7 @@ export function alsoInDrawingWords(also: ReturnType<typeof alsoInDrawing>): stri
 }
 
 /** A line as the customer sees it: what changes, how many and the amount (never where it was picked from). */
-const customerLine = ({ source, ...l }: ChangeOrderLine) => { void source; return l }
+const customerLine = ({ source, fromChange, ...l }: ChangeOrderLine) => { void source; void fromChange; return l }
 
 export const totalOf = (lines: ChangeOrderLine[]) => lines.reduce((s, l) => s + l.amountCents, 0)
 
@@ -161,6 +161,7 @@ export function workView(w: unknown) {
     fenceStyle: x.fenceStyle, runs: x.runs, runRails: x.runRails, corners: x.corners, ends: x.ends, walkGates: x.walkGates, dblGates: x.dblGates,
     tearOutSections: x.tearOutSections, tearOutGates: x.tearOutGates, sections: x.sections, footage: x.footage, layout: x.layout ?? null, planSvg: x.planSvg ?? null,
     workDetail: x.workDetail ?? null,
+    afterVoid: x.afterVoid ?? null,
     pullSheet: (Array.isArray(x.pullSheet) ? x.pullSheet : []).filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })),
   }
 }
@@ -179,6 +180,8 @@ export function view(r: Row, siblings: Row[] = []) {
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,
     work: workView(r.work),
+    // Voided: what that left between the contract and the work's price, for the next change order's own line.
+    voidGapCents: (r.work as any)?.afterVoid?.gapCents ?? 0,
     // The job's work after it, when its change was put on another change order's (rebuildJobWork); else its own.
     jobWork: r.work && typeof r.work === 'object' && (r.work as any).applied ? workView((r.work as any).applied) : null,
     warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
@@ -293,6 +296,14 @@ export async function signByCustomer(accountId: string, id: string, s: CustomerS
   return out
 }
 
+/** One that can't be signed yet (lib/changeOrderWork.ts signingClash): the office is told why, a customer to call us. */
+async function refuseClash(tx: any, accountId: string, cur: Row, customer = false) {
+  const rows = await tx.changeOrder.findMany({ where: { accountId, quoteId: cur.quoteId, deletedAt: null } })
+  const q = await tx.savedQuote.findFirst({ where: { id: cur.quoteId, accountId } })
+  const why = q ? signingClash(cur as any, rows, q) : null
+  if (why) throw err(409, customer ? 'This change order needs another look from our office before it can be signed. Please call us.' : why)
+}
+
 async function signIn(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
@@ -304,6 +315,7 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
     if (cur.status === 'needs_ok') throw err(409, WAITING_OK)
     const verbal = cur.status === 'approved' // approved verbally: signed now, everything else as it was
     if (!verbal && cur.status !== 'sent' && !(cur.status === 'draft' && s.via === 'in_person')) throw err(409, 'This change order is not ready to sign yet. Please call us.')
+    if (!verbal) await refuseClash(tx, accountId, cur, s.via !== 'in_person')
     const now = new Date()
     // The words they were shown are the words they sign (the signed PDF and the record keep them).
     const shown = shownLines(cur)
@@ -489,6 +501,7 @@ async function workPart(accountId: string, quoteId: string, input: WorkInput, ex
   if (!q) throw err(404, 'Quote not found')
   // A signed job stays the kind of job it was sold as: a new fence is never turned into a repair by a change order.
   const kind = (q.work as any)?.type === 'move' || (q.work as any)?.type === 'repair' ? (q.work as any).type : 'new'
+  if (kind !== 'new' && input.request?.jobType === kind && !inputs({ request: input.request })) throw err(400, `This change order has no ${kind === 'move' ? 'move details' : 'repair list'} with it. Open the job and make it again.`)
   if ((input.request?.jobType ?? 'new') !== kind) throw err(409, `This job was sold as ${JOB_WORDS[kind]}. A change order cannot change that: make a new quote for ${JOB_WORDS[input.request?.jobType] ?? 'the other job'}.`)
   const priced = await priceWork(accountId, q, input)
   // It starts from the work with every signed and every still open change order's change in it
@@ -676,6 +689,7 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
       // The OK (owner or office; the route checks): waiting for the OK, then a draft that can go to the customer.
       if (to === 'draft' && cur.status !== 'needs_ok') throw err(409, 'A change order goes from draft to sent to approved.')
       if (to === 'sent' && cur.status === 'needs_ok') throw err(409, WAITING_OK)
+      if (to === 'sent' || to === 'approved') await refuseClash(tx, accountId, cur)
       data.status = to
       if (to === 'sent') data.sentAt = new Date()
       if (to === 'approved') { const now = new Date(); Object.assign(data, { approvedAt: now, approvedBy: by, verbalBy: by, verbalAt: now, verbalReason: verbalReasonOf(edit.verbalReason) }) }

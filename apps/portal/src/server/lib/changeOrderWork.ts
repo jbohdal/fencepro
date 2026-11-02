@@ -31,7 +31,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
-import { shapeOf, sameShape, applyChange, clashes, ownChangeWords, ownGateChanges, withoutVoided, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
+import { shapeOf, sameShape, applyChange, clashes, sidesOf, singleTouches, ownChangeWords, ownGateChanges, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
 
 type Json = any
 
@@ -52,6 +52,8 @@ export interface StoredWork {
   baseInputs?: WorkInputs
   /** A move or repair: what the crew does now and what it needs (never a cost), for the packet. */
   workDetail?: WorkDetail | null
+  /** Voided: the job it left, and what that left between the contract and the work's price today (routes/change-orders.ts). */
+  afterVoid?: { feet: number; sections: number; gapCents: number } | null
   fenceStyle: string
   runs: number[]
   runRails?: string[]
@@ -112,13 +114,31 @@ function sameData(a: unknown, b: unknown): boolean {
   return JSON.stringify(v(a)) === JSON.stringify(v(b))
 }
 
+/** A move's counts: the old line's length and what is on it. */
+const COUNT_INPUTS = new Set(['oldFt', 'oldSections', 'oldPosts', 'oldWalkGates', 'oldDblGates'])
+/** Where to draw or what started the list: they change no price and never clash. */
+const NOT_THE_WORK = new Set(['oldLinePlan', 'tapped', 'what'])
+const INPUT_WORDS: Record<string, string> = { oldPostType: 'the old post type', postType: 'the post type', newPostCaps: 'new post caps', damagePct: 'the damage allowance', replaceGates: 'the gates to replace', gateKind: 'the gate type', repairParts: 'the parts for a section repair', debrisCleared: 'the debris', items: 'the repair list' }
+
+/** The single values a change order's inputs set (counts add up, so never these). */
+function inputTouches(base: WorkInputs, mine: WorkInputs): string[] {
+  const key = mine && 'move' in mine ? 'move' : 'repair'
+  const was = (base as Json)?.[key], now = (mine as Json)?.[key]
+  if (!isObj(was) || !isObj(now)) return []
+  return [...new Set([...Object.keys(was), ...Object.keys(now)])]
+    .filter(k => !COUNT_INPUTS.has(k) && !NOT_THE_WORK.has(k) && k !== 'items' && !sameData(was[k], now[k]))
+    .map(k => INPUT_WORDS[k] ?? k)
+}
+
 /**
- * One change order's own input changes put on the inputs as they are: a key at
- * a time. A repair's items are counts, so its difference goes on the count now
- * (two change orders each adding a post add 2, signed in any order, and a void
- * takes off only its own), the way a gate count does (changeOrderMerge.ts plus).
+ * One change order's own input changes put on the inputs as they are. Counts
+ * take the change's difference (a repair's items, a move's old line), so two
+ * change orders add up, signed in any order, and a void takes off only its own,
+ * the way a gate count does (changeOrderMerge.ts plus). A single value (a post
+ * type, new caps) takes the change's value, and two that collide are said in
+ * `conflicts`; signingClash stops them being signed.
  */
-function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs): WorkInputs {
+function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs, conflicts: string[]): WorkInputs {
   if (!cur || !mine) return cur
   const key = 'move' in cur ? 'move' : 'repair'
   const was = (base as Json)?.[key] ?? (cur as Json)[key], now = (mine as Json)[key]
@@ -126,6 +146,7 @@ function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs): WorkInp
   const out: Json = { ...(cur as Json)[key] }
   for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
     if (sameData(was[k], now[k])) continue
+    if (COUNT_INPUTS.has(k) && [was[k], now[k], out[k]].every(x => typeof x === 'number')) { out[k] = Math.max(0, out[k] + now[k] - was[k]); continue }
     if (isObj(was[k]) && isObj(now[k])) {
       const inner: Json = { ...(isObj(out[k]) ? out[k] : {}) }
       for (const i of new Set([...Object.keys(was[k]), ...Object.keys(now[k])])) {
@@ -134,7 +155,10 @@ function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs): WorkInp
         inner[i] = counts ? Math.max(0, num(inner[i]) + num(now[k][i]) - num(was[k][i])) : now[k][i]
       }
       out[k] = inner
-    } else out[k] = now[k]
+    } else {
+      if (!NOT_THE_WORK.has(k) && !sameData(out[k], was[k]) && !sameData(out[k], now[k])) conflicts.push(INPUT_WORDS[k] ?? k)
+      out[k] = now[k]
+    }
   }
   return { [key]: out } as WorkInputs
 }
@@ -276,14 +300,10 @@ export function foldShapes(quote: Json, rows: CoRow[], derive: DeriveRuns, opts:
   let ins = inputs(quote)
   const snaps: Array<{ at: number; shape: WorkShape }> = []
   const steps: FoldedStep[] = []
-  // Voided: its change comes out of the ones drawn with it in them (changeOrderMerge.ts withoutVoided).
-  const voided = rows.filter(r => r.status === 'void' && !r.deletedAt && isObj(r.work) && isObj((r.work as Json).base)).sort((a, b) => a.number - b.number)
   for (const r of [...approved, ...open]) {
-    const drawn: ChangeStep = { number: r.number, base: baseOf(r, start, snaps), work: shapeOf(r.work) }
-    const step = voided.filter(v => drawnWith(r, v)).reduce((s, v) => withoutVoided(s, { number: v.number, base: shapeOf((v.work as Json).base), work: shapeOf(v.work) }, derive), drawn)
+    const step: ChangeStep = { number: r.number, base: baseOf(r, start, snaps), work: shapeOf(r.work) }
     const out = applyChange(cur, step, derive)
-    if (step !== drawn) out.merged = true
-    ins = putInputs(ins, ((r.work as Json).baseInputs ?? null) as WorkInputs, inputs(r.work))
+    ins = putInputs(ins, ((r.work as Json).baseInputs ?? null) as WorkInputs, inputs(r.work), out.conflicts)
     steps.push({ row: r, step, shape: out.shape, merged: out.merged, conflicts: out.conflicts, inputs: ins })
     cur = out.shape
     if (r.status === 'approved' && r.approvedAt) snaps.push({ at: new Date(r.approvedAt).getTime(), shape: cur })
@@ -298,18 +318,77 @@ export function drawnWith(r: CoRow, v: CoRow): boolean {
   return r.id !== v.id && made !== null && was !== null && was < made && (gone === null || gone > made)
 }
 
+/** A change order's step for the checks below (no fold: only what it changes). */
+const stepOf = (r: CoRow, quote: WorkShape): ChangeStep => ({ number: r.number, base: isObj((r.work as Json)?.base) ? shapeOf((r.work as Json).base) : quote, work: shapeOf(r.work) })
+
 /**
- * Said to whoever voids a change order later ones were drawn on (lib/changeOrderMerge.ts
- * withoutVoided takes its feet out of them): their prices were worked out with
- * it in, so the job and the contract need a look. Null when none were.
+ * Why this change order can't be signed yet (null: it can). Lengths and counts
+ * add up in any order, but a single value (a gate on a side, the style, a post
+ * type, new caps) can't, so job and contract would part (Nov 2 2026):
+ * drawn on one still open that sets the same value: that one goes first, or is
+ * voided; set beside a signed one, neither knowing the other: one is voided.
+ * Other change orders' sides it needs count the same. A void leaves nothing to
+ * wait for. Said to the office, and to a customer as a call us.
  */
-export function workAfterVoid(voided: CoRow, rows: CoRow[], steps: FoldedStep[]): string | null {
+export function signingClash(me: CoRow, rows: CoRow[], quote: Json): string | null {
+  if (!isObj(me.work)) return null
+  const start = shapeOf(quote), mine = stepOf(me, start)
+  const singles = (r: CoRow, s: ChangeStep) => [...singleTouches(s), ...inputTouches(((r.work as Json).baseInputs ?? null) as WorkInputs, inputs(r.work))]
+  const set = new Set(singles(me, mine))
+  for (const o of rows) {
+    if (o.id === me.id || o.status === 'void' || o.deletedAt || !isObj(o.work)) continue
+    const theirs = stepOf(o, start)
+    const same = singles(o, theirs).filter(x => set.has(x))
+    const needs = sidesOf(theirs).added.some(id => sidesOf(mine).changed.includes(id)) ? ['a side it added'] : []
+    const what = [...same, ...needs]
+    if (!what.length) continue
+    if (OPEN.has(o.status) && o.number < me.number) return `CO-${me.number} and CO-${o.number} both change ${what.join(', ')}, and CO-${o.number} is not signed yet. Have CO-${o.number} signed first, or void it.`
+    if (o.status === 'approved' && !drawnWith(me, o) && !drawnWith(o, me)) return `CO-${me.number} and CO-${o.number} both change ${what.join(', ')}, and neither was made with the other in it. Void one of them.`
+  }
+  return null
+}
+
+/** What is left when a change order is voided: said to whoever voids it, kept on it for the job history and the next change order. */
+export interface AfterVoid { warning: string | null; feet: number; sections: number; gapCents: number }
+
+const dollars = (c: number) => `$${(Math.abs(c) / 100).toLocaleString('en-US')}`
+/** Under this it is whole dollar and post rounding, no gap worth a word. */
+const GAP_WORTH_SAYING = 500
+
+/**
+ * After a change order with work is voided. Null for typed lines: they changed
+ * no work, so voiding one says nothing about it. What is said is what the fold
+ * did: the voided change out of the job, unless a later one changed the same
+ * thing (then it stayed); and when one was signed, the difference the void left
+ * between the contract and what the work prices at today, whichever way. The
+ * price is kept; the next change order shows that on its own line.
+ */
+export async function afterVoid(accountId: string, quote: Json, voided: CoRow, wasSigned: boolean, rows: CoRow[]): Promise<AfterVoid | null> {
+  if (!isObj(voided.work)) return null
+  const derive = await deriveFor(accountId)
+  const now = foldShapes(quote, rows, derive)
+  const feet = sumFt(now.shape.runs)
   const later = rows.filter(r => r.status !== 'void' && !r.deletedAt && isObj(r.work) && drawnWith(r, voided)).sort((a, b) => a.number - b.number)
-  if (!later.length) return null
-  const names = later.map(r => `CO-${r.number}`)
-  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
-  const same = steps.flatMap(s => s.conflicts).filter((c, i, all) => all.indexOf(c) === i)
-  return `${list} ${later.length === 1 ? 'was' : 'were'} made with CO-${voided.number} in the work. CO-${voided.number}'s change is out of the job now and ${later.length === 1 ? 'its' : 'their'} own stays, at the price worked out then.${same.length ? ` Both changed the same thing (${same.join('; ')}): the later one is what the job has.` : ''} Check the job against the contract before the crew goes.`
+  const list = later.map(r => `CO-${r.number}`).join(later.length > 2 ? ', ' : ' and ')
+  const one = later.length === 1
+  const stayed = [...new Set(now.steps.flatMap(s => s.conflicts))]
+  const bits: string[] = []
+  if (later.length) bits.push(stayed.length
+    ? `${list} also changed ${stayed.join(', ')}, so that stays as ${one ? 'it' : 'they'} left it, and CO-${voided.number}'s amount is off the contract.`
+    : `CO-${voided.number}'s change is out of the job now and ${list} ${one ? 'keeps its' : 'keep their'} own, at the price worked out then.`)
+  let gapCents = 0
+  if (wasSigned && later.length) {
+    const was = foldShapes(quote, rows.map(r => (r.id === voided.id ? { ...r, status: 'approved' } : r)), derive)
+    const priceOf = async (f: { shape: WorkShape; inputs: WorkInputs }) => {
+      const { job } = await price(accountId, { ...requestForShape(f.shape, requestOfQuote(quote)), ...(f.inputs ?? {}) }, quote)
+      return cents(job.totals.price)
+    }
+    gapCents = (await priceOf(now)) - (await priceOf(was)) + num(voided.totalCents)
+    if (Math.abs(gapCents) < GAP_WORTH_SAYING) gapCents = 0
+    else bits.push(`That leaves the contract ${dollars(gapCents)} ${gapCents > 0 ? 'under' : 'over'} what this work prices at today. The next change order shows it on its own line.`)
+  }
+  if (later.length) bits.push(`The job is ${feet} ft now. Check it against the contract before the crew goes.`)
+  return { warning: bits.length ? bits.join(' ') : null, feet, sections: 0, gapCents }
 }
 
 /** The quote builder's request for a shape, with the other choices of `like` (a stored request). */
@@ -404,9 +483,9 @@ export function openNotice(me: string, start: { steps: FoldedStep[] }, mine: Cha
   const names = open.map(s => `CO-${s.row.number}`)
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
   const clash = open.map(s => ({ n: s.row.number, what: clashes(s.step, mine) })).filter(c => c.what.length)
-  const base = `${me} is drawn on top of ${list} (not signed yet) and adds only its own change. They can be signed in any order; the job keeps every change that is signed.`
-  if (!clash.length) return base
-  return `${base} But ${me.toLowerCase()} changes the same thing as ${clash.map(c => `CO-${c.n} (${c.what.join('; ')})`).join(' and ')}: whichever is signed last decides it. Have ${clash.map(c => `CO-${c.n}`).join(' and ')} signed first, or cancel ${clash.length === 1 ? 'it' : 'them'} and keep only this one.`
+  const base = `${me} is drawn on top of ${list} (not signed yet) and adds only its own change.`
+  if (!clash.length) return `${base} They can be signed in any order; the job keeps every change that is signed.`
+  return `${base} But ${me.toLowerCase()} changes the same thing as ${clash.map(c => `CO-${c.n} (${c.what.join('; ')})`).join(' and ')}, so it can't be signed until ${clash.map(c => `CO-${c.n}`).join(' and ')} ${clash.length === 1 ? 'is' : 'are'} signed or cancelled.`
 }
 
 /** The work now: the newest approved change order's, else the signed quote's own fields. */
@@ -552,6 +631,8 @@ export async function scheduleFit(accountId: string, jobId: string, tx: any = pr
 export interface PacketChangeItem { number: number; rev: number | null; approvedAt: Date; what: string }
 export interface PacketChange extends PacketChangeItem {
   work: StoredWork
+  /** Change orders voided since: their change is off the job. */
+  voided?: Array<{ number: number; voidedAt: Date }>
   all: PacketChangeItem[]
   /** The work's runs by the drawing's side names, same order as work.runs (null: "Run 1", "Run 2"). */
   runNames?: string[] | null
@@ -563,7 +644,9 @@ export interface PacketChange extends PacketChangeItem {
  * (round 3 recheck): "added a walk gate in the Back side (4 ft of fence
  * becomes the gate)", never "added a walk gate and removed 4 ft".
  */
-export function ownWhat(r: { work?: unknown; scope?: unknown; lines?: unknown; reason?: string }): string {
+export function ownWhat(r: { work?: unknown; scope?: unknown; lines?: unknown; reason?: string }, voidedBelow = false): string {
+  // Drawn on one voided since: its feet before and after are gone, its own difference is still true.
+  if (voidedBelow) return whatChanged(r as any)
   const sides = ownChangeWords(r.work)
   const gates = ownGateChanges(r.work)
   if (!gates.length) {
@@ -593,12 +676,23 @@ export function ownWhat(r: { work?: unknown; scope?: unknown; lines?: unknown; r
  */
 export async function packetChange(accountId: string, quoteId: string | null | undefined, since: Date): Promise<PacketChange | null> {
   if (!quoteId) return null
-  const rows = await prisma.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved', deletedAt: null } })
+  const every = await prisma.changeOrder.findMany({ where: { accountId, quoteId, status: { in: ['approved', 'void'] }, deletedAt: null } })
+  const rows = every.filter(r => r.status === 'approved')
+  const gone = every.filter(r => r.status === 'void' && r.approvedAt && r.voidedAt && r.voidedAt > since && isObj(r.work))
   const cur = currentWorkRow(rows as any[])
-  if (!cur || !cur.approvedAt || cur.approvedAt <= since) return null
-  const item = (r: any): PacketChangeItem => ({ number: r.number, rev: r.contractRev ?? null, approvedAt: r.approvedAt, what: ownWhat(r) })
+  const fresh = !!cur?.approvedAt && cur.approvedAt > since
+  if (!fresh && !gone.length) return null
+  const below = (r: any) => every.some(v => v.status === 'void' && isObj(v.work) && drawnWith(r, v as any))
+  const item = (r: any): PacketChangeItem => ({ number: r.number, rev: r.contractRev ?? null, approvedAt: r.approvedAt, what: ownWhat(r, below(r)) })
+  const voided = gone.map(v => ({ number: v.number, voidedAt: v.voidedAt! })).sort((a, b) => a.number - b.number)
   const all = approvedInOrder(rows as any[]).filter(r => isObj(r.work) && r.approvedAt && r.approvedAt > since).map(item)
-  return { ...item(cur), work: cur.work as StoredWork, all: all.length ? all : [item(cur)], runNames: await runNamesOf(accountId, cur.work as StoredWork).catch(() => null) }
+  if (cur) return { ...item(cur), work: cur.work as StoredWork, voided, all: all.length ? all : fresh ? [item(cur)] : [], runNames: await runNamesOf(accountId, cur.work as StoredWork).catch(() => null) }
+  // Every change with work voided: the job is the signed quote again.
+  const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } }) as Json
+  if (!q) return null
+  const runs: number[] = (Array.isArray(q.runs) ? q.runs : []).map((f: unknown) => num(f)).filter((f: number) => f > 0)
+  const work = { fenceStyle: q.fenceStyle, runs, walkGates: q.walkGates, dblGates: q.dblGates, sections: q.sections, footage: sumFt(runs), pullSheet: q.pullSheet ?? [], layout: q.layout ?? null, planSvg: null, ...(q.work?.crew ? { workDetail: { crew: q.work.crew, description: q.work.description ?? '', needs811: !!q.work.needs811 } } : {}) } as unknown as StoredWork
+  return { number: voided[voided.length - 1].number, rev: null, approvedAt: voided[voided.length - 1].voidedAt, what: 'voided', work, voided, all: [] }
 }
 
 /**
@@ -617,9 +711,17 @@ export async function runNamesOf(accountId: string, w: StoredWork): Promise<stri
   return named.map(r => r.name || '')
 }
 
+/** The words of signed change orders with no work (typed or picked), for the crew: no price, ever, even one typed in the words. */
+export async function typedLinesFor(accountId: string, quoteId: string | null | undefined): Promise<string[]> {
+  if (!quoteId) return []
+  const rows = await prisma.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved', deletedAt: null }, orderBy: { number: 'asc' } })
+  return rows.filter(r => !isObj(r.work)).flatMap(r => (Array.isArray(r.lines) ? r.lines as Json[] : []))
+    .map(l => String(l?.description ?? '').replace(/[-+−]?\$\s?[\d,]+(\.\d+)?/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean)
+}
+
 /** "Changed: change order CO-1" / "Changed: change orders CO-1 and CO-2". */
 export function packetChangeHeading(c: PacketChange): string {
-  const names = c.all.map(a => `CO-${a.number}`)
+  const names = [...c.all.map(a => `CO-${a.number}`), ...(c.voided ?? []).map(v => `CO-${v.number} (voided)`)]
   return `Changed: change order${names.length > 1 ? 's' : ''} ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}`
 }
 
@@ -635,7 +737,7 @@ export function packetWithChange<S extends Record<string, any>>(s: S, c: PacketC
     // A move's or repair's steps for the crew, as the work is now.
     ...(w.workDetail && s.work ? { work: { ...s.work, steps: w.workDetail.crew, needs811: w.workDetail.needs811 } } : {}),
     // The new drawing when it came with the change; else the old plan is left out (it no longer matches).
-    planSvg: w.planSvg ?? undefined,
+    planSvg: w.planSvg ?? (c.voided?.length ? s.planSvg : undefined),
     // Each run by its side where the drawing names it ("Back"), else "Run 3".
     runs: w.runs.map((ft, i) => ({ label: c.runNames?.[i] || `Run ${i + 1}`, length: `${ft} ft`, sections: runSections[i] ?? 0, spacing: '' })),
     posts: undefined, gates, skips: s.skips,

@@ -34,7 +34,7 @@ import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
-import { scheduleFit, startOfChange, effectiveWork, workAfterVoid, foldShapes, deriveFor } from '../lib/changeOrderWork.js'
+import { scheduleFit, startOfChange, effectiveWork, afterVoid } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { isSalesman, salesmanLogin, salesmanOwnsJob, forSalesman } from '../lib/salesmanJobs.js'
@@ -87,6 +87,8 @@ const lineSchema = z.object({
   id: z.string().min(1).max(64),
   description: z.string().max(500),
   amountCents: z.number().int().min(-100_000_000).max(100_000_000),
+  // Filled in from the change itself, not typed beside it (web changeOrderPricing.ts changeCents).
+  fromChange: z.boolean().optional(),
   // Picked from the pick list: how many, and where it came from (kept for history).
   qty: z.number().int().min(1).max(10_000).optional(),
   source: z.object({
@@ -196,8 +198,13 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     let creditWarning: string | null = null
     if (row.status === 'void' && cur.status !== 'void') {
       const q = await prisma.savedQuote.findFirst({ where: { id: row.quoteId, accountId } })
-      const steps = q ? foldShapes(q, siblings as any, await deriveFor(accountId)).steps : []
-      creditWarning = [creditAfterVoid(row, siblings), workAfterVoid(row as any, siblings as any, steps)].filter(Boolean).join(' ') || null
+      const after = q ? await afterVoid(accountId, q, row as any, cur.status === 'approved', siblings as any) : null
+      creditWarning = [creditAfterVoid(row, siblings), after?.warning].filter(Boolean).join(' ') || null
+      // Kept on it: the job history says what it left, the next change order shows the gap on its own line.
+      if (after && cur.status === 'approved') {
+        const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId: row.quoteId, deletedAt: null, archivedAt: null }, select: { sections: true } })
+        await prisma.changeOrder.update({ where: { id: row.id }, data: { work: { ...(row.work as any), afterVoid: { feet: after.feet, sections: job?.sections ?? 0, gapCents: after.gapCents } } } })
+      }
     }
     res.json({ success: true, data: viewFor(req, siblings)(row), ...(creditWarning ? { creditWarning } : {}), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
@@ -235,9 +242,10 @@ router.get('/:id/for-signing', requireCan('quotes.change'), async (req: any, res
     const accountId = req.user.crmAccountId
     const co = await prisma.changeOrder.findUnique({ where: { id: String(req.params.id) } })
     if (!co || co.accountId !== accountId || co.deletedAt) { res.status(404).json({ success: false, error: 'Change order not found' }); return }
-    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true, proposal: true } })
+    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true, proposal: true, work: true } })
     const work = co.work as any
-    const planSvg = work?.planSvg ? safeSvg(work.planSvg) || null : null
+    // A repair changes no layout: its list is the change.
+    const planSvg = (q?.work as any)?.type !== 'repair' && work?.planSvg ? safeSvg(work.planSvg) || null : null
     const also = planSvg ? alsoInDrawingWords(alsoInDrawing(co, await siblingsOf(co))) : []
     // "Questions? Call ...": the number the signed PDF and the customer's link give.
     const questionsPhone = (await changeOrderPhonesFor(accountId, q?.proposal)).questions || null
@@ -274,6 +282,8 @@ router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
       ...(start.inputs ?? {}),
       planSvg: same ? (last ? known?.planSvg ?? null : known?.proposal?.planSvg ?? null) : null,
       open: start.steps.filter(s => ['needs_ok', 'draft', 'sent'].includes(s.row.status)).map(s => ({ id: s.row.id, number: s.row.number, status: s.row.status })),
+      // The job's state after each one, in the order the work really happened; a void one is in none of them.
+      states: start.steps.map(s => ({ number: s.row.number, state: s.shape })),
     } })
   } catch (e) { fail(res, e, 'load the drawing') }
 })

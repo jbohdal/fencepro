@@ -1256,29 +1256,45 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
 /** Each repair item as a customer reads it on a change order: one, many. */
 const REPAIR_CHANGE_WORDS: Record<RepairItemKey, [string, string]> = {
   resetPost: ['leaning post reset', 'leaning post resets'],
-  replacePost: ['post replaced', 'posts replaced'],
+  replacePost: ['post replacement', 'post replacements'],
   repairSection: ['section repair', 'section repairs'],
-  replaceSection: ['whole section replaced', 'whole sections replaced'],
-  rehangGate: ['gate rehung with new hardware', 'gates rehung with new hardware'],
-  replaceGate: ['gate replaced', 'gates replaced'],
-  haulDebris: ['section of debris hauled away', 'sections of debris hauled away'],
-  footerDisposal: ['concrete footer hauled away', 'concrete footers hauled away'],
+  replaceSection: ['whole section replacement', 'whole section replacements'],
+  rehangGate: ['gate rehang with new hardware', 'gate rehangs with new hardware'],
+  replaceGate: ['gate replacement', 'gate replacements'],
+  haulDebris: ['section of debris to haul away', 'sections of debris to haul away'],
+  footerDisposal: ['concrete footer to haul away', 'concrete footers to haul away'],
 }
+const POST_WORDS: Record<PostType, string> = { nd: 'no dig', ds: 'dig set' }
+const postWords = (t: PostType | null | undefined) => (t ? POST_WORDS[t] ?? t : 'as the fence style')
+const capWords = (on: boolean) => (on ? 'Add new post caps' : 'Reuse the old post caps')
 
-/** A repair's change in words: "Add 1 leaning post reset", "Remove 2 section repairs". Only what is charged. */
+/** A repair's change in words: "Add 1 leaning post reset", "Remove 2 section repairs", every input that prices. */
 export function repairChangeWords(was: RepairInputs | null | undefined, now: RepairInputs | null | undefined): string[] {
   const a = chargedRepairItems(was), b = chargedRepairItems(now)
-  return REPAIR_ITEMS.flatMap(k => {
+  const out = REPAIR_ITEMS.flatMap(k => {
     const d = (b[k] ?? 0) - (a[k] ?? 0)
     return d ? [`${d > 0 ? 'Add' : 'Remove'} ${Math.abs(d)} ${REPAIR_CHANGE_WORDS[k][Math.abs(d) === 1 ? 0 : 1]}`] : []
   })
+  if (was?.postType !== now?.postType) out.push(`Old posts: ${postWords(was?.postType)} to ${postWords(now?.postType)}`)
+  if (!!was?.newPostCaps !== !!now?.newPostCaps) out.push(capWords(!!now?.newPostCaps))
+  if ((was?.gateKind ?? 'walk') !== (now?.gateKind ?? 'walk')) out.push(`Gate work is on a ${now?.gateKind === 'double' ? 'double' : 'walk'} gate, not a ${now?.gateKind === 'double' ? 'walk' : 'double'} gate`)
+  if (JSON.stringify(was?.repairParts ?? null) !== JSON.stringify(now?.repairParts ?? null)) out.push('Change the parts used for the section repair')
+  if (!!was?.debrisCleared !== !!now?.debrisCleared) out.push(now?.debrisCleared ? 'Tree and debris cleared before we start' : 'Tree and debris not cleared before we start')
+  return out
 }
 
-/** A move's own change in words (its footage and gates have their lines already). */
+/** A move's own change in words (its footage and gates have their lines already), every input that prices. */
 export function moveChangeWords(was: MoveInputs | null | undefined, now: MoveInputs | null | undefined): string[] {
   const out: string[] = []
+  const count = (what: string, a: number | null | undefined, b: number | null | undefined) => { if ((a ?? null) !== (b ?? null)) out.push(`${what}: ${a ?? 'counted'} to ${b ?? 'counted'}`) }
   if (was?.oldFt !== now?.oldFt) out.push(`Old fence to move: ${was?.oldFt ?? 0} ft to ${now?.oldFt ?? 0} ft`)
-  if (!!was?.newPostCaps !== !!now?.newPostCaps) out.push(now?.newPostCaps ? 'Add new post caps' : 'Remove the new post caps, reuse the old ones')
+  count('Old sections', was?.oldSections, now?.oldSections)
+  count('Old posts', was?.oldPosts, now?.oldPosts)
+  count('Old walk gates', was?.oldWalkGates, now?.oldWalkGates)
+  count('Old double gates', was?.oldDblGates, now?.oldDblGates)
+  if (was?.oldPostType !== now?.oldPostType) out.push(`Old posts: ${postWords(was?.oldPostType)} to ${postWords(now?.oldPostType)}`)
+  if (!!was?.newPostCaps !== !!now?.newPostCaps) out.push(capWords(!!now?.newPostCaps))
+  if ((was?.damagePct ?? null) !== (now?.damagePct ?? null)) out.push(`Damage allowance: ${was?.damagePct ?? 'standard'}${was?.damagePct != null ? '%' : ''} to ${now?.damagePct ?? 'standard'}${now?.damagePct != null ? '%' : ''}`)
   const gates = (m: MoveInputs | null | undefined) => (m?.replaceGates ?? []).filter(Boolean).length
   const d = gates(now) - gates(was)
   if (d) out.push(`${d > 0 ? 'Replace' : 'Rehang, not replace,'} ${Math.abs(d)} gate${Math.abs(d) === 1 ? '' : 's'}`)

@@ -53,7 +53,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
   headers(res, nonce)
   const token = String(req.params.token)
   const co = await byLink(token)
-  const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { customerName: true, customerAddress: true, fenceStyle: true, finalPrice: true, archivedAt: true, deletedAt: true, proposal: true } }) : null
+  const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { work: true, customerName: true, customerAddress: true, fenceStyle: true, finalPrice: true, archivedAt: true, deletedAt: true, proposal: true } }) : null
   const company = co ? await companyOf(co.accountId) : { name: 'Getter Done Fence', phone: '' }
   // The same number as the signed PDF's "Questions:" line (Jonathan's Direct; lib/signedDocuments.ts changeOrderPhonesFor).
   const phone = co ? (await changeOrderPhonesFor(co.accountId, q?.proposal).catch(() => null))?.questions || company.phone : company.phone
@@ -76,7 +76,8 @@ changeOrderPublic.get('/:token', async (req, res) => {
   // The drawing was made with every change order open at the time in it: what is not part of this one is said, and whether it is signed.
   const also = work?.planSvg ? alsoInDrawingWords(alsoInDrawing(co, await prisma.changeOrder.findMany({ where: { accountId: co.accountId, quoteId: co.quoteId, deletedAt: null } }))) : []
   const own = ownChangeWords(work)
-  const plan = work?.planSvg && safeSvg(work.planSvg) ? `<section><h2>The new layout</h2>${own && also.length ? `<p class="small" data-co-own-change><b>This change order:</b> ${esc(own)}.</p>` : ''}${also.map(t => `<p class="facts" data-co-not-part>${esc(t)}</p>`).join('')}<div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
+  // A repair changes no layout: its list is the change.
+  const plan = (q.work as any)?.type !== 'repair' && work?.planSvg && safeSvg(work.planSvg) ? `<section><h2>The new layout</h2>${own && also.length ? `<p class="small" data-co-own-change><b>This change order:</b> ${esc(own)}.</p>` : ''}${also.map(t => `<p class="facts" data-co-not-part>${esc(t)}</p>`).join('')}<div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
   const state = co.status === 'void'
     ? `<section class="void"><h2>Cancelled</h2><p>This change order was cancelled and is not part of your contract. ${call}</p></section>`
     : !toSign

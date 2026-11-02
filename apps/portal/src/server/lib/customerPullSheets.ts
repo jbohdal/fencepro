@@ -19,6 +19,7 @@
  * Integer cents.
  */
 
+import { Prisma } from '@prisma/client'
 import prisma from './prisma.js'
 import { nyDay } from './warranties.js'
 import { plainStyleName } from './estimates.js'
@@ -215,8 +216,10 @@ export async function customerPullSheets(accountId: string, contactId: string): 
     select: { id: true, quoteId: true, fenceStyle: true, totalFeet: true, sections: true, createdAt: true, archivedAt: true },
   })
   const jobIds = jobs.map(j => j.id)
-  const [cos, takeoffs, packets, biz] = await Promise.all([
+  const [cos, voids, takeoffs, packets, biz] = await Promise.all([
     quoteIds.length ? prisma.changeOrder.findMany({ where: { accountId, quoteId: { in: quoteIds }, status: 'approved', deletedAt: null }, orderBy: { number: 'asc' } }) : [],
+    // Signed, with work, voided since.
+    quoteIds.length ? prisma.changeOrder.findMany({ where: { accountId, quoteId: { in: quoteIds }, status: 'void', approvedAt: { not: null }, work: { not: Prisma.DbNull }, deletedAt: null }, orderBy: { voidedAt: 'asc' } }) : [],
     jobIds.length ? prisma.jobTakeoff.findMany({ where: { accountId, jobId: { in: jobIds }, status: { in: ['submitted', 'approved'] } } }) : [],
     jobIds.length ? prisma.installPacket.findMany({ where: { accountId, jobId: { in: jobIds }, disabledAt: null }, select: { jobId: true, token: true } }) : [],
     prisma.businessState.findUnique({ where: { accountId }, select: { pullSheets: true } }),
@@ -262,6 +265,17 @@ export async function customerPullSheets(accountId: string, contactId: string): 
         revisions.push({ rev, title: `Rev ${rev}: change order CO-${c.number}`, date: day(c.approvedAt), source: `Change order CO-${c.number} (approved ${words(day(c.approvedAt))})`, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
         prev = l
       }
+    }
+    // Voided since it was signed: the crew's sheet is the work as it is now, its own revision, the site of the change said.
+    const undone = j.quoteId ? voids.filter(c => c.quoteId === j.quoteId) : []
+    if (undone.length) {
+      revisions = revisions ?? [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
+      const last = undone[undone.length - 1], was = revisions[revisions.length - 1]
+      const names = undone.map(c => `CO-${c.number}`).join(' and ')
+      const rev = Math.max(...revisions.map(r => r.rev)) + 1
+      revisions.push({ rev, title: `Rev ${rev}: ${names} voided`, date: day(last.voidedAt), source: `${names} voided (${words(day(last.voidedAt))})`, lines: was.lines, totalCostCents: was.totalCostCents, changes: [] })
+    }
+    if (revisions) {
       revisions.reverse()
       lines = revisions[0].lines; source = `Rev ${revisions[0].rev}: ${revisions[0].source}`
     }
