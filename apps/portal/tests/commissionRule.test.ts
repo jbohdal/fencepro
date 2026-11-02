@@ -32,6 +32,9 @@ describe('the builder\'s switch', () => {
     expect(salesmanSwitchDefault({ ...saved, salesRep: 'Jonathan Bohdal' }, 'super_admin', TEAM)).toBe(false)
     expect(salesmanSwitchDefault({ ...saved, salesRep: '' }, 'super_admin', TEAM)).toBe(false)
   })
+  test('a real Salesman written by first name or initials keeps it: never stripped', () => {
+    for (const salesRep of ['Christa', 'christa ', 'CF', 'cf', 'Christa  Feagin']) expect(salesmanSwitchDefault({ ...saved, salesRep }, 'super_admin', TEAM), salesRep).toBe(true)
+  })
   test('a signed quote keeps its own: only a logged fix changes it', () => {
     expect(salesmanSwitchDefault({ ...saved, status: 'SOLD', salesRep: '' }, 'super_admin', TEAM)).toBe(true)
   })

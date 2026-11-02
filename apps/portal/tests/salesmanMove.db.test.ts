@@ -247,7 +247,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     // A later save of the Salesman's quote with the rep on it stays; a first name counts.
     const first = await call('POST', '/api/saved-quotes', tok.owner, body('Sam'))
     expect((await quoteOf(first.json.data.id))!.hasSalesman).toBe(true)
-    await prisma.savedQuote.deleteMany({ where: { id: { in: [owner.json.data.id, blank.json.data.id, on.json.data.id, first.json.data.id] } } })
+    // Initials too (Gary Escourse's quote says "CF" for Christa Feagin).
+    const initials = await call('POST', '/api/saved-quotes', tok.owner, body('SS'))
+    expect(await quoteOf(initials.json.data.id)).toMatchObject({ hasSalesman: true, gmPct: 0.35, finalPrice: 10000 })
+    await prisma.savedQuote.deleteMany({ where: { id: { in: [owner.json.data.id, blank.json.data.id, on.json.data.id, first.json.data.id, initials.json.data.id] } } })
   })
 
   test('given to the owner, a quote\'s commission comes off (nobody is paid on it), the price stays; the customer\'s open quotes too', async () => {
