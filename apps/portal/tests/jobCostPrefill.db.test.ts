@@ -19,13 +19,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
   const { default: prisma } = await import('../src/server/lib/prisma.js')
   const { prefillFor } = await import('../src/server/lib/jobCostPrefill.js')
   const { default: jobCosting } = await import('../src/server/routes/job-costing.js')
+  const { default: kv } = await import('../src/server/routes/kv.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
   const accountId = crypto.randomUUID()
   const quoteId = crypto.randomUUID(), jobId = crypto.randomUUID()
   const bare = crypto.randomUUID()
-  const fixed = crypto.randomUUID(), crewed = crypto.randomUUID()
+  const fixed = crypto.randomUUID(), crewed = crypto.randomUUID(), noCost = crypto.randomUUID()
   const KV = 'fencepro_jobcosting'
   let userId = '', email = ''
   let base = ''
@@ -49,17 +50,19 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
     await sold(bare, { laborCost: 500, materialCost: 1000, tearOutCost: 200 })
     await sold(fixed, { laborCost: 600, adjLaborHrs: 20 })
     await sold(crewed)
+    await sold(noCost, { laborCost: 0, materialCost: 0, totalCOGS: 0, gmPct: 0, pricing: {} })
     await prisma.savedJob.create({ data: { id: jobId, accountId, quoteId, customerName: 'E2E Job Cost Prefill', status: 'completed' } as any })
     const app = express()
     app.use(express.json())
     app.use('/api/job-costing', jobCosting)
+    app.use('/api/kv', kv)
     server = app.listen(0)
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
 
   afterAll(async () => {
     server?.close()
-    await prisma.crmAuditLog.deleteMany({ where: { entityType: 'JobCosting', entityId: { in: ['old1', 'old2', 'old3', 'crew1'] } } })
+    await prisma.crmAuditLog.deleteMany({ where: { entityType: 'JobCosting', entityId: { in: ['old1', 'old2', 'old3', 'old4', 'crew1'] } } })
     await prisma.accountKeyValue.deleteMany({ where: { accountId } })
     await prisma.jobTakeoff.deleteMany({ where: { accountId } })
     await prisma.vendorInvoice.deleteMany({ where: { accountId } })
@@ -125,11 +128,40 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
     expect((await get('sales_rep', `/prefill/${quoteId}`)).status).toBe(404)
   })
 
+  test('who may write job costs: owner and office yes; installer and Salesman no, and no copy comes back in any refusal', async () => {
+    const put = (role: string, key: string, body: unknown) => fetch(`${base}/api/kv/${key}`, { method: 'PUT', headers: { Authorization: `Bearer ${token(role)}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => null) as any }))
+    const list = [{ id: 'kv1', quoteId, actualLaborCostCents: 54321, crew: [], notes: 'SECRET-NOTE' }]
+    await prisma.accountKeyValue.create({ data: { accountId, key: KV, value: list } })
+    const changed = [{ ...list[0], actualLaborCostCents: 1 }]
+    for (const role of ['field_crew', 'sales_rep']) {
+      for (const baseVersion of [1, 99]) { // the right version, and a stale one
+        const r = await put(role, KV, { value: changed, baseVersion })
+        expect([role, baseVersion, r.status]).toEqual([role, baseVersion, 403])
+        expect(JSON.stringify(r.json)).not.toMatch(/54321|SECRET-NOTE|kv1/)
+      }
+    }
+    expect((await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: KV } } }))!.value).toEqual(list)
+    // Suppliers: an installer gets no copy either way.
+    await prisma.accountKeyValue.create({ data: { accountId, key: 'fencepro_inv_suppliers', value: [{ id: 'sup1', name: 'SECRET-SUPPLIER' }] } })
+    for (const baseVersion of [1, 99]) {
+      const r = await put('field_crew', 'fencepro_inv_suppliers', { value: [], baseVersion })
+      expect(r.status).toBe(403)
+      expect(JSON.stringify(r.json)).not.toMatch(/SECRET-SUPPLIER/)
+    }
+    const office = await put('office_staff', KV, { value: changed, baseVersion: 1 })
+    expect(office.status).toBe(200)
+    const owner = await put('super_admin', KV, { value: list, baseVersion: 2 })
+    expect(owner.status).toBe(200)
+    expect((await put('super_admin', KV, { value: list, baseVersion: 1 })).status).toBe(409)
+    await prisma.accountKeyValue.deleteMany({ where: { accountId } })
+  })
+
   test('the fix: dry run changes nothing; apply writes only hours entries, with an audit entry each; run again changes nothing', async () => {
     const list = [
       { id: 'old1', quoteId: fixed, completionDate: '2026-10-01', actualLaborHrs: 30, crew: [], actualMaterialCost: 4000, actualOtherCosts: 10, notes: 'keep' }, // 30 x ($600 / 20) = $900 → $600
       { id: 'crew1', quoteId: crewed, completionDate: '2026-10-02', actualLaborHrs: 0, crew: [{ name: 'D', hours: 1, rate: 770 }], actualMaterialCost: 4000, actualOtherCosts: 0, notes: '' },
       { id: 'old2', quoteId, completionDate: '2026-10-03', actualLaborHrs: 2, crew: [], actualMaterialCost: 4000, actualOtherCosts: 0, notes: '', actualLaborCostCents: 12345, laborCostTyped: true },
+      { id: 'old4', quoteId: noCost, completionDate: '2026-10-05', actualLaborHrs: 5, crew: [], actualMaterialCost: 100, actualOtherCosts: 0, notes: '' }, // no cost on file: left, never to $0
       { id: 'old3', quoteId: crypto.randomUUID(), completionDate: '2026-10-04', actualLaborHrs: 2, crew: [], actualMaterialCost: 1, actualOtherCosts: 0, notes: '' }, // quote gone
     ]
     await prisma.accountKeyValue.create({ data: { accountId, key: KV, value: list } })
@@ -138,6 +170,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
     expect(dry.stdout).toContain('labor $900.00 → $600.00')
     expect(dry.stdout).toMatch(/profit \$4,004\.27 \(44\.9%\) → \$4,304\.27 \(48\.3%\)/)
     expect(dry.stdout).toContain('Dry run: nothing changed.')
+    expect(dry.stdout).toContain('no labor on file')
+    expect(dry.stdout).not.toMatch(/→ \$0\.00/)
     expect(await entries()).toEqual(list)
 
     const applied = script('--apply')

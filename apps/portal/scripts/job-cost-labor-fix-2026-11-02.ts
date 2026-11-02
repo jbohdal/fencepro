@@ -15,6 +15,9 @@
  * new labor is what a new entry fills in today (lib/jobCostPrefill.ts): "Sub
  * paid $" or sub bills on a sub job, else the quote's labor $.
  *
+ * Skipped: a quote with no cost on file and nothing recorded for the job: there
+ * is no real number to put in, and labor never goes to $0 (listed).
+ *
  * Not touched: an entry with crew lines (its labor is the crew total, the rule
  * for crew jobs; listed), an entry with a saved labor cost, and an entry whose
  * quote is gone (listed). Only actualLaborCostCents, laborKind, laborCostTyped
@@ -55,12 +58,12 @@ async function main() {
   const { crewTotalCents, laborBasis, oldHoursCents } = await import('../../web/src/jobCostLabor.js')
   say(`Database: ${dbName}${APPLY ? '' : ' (dry run, reads only)'}`)
   const rows = await prisma.accountKeyValue.findMany({ where: { key: KEY } })
-  let would = 0, done = 0, saved = 0, crew = 0, gone = 0
+  let would = 0, done = 0, saved = 0, crew = 0, gone = 0, noCost = 0
   for (const row of rows) {
     const entries = (Array.isArray(row.value) ? row.value : []) as Json[]
     const fixes: Array<{ entry: Json; oldCents: number; newCents: number; sub: boolean; why: string }> = []
     for (const e of entries) {
-      const basis = laborBasis({ actualLaborCostCents: e.actualLaborCostCents, crew: e.crew })
+      const basis = laborBasis({ actualLaborCostCents: e.actualLaborCostCents, crew: e.crew, frozenOldLaborCents: e.frozenOldLaborCents })
       if (basis === 'saved') { saved++; continue }
       const q = await prisma.savedQuote.findFirst({ where: { id: e.quoteId, accountId: row.accountId } }) as Json
       const name = q?.customerName ?? `quote ${String(e.quoteId).slice(0, 8)}`
@@ -74,9 +77,10 @@ async function main() {
         say(`\n  LEFT  ${name}, job ${job?.id ?? 'none'}: labor is the crew total ${usd(c)}, not hours; profit ${margin(price, c + other)}`)
         continue
       }
-      const oldCents = oldHoursCents({ actualLaborHrs: e.actualLaborHrs }, { laborCost: q.laborCost, adjLaborHrs: q.adjLaborHrs })
+      const oldCents = oldHoursCents({ actualLaborHrs: e.actualLaborHrs, frozenOldLaborCents: e.frozenOldLaborCents }, { laborCost: q.laborCost, adjLaborHrs: q.adjLaborHrs })
       const p = q.deletedAt ? null : await prefillFor(row.accountId, q.id)
       const newCents = p?.labor.cents ?? toCents(q.laborCost)
+      if (newCents <= 0) { noCost++; say(`\n  LEFT  ${name}, job ${job?.id ?? 'none'}: the quote has no labor on file and nothing is recorded for this job; stays ${usd(oldCents)} until someone enters it`); continue }
       const why = `labor was ${Number(e.actualLaborHrs) || 0} hours x a rate; ${p?.labor.words ?? "from the quote's labor $"}`
       if (oldCents === newCents) {
         say(`\n  SAME  ${name}, job ${job?.id ?? 'none'}: ${usd(oldCents)} both ways; ${APPLY ? 'saved as the labor cost' : 'would be saved as the labor cost'}`)
@@ -93,7 +97,9 @@ async function main() {
     const byId = new Map(fixes.map(f => [f.entry.id, f]))
     const next = entries.map(e => {
       const f = byId.get(e.id)
-      return f ? { ...e, actualLaborCostCents: f.newCents, laborCostTyped: false, laborKind: f.sub ? 'sub' : 'crew', laborSource: `Set by the Nov 2 2026 fix: ${f.why}` } : e
+      if (!f) return e
+      const { frozenOldLaborCents: _old, ...rest } = e
+      return { ...rest, actualLaborCostCents: f.newCents, laborCostTyped: false, laborKind: f.sub ? 'sub' : 'crew', laborSource: `Set by the Nov 2 2026 fix: ${f.why}` }
     })
     // Only if the list is still the one read above (a save in between leaves it; run again).
     const n = await prisma.accountKeyValue.updateMany({ where: { accountId: row.accountId, key: KEY, version: row.version }, data: { value: next, version: { increment: 1 }, updatedBy: SCRIPT } })
@@ -106,7 +112,7 @@ async function main() {
       })
     }
   }
-  say(`\n${rows.reduce((s, r) => s + (Array.isArray(r.value) ? r.value.length : 0), 0)} saved entries: ${would} from hours, ${crew} with crew lines left, ${saved} with a labor cost already, ${gone} with no quote.`)
+  say(`\n${rows.reduce((s, r) => s + (Array.isArray(r.value) ? r.value.length : 0), 0)} saved entries: ${would} from hours, ${crew} with crew lines left, ${saved} with a labor cost already, ${gone} with no quote, ${noCost} with no cost on file left.`)
   if (!APPLY) say('Dry run: nothing changed.')
   else say(`Done: ${done} of ${would} written.`)
   await prisma.$disconnect()

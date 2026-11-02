@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { styleLabel } from './fenceCatalog'
 import type { SavedQuote } from './QuotesPage'
-import { getQuotes } from './quoteStore'
+import { getQuotes, getArchivedQuotes } from './quoteStore'
 import { sizeText } from './moveRepair'
 import { cloudStorage } from './cloudStorage'
 import { useBackLayer } from './nav'
@@ -11,27 +11,23 @@ import NumberField from './NumberField'
 import { dollarsToCents, centsToDollars } from './numberText'
 import { lowTarget } from './moneyLoad'
 import { loadJobCostPrefill, type JobCostPrefill } from './takeoffStore'
-import { crewLineCents, crewTotalCents, entryLaborCents, estMargin, laborBasis, laborShown, resultOf, type CrewEntry, type JobCostEntry } from './jobCostLabor'
+import { costRow, crewLineCents, crewTotalCents, entryLaborCents, laborBasis, laborShown, quoteHasCost, resultOf, type CostRow, type CrewEntry, type JobCostEntry } from './jobCostLabor'
 
 /* ───────── types ───────── */
 
 interface CostedJob {
   entry: JobCostEntry
   quote: SavedQuote
-  // Computed variances
-  /** The labor cost used for profit, in dollars (entryLaborCents). */
+  row: CostRow
+  /** The labor cost used for profit, in dollars. */
   actualLaborCost: number
-  laborVariance: number
+  /** Null when the quote has no cost on file. */
+  laborVariance: number | null
   /** Actual hours less the quote's, only when both are there (hours are optional and never part of the cost). */
   laborHrsVariance: number | null
-  materialVariance: number
-  materialPct: number
-  totalEstCOGS: number
+  /** Null when the quote has no material cost on file. */
+  materialPct: number | null
   totalActCOGS: number
-  cogsVariance: number
-  cogsPct: number
-  estGM: number
-  actGM: number
 }
 
 interface BudgetState {
@@ -52,12 +48,31 @@ const fmt2 = (n: number) =>
 
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
 
+const NOT_AVAILABLE = 'Not available'
+/** A money figure, or plainly not available. */
+const orNone = (n: number | null, show: (n: number) => string) => (n === null ? NOT_AVAILABLE : show(n))
+const NO_COST = 'This quote has no cost on file.'
+const BEFORE_COMMISSION = 'Profit and margin are price less cost, before any commission.'
+
+/** Green, yellow or red against the target margin; plain when not known. */
+function gmTone(gm: number | null): string {
+  if (gm === null) return 'text-gray-500'
+  return gm >= lowTarget() ? 'text-green-600' : gm >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'
+}
+
+/** The average of the numbers, null when there are none. */
+const avgOf = (list: number[]) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : null)
+const signed = (n: number, show: (n: number) => string) => `${n >= 0 ? '+' : ''}${show(n)}`
+/** Hours are entered on few jobs: an hours average needs at least this many (1 of 8 read as a pattern). */
+const MIN_HOUR_JOBS = 3
+
 const uid = () => Math.random().toString(36).slice(2, 9)
 
 const STORAGE_KEY = 'fencepro_jobcosting'
 
+/** Archived too: the same quotes the P&L reads, so an entry reads the same on both. */
 function loadQuotes(): SavedQuote[] {
-  return getQuotes()
+  return [...getQuotes(), ...(getArchivedQuotes() as SavedQuote[])]
 }
 
 function loadEntries(): JobCostEntry[] {
@@ -143,17 +158,21 @@ function CostAJobModal({
   const quoteLaborCents = selectedQuote ? dollarsToCents(selectedQuote.laborCost) : 0
   const quoteMaterialCents = selectedQuote ? dollarsToCents(selectedQuote.materialCost) : 0
   const oldHoursEntry = !!editEntry && !!selectedQuote && laborBasis(editEntry) === 'hours'
-  const baseLaborCents = editEntry && selectedQuote
-    ? (editEntry.laborCostTyped === false && crewTotalCents(editEntry.crew) > 0) || laborBasis(editEntry) === 'crew' ? quoteLaborCents : entryLaborCents(editEntry, selectedQuote)
-    : prefill?.labor.cents ?? quoteLaborCents
-  const laborCents = laborShown({ typed: laborTyped, typedCents: typedLaborCents, crewCents, baseCents: baseLaborCents })
-  const materialCents = materialTyped ? typedMaterialCents : prefill?.material.cents ?? quoteMaterialCents
   const sub = editEntry?.laborKind ? editEntry.laborKind === 'sub' : !!prefill?.sub
   const laborLabel = sub ? 'Paid to sub ($)' : 'Actual Labor Cost ($)'
+  const hasEstimate = !!selectedQuote && quoteHasCost(selectedQuote)
+  // A saved entry that followed its crew lines still does (an old one on a sub job too); otherwise a sub job's amount wins over crew lines unless typed.
+  const savedFromCrew = !!editEntry && (laborBasis(editEntry) === 'crew' || (laborBasis(editEntry) === 'saved' && editEntry.laborCostTyped !== true && editEntry.laborKind !== 'sub' && crewTotalCents(editEntry.crew) > 0))
+  const crewFlows = !sub || (savedFromCrew && laborBasis(editEntry!) === 'crew')
+  // What a saved entry keeps when the box is not typed in: its own number. One saved typed or from its crew goes back to the prefill.
+  const keepsSaved = !!editEntry && !!selectedQuote && !savedFromCrew && editEntry.laborCostTyped !== true
+  const baseLaborCents = keepsSaved ? entryLaborCents(editEntry!, selectedQuote!) : prefill?.labor.cents ?? quoteLaborCents
+  const laborCents = laborShown({ typed: laborTyped, typedCents: typedLaborCents, crewCents, baseCents: baseLaborCents, crewFlows })
+  const materialCents = materialTyped ? typedMaterialCents : prefill?.material.cents ?? quoteMaterialCents
 
-  const savedLaborWords = editEntry?.laborSource || (oldHoursEntry ? 'Old entry: this came from hours x a rate. Change it to the real cost and save.' : '')
+  const savedLaborWords = oldHoursEntry ? 'Old entry: this came from hours x a rate. Change it to the real cost and save.' : editEntry?.laborSource || ''
   const prefillWords = prefillState === 'failed' ? "From the quote's labor $. The job's bills and takeoff could not be loaded, so check this." : prefill?.labor.words ?? ''
-  const laborWords = laborTyped ? 'Typed by you' : crewCents > 0 ? 'From the crew breakdown' : (editEntry ? savedLaborWords : prefillWords)
+  const laborWords = laborTyped ? 'Typed by you' : crewCents > 0 && crewFlows ? 'From the crew breakdown' : keepsSaved ? savedLaborWords : prefillWords
   const savedMaterialWords = editEntry?.materialSource || 'As entered before'
   const prefillMaterialWords = prefillState === 'failed' ? 'From the quote estimate. The job\'s bills and Sales Order could not be loaded, so check this.' : prefill?.material.words ?? ''
   const materialWords = editEntry ? (typedMaterialCents === dollarsToCents(Number(editEntry.actualMaterialCost) || 0) ? savedMaterialWords : 'Typed by you') : materialTyped ? 'Typed by you' : prefillMaterialWords
@@ -168,11 +187,15 @@ function CostAJobModal({
     setMaterialTyped(true)
   }
 
-  /** Picking another job drops anything typed for the last one, so its prefills apply. */
+  /** Picking another job drops everything entered for the last one: crew, other costs, hours, notes, anything typed. */
   function pickQuote(id: string) {
     setQuoteId(id)
     setLaborTyped(false)
     setMaterialTyped(false)
+    setCrew([])
+    setActualOtherCents(0)
+    setActualLaborHrs(0)
+    setNotes('')
   }
 
   function addCrewMember() {
@@ -189,6 +212,8 @@ function CostAJobModal({
 
   function handleSave() {
     if (!quoteId) return
+    // An old hours entry saved with its labor box untouched stays old and stays on the fix list ("don't change without my OK").
+    const keepOld = oldHoursEntry && !laborTyped && !(crewFlows && crewCents > 0)
     onSave({
       id: editEntry?.id || uid(),
       quoteId,
@@ -199,11 +224,10 @@ function CostAJobModal({
       actualMaterialCost: centsToDollars(materialCents),
       actualOtherCosts: centsToDollars(actualOtherCents),
       notes,
-      actualLaborCostCents: laborCents,
-      laborCostTyped: laborTyped,
-      laborKind: sub ? 'sub' : 'crew',
-      laborSource: oldHoursEntry && !laborTyped && crewCents === 0 ? 'Kept from the old hours math' : laborWords,
       materialSource: materialWords,
+      ...(keepOld
+        ? { frozenOldLaborCents: baseLaborCents }
+        : { actualLaborCostCents: laborCents, laborCostTyped: laborTyped, laborKind: sub ? 'sub' as const : 'crew' as const, laborSource: laborWords }),
     })
   }
 
@@ -213,6 +237,7 @@ function CostAJobModal({
   const actualCostCents = laborCents + materialCents + actualOtherCents
   const estCostCents = selectedQuote ? dollarsToCents(selectedQuote.totalCOGS) : 0
   const est = resultOf(priceCents, estCostCents)
+  const hasActual = actualCostCents > 0
   const act = resultOf(priceCents, actualCostCents)
   const waiting = !editEntry && prefillState === 'loading'
 
@@ -247,12 +272,13 @@ function CostAJobModal({
           {selectedQuote && (
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-xs text-gray-400 font-semibold mb-2">Quote Estimate</p>
-              <div className="grid grid-cols-4 gap-3 text-sm">
+              {!hasEstimate && <p className="text-sm font-medium text-gray-700" data-no-cost>{NO_COST} The estimate is not available.</p>}
+              {hasEstimate && <div className="grid grid-cols-4 gap-3 text-sm">
                 <div><p className="text-gray-400 text-xs">Labor Hrs</p><p className="font-bold">{selectedQuote.adjLaborHrs?.toFixed(1) || '—'}</p></div>
                 <div><p className="text-gray-400 text-xs">Labor $</p><p className="font-bold">{fmt(selectedQuote.laborCost)}</p></div>
                 <div><p className="text-gray-400 text-xs">Materials</p><p className="font-bold">{fmt(selectedQuote.materialCost)}</p></div>
                 <div><p className="text-gray-400 text-xs">Total cost</p><p className="font-bold">{fmt(selectedQuote.totalCOGS)}</p></div>
-              </div>
+              </div>}
             </div>
           )}
 
@@ -285,12 +311,17 @@ function CostAJobModal({
                   {prefill && !waiting && !editEntry?.laborKind && <span className="text-gray-400"> · {sub ? 'Sub job' : 'Crew job'}: {prefill.kindWhy}</span>}
                 </p>
               )}
+              {hasCrewPay && !crewFlows && !laborTyped && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Crew adds up to {fmt2(crewCents / 100)}. Paid to sub stays as it is.{' '}
+                  <button type="button" onClick={() => commitLabor(crewCents)} className="text-orange-500 hover:text-orange-600 font-semibold">Use the crew total</button>
+                </p>
+              )}
               {laborTyped && (
                 <p className="text-xs text-gray-500 mt-1">
                   {hasCrewPay && <>Crew adds up to {fmt2(crewCents / 100)}. </>}
-                  <button type="button" onClick={() => setLaborTyped(false)} className="text-orange-500 hover:text-orange-600 font-semibold">
-                    Use {hasCrewPay ? 'the crew total' : fmt2(baseLaborCents / 100)}
-                  </button>
+                  {hasCrewPay && <button type="button" onClick={() => (crewFlows ? setLaborTyped(false) : commitLabor(crewCents))} className="text-orange-500 hover:text-orange-600 font-semibold">Use the crew total</button>}
+                  {(!hasCrewPay || !crewFlows) && <button type="button" onClick={() => setLaborTyped(false)} className="text-orange-500 hover:text-orange-600 font-semibold">{hasCrewPay ? ' or ' : ''}Use {fmt2(baseLaborCents / 100)}</button>}
                 </p>
               )}
               {!editEntry && prefill?.labor.note && !laborTyped && <p className="text-xs text-yellow-700 mt-1">{prefill.labor.note}</p>}
@@ -374,12 +405,12 @@ function CostAJobModal({
                 </thead>
                 <tbody>
                   <tr><td className="py-0.5 text-gray-600">Price</td><td className="py-0.5 text-right text-gray-500">{fmt2(priceCents / 100)}</td><td className="py-0.5 text-right font-semibold text-gray-900">{fmt2(priceCents / 100)}</td></tr>
-                  <tr><td className="py-0.5 text-gray-600">Total cost</td><td className="py-0.5 text-right text-gray-500">{fmt2(estCostCents / 100)}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="cost">{fmt2(actualCostCents / 100)}</td></tr>
-                  <tr><td className="py-0.5 text-gray-600">Profit</td><td className="py-0.5 text-right text-gray-500">{fmt2(est.profitCents / 100)}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="profit">{fmt2(act.profitCents / 100)}</td></tr>
-                  <tr><td className="py-0.5 text-gray-600">Margin</td><td className="py-0.5 text-right text-gray-500">{est.marginPct.toFixed(1)}%</td><td className={`py-0.5 text-right font-bold ${act.marginPct >= est.marginPct ? 'text-green-600' : 'text-red-500'}`} data-result="margin">{act.marginPct.toFixed(1)}%</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Total cost</td><td className="py-0.5 text-right text-gray-500" data-est="cost">{hasEstimate ? fmt2(estCostCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="cost">{hasActual ? fmt2(actualCostCents / 100) : 'Not entered'}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Profit</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? fmt2(est.profitCents / 100) : NOT_AVAILABLE}</td><td className="py-0.5 text-right font-semibold text-gray-900" data-result="profit">{hasActual ? fmt2(act.profitCents / 100) : 'Not entered'}</td></tr>
+                  <tr><td className="py-0.5 text-gray-600">Margin</td><td className="py-0.5 text-right text-gray-500">{hasEstimate ? `${est.marginPct.toFixed(1)}%` : NOT_AVAILABLE}</td><td className={`py-0.5 text-right font-bold ${!hasActual || !hasEstimate ? 'text-gray-900' : act.marginPct >= est.marginPct ? 'text-green-600' : 'text-red-500'}`} data-result="margin">{hasActual ? `${act.marginPct.toFixed(1)}%` : 'Not entered'}</td></tr>
                 </tbody>
               </table>
-              <p className="text-xs text-gray-400 mt-2">Profit is price less cost, before any commission.</p>
+              <p className="text-xs text-gray-400 mt-2">{BEFORE_COMMISSION}</p>
               {(prefill?.changeOrders.count ?? 0) > 0 && (
                 <p className="text-xs text-yellow-700 mt-1">This job has approved change orders ({fmt2(prefill!.changeOrders.priceCents / 100)}). The price here is the signed quote, without them.</p>
               )}
@@ -409,10 +440,21 @@ function JobDetailDrawer({ job, onClose, onEdit }: { job: CostedJob; onClose: ()
   const { quote: q, entry: e } = job
   const oldHours = laborBasis(e) === 'hours'
 
-  function VarRow({ label, est, act, unit = '$' }: { label: string; est: number; act: number; unit?: string }) {
+  function VarRow({ label, est, act, unit = '$' }: { label: string; est: number | null; act: number; unit?: string }) {
+    const fmtVal = unit === '$' ? fmt : (n: number) => n.toFixed(1)
+    if (est === null) {
+      return (
+        <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
+          <span className="text-sm text-gray-700 font-medium">{label}</span>
+          <div className="flex items-center gap-2 sm:gap-4 text-sm">
+            <span className="text-xs text-gray-400 text-right">{NOT_AVAILABLE}</span>
+            <span className="font-bold text-gray-900 w-14 sm:w-20 text-right">{fmtVal(act)}</span>
+          </div>
+        </div>
+      )
+    }
     const diff = act - est
     const pct = est > 0 ? diff / est : 0
-    const fmtVal = unit === '$' ? fmt : (n: number) => n.toFixed(1)
     return (
       <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
         <span className="text-sm text-gray-700 font-medium">{label}</span>
@@ -454,13 +496,15 @@ function JobDetailDrawer({ job, onClose, onEdit }: { job: CostedJob; onClose: ()
             </div>
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <p className="text-xs text-gray-400">Est GM</p>
-              <p className={`text-lg font-bold ${job.estGM >= lowTarget() ? 'text-green-600' : 'text-yellow-600'}`}>{fmtPct(job.estGM)}</p>
+              <p className={`text-lg font-bold ${job.row.estGM === null ? 'text-gray-500' : job.row.estGM >= lowTarget() ? 'text-green-600' : 'text-yellow-600'}`}>{orNone(job.row.estGM, fmtPct)}</p>
             </div>
-            <div className={`rounded-xl p-3 text-center ${job.actGM >= lowTarget() ? 'bg-green-50' : job.actGM >= lowTarget() - 0.05 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+            <div className={`rounded-xl p-3 text-center ${job.row.actGM === null ? 'bg-gray-50' : job.row.actGM >= lowTarget() ? 'bg-green-50' : job.row.actGM >= lowTarget() - 0.05 ? 'bg-yellow-50' : 'bg-red-50'}`}>
               <p className="text-xs text-gray-400">Actual GM</p>
-              <p className={`text-lg font-bold ${job.actGM >= lowTarget() ? 'text-green-600' : job.actGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>{fmtPct(job.actGM)}</p>
+              <p className={`text-lg font-bold ${gmTone(job.row.actGM)}`}>{orNone(job.row.actGM, fmtPct)}</p>
             </div>
           </div>
+          {!job.row.hasEstimate && <p className="text-sm font-medium text-gray-700">{NO_COST} The estimate is not available.</p>}
+          <p className="text-xs text-gray-400">{BEFORE_COMMISSION}</p>
 
           {/* Variance table */}
           <div>
@@ -473,16 +517,16 @@ function JobDetailDrawer({ job, onClose, onEdit }: { job: CostedJob; onClose: ()
                 <span className="hidden sm:inline w-14 text-right">%</span>
               </div>
             </div>
-            {Number(e.actualLaborHrs) > 0 && <VarRow label="Labor Hours" est={q.adjLaborHrs || 0} act={e.actualLaborHrs} unit="hrs" />}
-            <VarRow label={e.laborKind === 'sub' ? 'Paid to sub' : 'Labor Cost'} est={q.laborCost} act={job.actualLaborCost} />
-            <VarRow label="Material Cost" est={q.materialCost} act={e.actualMaterialCost} />
+            {Number(e.actualLaborHrs) > 0 && <VarRow label="Labor Hours" est={job.row.hasEstimate ? q.adjLaborHrs || 0 : null} act={e.actualLaborHrs} unit="hrs" />}
+            <VarRow label={e.laborKind === 'sub' ? 'Paid to sub' : 'Labor Cost'} est={job.row.hasEstimate ? q.laborCost : null} act={job.actualLaborCost} />
+            <VarRow label="Material Cost" est={job.row.hasEstimate ? q.materialCost : null} act={e.actualMaterialCost} />
             {e.actualOtherCosts > 0 && (
               <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
                 <span className="text-sm text-gray-700 font-medium">Other Costs</span>
                 <span className="text-sm font-bold text-gray-900">{fmt(e.actualOtherCosts)}</span>
               </div>
             )}
-            <VarRow label="Total COGS" est={job.totalEstCOGS} act={job.totalActCOGS} />
+            <VarRow label="Total COGS" est={job.row.estCents === null ? null : job.row.estCents / 100} act={job.totalActCOGS} />
           </div>
 
           {(e.laborSource || oldHours || e.materialSource) && (
@@ -556,27 +600,20 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
         const quote = quotes.find(q => q.id === entry.quoteId)
         if (!quote) return null
 
-        // The labor cost used for profit. Hours are never part of it (jobCostLabor.ts).
-        const actualLaborCost = entryLaborCents(entry, quote) / 100
-        const hasHours = Number(entry.actualLaborHrs) > 0 && (quote.adjLaborHrs || 0) > 0
-
-        const totalEstCOGS = quote.totalCOGS
-        const totalActCOGS = actualLaborCost + entry.actualMaterialCost + entry.actualOtherCosts
+        // One rule with the customer's tab (jobCostLabor.ts). Hours are never part of the cost.
+        const row = costRow(entry, quote)
+        const actualLaborCost = row.laborCents / 100
+        const hasHours = row.hasEstimate && Number(entry.actualLaborHrs) > 0 && (quote.adjLaborHrs || 0) > 0
 
         return {
           entry,
           quote,
+          row,
           actualLaborCost,
-          laborVariance: actualLaborCost - quote.laborCost,
+          laborVariance: row.hasEstimate ? actualLaborCost - quote.laborCost : null,
           laborHrsVariance: hasHours ? entry.actualLaborHrs - quote.adjLaborHrs : null,
-          materialVariance: entry.actualMaterialCost - quote.materialCost,
-          materialPct: quote.materialCost > 0 ? (entry.actualMaterialCost - quote.materialCost) / quote.materialCost : 0,
-          totalEstCOGS,
-          totalActCOGS,
-          cogsVariance: totalActCOGS - totalEstCOGS,
-          cogsPct: totalEstCOGS > 0 ? (totalActCOGS - totalEstCOGS) / totalEstCOGS : 0,
-          estGM: estMargin(quote),
-          actGM: quote.finalPrice > 0 ? (quote.finalPrice - totalActCOGS) / quote.finalPrice : 0,
+          materialPct: row.hasEstimate && quote.materialCost > 0 ? (entry.actualMaterialCost - quote.materialCost) / quote.materialCost : null,
+          totalActCOGS: row.actualCents / 100,
         } as CostedJob
       })
       .filter(Boolean) as CostedJob[]
@@ -585,55 +622,67 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
   // Aggregate stats
   const stats = useMemo(() => {
     if (costedJobs.length === 0) return null
-    const avgLaborCostVar = costedJobs.reduce((s, j) => s + j.laborVariance, 0) / costedJobs.length
-    const avgLaborEst = costedJobs.reduce((s, j) => s + j.quote.laborCost, 0) / costedJobs.length
+    // Estimates: only jobs whose quote has a cost on file. Actuals: only entries with a cost in them.
+    const compared = costedJobs.filter(j => j.row.hasEstimate && j.row.hasActual)
+    const laborEst = compared.filter(j => j.quote.laborCost > 0)
+    const avgLaborCostVar = avgOf(compared.map(j => j.laborVariance as number))
+    const avgLaborEst = avgOf(laborEst.map(j => j.quote.laborCost))
     // Hours are optional: only jobs with hours on both sides count here.
     const withHours = costedJobs.filter(j => j.laborHrsVariance !== null)
-    const avgLaborVar = withHours.length ? withHours.reduce((s, j) => s + (j.laborHrsVariance as number), 0) / withHours.length : 0
-    const avgMaterialVar = costedJobs.reduce((s, j) => s + j.materialPct, 0) / costedJobs.length
-    const avgCOGSVar = costedJobs.reduce((s, j) => s + j.cogsPct, 0) / costedJobs.length
-    const avgEstGM = costedJobs.reduce((s, j) => s + j.estGM, 0) / costedJobs.length
-    const avgActGM = costedJobs.reduce((s, j) => s + j.actGM, 0) / costedJobs.length
-    const totalEstCOGS = costedJobs.reduce((s, j) => s + j.totalEstCOGS, 0)
-    const totalActCOGS = costedJobs.reduce((s, j) => s + j.totalActCOGS, 0)
+    const avgLaborVar = avgOf(withHours.map(j => j.laborHrsVariance as number))
+    const avgMaterialVar = avgOf(compared.filter(j => j.materialPct !== null).map(j => j.materialPct as number))
+    const avgEstGM = avgOf(costedJobs.filter(j => j.row.estGM !== null).map(j => j.row.estGM as number))
+    const avgActGM = avgOf(costedJobs.filter(j => j.row.actGM !== null).map(j => j.row.actGM as number))
+    // The compare of margins is on the same jobs.
+    const bothGM = compared.filter(j => j.row.estGM !== null && j.row.actGM !== null)
+    const bothEstGM = avgOf(bothGM.map(j => j.row.estGM as number))
+    const bothActGM = avgOf(bothGM.map(j => j.row.actGM as number))
 
     // By fence style
-    const byStyle: Record<string, { jobs: number; avgLaborCostVar: number; hrJobs: number; avgLaborVar: number; avgMatVar: number; avgActGM: number }> = {}
+    const groups: Record<string, CostedJob[]> = {}
     costedJobs.forEach(j => {
       const cat = fenceCategory(j.quote.fenceStyle)
-      if (!byStyle[cat]) byStyle[cat] = { jobs: 0, avgLaborCostVar: 0, hrJobs: 0, avgLaborVar: 0, avgMatVar: 0, avgActGM: 0 }
-      byStyle[cat].jobs += 1
-      byStyle[cat].avgLaborCostVar += j.laborVariance
-      if (j.laborHrsVariance !== null) { byStyle[cat].hrJobs += 1; byStyle[cat].avgLaborVar += j.laborHrsVariance }
-      byStyle[cat].avgMatVar += j.materialPct
-      byStyle[cat].avgActGM += j.actGM
+      ;(groups[cat] ??= []).push(j)
     })
-    Object.values(byStyle).forEach(s => {
-      s.avgLaborCostVar /= s.jobs
-      s.avgLaborVar = s.hrJobs ? s.avgLaborVar / s.hrJobs : 0
-      s.avgMatVar /= s.jobs
-      s.avgActGM /= s.jobs
+    const byStyle: Record<string, { jobs: number; avgLaborCostVar: number | null; hrJobs: number; avgLaborVar: number; avgMatVar: number | null; avgActGM: number | null }> = {}
+    Object.entries(groups).forEach(([cat, list]) => {
+      const both = list.filter(j => j.row.hasEstimate && j.row.hasActual)
+      const hrs = list.filter(j => j.laborHrsVariance !== null)
+      byStyle[cat] = {
+        jobs: list.length,
+        avgLaborCostVar: avgOf(both.map(j => j.laborVariance as number)),
+        hrJobs: hrs.length,
+        avgLaborVar: avgOf(hrs.map(j => j.laborHrsVariance as number)) ?? 0,
+        avgMatVar: avgOf(both.filter(j => j.materialPct !== null).map(j => j.materialPct as number)),
+        avgActGM: avgOf(list.filter(j => j.row.actGM !== null).map(j => j.row.actGM as number)),
+      }
     })
 
-    return { avgLaborCostVar, avgLaborEst, avgLaborVar, avgMaterialVar, avgCOGSVar, avgEstGM, avgActGM, totalEstCOGS, totalActCOGS, byStyle }
+    return { avgLaborCostVar, avgLaborEst, avgLaborVar, hourJobs: withHours.length, avgMaterialVar, avgEstGM, avgActGM, bothEstGM, bothActGM, byStyle }
   }, [costedJobs])
 
   // Insights
   const insights = useMemo(() => {
     if (!stats) return []
     const msgs: string[] = []
-    const laborPct = stats.avgLaborEst > 0 ? stats.avgLaborCostVar / stats.avgLaborEst : 0
-    if (laborPct > 0.05) msgs.push(`Labor costs are running ${fmt(stats.avgLaborCostVar)} a job above estimates on average.`)
-    else if (laborPct < -0.05) msgs.push(`Labor costs are coming in ${fmt(Math.abs(stats.avgLaborCostVar))} a job below estimates on average.`)
-    if (stats.avgLaborVar > 1) msgs.push(`You underestimate labor by an average of ${stats.avgLaborVar.toFixed(1)} hours per job.`)
-    else if (stats.avgLaborVar < -1) msgs.push(`You overestimate labor by an average of ${Math.abs(stats.avgLaborVar).toFixed(1)} hours per job — your crew is faster than expected.`)
-    if (stats.avgMaterialVar > 0.05) msgs.push(`Material costs are running ${fmtPct(stats.avgMaterialVar)} above estimates on average.`)
-    else if (stats.avgMaterialVar < -0.05) msgs.push(`Material costs are coming in ${fmtPct(Math.abs(stats.avgMaterialVar))} below estimates — good purchasing.`)
-    if (stats.avgActGM < stats.avgEstGM - 0.03) msgs.push(`Actual margins (${fmtPct(stats.avgActGM)}) are below quoted margins (${fmtPct(stats.avgEstGM)}) — review your estimating.`)
-    else if (stats.avgActGM >= stats.avgEstGM) msgs.push(`Actual margins are meeting or beating estimates — your pricing model is solid.`)
+    const costVar = stats.avgLaborCostVar ?? 0
+    const laborPct = stats.avgLaborEst ? costVar / stats.avgLaborEst : 0
+    if (laborPct > 0.05) msgs.push(`Labor costs are running ${fmt(costVar)} a job above estimates on average.`)
+    else if (laborPct < -0.05) msgs.push(`Labor costs are coming in ${fmt(Math.abs(costVar))} a job below estimates on average.`)
+    const hours = stats.avgLaborVar ?? 0
+    const across = `(${stats.hourJobs} of ${costedJobs.length} jobs have hours)`
+    if (stats.hourJobs >= MIN_HOUR_JOBS && hours > 1) msgs.push(`You underestimate labor by an average of ${hours.toFixed(1)} hours per job ${across}.`)
+    else if (stats.hourJobs >= MIN_HOUR_JOBS && hours < -1) msgs.push(`You overestimate labor by an average of ${Math.abs(hours).toFixed(1)} hours per job ${across}. Your crew is faster than expected.`)
+    const matVar = stats.avgMaterialVar ?? 0
+    if (matVar > 0.05) msgs.push(`Material costs are running ${fmtPct(matVar)} above estimates on average.`)
+    else if (matVar < -0.05) msgs.push(`Material costs are coming in ${fmtPct(Math.abs(matVar))} below estimates — good purchasing.`)
+    if (stats.bothActGM !== null && stats.bothEstGM !== null) {
+      if (stats.bothActGM < stats.bothEstGM - 0.03) msgs.push(`Actual margins (${fmtPct(stats.bothActGM)}) are below quoted margins (${fmtPct(stats.bothEstGM)}) — review your estimating.`)
+      else if (stats.bothActGM >= stats.bothEstGM) msgs.push(`Actual margins are meeting or beating estimates — your pricing model is solid.`)
+    }
 
     Object.entries(stats.byStyle).forEach(([style, d]) => {
-      if (d.hrJobs >= 2 && d.avgLaborVar > 2) msgs.push(`${style} jobs average ${d.avgLaborVar.toFixed(1)} extra labor hours — consider adjusting man-hour rates for this style.`)
+      if (d.hrJobs >= MIN_HOUR_JOBS && d.avgLaborVar > 2) msgs.push(`${style} jobs average ${d.avgLaborVar.toFixed(1)} extra labor hours (${d.hrJobs} of ${d.jobs} jobs have hours) — consider adjusting man-hour rates for this style.`)
     })
     return msgs
   }, [stats])
@@ -676,31 +725,31 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
 
       {/* Aggregate KPIs */}
       {stats && (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Jobs Costed</p>
-            <p className="text-2xl font-bold text-gray-900">{costedJobs.length}</p>
+            <p className="text-xl lg:text-2xl font-bold text-gray-900">{costedJobs.length}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Labor Variance</p>
-            <p className={`text-2xl font-bold ${varianceColor(stats.avgLaborEst > 0 ? stats.avgLaborCostVar / stats.avgLaborEst : 0)}`}>
-              {stats.avgLaborCostVar >= 0 ? '+' : ''}{fmt(stats.avgLaborCostVar)}
+            <p className={`text-xl lg:text-2xl font-bold ${stats.avgLaborCostVar === null ? 'text-gray-500' : varianceColor(stats.avgLaborEst ? stats.avgLaborCostVar / stats.avgLaborEst : 0)}`}>
+              {orNone(stats.avgLaborCostVar, n => signed(n, fmt))}
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Material Variance</p>
-            <p className={`text-2xl font-bold ${varianceColor(stats.avgMaterialVar)}`}>
-              {stats.avgMaterialVar >= 0 ? '+' : ''}{fmtPct(stats.avgMaterialVar)}
+            <p className={`text-xl lg:text-2xl font-bold ${stats.avgMaterialVar === null ? 'text-gray-500' : varianceColor(stats.avgMaterialVar)}`}>
+              {orNone(stats.avgMaterialVar, n => signed(n, fmtPct))}
             </p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Est GM</p>
-            <p className="text-2xl font-bold text-gray-500">{fmtPct(stats.avgEstGM)}</p>
+            <p className="text-xl lg:text-2xl font-bold text-gray-500">{orNone(stats.avgEstGM, fmtPct)}</p>
           </div>
           <div className="bg-white rounded-2xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 font-semibold mb-1">Avg Actual GM</p>
-            <p className={`text-2xl font-bold ${stats.avgActGM >= lowTarget() ? 'text-green-600' : stats.avgActGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
-              {fmtPct(stats.avgActGM)}
+            <p className={`text-xl lg:text-2xl font-bold ${gmTone(stats.avgActGM)}`}>
+              {orNone(stats.avgActGM, fmtPct)}
             </p>
           </div>
         </div>
@@ -743,13 +792,13 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                   <td data-label="Style" className="px-6 py-3 font-medium text-gray-900">{style}</td>
                   <td data-label="Jobs" className="px-4 py-3 text-right text-gray-700">{d.jobs}</td>
                   <td data-label="Avg Labor Var" className="px-4 py-3 text-right font-bold text-gray-900">
-                    {d.avgLaborCostVar >= 0 ? '+' : ''}{fmt(d.avgLaborCostVar)}
+                    {orNone(d.avgLaborCostVar, n => signed(n, fmt))}
                   </td>
-                  <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${varianceColor(d.avgMatVar)}`}>
-                    {d.avgMatVar >= 0 ? '+' : ''}{fmtPct(d.avgMatVar)}
+                  <td data-label="Avg Material Var" className={`px-4 py-3 text-right font-bold ${d.avgMatVar === null ? 'text-gray-500' : varianceColor(d.avgMatVar)}`}>
+                    {orNone(d.avgMatVar, n => signed(n, fmtPct))}
                   </td>
-                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${d.avgActGM >= lowTarget() ? 'text-green-600' : d.avgActGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
-                    {fmtPct(d.avgActGM)}
+                  <td data-label="Avg Actual GM" className={`px-4 py-3 text-right font-bold ${gmTone(d.avgActGM)}`}>
+                    {orNone(d.avgActGM, fmtPct)}
                   </td>
                 </tr>
               ))}
@@ -762,7 +811,7 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Costed Jobs</h3>
-          <span className="text-xs text-gray-400">{costedJobs.length} jobs</span>
+          <span className="text-xs text-gray-400">{costedJobs.length} jobs · {BEFORE_COMMISSION}</span>
         </div>
         <table className="w-full text-sm table-responsive-cards">
           <thead className="bg-gray-50 border-b border-gray-200">
@@ -791,14 +840,14 @@ export default function JobCostingTab({ state: _state }: { state: BudgetState })
                 <td data-label="Customer" className="px-5 py-3 font-medium text-gray-900">{j.quote.customerName}</td>
                 <td data-label="Style" className="px-3 py-3 text-gray-600 text-xs">{fenceCategory(j.quote.fenceStyle)}</td>
                 <td data-label="Price" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.quote.finalPrice)}</td>
-                <td data-label="Est COGS" className="px-3 py-3 text-right text-gray-500">{fmt(j.totalEstCOGS)}</td>
-                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{fmt(j.totalActCOGS)}</td>
-                <td data-label="COGS Var" className={`px-3 py-3 text-right font-bold ${varianceColor(j.cogsPct)}`}>
-                  {j.cogsVariance >= 0 ? '+' : ''}{fmt(j.cogsVariance)}
+                <td data-label="Est COGS" className="px-3 py-3 text-right text-gray-500">{j.row.estCents === null ? NOT_AVAILABLE : fmt(j.row.estCents / 100)}</td>
+                <td data-label="Act COGS" className="px-3 py-3 text-right font-semibold text-gray-900">{j.row.hasActual ? fmt(j.totalActCOGS) : 'Not entered'}</td>
+                <td data-label="COGS Var" className={`px-3 py-3 text-right font-bold ${j.row.varianceCents === null ? 'text-gray-500' : varianceColor(j.row.estCents ? j.row.varianceCents / j.row.estCents : 0)}`}>
+                  {orNone(j.row.varianceCents === null ? null : j.row.varianceCents / 100, n => signed(n, fmt))}
                 </td>
-                <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{fmtPct(j.estGM)}</td>
-                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${j.actGM >= lowTarget() ? 'text-green-600' : j.actGM >= lowTarget() - 0.05 ? 'text-yellow-600' : 'text-red-500'}`}>
-                  {fmtPct(j.actGM)}
+                <td data-label="Est GM" className="px-3 py-3 text-right text-gray-500">{orNone(j.row.estGM, fmtPct)}</td>
+                <td data-label="Act GM" className={`px-3 py-3 text-right font-bold ${gmTone(j.row.actGM)}`}>
+                  {orNone(j.row.actGM, fmtPct)}
                 </td>
                 <td data-label="Actions" className="px-2 py-3 text-right">
                   {can('ops.delete') && <button

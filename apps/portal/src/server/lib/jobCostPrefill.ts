@@ -59,7 +59,7 @@ export function workOutPrefill(i: PrefillInput): PrefillAnswer {
   const { sub, kindWhy } = kindOf(i)
 
   // Labor.
-  const fromQuote = { cents: i.quote.laborCents, source: 'quote' as const, words: "From the quote's labor $", note: '' }
+  const fromQuote = { cents: i.quote.laborCents, source: 'quote' as const, words: i.quote.laborCents > 0 ? "From the quote's labor $" : 'This quote has no labor $ on file. Type what was paid.', note: '' }
   const laborBills = i.bills.filter(b => b.category === 'subcontractor' || b.category === 'labor')
   const billed = sum(laborBills, b => b.totalCents)
   const paid = i.takeoff?.subPaidCents ?? null
@@ -70,7 +70,7 @@ export function workOutPrefill(i: PrefillInput): PrefillAnswer {
   } else if (sub && laborBills.length) {
     labor = { cents: billed, source: 'bills', words: `From ${plural(laborBills.length, 'sub bill')} on this job (${numbers(laborBills)})`, note: '' }
   } else if (!sub && laborBills.length) {
-    labor = { ...fromQuote, note: `A labor bill for ${usd(billed)} is linked to this job and is not counted here.` }
+    labor = { ...fromQuote, note: `A labor bill for ${usd(billed)} is linked to this job. Not added here. On the P&L this job's labor counts once: the larger of the two.` }
   }
 
   // Material.
@@ -84,16 +84,16 @@ export function workOutPrefill(i: PrefillInput): PrefillAnswer {
   if (docs) {
     const names = [...matBills.map(b => b.billNumber || 'no number'), ...i.invoices.map(v => v.invoiceNumber || 'no number')].join(', ')
     if (i.orders.length && ordered !== bought) notes.push(`The Sales Order is ${usd(ordered)}. A bill does not say which order it covers, so the app cannot tell if these bills are all of it. Only the bills are counted, never both.`)
-    material = { cents: bought, source: 'bills', words: `From ${plural(docs, 'vendor bill')} on this job (${names})`, note: '' }
+    material = { cents: bought, source: 'bills', words: `From ${plural(docs, 'materials bill')} on this job (${names})`, note: '' }
   } else if (i.orders.length) {
     const open = i.orders.filter(o => o.status === 'pending').length
     material = {
       cents: ordered, source: 'sales_order',
-      words: `From the Sales Order${i.orders.length === 1 ? '' : 's'} on this job${open === i.orders.length ? ' (not marked ordered yet)' : ''}. No vendor bill is linked, so these are the prices on the order, not billed prices.`,
+      words: `From the Sales Order${i.orders.length === 1 ? '' : 's'} on this job${open === i.orders.length ? ' (not marked ordered yet)' : ''}. No materials bill is linked, so these are the prices on the order, not billed prices.`,
       note: '',
     }
   } else {
-    material = { cents: i.quote.materialCents, source: 'quote', words: 'From the quote estimate. No vendor bill or Sales Order on this job.', note: '' }
+    material = { cents: i.quote.materialCents, source: 'quote', words: i.quote.materialCents > 0 ? 'From the quote estimate. No materials bill or Sales Order on this job.' : 'This quote has no material cost on file, and the job has no materials bill or Sales Order. Type what it cost.', note: '' }
   }
   if (other.length) notes.push(`${plural(other.length, 'bill')} on this job filed as Other or Equipment ${other.length === 1 ? 'is' : 'are'} not counted (${usd(sum(other, b => b.totalCents))}).`)
   material.note = notes.join(' ')

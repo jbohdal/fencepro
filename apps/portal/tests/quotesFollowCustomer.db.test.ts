@@ -68,6 +68,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
       { id: `${tag}-jc-draft`, quoteId: id.qDraft, laborCents: 120000, materialCents: 340000 },
       { id: `${tag}-jc-hank`, quoteId: id.qHank, laborCents: 50000, materialCents: 90000 },
     ] as any } })
+    await prisma.accountKeyValue.create({ data: { accountId, key: 'fencepro_quote_shares', value: [
+      { id: `${tag}-jc-draft`, quoteId: id.qDraft, laborCents: 120000, materialCents: 340000 },
+      { id: `${tag}-jc-hank`, quoteId: id.qHank, laborCents: 50000, materialCents: 90000 },
+    ] as any } })
 
     const app = express(); app.use(express.json({ limit: '10mb' }))
     app.use('/api/crm-contacts', salesScoped('contacts')); app.use('/api/saved-quotes', salesScoped('quotes'))
@@ -194,23 +198,23 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('open quotes move with the custom
     expect([q.salesRep, q.notes, q.finalPrice]).toEqual([SAM(), sentBefore.notes, 5000])
   })
 
-  test('what the phones held is put back: Sally\'s empty save and Sam\'s older copy leave the draft\'s job costing line byte for byte', async () => {
-    const jc0 = await kvRows('fencepro_jobcosting')
+  test('what the phones held is put back: Sally\'s empty save and Sam\'s older copy leave the draft\'s line in a per customer list byte for byte', async () => {
+    const jc0 = await kvRows('fencepro_quote_shares')
     // Sally's phone clears its list (the draft's line is no longer hers; Hank's is, and goes).
-    const a = await call('PUT', '/api/kv/fencepro_jobcosting', sally, { value: [], baseVersion: sallyKv.versions.fencepro_jobcosting })
+    const a = await call('PUT', '/api/kv/fencepro_quote_shares', sally, { value: [], baseVersion: sallyKv.versions.fencepro_quote_shares })
     expect(a.status).toBe(200)
-    let jc1 = await kvRows('fencepro_jobcosting')
+    let jc1 = await kvRows('fencepro_quote_shares')
     expect(jc1.get(`${tag}-jc-draft`)).toBe(jc0.get(`${tag}-jc-draft`))
     expect(jc1.has(`${tag}-jc-hank`)).toBe(false)
     // Sam's phone, read before the draft was his: saves its copy (none of the draft's) with a line of its own.
     const mine = { id: `${tag}-jc-sam`, quoteId: id.qSentBySally, laborCents: 1000, materialCents: 2000 }
-    const b = await call('PUT', '/api/kv/fencepro_jobcosting', sam, { value: [...samKv.data.fencepro_jobcosting, mine], baseVersion: samKv.versions.fencepro_jobcosting })
+    const b = await call('PUT', '/api/kv/fencepro_quote_shares', sam, { value: [...samKv.data.fencepro_quote_shares, mine], baseVersion: samKv.versions.fencepro_quote_shares })
     if (b.status === 409) {
       // The phone's base is older than the save above: the app puts its change on the current copy and saves again.
-      const again = await call('PUT', '/api/kv/fencepro_jobcosting', sam, { value: [...b.json.data, mine], baseVersion: b.json.version })
+      const again = await call('PUT', '/api/kv/fencepro_quote_shares', sam, { value: [...b.json.data, mine], baseVersion: b.json.version })
       expect(again.status).toBe(200)
     } else expect(b.status).toBe(200)
-    jc1 = await kvRows('fencepro_jobcosting')
+    jc1 = await kvRows('fencepro_quote_shares')
     expect(jc1.get(`${tag}-jc-draft`)).toBe(jc0.get(`${tag}-jc-draft`))
     expect(jc1.has(`${tag}-jc-sam`)).toBe(true)
   })

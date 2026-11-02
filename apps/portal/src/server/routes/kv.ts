@@ -28,7 +28,7 @@ import prisma from '../lib/prisma.js'
 import { oneById } from '../lib/once.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { kvChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
+import { kvChangeRefusal, refuse, roleOf, JOB_COST_KEY, mayWriteJobCosts } from '../lib/permissions.js'
 import { hidesCosts, KV_COST_KEYS } from '../lib/costRedact.js'
 import { OPS_STAGES_KEY } from '../lib/opsStages.js'
 import { PIPELINE_STAGES_KEY } from '../lib/pipelineStages.js'
@@ -102,6 +102,10 @@ router.put('/:key', async (req: any, res) => {
   const key = String(req.params.key || '')
   if (!KEY_PATTERN.test(key)) { res.status(400).json({ success: false, error: 'Invalid key' }); return }
   if (isServerOnlyKey(key)) { res.status(403).json({ success: false, error: 'This setting is kept on the server.' }); return }
+  // Refused before anything is read: a login that may not see or write these gets no copy back in a 403 or a 409.
+  if ((key === JOB_COST_KEY && !mayWriteJobCosts(roleOf(req))) || (KV_COST_KEYS.has(key) && hidesCosts(roleOf(req)))) {
+    res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'Your login cannot change this. Ask Jonathan.' }); return
+  }
   if (!req.body || !('value' in req.body)) { res.status(400).json({ success: false, error: 'value is required' }); return }
   let value = req.body.value
   const base = baseVersionOf(req.body)
