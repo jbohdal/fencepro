@@ -1390,7 +1390,7 @@ export default function QuoteBuilder({
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       now: changeNow, priceNow, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
-      earlier: { orders: getOrdersForQuote(init.id), sold: signedQuoteOf(init) },
+      earlier: { orders: getOrdersForQuote(init.id) as never, sold: signedQuoteOf(init) },
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
       sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard

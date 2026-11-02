@@ -114,8 +114,6 @@ export interface ChangeOrder {
   jobWork?: ChangeOrderWork | null
   /** Its own change side by side, from its drawing ("Left side 40 ft → 50 ft"; server ownChangeWords). */
   change?: string | null
-  /** Its gates by the drawing's side ids (server ownGateSides): a later change order credits what it charged for one it takes out. */
-  gateSides?: { added: Array<{ side: string; type: 'walk' | 'double' }>; removed: string[] } | null
   /** The other change orders whose change its drawing also shows (open when it was drawn). */
   alsoInDrawing?: Array<{ number: number; status: ChangeOrderStatus; signed: boolean; change: string | null }>
   warrantyBefore?: { name: string; text: string } | null
@@ -141,6 +139,8 @@ export interface ChangeOrderPrefill {
   lines: ChangeOrderLine[]
   scope: ChangeOrderScope | null
   work?: ChangeOrderWorkInput | null
+  /** What the price can't settle: said to whoever is making it (changeOrderDraft.ts warningsOf), never to the customer. */
+  warnings?: string[]
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
@@ -351,6 +351,8 @@ export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderS
   const row = r.json.data as ChangeOrder
   put(row)
   if (status === 'approved' || co.status === 'approved') { void refreshJobs(); warnSchedule(r.json) }
+  // Voided with a later one still crediting its gate (server creditAfterVoid).
+  if (typeof r.json?.creditWarning === 'string' && r.json.creditWarning) toast.warning('Check the later change order', r.json.creditWarning)
   return row
 }
 
@@ -613,6 +615,7 @@ export function QuickChangeOrderModal({
         </div>
 
         <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
+          {prefill?.warnings?.map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.</p>}
           <div>
             <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>

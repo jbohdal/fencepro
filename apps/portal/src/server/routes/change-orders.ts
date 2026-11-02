@@ -32,7 +32,7 @@ import { requireCan, roleOf, can, refuse } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
+import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit, startOfChange, effectiveWork } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
@@ -192,7 +192,9 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     if (backToOk) await askForOk(row, by, true)
     // The OK (or a void before it): the "to OK" notices are cleared and the maker is told (lib/changeOrderNotices.ts).
     if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void', roleOf(req))
-    res.json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
+    const siblings = await siblingsOf(row)
+    const creditWarning = row.status === 'void' && cur.status !== 'void' ? creditAfterVoid(row, siblings) : null
+    res.json({ success: true, data: viewFor(req, siblings)(row), ...(creditWarning ? { creditWarning } : {}), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
 

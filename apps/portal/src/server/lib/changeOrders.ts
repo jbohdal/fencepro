@@ -31,7 +31,7 @@ import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { Prisma } from '@prisma/client'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
-import { shapeOf, sameShape, ownChangeWords, ownGateSides, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
+import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
 import { dataFor } from './quotePricing.js'
 
@@ -111,6 +111,20 @@ export function alsoInDrawing(r: Sib, siblings: Sib[]): Array<{ number: number; 
     .map(s => ({ number: s.number, status: s.status, signed: s.status === 'approved', change: ownChangeWords(s.work) }))
 }
 
+/**
+ * A change order voided with a later one still crediting a gate it added: the
+ * customer gets that credit for something never charged. Said to whoever voids
+ * it (Jonathan, Nov 2 2026: never a false line): null when no later one does.
+ */
+export function creditAfterVoid(voided: { number: number; scope?: unknown }, siblings: Array<{ number: number; status: string; scope?: unknown; deletedAt?: Date | null }>): string | null {
+  const gates = (r: { scope?: unknown }, k: string) => { const n = (r.scope as any)?.[k]; return typeof n === 'number' ? n : 0 }
+  const later = siblings.filter(s => s.number > voided.number && s.status !== 'void' && !s.deletedAt
+    && ((gates(voided, 'walkGates') > 0 && gates(s, 'walkGates') < 0) || (gates(voided, 'dblGates') > 0 && gates(s, 'dblGates') < 0))).map(s => `CO-${s.number}`)
+  if (!later.length) return null
+  const names = later.join(' and ')
+  return `${names} ${later.length === 1 ? 'credits' : 'credit'} a gate CO-${voided.number} added, and CO-${voided.number} is void now, so the customer was never charged for it. Void ${names} too.`
+}
+
 /** "The drawing also shows CO-1's change (Left side 40 ft → 50 ft): not part of this change order (CO-1, not signed yet)." */
 export function alsoInDrawingWords(also: ReturnType<typeof alsoInDrawing>): string[] {
   return also.map(a => {
@@ -159,7 +173,7 @@ export function view(r: Row, siblings: Row[] = []) {
     id: r.id, quoteId: r.quoteId, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason,
     lines: shownLines(r), totalCents: r.totalCents,
     // Its own change side by side, and the other change orders its drawing also shows (round 3 recheck).
-    change: ownChangeWords(r.work), gateSides: ownGateSides(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
+    change: ownChangeWords(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,
