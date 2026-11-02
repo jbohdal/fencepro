@@ -372,7 +372,7 @@ try {
   check('a proposal with more than 3: her edit saves, the options stay, nothing refused', qg.notes === 'Gate code 1234' && qg.proposal.options.length > 3 && !/Not saved/.test(await fx8.page.locator('body').textContent()), `${qg.proposal.options.length} options, note: ${qg.notes}`)
 
   // A sent quote holding an old Best (tan 6x8) as its fourth card, as two real quotes do: a note saves, nothing grows.
-  const old = [{ ...extra, tier: { key: 'good', label: 'Good', blurb: '' }, fenceStyle: "WV-DS 6'x8' Privacy" }, { ...extra, tier: { key: 'better', label: 'Better', blurb: '' }, fenceStyle: "WV-ND 6'x8' Privacy" }, { ...extra, tier: { key: 'best', label: 'Best', blurb: '' }, fenceStyle: "TV-ND 6'x8' Privacy" }, { ...extra, tier: undefined, fenceStyle: qg.fenceStyle }]
+  const old = [{ ...extra, finalPrice: 360, tier: { key: 'good', label: 'Good', blurb: '' }, fenceStyle: "WV-DS 6'x8' Privacy" }, { ...extra, finalPrice: 361, tier: { key: 'better', label: 'Better', blurb: '' }, fenceStyle: "WV-ND 6'x8' Privacy" }, { ...extra, finalPrice: 362, tier: { key: 'best', label: 'Best', blurb: '' }, fenceStyle: "TV-ND 6'x8' Privacy" }, { ...extra, tier: undefined, fenceStyle: qg.fenceStyle }]
   execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `update "SavedQuote" set status = 'SENT', proposal = jsonb_set(proposal::jsonb, '{options}', '${JSON.stringify(old).replace(/'/g, "''")}'::jsonb)::json where id = '${qt.id}' and "customerName" like 'Mixed e2e tiny%'`])
   await fx8.ctx.close()
   const fx9 = await phone(browser, SALES)
@@ -389,10 +389,10 @@ try {
 
   // The same shape from before per option warranties, its link out: Good swapped to Aluminum saves as a new version.
   const oldWords = 'Workmanship is warranted for 1 year from installation date.'
-  // The quote's own card with its real name, so the save knows it as the same option; today's tiers come in as new cards.
+  // The quote's own card with its real name and no tier folded onto it, so Good is not the main card and the save knows the own card as the same option.
   const ownLabel = qt.proposal.options.find(o => o.fenceStyle === qg.fenceStyle)?.label
   const noW = qo2.proposal.options.map(({ warranty, ...o }) => (o.fenceStyle === qg.fenceStyle ? { ...o, label: ownLabel } : o))
-  execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `update "SavedQuote" set proposal = jsonb_set(jsonb_set(proposal::jsonb, '{options}', '${JSON.stringify(noW).replace(/'/g, "''")}'::jsonb), '{warranty}', '"${oldWords}"'::jsonb)::json where id = '${qt.id}' and "customerName" like 'Mixed e2e tiny%'`])
+  execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `update "SavedQuote" set proposal = (jsonb_set(jsonb_set(proposal::jsonb, '{options}', '${JSON.stringify(noW).replace(/'/g, "''")}'::jsonb), '{warranty}', '"${oldWords}"'::jsonb) - 'ownTier')::json where id = '${qt.id}' and "customerName" like 'Mixed e2e tiny%'`])
   const tw = (await (await fx9.ctx.request.post(`${API}/api/saved-quotes/${qt.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
   await fx9.ctx.close()
   const fx10 = await phone(browser, SALES)
