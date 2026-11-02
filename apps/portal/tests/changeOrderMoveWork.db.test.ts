@@ -1,8 +1,9 @@
 /**
  * A move or repair changed in the quote builder keeps its work, as a new fence
  * does (Nov 2 2026; dev database, DEV_DB=1; refuses any other): the next change
- * order opens on it, the job, pull sheet and quoted cost follow, a void takes
- * it back. Typed lines stay price only.
+ * order opens on it, the job, pull sheet, packet steps and quoted cost follow,
+ * in any signing order, and a void takes off only its own. Typed lines stay
+ * price only, and a signed job stays the kind of job it was sold as.
  *
  * Writes only inside beforeAll, test and afterAll; removes what it made.
  */
@@ -34,11 +35,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
   const request = (ft: number, walk: number, jobType: string, inputs: object = {}) => ({ fenceStyle: STYLE, runs: [{ ft, rail: 'auto' }], corners: 0, ends: 2, walkGates: walk, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, overrides: {}, jobType, ...inputs })
   const lines = (cents: number, description = "Price difference at today's prices") => [{ id: `l${n++}`, description, amountCents: cents }]
 
-  async function signed(work: object, sections = 13) {
+  async function signed(work: object | null, sections = 13) {
     const c = await prisma.crmContact.create({ data: { accountId, firstName: 'E2E CO', lastName: `Move ${Date.now().toString(36)}${n++}`, phone: '3525550133' } as any })
     made.contacts.push(c.id)
     const q = await prisma.savedQuote.create({ data: {
-      accountId, ownerId: userId, crmContactId: c.id, customerName: `E2E CO ${c.lastName}`, customerAddress: '3 Change Rd, Ocala FL', fenceStyle: STYLE, runs: [100], sections, corners: 0, ends: 2, work,
+      accountId, ownerId: userId, crmContactId: c.id, customerName: `E2E CO ${c.lastName}`, customerAddress: '3 Change Rd, Ocala FL', fenceStyle: STYLE, runs: [100], sections, corners: 0, ends: 2, ...(work ? { work } : {}),
       materialCost: 1000, laborCost: 800, totalCOGS: 1800, finalPrice: 4000, gmPct: 0.3, pullSheet: [{ item: 'Vinyl post', qty: 14, unitCost: 10, total: 140 }], status: 'SOLD', soldAt: new Date(),
     } as any })
     made.quotes.push(q.id)
@@ -119,30 +120,87 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
     expect((await start(quoteId)).move.newPostCaps).toBe(false)
   })
 
-  test('a repair: two change orders, signed out of order, keep both; a void leaves the other', async () => {
-    const { quoteId, jobId } = await signed({ type: 'repair', repair: REPAIR }, 1)
-    const items1 = { ...REPAIR, items: { replaceSection: 1, resetPost: 1 } }
-    const co1 = await make(quoteId, { lines: lines(70000, "Changes to the work, at today's prices"), work: { request: request(100, 0, 'repair', { repair: items1 }), layout: { yard: null } } })
-    expect((await start(quoteId)).repair.items).toEqual({ replaceSection: 1, resetPost: 1 })
-    const items2 = { ...REPAIR, items: { replaceSection: 1, resetPost: 1, replacePost: 1 } }
-    const co2 = await make(quoteId, { lines: lines(50000, "Changes to the work, at today's prices"), work: { request: request(100, 0, 'repair', { repair: items2 }), layout: { yard: null } } })
-    await approve(co2)
-    const signed1 = await approve((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data.find((c: any) => c.id === co1.id))
-    expect(await job(jobId)).toMatchObject({ contractValue: 5200, sections: 1 })
-    expect((await start(quoteId)).repair.items).toEqual({ replaceSection: 1, resetPost: 1, replacePost: 1 })
-    const r = await call('PATCH', `/api/change-orders/${signed1.id}`, { baseVersion: signed1.version, status: 'void' })
-    expect(r.status).toBe(200)
-    expect((await start(quoteId)).repair.items).toEqual({ replaceSection: 1, replacePost: 1 })
+  /** A repair with 1 reset post; CO-1 adds one, CO-2 is drawn on top and adds another. */
+  async function twoResets() {
+    const start1 = { ...REPAIR, items: { resetPost: 1 } }
+    const { quoteId, jobId } = await signed({ type: 'repair', repair: start1 }, 1)
+    const req = (resetPost: number) => ({ request: request(100, 0, 'repair', { repair: { ...REPAIR, items: { resetPost } } }), layout: { yard: null } })
+    const co1 = await make(quoteId, { lines: lines(70000, 'Add 1 leaning post reset'), work: req(2) })
+    expect((await start(quoteId)).repair.items).toEqual({ resetPost: 2 })
+    const co2 = await make(quoteId, { lines: lines(70000, 'Add 1 leaning post reset'), work: req(3) })
+    return { quoteId, jobId, co1, co2 }
+  }
+
+  test('a repair: signed in order, 3 resets in the contract and the job', async () => {
+    const { quoteId, jobId, co1, co2 } = await twoResets()
+    await approve(co1); await approve(co2)
+    expect((await start(quoteId)).repair.items).toEqual({ resetPost: 3 })
+    expect(await job(jobId)).toMatchObject({ contractValue: 5400 })
   })
 
-  test('typed lines stay price only; a request for another kind of job keeps no work', async () => {
+  test('a repair: CO-2 signed before CO-1, the job has all 3 the contract pays for, on the priced work too', async () => {
+    const { quoteId, jobId, co1, co2 } = await twoResets()
+    await approve(co2)
+    expect((await start(quoteId)).repair.items).toEqual({ resetPost: 3 })
+    const later = await approve((await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data.find((c: any) => c.id === co1.id))
+    expect(await job(jobId)).toMatchObject({ contractValue: 5400 })
+    expect((await start(quoteId)).repair.items).toEqual({ resetPost: 3 })
+    // The newest approved one's work is what the job and packet read: it has 3.
+    expect(later.jobWork.workDetail.repair.items).toEqual({ resetPost: 3 })
+    expect(later.jobWork.workDetail.crew.join(' ')).toMatch(/3/)
+  })
+
+  test('a repair: CO-1 voided, CO-2 signed: 2 resets, as the contract pays', async () => {
+    const { quoteId, jobId, co1, co2 } = await twoResets()
+    const after = await approve(co2)
+    const fresh = (await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data.find((c: any) => c.id === co1.id)
+    const r = await call('PATCH', `/api/change-orders/${fresh.id}`, { baseVersion: fresh.version, status: 'void' })
+    expect(r.status).toBe(200)
+    expect(r.json.creditWarning).toMatch(/CO-2 was made with CO-\d+ in the work/)
+    expect((await start(quoteId)).repair.items).toEqual({ resetPost: 2 })
+    expect(await job(jobId)).toMatchObject({ contractValue: 4700 })
+    const now = (await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data.find((c: any) => c.id === after.id)
+    expect(now.jobWork.workDetail.repair.items).toEqual({ resetPost: 2 })
+  })
+
+  test('the packet steps follow: stored with the work, and given to every login without a cost', async () => {
+    const { quoteId } = await signed({ type: 'move', move: MOVE })
+    const co = await make(quoteId, { lines: lines(80000), work: { request: request(120, 0, 'move', { move: MOVE }), layout: { yard: null } } })
+    const said = co.work.workDetail.crew.join(' ')
+    expect(said).toMatch(new RegExp(`${co.work.sections} sections`))
+    expect(JSON.stringify(co.work.workDetail)).not.toMatch(/cents|cost/i)
+  })
+
+  test('a signed job stays what it was sold as: refused both ways, no draft left', async () => {
+    const newFence = await signed(null as never)
+    const asRepair = await call('POST', '/api/change-orders', { id: `co-${Date.now()}-${n++}`, quoteId: newFence.quoteId, reason: 'One post', lines: lines(-823900), work: { request: request(100, 0, 'repair', { repair: REPAIR }), layout: { yard: null } } })
+    expect(asRepair.status).toBe(409)
+    expect(asRepair.json.error).toMatch(/sold as a new fence/)
+    const move = await signed({ type: 'move', move: MOVE })
+    const asNew = await call('POST', '/api/change-orders', { id: `co-${Date.now()}-${n++}`, quoteId: move.quoteId, reason: 'Back to new', lines: lines(10000), work: { request: request(120, 0, 'new'), layout: { yard: null } } })
+    expect(asNew.status).toBe(409)
+    expect(asNew.json.error).toMatch(/sold as a fence move/)
+    expect(await prisma.changeOrder.count({ where: { quoteId: { in: [newFence.quoteId, move.quoteId] } } })).toBe(0)
+  })
+
+  test('typed lines stay price only', async () => {
     const { quoteId, jobId } = await signed({ type: 'move', move: MOVE })
     const typed = await approve(await make(quoteId, { lines: lines(10000, 'Haul off the old slab') }))
     expect(typed.work).toBeNull()
-    const other = await make(quoteId, { lines: lines(10000), work: { request: request(120, 0, 'new'), layout: { yard: null } } })
-    expect(other.work).toBeNull()
     expect(await job(jobId)).toMatchObject({ contractValue: 4100, totalFeet: 100 })
     expect(await start(quoteId)).toMatchObject({ runs: [100], move: MOVE })
+  })
+
+  test('voiding CO-1 after CO-2 edited the same side: the job keeps CO-2\'s own feet, so job and contract agree', async () => {
+    const { quoteId, jobId } = await signed({ type: 'move', move: MOVE })
+    const co1 = await approve(await make(quoteId, { lines: lines(80000), work: { request: request(120, 0, 'move', { move: MOVE }), layout: { yard: null } } }))
+    await approve(await make(quoteId, { lines: lines(90000), work: { request: request(144, 0, 'move', { move: MOVE }), layout: { yard: null } } }))
+    expect(await job(jobId)).toMatchObject({ totalFeet: 144, contractValue: 5700 })
+    const r = await call('PATCH', `/api/change-orders/${co1.id}`, { baseVersion: (await call('GET', `/api/change-orders?quoteId=${quoteId}`)).json.data.find((c: any) => c.id === co1.id).version, status: 'void' })
+    expect(r.status).toBe(200)
+    expect(r.json.creditWarning).toMatch(/Check the job against the contract/)
+    expect(await job(jobId)).toMatchObject({ totalFeet: 124, contractValue: 4900 })
+    expect(await start(quoteId)).toMatchObject({ runs: [124] })
   })
 
   test('picked sections on a move stay price only (a new fence keeps the work they leave)', async () => {

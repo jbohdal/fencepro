@@ -7,7 +7,7 @@
  * CO-2 puts a walk gate in the Left side.
  */
 import { describe, test, expect } from 'vitest'
-import { applyChange, foldChanges, shapeOf, sameShape, mergeYard, clashes, type WorkShape } from '../src/server/lib/changeOrderMerge'
+import { applyChange, foldChanges, shapeOf, sameShape, mergeYard, clashes, withoutVoided, type WorkShape } from '../src/server/lib/changeOrderMerge'
 import { deriveRunsFor } from '../../web/src/changeOrderYard'
 
 const STYLE = 'chain/4/galv/res/ds'
@@ -83,6 +83,17 @@ describe('change orders: two drawings on one job', () => {
     expect(r.after[1].conflicts).toEqual(['Back: length'])
     expect(clashes({ number: 1, base: quote, work: co1 }, { number: 3, base: quote, work: co3 })).toEqual(['Back: length'])
     expect(clashes({ number: 1, base: quote, work: co1 }, { number: 2, base: co1, work: both })).toEqual([])
+  })
+
+  test('a change order drawn with another in it, that other voided: its own feet stay, the voided feet go', () => {
+    const co2 = shape(yardOf(864)) // Back 72, drawn on CO-1's 60
+    const step = withoutVoided({ number: 2, base: co1, work: co2 }, { number: 1, base: quote, work: co1 }, derive)
+    expect(step.base.yard.sides.find((s: any) => s.name === 'Back').lengthIn).toBe(600)
+    expect(step.work.yard.sides.find((s: any) => s.name === 'Back').lengthIn).toBe(744) // 50 + its own 12
+    expect(total(step.work)).toBe(total(co2) - 10)
+    // Drawn on something else: as it was.
+    const other = { number: 2, base: quote, work: shape(yardOf(600, WALK)) }
+    expect(withoutVoided(other, { number: 1, base: shape(yardOf(600, WALK)), work: shape(yardOf(600, WALK)) }, derive)).toBe(other)
   })
 
   test('a side added by a change goes after the side before it in that drawing', () => {

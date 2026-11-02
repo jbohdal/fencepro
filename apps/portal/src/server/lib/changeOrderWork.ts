@@ -31,7 +31,7 @@
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
-import { shapeOf, sameShape, applyChange, clashes, ownChangeWords, ownGateChanges, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
+import { shapeOf, sameShape, applyChange, clashes, ownChangeWords, ownGateChanges, withoutVoided, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
 
 type Json = any
 
@@ -50,6 +50,8 @@ export interface StoredWork {
   request: Json
   /** A move's or repair's inputs the change started from (inputs). */
   baseInputs?: WorkInputs
+  /** A move or repair: what the crew does now and what it needs (never a cost), for the packet. */
+  workDetail?: WorkDetail | null
   fenceStyle: string
   runs: number[]
   runRails?: string[]
@@ -88,6 +90,9 @@ function typedGateWidths(layout: Json): { walk: number[]; dbl: number[] } | null
 /** A move's or repair's own inputs, as a request or a saved quote's work keeps them. Null: a new fence. */
 export type WorkInputs = { move: Json } | { repair: Json } | null
 
+/** What a move's or repair's packet and pages read from its work, as the work is now. */
+export interface WorkDetail { crew: string[]; description: string; needs811: boolean; move?: Json; repair?: Json }
+
 /** The inputs of a saved quote or of a change order's stored work. */
 export function inputs(x: Json): WorkInputs {
   const r = isObj(x?.request) ? x.request : isObj(x?.work) ? x.work : null
@@ -97,16 +102,22 @@ export function inputs(x: Json): WorkInputs {
   return null
 }
 
-/** The same, whatever order the keys were saved in. */
+/** The same, whatever order the keys were saved in; a count of 0 is the same as none. */
 function sameData(a: unknown, b: unknown): boolean {
   if (isObj(a) && isObj(b)) {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)])
     return [...keys].every(k => sameData(a[k], b[k]))
   }
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+  const v = (x: unknown) => (x === 0 || x === undefined ? null : x)
+  return JSON.stringify(v(a)) === JSON.stringify(v(b))
 }
 
-/** One change order's own input changes put on the inputs as they are: a key at a time, a repair's items one by one. */
+/**
+ * One change order's own input changes put on the inputs as they are: a key at
+ * a time. A repair's items are counts, so its difference goes on the count now
+ * (two change orders each adding a post add 2, signed in any order, and a void
+ * takes off only its own), the way a gate count does (changeOrderMerge.ts plus).
+ */
 function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs): WorkInputs {
   if (!cur || !mine) return cur
   const key = 'move' in cur ? 'move' : 'repair'
@@ -117,7 +128,11 @@ function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs): WorkInp
     if (sameData(was[k], now[k])) continue
     if (isObj(was[k]) && isObj(now[k])) {
       const inner: Json = { ...(isObj(out[k]) ? out[k] : {}) }
-      for (const i of new Set([...Object.keys(was[k]), ...Object.keys(now[k])])) if (!sameData(was[k][i], now[k][i])) inner[i] = now[k][i]
+      for (const i of new Set([...Object.keys(was[k]), ...Object.keys(now[k])])) {
+        if (sameData(was[k][i], now[k][i])) continue
+        const counts = [was[k][i], now[k][i]].every(x => x === undefined || typeof x === 'number')
+        inner[i] = counts ? Math.max(0, num(inner[i]) + num(now[k][i]) - num(was[k][i])) : now[k][i]
+      }
       out[k] = inner
     } else out[k] = now[k]
   }
@@ -177,6 +192,7 @@ export async function priceWork(accountId: string, signed: Json, input: WorkInpu
     corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates, tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates,
     // A move's or repair's own count, as a saved quote keeps it (quotePricing.ts withServerCosts).
     sections: job.work ? job.work.sections : job.calc.sections, footage: sumFt(runs), layout, planSvg,
+    ...(job.work ? { workDetail: { crew: job.work.crew, description: job.work.description, needs811: job.work.needs811, ...(inputs({ request: req }) ?? {}) } } : {}),
     pullSheet: (job.pullSheet as SheetLine[]).map(l => ({ item: l.item, qty: l.qty, unitCost: l.unitCost, total: l.total, ...(l.moneyOnly || l.jobLotPiece ? { moneyOnly: true } : {}) })),
     materialCost: t.materialCost, laborCost: t.laborCost, tearOutCost: t.tearOutCost, totalCOGS: t.totalCOGS, pricedAt: new Date().toISOString(),
   }
@@ -196,7 +212,7 @@ export async function costDeltaOf(accountId: string, signed: Json, before: Json,
   return { materialCents: now.materialCents - was.materialCents, laborCents: now.laborCents - was.laborCents, tearOutCents: now.tearOutCents - was.tearOutCents, totalCents: now.totalCents - was.totalCents }
 }
 
-type CoRow = { id: string; number: number; status: string; approvedAt: Date | null; createdAt?: Date | null; work: unknown; scope?: unknown; lines?: unknown; reason?: string; totalCents?: number; contractRev?: number | null; deletedAt?: Date | null }
+type CoRow = { id: string; number: number; status: string; approvedAt: Date | null; createdAt?: Date | null; voidedAt?: Date | null; work: unknown; scope?: unknown; lines?: unknown; reason?: string; totalCents?: number; contractRev?: number | null; deletedAt?: Date | null }
 
 /**
  * The job's work after an approved change order: the change order's own
@@ -260,15 +276,40 @@ export function foldShapes(quote: Json, rows: CoRow[], derive: DeriveRuns, opts:
   let ins = inputs(quote)
   const snaps: Array<{ at: number; shape: WorkShape }> = []
   const steps: FoldedStep[] = []
+  // Voided: its change comes out of the ones drawn with it in them (changeOrderMerge.ts withoutVoided).
+  const voided = rows.filter(r => r.status === 'void' && !r.deletedAt && isObj(r.work) && isObj((r.work as Json).base)).sort((a, b) => a.number - b.number)
   for (const r of [...approved, ...open]) {
-    const step: ChangeStep = { number: r.number, base: baseOf(r, start, snaps), work: shapeOf(r.work) }
+    const drawn: ChangeStep = { number: r.number, base: baseOf(r, start, snaps), work: shapeOf(r.work) }
+    const step = voided.filter(v => drawnWith(r, v)).reduce((s, v) => withoutVoided(s, { number: v.number, base: shapeOf((v.work as Json).base), work: shapeOf(v.work) }, derive), drawn)
     const out = applyChange(cur, step, derive)
+    if (step !== drawn) out.merged = true
     ins = putInputs(ins, ((r.work as Json).baseInputs ?? null) as WorkInputs, inputs(r.work))
     steps.push({ row: r, step, shape: out.shape, merged: out.merged, conflicts: out.conflicts, inputs: ins })
     cur = out.shape
     if (r.status === 'approved' && r.approvedAt) snaps.push({ at: new Date(r.approvedAt).getTime(), shape: cur })
   }
   return { shape: cur, steps, inputs: ins }
+}
+
+/** Was `r` drawn with `v`'s change in it: `v` was on the job, signed or still open, when `r` was made. */
+export function drawnWith(r: CoRow, v: CoRow): boolean {
+  const at = (d: Date | null | undefined) => (d ? new Date(d).getTime() : null)
+  const made = at(r.createdAt), was = at(v.createdAt), gone = at(v.voidedAt)
+  return r.id !== v.id && made !== null && was !== null && was < made && (gone === null || gone > made)
+}
+
+/**
+ * Said to whoever voids a change order later ones were drawn on (lib/changeOrderMerge.ts
+ * withoutVoided takes its feet out of them): their prices were worked out with
+ * it in, so the job and the contract need a look. Null when none were.
+ */
+export function workAfterVoid(voided: CoRow, rows: CoRow[], steps: FoldedStep[]): string | null {
+  const later = rows.filter(r => r.status !== 'void' && !r.deletedAt && isObj(r.work) && drawnWith(r, voided)).sort((a, b) => a.number - b.number)
+  if (!later.length) return null
+  const names = later.map(r => `CO-${r.number}`)
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  const same = steps.flatMap(s => s.conflicts).filter((c, i, all) => all.indexOf(c) === i)
+  return `${list} ${later.length === 1 ? 'was' : 'were'} made with CO-${voided.number} in the work. CO-${voided.number}'s change is out of the job now and ${later.length === 1 ? 'its' : 'their'} own stays, at the price worked out then.${same.length ? ` Both changed the same thing (${same.join('; ')}): the later one is what the job has.` : ''} Check the job against the contract before the crew goes.`
 }
 
 /** The quote builder's request for a shape, with the other choices of `like` (a stored request). */
@@ -415,7 +456,8 @@ export function whatChanged(co: { scope?: unknown; lines?: unknown; reason?: str
   if (remove.length) bits.push(`removed ${join(remove)}`)
   if (s?.toStyle && s.toStyle !== s.fromStyle) bits.push(`changed the fence to ${styleName(String(s.toStyle))}`)
   if (bits.length) return join(bits)
-  const lines = (Array.isArray(co.lines) ? co.lines : []).map((l: Json) => String(l?.description ?? '').trim()).filter(Boolean)
+  // The price difference line says nothing of the change (web changeOrderPricing.ts DIFFERENCE_LINE).
+  const lines = (Array.isArray(co.lines) ? co.lines : []).map((l: Json) => String(l?.description ?? '').trim()).filter(t => t && !/^(Price difference|Changes to the work)( at|, at) today's prices$/.test(t))
   return lines.length ? lines.join(', ') : (co.reason || 'see the change order')
 }
 const join = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
@@ -590,6 +632,8 @@ export function packetWithChange<S extends Record<string, any>>(s: S, c: PacketC
   return {
     ...s, style: w.fenceStyle || s.style, footageFt: w.footage, sections: w.sections,
     pullSheet: (w.pullSheet ?? []).filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })),
+    // A move's or repair's steps for the crew, as the work is now.
+    ...(w.workDetail && s.work ? { work: { ...s.work, steps: w.workDetail.crew, needs811: w.workDetail.needs811 } } : {}),
     // The new drawing when it came with the change; else the old plan is left out (it no longer matches).
     planSvg: w.planSvg ?? undefined,
     // Each run by its side where the drawing names it ("Back"), else "Run 3".

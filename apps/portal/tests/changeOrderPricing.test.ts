@@ -12,8 +12,8 @@ import { setSavedKitSets } from '../../web/src/materialKits'
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from '../../web/src/quoteCalc'
 import { estimateConfig, quoteJobFor, type EstimateData } from '../../web/src/estimate'
 import { changeOrderDraft } from '../../web/src/changeOrderDraft'
-import { changeBaseOf, changeOrderInput, changeOrderPrice, gateCharges, gatePostsOf, type EarlierOrder } from '../../web/src/changeOrderPricing'
-import { ownGateSides } from '../src/server/lib/changeOrderMerge'
+import { changeBaseOf, changeOrderInput, changeOrderPrice, gatePostsOf, type EarlierOrder } from '../../web/src/changeOrderPricing'
+import { creditAfterVoid } from '../src/server/lib/changeOrders'
 import { priceMove, moveRepairSettings, type WorkCommon } from '../../web/src/moveRepair'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { deriveLayout, layoutForShape, teePostFor, type YardLayout } from '../../web/src/yardLayout'
@@ -317,188 +317,196 @@ describe('the other ways a change order is priced', () => {
  * IT": CREDIT IN FULL. "a job sold in vinyl changed to chain link has no chain
  * link rolls sold [...] FOOT FROM SOLD LENGTH [...] or FULL NEW FABRIC": FULL NEW
  * FABRIC.
+ *
+ * The target: when a change order brings the fence, gates and style back to a
+ * state the job was already in, the contract equals what it was in that state.
+ * Taking out what was added nets $0, in any order.
  */
-describe('a gate an earlier change order added, taken out by a later one: credited in full', () => {
-  const draftOf = (was: QuoteCalcInput, now: QuoteCalcInput, opts: { drawing?: Parameters<typeof changeOrderDraft>[0]['now']; signed?: Record<string, unknown>; orders?: EarlierOrder[]; sold?: QuoteCalcInput } = {}) =>
-    changeOrderDraft({
-      signed: signedOf(was, opts.signed), current: now, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: calculateQuote(now).sections, now: opts.drawing ?? null, priceNow: 0, simple: false,
-      earlier: opts.orders ? { orders: opts.orders, sold: opts.sold ?? { walkGates: 0, dblGates: 0 } as never } : null,
-    })
-  /** A change order as the server's view hands it to the next one. */
-  const saved = (number: number, d: ReturnType<typeof changeOrderDraft>, yards?: { base: YardLayout; work: YardLayout }, extra: Partial<EarlierOrder> = {}): EarlierOrder => ({
-    number, status: 'approved', lines: d.lines, scope: d.scope as never, work: {},
-    gateSides: yards ? ownGateSides({ base: { layout: { yard: yards.base } }, layout: { yard: yards.work } }) : null, ...extra,
-  })
-  /** The fence with the gate, drawn, in and back out: CO-1's and CO-2's lines. */
-  function drawnRound(name: string, ft: number, gate: () => YardLayout['sides'][number]['gate'] = () => ({ type: 'walk', widthIn: 48, position: 'middle' }), length = ft) {
-    const no = yard(ft), yes = yard(length)
-    yes.sides[0] = { ...yes.sides[0], gate: gate() }
-    const a = drawn(name, no, yes)
-    const co1 = draftOf(a.was, a.now, { drawing: a.drawing, signed: a.signed })
-    const b = drawn(name, yes, no)
-    const co2 = draftOf(b.was, b.now, { drawing: b.drawing, signed: b.signed, orders: [saved(1, co1, { base: no, work: yes })] })
-    return { co1, co2, b }
+describe('back to a state the job was already in: the contract is what it was then', () => {
+  type Work = { input: QuoteCalcInput; yard?: YardLayout | null }
+  const stateOfInput = (i: QuoteCalcInput) => ({ fenceStyle: i.style!.name, runs: i.runs.map(r => r.ft), corners: i.corners, ends: i.ends, walkGates: i.walkGates, dblGates: i.dblGates, tearOutSections: 0, tearOutGates: 0 })
+  const whole = (i: QuoteCalcInput) => Math.floor(calculateQuote(i).priced.price)
+  /** The job through its change orders, each saved as the server hands it to the next. */
+  function chain(sold: Work, steps: Work[], opts: { edit?: (d: ReturnType<typeof changeOrderDraft>, n: number) => ReturnType<typeof changeOrderDraft>; status?: (n: number) => string } = {}) {
+    const soldQuote = (w: Work, finalPrice: number) => signedOf(w.input, { finalPrice, layout: { yard: w.yard ?? null, ...(w.yard ? {} : w.input.gateWidths ? { gateWidths: w.input.gateWidths } : {}) } }) as never
+    const orders: EarlierOrder[] = []
+    let contract = whole(sold.input) * 100, cur = sold
+    const contracts = [contract], drafts: Array<ReturnType<typeof changeOrderDraft>> = []
+    const soldQ = soldQuote(sold, contract / 100)
+    for (const next of steps) {
+      const n = orders.length + 1
+      const st = next.input.style!
+      let d = changeOrderDraft({
+        signed: soldQuote(cur, contract / 100), current: next.input, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: calculateQuote(next.input).sections,
+        now: next.yard ? { yard: next.yard, nearIn: (st.panelWidth ?? 6) * 12, teeAs: teePostFor(st) } : null, priceNow: 0, simple: false, earlier: { orders: [...orders], sold: soldQ },
+      })
+      if (opts.edit) d = opts.edit(d, n)
+      drafts.push(d)
+      const cents = total(d)
+      orders.push({ number: n, status: opts.status?.(n) ?? 'approved', totalCents: cents, scope: d.scope as never, work: stateOfInput(next.input) })
+      contract += cents
+      contracts.push(contract)
+      cur = next
+    }
+    return { contracts, drafts, orders }
   }
+  /** Every time a state comes back, the contract is what it was. */
+  function holds(states: Work[], contracts: number[]) {
+    states.forEach((w, i) => { for (let k = 0; k < i; k++) if (JSON.stringify(stateOfInput(w.input)) === JSON.stringify(stateOfInput(states[k].input))) expect(contracts[i], `state ${i} is state ${k}`).toBe(contracts[k]) })
+  }
+  const listed = (name: string) => ({
+    bare: { input: input(name, [100]) },
+    gate: { input: input(name, [100], { walkGates: 1 }) },
+    two: { input: input(name, [100], { walkGates: 2 }) },
+    dbl: { input: input(name, [100], { dblGates: 1 }) },
+    split: { input: input(name, [48, 48], { walkGates: 1, ends: 4 }) },
+    longer: { input: input(name, [120]) },
+    longerGate: { input: input(name, [120], { walkGates: 1 }) },
+  })
+  const drawnWork = (name: string, y: YardLayout): Work => {
+    const st = styleOf(name), d = deriveLayout(y, (st.panelWidth ?? 6) * 12, { teeAs: teePostFor(st) })
+    return { yard: y, input: input(name, d.runs.map(r => r.ft), { corners: d.corners, ends: d.ends, walkGates: d.walkGates, dblGates: d.dblGates, gateWidths: d.gateWidthsFt }) }
+  }
+  const twoSides = (ft: number, a: boolean, b: boolean) => {
+    const y = layoutForShape('backyard')
+    const gate = (on: boolean) => (on ? { type: 'walk' as const, widthIn: 48, position: 'middle' as const } : null)
+    y.sides = y.sides.map((s, i) => ({ ...s, id: `s${i}`, on: i < 2, lengthIn: i < 2 ? ft * 12 : 0, gate: i < 2 ? gate(i ? b : a) : null }))
+    return y
+  }
+  const drawnSet = (name: string) => ({
+    bare: drawnWork(name, yard(100)),
+    gate: drawnWork(name, yard(100, true)),
+    longer: drawnWork(name, yard(120)),
+    longerGate: drawnWork(name, yard(120, true)),
+  })
 
-  test.each([CL, VINYL] as const)('a gate drawn into a side and taken out nets $0 (%s), at every length', name => {
-    for (const ft of [60, 72, 100, 110, 133]) {
-      const { co1, co2 } = drawnRound(name, ft)
-      expect(total(co1)).toBeGreaterThan(0)
-      expect(total(co2) + total(co1)).toBe(0)
-      expect(co2.lines).toHaveLength(1)
-      expect(co2.lines[0].description).toMatch(/^Remove 1 walk gate.*: the full CO-1 charge back \(4 ft of fence goes back in\)$/)
-      expect(co2.scope).toMatchObject({ walkGates: -1, footageFt: 4 })
+  describe.each([['vinyl', VINYL], ['chain link', CL]] as const)('%s', (_w, name) => {
+    test('by run list: chains ending at each earlier state', () => {
+      const s = listed(name)
+      for (const path of [
+        [s.bare, s.gate, s.bare], [s.bare, s.split, s.bare], [s.bare, s.two, s.gate, s.bare], [s.bare, s.gate, s.two, s.gate, s.bare],
+        [s.bare, s.gate, s.longerGate, s.gate, s.bare], [s.bare, s.longer, s.longerGate, s.longer, s.bare], [s.bare, s.gate, s.dbl, s.bare], [s.gate, s.two, s.gate],
+        [s.gate, s.bare, s.gate], [s.bare, s.gate, s.bare, s.gate, s.bare],
+      ]) {
+        const { contracts } = chain(path[0], path.slice(1))
+        holds(path, contracts)
+      }
+    })
+    test('by drawing: chains ending at each earlier state', () => {
+      const s = drawnSet(name)
+      for (const path of [
+        [s.bare, s.gate, s.bare], [s.bare, s.gate, s.longerGate, s.gate, s.bare], [s.bare, s.longer, s.longerGate, s.longer, s.bare], [s.bare, s.gate, s.bare, s.gate, s.bare],
+      ]) {
+        const { contracts } = chain(path[0], path.slice(1))
+        holds(path, contracts)
+      }
+    })
+    test('taking out what was added nets $0 in any order: a gate, then more fence, then the gate out', () => {
+      for (const s of [listed(name), drawnSet(name)]) {
+        const { contracts } = chain(s.bare, [s.gate, s.longerGate, s.longer])
+        expect(contracts[3]).toBe(chain(s.bare, [s.longer]).contracts[1])
+      }
+    })
+    test('two gates on one change order, out one at a time: 1 left is the state with one gate, 0 left is the sold job', () => {
+      const s = listed(name)
+      const one = chain(s.bare, [s.gate]).contracts[1]
+      const { contracts, drafts } = chain(s.bare, [s.two, s.gate, s.bare])
+      expect(contracts[2]).toBe(one)
+      expect(contracts[3]).toBe(contracts[0])
+      expect(drafts[1].lines[0].description).toBe('Remove 1 walk gate')
+      const d = (a: boolean, b: boolean) => drawnWork(name, twoSides(50, a, b))
+      const drawnOne = chain(d(false, false), [d(true, false)]).contracts[1]
+      const both = chain(d(false, false), [d(true, true), d(true, false), d(false, false)])
+      expect(both.contracts[2]).toBe(drawnOne)
+      expect(both.contracts[3]).toBe(both.contracts[0])
+    })
+    test('sold with a gate, another added and taken out: same kind, count back, which one went doesn\'t matter', () => {
+      const s = listed(name)
+      const { contracts } = chain(s.gate, [s.two, s.gate])
+      expect(contracts[2]).toBe(contracts[0])
+    })
+    test('walk swapped for double, then taken out', () => {
+      const s = listed(name)
+      expect(chain(s.bare, [s.gate, s.dbl, s.bare]).contracts[3]).toBe(whole(s.bare.input) * 100)
+    })
+    test('the words of a line retyped change nothing', () => {
+      const s = listed(name)
+      const { contracts } = chain(s.bare, [s.gate, s.bare], { edit: (d, n) => (n === 1 ? { ...d, lines: d.lines.map(l => ({ ...l, description: 'Walk gate on the back line' })) } : d) })
+      expect(contracts[2]).toBe(contracts[0])
+    })
+    test('a price typed by hand, or a cost change since: back at the state, the contract is what it was', () => {
+      const s = listed(name)
+      expect(chain(s.bare, [s.gate, s.bare], { edit: (d, n) => (n === 1 ? { ...d, lines: d.lines.map(l => ({ ...l, amountCents: 29900 })) } : d) }).contracts[2]).toBe(whole(s.bare.input) * 100)
+      const dear = (w: Work): Work => ({ input: { ...w.input, pricing: { ...pricing, manHourRate: 40 } } })
+      expect(chain(s.bare, [s.gate]).contracts[0]).toBe(chain(s.bare, [s.gate, dear(s.bare)]).contracts[2])
+    })
+  })
+
+  test('a style change between: the gate comes off at the new style\'s price, and the job is what a new quote for it is', () => {
+    for (const [from, to] of [[VINYL, CL], [CL, VINYL]]) {
+      const a = listed(from), b = listed(to)
+      const { contracts } = chain(a.bare, [a.gate, b.gate, b.bare])
+      expect(Math.abs(contracts[3] - whole(b.bare.input) * 100)).toBeLessThanOrEqual(100)
+      const x = drawnSet(from), y = drawnSet(to)
+      // The gate's 4 ft of fence back after the switch: chain link by the foot (Oct 31), 0.08 of a roll over a new quote's 2.
+      const drawnC = chain(x.bare, [x.gate, y.gate, y.bare]).contracts
+      expect(Math.abs(drawnC[3] - whole(y.bare.input) * 100)).toBeLessThanOrEqual(2000)
     }
+    // Out and back the whole way: vinyl, gate, chain link, vinyl, no gate.
+    const v = listed(VINYL), c = listed(CL)
+    const path = [v.bare, v.gate, c.gate, v.gate, v.bare]
+    holds(path, chain(path[0], path.slice(1)).contracts)
   })
 
-  test('the figures before: the credit was $33 short on chain link, and the same fence on vinyl', () => {
-    for (const [name, short] of [[CL, 33], [VINYL, 121]] as const) {
-      const { co1, co2, b } = drawnRound(name, 100)
-      const old = draftOf(b.was, b.now, { drawing: b.drawing, signed: b.signed })
-      expect(total(co1) + total(old)).toBe(short * 100)
-      expect(total(co1) + total(co2)).toBe(0)
-    }
+  test('typed lines stay on the contract: they changed no state', () => {
+    const s = listed(CL)
+    const { orders, contracts } = chain(s.bare, [s.gate])
+    orders.push({ number: 2, status: 'approved', totalCents: 20000, scope: null, work: null })
+    const d = changeOrderDraft({ signed: signedOf(s.gate.input, { finalPrice: contracts[1] / 100 + 200 }) as never, current: s.bare.input, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: 0, now: null, priceNow: 0, simple: false, earlier: { orders, sold: signedOf(s.bare.input) as never } })
+    expect(total(d)).toBe(contracts[0] - contracts[1])
   })
 
-  test('a double gate, and a gate at a side\'s end', () => {
-    const dbl = drawnRound(CL, 100, () => ({ type: 'double', widthIn: 120, position: 'middle' }))
-    expect(total(dbl.co1) + total(dbl.co2)).toBe(0)
-    expect(dbl.co2.lines[0].description).toMatch(/^Remove 1 double gate/)
-    const end = drawnRound(VINYL, 72, () => ({ type: 'walk', widthIn: 48, position: 'left' }))
-    expect(total(end.co1) + total(end.co2)).toBe(0)
-  })
-
-  test('a run list: a gate typed with no change to the runs, and one that split a run', () => {
-    for (const name of [CL, VINYL]) {
-      const was = input(name, [100]), typed = input(name, [100], { walkGates: 1 })
-      const co1 = draftOf(was, typed)
-      const co2 = draftOf(typed, was, { orders: [saved(1, co1)] })
-      expect(total(co1) + total(co2)).toBe(0)
-      expect(co2.lines[0].description).toBe('Remove 1 walk gate: the full CO-1 charge back')
-      const split = input(name, [48, 48], { walkGates: 1, ends: 4 })
-      const a = draftOf(was, split)
-      const b = draftOf(split, was, { orders: [saved(1, a)] })
-      expect(total(a) + total(b)).toBe(0)
-      expect(b.lines).toHaveLength(1)
-    }
-  })
-
-  test('end posts typed with the gate are not credited twice', () => {
-    const was = input(CL, [100]), typed = input(CL, [100], { walkGates: 1, ends: 4 })
-    const co1 = draftOf(was, typed)
-    expect(total(co1) + total(draftOf(typed, was, { orders: [saved(1, co1)] }))).toBe(0)
-  })
-
-  test('a picked gate: the credit is its picked line, whatever the amount', () => {
-    const was = input(CL, [100]), picked = input(CL, [100], { walkGates: 1 })
-    const co1: EarlierOrder = { number: 1, status: 'approved', scope: { walkGates: 1 }, work: {}, gateSides: null, lines: [{ description: 'Add a 5 ft walk gate', amountCents: 41200, qty: 1, source: { ref: 'add:walk:5' } }] }
-    expect(total(draftOf(picked, was, { orders: [co1] }))).toBe(-41200)
-  })
-
-  test('what it really charged: a cost change since, or a price typed by hand, still nets $0', () => {
-    const was = input(CL, [100]), typed = input(CL, [100], { walkGates: 1 })
-    const co1 = draftOf(was, typed)
-    const edited = { ...co1, lines: co1.lines.map(l => ({ ...l, amountCents: 29900 })) }
-    expect(total(draftOf(typed, was, { orders: [saved(1, edited)] }))).toBe(-29900)
-    const dearer = { ...pricing, tearOutFence: 13.5, manHourRate: 40 }
-    const later = (i: QuoteCalcInput) => ({ ...i, pricing: dearer })
-    expect(total(draftOf(later(typed), later(was), { orders: [saved(1, co1)] }))).toBe(-total(co1))
-  })
-
-  test('the rest of the change is priced from the fence before the gate', () => {
-    // CO-2 takes the gate out and adds 12 ft to the same side: the credit, then those 12 ft alone.
-    const no = yard(100), yes = yard(100, true), longer = yard(112)
-    const a = drawn(VINYL, no, yes)
-    const co1 = draftOf(a.was, a.now, { drawing: a.drawing, signed: a.signed })
-    const b = drawn(VINYL, yes, longer)
-    const co2 = draftOf(b.was, b.now, { drawing: b.drawing, signed: b.signed, orders: [saved(1, co1, { base: no, work: yes })] })
-    expect(co2.lines[0].amountCents).toBe(-total(co1))
-    const alone = draftOf(drawn(VINYL, no, longer).was, drawn(VINYL, no, longer).now, { drawing: drawn(VINYL, no, longer).drawing, signed: { layout: { yard: no } } })
-    expect(total(co2) + total(co1)).toBe(total(alone))
-    // The other way: fence lengthened with the gate, whose opening stays off its charge and is billed as fence.
-    const bigger = yard(110, true), plain = yard(110)
-    const c = drawn(VINYL, no, bigger)
-    const co1b = draftOf(c.was, c.now, { drawing: c.drawing, signed: c.signed })
-    expect(co1b.lines.length).toBeGreaterThan(1)
-    const gateLine = co1b.lines.find(l => /^Add 1 walk gate/.test(l.description))!
-    const d = drawn(VINYL, bigger, plain)
-    const co2b = draftOf(d.was, d.now, { drawing: d.drawing, signed: d.signed, orders: [saved(1, co1b, { base: no, work: bigger })] })
-    expect(co2b.lines[0].amountCents).toBe(-gateLine.amountCents)
-    expect(co2b.lines[1].description).toMatch(/^Add 4 ft of fence/)
-  })
-
-  test('two gates added on one change order and both taken out; the second of two change orders', () => {
-    const was = input(CL, [100]), two = input(CL, [100], { walkGates: 2 }), one = input(CL, [100], { walkGates: 1 })
-    const co1 = draftOf(was, two)
-    expect(total(co1) + total(draftOf(two, was, { orders: [saved(1, co1)] }))).toBe(0)
-    const first = draftOf(was, one), second = draftOf(one, two)
-    expect(total(first) + total(second) + total(draftOf(two, was, { orders: [saved(1, first), saved(2, second)] }))).toBe(0)
-  })
-
-  test('a gate taken out, put back and taken out again: the credit is the last charge, once', () => {
-    const was = input(CL, [100]), gate = input(CL, [100], { walkGates: 1 })
-    const co1 = saved(1, draftOf(was, gate))
-    const co2 = saved(2, draftOf(gate, was, { orders: [co1] }))
-    const back = draftOf(was, gate, { orders: [co1, co2] })
-    const co3 = saved(3, { ...back, lines: back.lines.map(l => ({ ...l, amountCents: 30000 })) })
-    expect(gateCharges([co1, co2, co3]).map(c => c.number)).toEqual([3])
-    expect(total(draftOf(gate, was, { orders: [co1, co2, co3] }))).toBe(-30000)
-  })
-
-  test('a gate changed since it was added has lost its charge (today, a question)', () => {
-    const no = yard(100), walk = yard(100, true), dbl = yard(100)
-    dbl.sides[0] = { ...dbl.sides[0], gate: { type: 'double', widthIn: 120, position: 'middle' } }
-    const a = drawn(CL, no, walk)
-    const co1 = saved(1, draftOf(a.was, a.now, { drawing: a.drawing, signed: a.signed }), { base: no, work: walk })
-    const co2 = saved(2, { lines: [], scope: {}, reason: '' }, { base: walk, work: dbl })
-    expect(co2.gateSides).toEqual({ added: [], removed: ['a'] })
-    expect(gateCharges([co1, co2])).toEqual([])
-  })
-
-  test('void change orders charge nothing; an open one is in the drawing and counts', () => {
-    const was = input(CL, [100]), gate = input(CL, [100], { walkGates: 1 })
-    const co1 = draftOf(was, gate)
-    expect(gateCharges([saved(1, co1, undefined, { status: 'void' })])).toEqual([])
-    expect(gateCharges([saved(1, co1, undefined, { status: 'sent' })])).toHaveLength(1)
-  })
-
-  describe('kept as it prices today (questions for Jonathan)', () => {
-    const today = (was: QuoteCalcInput, now: QuoteCalcInput, o: Parameters<typeof draftOf>[2]) => {
-      const { orders: _o, sold: _s, ...rest } = o!; void _o; void _s
-      expect(total(draftOf(was, now, o))).toBe(total(draftOf(was, now, rest)))
-    }
-    test('a gate of the sold job', () => {
-      const yes = yard(100, true), no = yard(100)
-      const b = drawn(CL, yes, no)
-      today(b.was, b.now, { drawing: b.drawing, signed: b.signed, orders: [] })
-      const sold = input(CL, [100], { walkGates: 1 })
-      today(sold, input(CL, [100]), { orders: [], sold })
+  describe('said on screen, never on a line', () => {
+    const line = (d: ReturnType<typeof changeOrderDraft>) => d.lines.map(l => l.description).join(' ')
+    test('a run list with the gate box changed and the opening left out: 96 ft is its price, and the person is told the 4 ft of fence', () => {
+      for (const name of [VINYL, CL]) {
+        const bare = { input: input(name, [100]) }, gate = { input: input(name, [96], { walkGates: 1 }) }, left = { input: input(name, [96]) }
+        const { drafts, contracts } = chain(bare, [gate, left])
+        expect(drafts[1].warnings?.join(' ')).toBe('The gate took 4 ft out of the fence, and this leaves the fence at 96 ft with a 4 ft gap. If that fence goes back in, type 100 ft on the run list and make the change order again.')
+        expect(contracts[2]).toBe(chain(bare, [left]).contracts[1])
+        const back = chain(bare, [gate, bare])
+        expect(back.drafts[1].warnings).toBeUndefined()
+        expect(back.contracts[2]).toBe(back.contracts[0])
+      }
     })
-    test('a run list on a job sold with a gate of that kind: which one went?', () => {
-      const sold = input(CL, [100], { walkGates: 1 }), two = input(CL, [100], { walkGates: 2 })
-      today(two, sold, { orders: [saved(1, draftOf(sold, two))], sold })
+    test('a change order not signed yet: no line says it was charged, and the person is told', () => {
+      const s = listed(CL)
+      const { drafts } = chain(s.bare, [s.gate, s.bare], { status: () => 'sent' })
+      expect(line(drafts[1])).not.toMatch(/CO-|charge/)
+      expect(drafts[1].warnings?.[0]).toBe('CO-1 is not signed yet. This credit only stands if CO-1 is signed. If the customer no longer wants the gate, void CO-1 instead of making this change order.')
     })
-    test('one of two gates charged on one line', () => {
-      const was = input(CL, [100]), two = input(CL, [100], { walkGates: 2 }), one = input(CL, [100], { walkGates: 1 })
-      today(two, one, { orders: [saved(1, draftOf(was, two))] })
+    test('voided after: the later credit stands alone, and whoever voids it is told', () => {
+      expect(creditAfterVoid({ number: 1, scope: { walkGates: 1 } }, [{ number: 1, status: 'void', scope: { walkGates: 1 } }, { number: 2, status: 'approved', scope: { walkGates: -1 } }]))
+        .toBe('CO-2 credits a gate CO-1 added, and CO-1 is void now, so the customer was never charged for it. Void CO-2 too.')
+      expect(creditAfterVoid({ number: 1, scope: { footageFt: 10 } }, [{ number: 2, status: 'approved', scope: { walkGates: -1 } }])).toBeNull()
+      expect(creditAfterVoid({ number: 1, scope: { walkGates: 1 } }, [{ number: 2, status: 'void', scope: { walkGates: -1 } }])).toBeNull()
     })
-    test('a gate swapped for another, or moved', () => {
-      const was = input(CL, [100]), walk = input(CL, [100], { walkGates: 1 })
-      today(walk, input(CL, [100], { dblGates: 1 }), { orders: [saved(1, draftOf(was, walk))] })
+    test('void earlier change orders are no state of the job', () => {
+      const s = listed(CL)
+      const { contracts, orders } = chain(s.bare, [s.gate])
+      orders[0].status = 'void'
+      const d = changeOrderDraft({ signed: signedOf(s.gate.input, { finalPrice: contracts[0] / 100 }) as never, current: s.bare.input, signedOverrides: {}, styles: cfg.fenceStyles as never, sectionsNow: 0, now: null, priceNow: 0, simple: false, earlier: { orders, sold: signedOf(s.bare.input) as never } })
+      expect(total(d)).toBe(0)
     })
-    test('a charge that can\'t be read: a line retyped, or typed lines with no work', () => {
-      const was = input(CL, [100]), walk = input(CL, [100], { walkGates: 1 })
-      const co1 = draftOf(was, walk)
-      today(walk, was, { orders: [saved(1, { ...co1, lines: co1.lines.map(l => ({ ...l, description: 'Gate at the back' })) })] })
-      today(walk, was, { orders: [saved(1, co1, undefined, { work: null })] })
-    })
-    test('a run list with its fence changed beyond the opening', () => {
-      const was = input(CL, [100]), split = input(CL, [48, 48], { walkGates: 1, ends: 4 })
-      today(split, input(CL, [130]), { orders: [saved(1, draftOf(was, split))] })
+    test('not back at a state: the gate comes off at its price on the fence as it is, nothing to warn about', () => {
+      const s = listed(CL), more = { input: input(CL, [130], { walkGates: 1 }) }, less = { input: input(CL, [130]) }
+      const { drafts, contracts } = chain(s.longer, [s.longerGate, more, less])
+      expect(drafts[2].warnings).toBeUndefined()
+      expect(contracts[3]).toBe(chain(s.longer, [less]).contracts[1])
     })
   })
 
-  test('the one price difference line credits in full by itself: the contract holds the charge', () => {
+  test('the one price difference line nets within the rounding by itself: the contract holds the charge', () => {
     const was = input(CL, [100]), gate = input(CL, [100], { walkGates: 1 })
     const original = changeBaseOf(signedOf(was) as never)
     const co1 = Math.floor(changeOrderPrice(gate, original)) - Math.floor(calculateQuote(was).priced.price)

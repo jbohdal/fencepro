@@ -1253,6 +1253,38 @@ export function toSavedWork(r: WorkResult, inputs: { move?: MoveInputs; repair?:
   }
 }
 
+/** Each repair item as a customer reads it on a change order: one, many. */
+const REPAIR_CHANGE_WORDS: Record<RepairItemKey, [string, string]> = {
+  resetPost: ['leaning post reset', 'leaning post resets'],
+  replacePost: ['post replaced', 'posts replaced'],
+  repairSection: ['section repair', 'section repairs'],
+  replaceSection: ['whole section replaced', 'whole sections replaced'],
+  rehangGate: ['gate rehung with new hardware', 'gates rehung with new hardware'],
+  replaceGate: ['gate replaced', 'gates replaced'],
+  haulDebris: ['section of debris hauled away', 'sections of debris hauled away'],
+  footerDisposal: ['concrete footer hauled away', 'concrete footers hauled away'],
+}
+
+/** A repair's change in words: "Add 1 leaning post reset", "Remove 2 section repairs". Only what is charged. */
+export function repairChangeWords(was: RepairInputs | null | undefined, now: RepairInputs | null | undefined): string[] {
+  const a = chargedRepairItems(was), b = chargedRepairItems(now)
+  return REPAIR_ITEMS.flatMap(k => {
+    const d = (b[k] ?? 0) - (a[k] ?? 0)
+    return d ? [`${d > 0 ? 'Add' : 'Remove'} ${Math.abs(d)} ${REPAIR_CHANGE_WORDS[k][Math.abs(d) === 1 ? 0 : 1]}`] : []
+  })
+}
+
+/** A move's own change in words (its footage and gates have their lines already). */
+export function moveChangeWords(was: MoveInputs | null | undefined, now: MoveInputs | null | undefined): string[] {
+  const out: string[] = []
+  if (was?.oldFt !== now?.oldFt) out.push(`Old fence to move: ${was?.oldFt ?? 0} ft to ${now?.oldFt ?? 0} ft`)
+  if (!!was?.newPostCaps !== !!now?.newPostCaps) out.push(now?.newPostCaps ? 'Add new post caps' : 'Remove the new post caps, reuse the old ones')
+  const gates = (m: MoveInputs | null | undefined) => (m?.replaceGates ?? []).filter(Boolean).length
+  const d = gates(now) - gates(was)
+  if (d) out.push(`${d > 0 ? 'Replace' : 'Rehang, not replace,'} ${Math.abs(d)} gate${Math.abs(d) === 1 ? '' : 's'}`)
+  return out
+}
+
 type WorkLike = Parameters<typeof workSummary>[0]
 
 /**

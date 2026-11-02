@@ -68,6 +68,8 @@ export interface ChangeOrderScope {
 
 /** The work after the change (quantities only, never a cost), from the yard drawing. */
 export interface ChangeOrderWork {
+  /** A move or repair: what the crew does now, its words and inputs (never a cost; server WorkDetail). */
+  workDetail?: { crew: string[]; description: string; needs811: boolean; move?: unknown; repair?: unknown } | null
   fenceStyle: string
   runs: number[]
   runRails?: Array<'auto' | '6ft' | '8ft'>
@@ -114,8 +116,6 @@ export interface ChangeOrder {
   jobWork?: ChangeOrderWork | null
   /** Its own change side by side, from its drawing ("Left side 40 ft → 50 ft"; server ownChangeWords). */
   change?: string | null
-  /** Its gates by the drawing's side ids (server ownGateSides): a later change order credits what it charged for one it takes out. */
-  gateSides?: { added: Array<{ side: string; type: 'walk' | 'double' }>; removed: string[] } | null
   /** The other change orders whose change its drawing also shows (open when it was drawn). */
   alsoInDrawing?: Array<{ number: number; status: ChangeOrderStatus; signed: boolean; change: string | null }>
   warrantyBefore?: { name: string; text: string } | null
@@ -143,6 +143,8 @@ export interface ChangeOrderPrefill {
   work?: ChangeOrderWorkInput | null
   /** Said above the lines (changeOrderPricing.ts noWorkNote). */
   note?: string | null
+  /** What the price can't settle: said to whoever is making it (changeOrderDraft.ts warningsOf), never to the customer. */
+  warnings?: string[]
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
@@ -230,6 +232,11 @@ export function contractRevOf(orders: ChangeOrder[]): number {
 
 /* ───────── the work now ───────── */
 
+/** A move's or repair's saved work with what its newest change order left: the crew's steps, the words, the inputs. Its price stays as signed. */
+export function workWithDetail(quote: Pick<SavedQuote, 'work'>, detail: ChangeOrderWork['workDetail']): Pick<SavedQuote, 'work'> | Record<string, never> {
+  return quote.work && detail ? { work: { ...quote.work, ...detail } as SavedQuote['work'] } : {}
+}
+
 /** Overlaid quotes and the signed quote they came from (the signed one is what a save keeps). */
 const signedOf = new WeakMap<object, SavedQuote>()
 
@@ -253,6 +260,7 @@ export function quoteWithChanges(quote: SavedQuote, orders: ChangeOrder[] = getO
     ...(w ? {
       fenceStyle: w.fenceStyle || quote.fenceStyle, runs: w.runs, runRails: w.runRails, corners: w.corners, ends: w.ends,
       walkGates: w.walkGates, dblGates: w.dblGates, tearOutSections: w.tearOutSections, tearOutGates: w.tearOutGates, sections: w.sections,
+      ...workWithDetail(quote, w.workDetail),
       layout: w.layout ?? quote.layout, pullSheet: w.pullSheet.map(l => ({ item: l.item, qty: l.qty, unitCost: 0, total: 0 })) as SavedQuote['pullSheet'],
       proposal: quote.proposal ? { ...quote.proposal, ...(w.planSvg ? { planSvg: w.planSvg } : {}) } : quote.proposal,
     } : {}),
@@ -355,6 +363,8 @@ export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderS
   const row = r.json.data as ChangeOrder
   put(row)
   if (status === 'approved' || co.status === 'approved') { void refreshJobs(); warnSchedule(r.json) }
+  // Voided with a later one still crediting its gate (server creditAfterVoid).
+  if (typeof r.json?.creditWarning === 'string' && r.json.creditWarning) toast.warning('Check the later change order', r.json.creditWarning)
   return row
 }
 
@@ -618,6 +628,7 @@ export function QuickChangeOrderModal({
 
         <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
           {prefill?.note && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-co-modal-no-work-note>{prefill.note}</p>}
+          {prefill?.warnings?.map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>{prefill.work.request.jobType === 'move' || prefill.work.request.jobType === 'repair' ? 'Once approved, the pull sheet, install packet, crew days and job costing follow this work, and the next change order starts from it.' : 'From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.'}</p>}
           <div>
             <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>
@@ -1034,14 +1045,15 @@ export function ChangeOrderButton({ quoteId, customerName, className = '', label
   const [typing, setTyping] = useState(false)
   const quote = getQuotes().find(q => q.id === quoteId)
   if (!can('quotes.change') || !quote || !isSignedForChange(quote)) return null
-  const drawing = !(quote.work && (quote.work.type === 'move' || quote.work.type === 'repair'))
+  const kind = quote.work?.type === 'move' || quote.work?.type === 'repair' ? quote.work.type : 'new'
   // A job with a yard drawing opens straight on it ("Type the change instead" is there); else the choice (round 2 review, Oct 26 2026: one tap less).
+  // A repair is changed from its list, not its drawing: the choice.
   const now = quoteWithChanges(quote)
-  const direct = drawing && !!now.layout?.yard
+  const direct = kind !== 'repair' && !!now.layout?.yard
   return (
     <>
       <button type="button" onClick={() => { if (direct) { onOpened?.(); void openChangeFromDrawing(quote) } else setMenu(true) }} className={className || 'btn btn-secondary'} data-co-button={quoteId} data-co-direct={direct ? 'drawing' : undefined}>{label}</button>
-      {menu && <ChangeOrderMenu customerName={customerName} drawing={drawing} onClose={() => setMenu(false)}
+      {menu && <ChangeOrderMenu customerName={customerName} kind={kind} onClose={() => setMenu(false)}
         onDrawing={() => { setMenu(false); onOpened?.(); void openChangeFromDrawing(quote) }}
         onLines={() => { setMenu(false); void refreshChangeOrders(quoteId).then(() => setTyping(true)) }} />}
       {typing && <QuickChangeOrderModal quoteId={quoteId} customerName={customerName} existingCount={getOrdersForQuote(quoteId).length} onSaved={() => setTyping(false)} onClose={() => setTyping(false)} />}
@@ -1049,7 +1061,13 @@ export function ChangeOrderButton({ quoteId, customerName, className = '', label
   )
 }
 
-function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }: { customerName: string; drawing: boolean; onClose: () => void; onDrawing: () => void; onLines: () => void }) {
+const CHANGE_ROAD = {
+  new: ['Change the yard drawing', 'Add or remove footage or gates, change the style or height. Priced for you; the pull sheet, packet and site plan follow.'],
+  move: ['Change the move', 'Add or remove footage or gates on the new line. Priced for you; the pull sheet, packet and crew days follow, and the next change order starts from it.'],
+  repair: ['Change the repair', 'Add or take off repair items. Priced for you; the pull sheet, packet and crew days follow, and the next change order starts from it.'],
+}
+
+function ChangeOrderMenu({ customerName, kind, onClose, onDrawing, onLines }: { customerName: string; kind: keyof typeof CHANGE_ROAD; onClose: () => void; onDrawing: () => void; onLines: () => void }) {
   useBackLayer(onClose, { key: 'co-menu' })
   return (
     <div className="fixed inset-0 z-[80] flex items-end md:items-center justify-center bg-black/40" onClick={onClose} data-co-menu>
@@ -1058,12 +1076,10 @@ function ChangeOrderMenu({ customerName, drawing, onClose, onDrawing, onLines }:
           <div><h2 className="font-bold text-gray-900">Change order</h2><p className="text-xs text-gray-500">{customerName}</p></div>
           <button onClick={onClose} aria-label="Close" className="min-w-[48px] min-h-[48px] inline-grid place-items-center text-gray-400 text-xl">×</button>
         </div>
-        {drawing && (
-          <button type="button" onClick={onDrawing} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-drawing-start>
-            <span className="block font-semibold text-gray-900">Change the yard drawing</span>
-            <span className="block text-xs text-gray-600">Add or remove footage or gates, change the style or height. Priced for you; the pull sheet, packet and site plan follow.</span>
-          </button>
-        )}
+        <button type="button" onClick={onDrawing} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-drawing-start>
+          <span className="block font-semibold text-gray-900">{CHANGE_ROAD[kind][0]}</span>
+          <span className="block text-xs text-gray-600">{CHANGE_ROAD[kind][1]}</span>
+        </button>
         <button type="button" onClick={onLines} className="w-full text-left rounded-xl border border-gray-200 p-3 min-h-[56px] hover:bg-gray-50" data-co-from-lines>
           <span className="block font-semibold text-gray-900">Type the change</span>
           <span className="block text-xs text-gray-600">Pick sections and gates to add (priced as a new quote), a repair or a catalog part (add or credit), or type a custom line with a price.</span>

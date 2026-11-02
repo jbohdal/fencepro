@@ -31,7 +31,7 @@ import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { Prisma } from '@prisma/client'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, type StoredWork, type WorkInput } from './changeOrderWork.js'
-import { shapeOf, sameShape, ownChangeWords, ownGateSides, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
+import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
 import { dataFor } from './quotePricing.js'
 
@@ -111,6 +111,20 @@ export function alsoInDrawing(r: Sib, siblings: Sib[]): Array<{ number: number; 
     .map(s => ({ number: s.number, status: s.status, signed: s.status === 'approved', change: ownChangeWords(s.work) }))
 }
 
+/**
+ * A change order voided with a later one still crediting a gate it added: the
+ * customer gets that credit for something never charged. Said to whoever voids
+ * it (Jonathan, Nov 2 2026: never a false line): null when no later one does.
+ */
+export function creditAfterVoid(voided: { number: number; scope?: unknown }, siblings: Array<{ number: number; status: string; scope?: unknown; deletedAt?: Date | null }>): string | null {
+  const gates = (r: { scope?: unknown }, k: string) => { const n = (r.scope as any)?.[k]; return typeof n === 'number' ? n : 0 }
+  const later = siblings.filter(s => s.number > voided.number && s.status !== 'void' && !s.deletedAt
+    && ((gates(voided, 'walkGates') > 0 && gates(s, 'walkGates') < 0) || (gates(voided, 'dblGates') > 0 && gates(s, 'dblGates') < 0))).map(s => `CO-${s.number}`)
+  if (!later.length) return null
+  const names = later.join(' and ')
+  return `${names} ${later.length === 1 ? 'credits' : 'credit'} a gate CO-${voided.number} added, and CO-${voided.number} is void now, so the customer was never charged for it. Void ${names} too.`
+}
+
 /** "The drawing also shows CO-1's change (Left side 40 ft → 50 ft): not part of this change order (CO-1, not signed yet)." */
 export function alsoInDrawingWords(also: ReturnType<typeof alsoInDrawing>): string[] {
   return also.map(a => {
@@ -146,6 +160,7 @@ export function workView(w: unknown) {
   return {
     fenceStyle: x.fenceStyle, runs: x.runs, runRails: x.runRails, corners: x.corners, ends: x.ends, walkGates: x.walkGates, dblGates: x.dblGates,
     tearOutSections: x.tearOutSections, tearOutGates: x.tearOutGates, sections: x.sections, footage: x.footage, layout: x.layout ?? null, planSvg: x.planSvg ?? null,
+    workDetail: x.workDetail ?? null,
     pullSheet: (Array.isArray(x.pullSheet) ? x.pullSheet : []).filter(l => !l.moneyOnly).map(l => ({ item: l.item, qty: l.qty })),
   }
 }
@@ -159,7 +174,7 @@ export function view(r: Row, siblings: Row[] = []) {
     id: r.id, quoteId: r.quoteId, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason,
     lines: shownLines(r), totalCents: r.totalCents,
     // Its own change side by side, and the other change orders its drawing also shows (round 3 recheck).
-    change: ownChangeWords(r.work), gateSides: ownGateSides(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
+    change: ownChangeWords(r.work), alsoInDrawing: alsoInDrawing(r, siblings), scope: r.scope ?? null, createdBy: r.createdBy,
     sentAt: r.sentAt, approvedAt: r.approvedAt, approvedBy: r.approvedBy, voidedAt: r.voidedAt,
     signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null, signedVia: r.signedVia ?? null, hasLink: !!r.shareToken,
     verbalBy: r.verbalBy ?? null, verbalAt: r.verbalAt ?? null, verbalReason: r.verbalReason ?? null, contractRev: r.contractRev ?? null,
@@ -463,6 +478,8 @@ function verbalReasonOf(r: string | null | undefined): string {
   return t.slice(0, 500)
 }
 
+const JOB_WORDS: Record<string, string> = { new: 'a new fence', move: 'a fence move', repair: 'a repair' }
+
 /**
  * The work after the change, its cost difference and the warranty switch,
  * worked out before the change order is saved (lib/changeOrderWork.ts).
@@ -470,9 +487,9 @@ function verbalReasonOf(r: string | null | undefined): string {
 async function workPart(accountId: string, quoteId: string, input: WorkInput, exclude: string | null = null): Promise<Record<string, unknown>> {
   const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q) throw err(404, 'Quote not found')
-  // A move or repair keeps its work as one: priced as anything else, a request for another kind of job says nothing.
-  const kind = (q.work as any)?.type
-  if (!workChangeable(q) && input.request?.jobType !== kind) return {}
+  // A signed job stays the kind of job it was sold as: a new fence is never turned into a repair by a change order.
+  const kind = (q.work as any)?.type === 'move' || (q.work as any)?.type === 'repair' ? (q.work as any).type : 'new'
+  if ((input.request?.jobType ?? 'new') !== kind) throw err(409, `This job was sold as ${JOB_WORDS[kind]}. A change order cannot change that: make a new quote for ${JOB_WORDS[input.request?.jobType] ?? 'the other job'}.`)
   const priced = await priceWork(accountId, q, input)
   // It starts from the work with every signed and every still open change order's change in it
   // (round 3, Oct 26 2026: a second one drawn from the signed quote dropped the first one's change).

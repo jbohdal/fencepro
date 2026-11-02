@@ -281,6 +281,36 @@ export function touches(step: ChangeStep): string[] {
   return out
 }
 
+/**
+ * A change order drawn with another's change in it, that other one voided
+ * since: its change comes out of this one's drawing too, feet for feet, so the
+ * job ends with this one's own difference on what is left, which is what the
+ * contract holds. (Back 100 -> 120 voided, 120 -> 144 signed: the job is 124 ft,
+ * never 144 ft with the 20 ft taken off the contract.) Lengths only: a gate or
+ * style is left as it is and said when it is voided (changeOrderWork.ts).
+ */
+export function withoutVoided(step: ChangeStep, voided: ChangeStep, derive: DeriveRuns): ChangeStep {
+  const less = (s: WorkShape): WorkShape => {
+    if (s.yard && voided.base.yard && voided.work.yard) {
+      const by = (y: Json) => new Map<string, Json>((y.sides ?? []).map((x: Json) => [String(x.id), x]))
+      const was = by(voided.base.yard), now = by(voided.work.yard)
+      const sides = (s.yard.sides ?? []).map((x: Json) => {
+        const a = was.get(String(x.id)), b = now.get(String(x.id))
+        const d = a && b ? num(b.lengthIn) - num(a.lengthIn) : 0
+        return d ? { ...x, lengthIn: Math.max(0, num(x.lengthIn) - d) } : x
+      })
+      const yard = { ...s.yard, sides }
+      const out = derive(yard, s.fenceStyle)
+      return out ? { ...s, yard, runs: out.runs.filter(f => f > 0), corners: out.corners, ends: out.ends, walkGates: out.walkGates, dblGates: out.dblGates } : s
+    }
+    const a = voided.base.runs, b = voided.work.runs
+    if (a.length !== b.length || a.length !== s.runs.length) return s
+    return { ...s, runs: s.runs.map((f, i) => Math.max(0, f - (b[i] - a[i]))) }
+  }
+  const base = less(step.base), work = less(step.work)
+  return sameShape(base, step.base) ? step : { ...step, base, work }
+}
+
 // ── A change order's own words (round 3 recheck, Oct 26 2026) ────────────────
 //
 // Two drawing change orders open on one job: CO-1 said "Add 10 ft of fence,
@@ -334,7 +364,7 @@ export function ownChangeWords(work: Json): string | null {
 
 /** Gate widths when a drawing's gate has none (yardLayout.ts GATE_WIDTH_IN). */
 const GATE_IN: Record<string, number> = { walk: 48, double: 120 }
-const gateKind = (g: Json): 'walk' | 'double' => (g?.type === 'double' ? 'double' : 'walk')
+const gateKind = (g: Json) => (g?.type === 'double' ? 'double' : 'walk')
 const gateFt = (g: Json) => Math.round(((num(g?.widthIn) || GATE_IN[gateKind(g)]) / 12) * 100) / 100
 /** "the Back side", "the Left side" (a name that says side already), "the Left return" (as changeOrderDraft.ts names it). */
 export const theSide = (name: string) => `the ${/(^|\s)(side|return|run)$/i.test(name) ? name : `${name} side`}`
@@ -370,27 +400,6 @@ export function sideGateChanges(base: WorkShape, mine: WorkShape): Array<{ kind:
 export function ownGateChanges(work: Json): Array<{ kind: 'added' | 'removed' | 'changed'; words: string }> {
   if (!isObj(work) || !isObj(work.base)) return []
   return sideGateChanges(shapeOf(work.base), shapeOf(work))
-}
-
-/**
- * A change order's gates by the drawing's side ids: the ones it put in, and the
- * sides whose gate it took out or changed. Null when it has no drawing: a
- * later change order takes a gate out by its side (web changeOrderPricing.ts).
- */
-export function ownGateSides(work: Json): { added: Array<{ side: string; type: 'walk' | 'double' }>; removed: string[] } | null {
-  if (!isObj(work) || !isObj(work.base)) return null
-  const base = shapeOf(work.base).yard, mine = shapeOf(work).yard
-  if (!Array.isArray(base?.sides) || !Array.isArray(mine?.sides)) return null
-  const gateOf = (s: Json) => (s && s.on !== false ? s.gate ?? null : null)
-  const was = new Map<string, Json>((base.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), gateOf(s)]))
-  const now = new Map<string, Json>((mine.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), gateOf(s)]))
-  const added: Array<{ side: string; type: 'walk' | 'double' }> = [], removed: string[] = []
-  for (const [side, g] of now) if (g && !was.get(side)) added.push({ side, type: gateKind(g) })
-  for (const [side, g] of was) {
-    const n = now.get(side)
-    if (g && (!n || gateKind(g) !== gateKind(n) || gateFt(g) !== gateFt(n))) removed.push(side)
-  }
-  return { added, removed }
 }
 
 /**

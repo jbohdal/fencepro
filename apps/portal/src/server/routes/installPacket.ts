@@ -259,6 +259,7 @@ packetStaff.get('/work', async (req: any, res) => {
       fenceStyle: w.fenceStyle, runs: w.runs, runRails: w.runRails, corners: w.corners, ends: w.ends, walkGates: w.walkGates, dblGates: w.dblGates,
       tearOutSections: w.tearOutSections, tearOutGates: w.tearOutGates, sections: w.sections, footage: w.footage, layout: w.layout ?? null, planSvg: w.planSvg ?? null,
       pullSheet: (w.pullSheet ?? []).filter((l: any) => !l.moneyOnly).map((l: any) => ({ item: l.item, qty: l.qty })),
+      workDetail: w.workDetail ?? null,
     } } })
   } catch (err) { console.error('[packet] work:', err); res.status(500).json({ success: false, error: 'Could not read the work' }) }
 })

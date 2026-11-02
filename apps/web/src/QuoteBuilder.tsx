@@ -57,7 +57,7 @@ import { isQuotable } from './styleAvailability'
 import { isHeldSavedQuote, heldQuoteSave, heldSavedNumbers, heldNote, heldNotSaved, heldBarReason } from './heldQuote'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
-  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
+  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText, repairChangeWords, moveChangeWords,
   REPAIR_ITEMS, chargedRepairItems, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
@@ -609,7 +609,7 @@ export default function QuoteBuilder({
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
   // One step on screen at a time: a new quote starts with the customer, a saved one on its price.
-  const [step, setStep] = useState<StepKey>(() => (startOnYard ? 'yard' : init?.id ? 'price' : 'customer'))
+  const [step, setStep] = useState<StepKey>(() => (startOnYard ? (init?.work?.type === 'repair' ? 'style' : 'yard') : init?.id ? 'price' : 'customer'))
   // The one side of the yard shown open (Next side moves it on).
   const [openSide, setOpenSide] = useState<string | null>(null)
   const [photosOpen, setPhotosOpen] = useState(false)
@@ -1393,7 +1393,8 @@ export default function QuoteBuilder({
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       now: changeNow, priceNow, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
-      earlier: { orders: getOrdersForQuote(init.id), sold: signedQuoteOf(init) },
+      workWords: jobType === 'repair' ? repairChangeWords(init.work?.repair, repairIn) : jobType === 'move' ? moveChangeWords(init.work?.move, moveIn) : [],
+      earlier: { orders: getOrdersForQuote(init.id) as never, sold: signedQuoteOf(init) },
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
       sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard
@@ -1415,7 +1416,7 @@ export default function QuoteBuilder({
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
-            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? 'Change order: change the drawing, then tap Make change order.' : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
+            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? `Change order: change the ${jobType === 'repair' ? 'repair list' : 'drawing'}, then tap Make change order.` : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
             {/* Another change order still open is in this drawing and its price: said, not only in a passing toast (round 3 recheck). */}
             {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
             {coNoWorkNote && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-no-work-note>{coNoWorkNote}</p>}
@@ -1736,7 +1737,10 @@ export default function QuoteBuilder({
           </div>
 
           <div className={step === 'style' ? 'space-y-6' : 'hidden'} data-step-panel="style">
-            <JobTypePicker value={jobType} onChange={setJobType} />
+            {/* A signed job stays what it was sold as: a flip to Repair made a -$8,239 change order (the server refuses it too). */}
+            {signedQuote
+              ? <p className="text-sm text-gray-700" data-job-type-locked>Job type: <b>{jobType === 'move' ? 'Fence move' : jobType === 'repair' ? 'Repair' : 'New fence'}</b>. A signed job stays what it was sold as.</p>
+              : <JobTypePicker value={jobType} onChange={setJobType} />}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">{jobType === 'new' ? 'Fence' : 'The fence (its style)'}</h3>
               <StyleChoices styles={PICKER_STYLES} catalog={catalog} value={styleId} onChange={setStyleId} isOk={pickable} />
