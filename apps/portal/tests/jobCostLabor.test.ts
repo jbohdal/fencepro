@@ -165,7 +165,8 @@ describe('the P&L: labor counts once and nothing vanishes', () => {
     expect(run([e({ actualLaborCostCents: 100000 })], [bill('labor', 60000)], { takeoffs: takeoff(30000) }).directLabor).toBe(40000)
   })
   test('a typed $0 is used; an old entry with no labor in it leaves the takeoff to speak', () => {
-    expect(run([e({ actualLaborCostCents: 0 })], [], { takeoffs: takeoff(30000) }).directLabor).toBe(0)
+    expect(run([e({ actualLaborCostCents: 0, laborCostTyped: true })], [], { takeoffs: takeoff(30000) }).directLabor).toBe(0)
+    expect(run([e({ actualLaborCostCents: 0, laborCostTyped: false })], [], { takeoffs: takeoff(30000) }).directLabor).toBe(30000)
     expect(run([e({})], [], { takeoffs: takeoff(30000) }).directLabor).toBe(30000)
   })
   test('a takeoff with no entry still counts, and a Labor bill on it counts once', () => {

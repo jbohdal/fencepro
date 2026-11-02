@@ -189,8 +189,8 @@ export function plJobLabor(i: {
     const q = quoteById.get(r.quoteId)
     if (!q || entered.has(r.quoteId)) continue
     const cents = entryLaborCents(r, q)
-    // An old entry with no labor in it says nothing about labor: the takeoff still speaks. A saved $0 was typed.
-    if (cents <= 0 && laborBasis(r) !== 'saved') continue
+    // An old entry with no labor in it says nothing about labor: the takeoff still speaks. A $0 counts only when typed.
+    if (cents <= 0 && r.laborCostTyped !== true) continue
     entered.add(r.quoteId)
     if (r.completionDate && i.inPeriod(r.completionDate)) add(jobOfQuote.get(r.quoteId), cents)
   }

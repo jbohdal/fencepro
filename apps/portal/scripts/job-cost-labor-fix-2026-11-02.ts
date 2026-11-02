@@ -83,6 +83,7 @@ async function main() {
       const oldCents = oldHoursCents({ actualLaborHrs: e.actualLaborHrs, frozenOldLaborCents: e.frozenOldLaborCents }, { laborCost: q.laborCost, adjLaborHrs: q.adjLaborHrs })
       const p = q.deletedAt ? null : await prefillFor(row.accountId, q.id)
       const newCents = p?.labor.cents ?? toCents(q.laborCost)
+      if (p?.labor.source === 'takeoff' && p.labor.words.includes('not approved yet')) { say(`\n  LEFT  ${name}, job ${job?.id ?? 'none'}: the takeoff is not approved yet, so it is no actual cost; stays ${usd(oldCents)} until it is`); continue }
       if (newCents <= 0) { noCost++; say(`\n  LEFT  ${name}, job ${job?.id ?? 'none'}: the quote has no labor on file and nothing is recorded for this job; stays ${usd(oldCents)} until someone enters it`); continue }
       const why = `labor was ${Number(e.actualLaborHrs) || 0} hours x a rate; ${p?.labor.words ?? "from the quote's labor $"}`
       if (oldCents === newCents) {
