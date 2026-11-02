@@ -39,9 +39,9 @@ import { saveGate, gatedOnce } from './movedGate'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
-import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings } from './proposal'
+import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
-import { warrantySettingsOf } from './warranties'
+import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
@@ -1416,8 +1416,12 @@ export default function QuoteBuilder({
     const shown = addsPastLimit(after, was?.proposal ?? null, { ...(was ?? {}), fenceStyle: style.name }, n => cfg.fenceStyles.find(s => s.name === n))
     if (shown !== null) { toast.error('Not saved', `A proposal has ${MAX_TIERS} options at most, and this one would have ${shown}. Take one off, then save again.`); return true }
     if (!reached && after.options.length > MAX_TIERS) { toast.error('Not saved', 'This proposal has more than 3 options and the app could not reach the server to check it. Try again when you have signal.'); return true }
-    const blocked = init?.shareToken ? tiers.filter(t => !t.off).flatMap(t => tierCards[t.spec.key]?.block ?? []) : []
-    if (blocked.length) { toast.error('Not saved', `This proposal is on the customer's link. ${blocked.join(' ')}`); return true }
+    // A link is out: the server's own check, on the options as it will stamp them (warranties.ts, proposal.ts optionBlocks).
+    if (was?.shareToken) {
+      const frozen = was.status !== 'DRAFT'
+      const blocked = optionBlocks(stampWarranties(after, warrantySettingsOf(cfg), n => cfg.fenceStyles.find(s => s.name === n), was.proposal ?? null, frozen))
+      if (blocked.length) { toast.error('Not saved', `This proposal is on the customer's link, so this cannot be saved yet. ${blocked.join(' ')}`); return true }
+    }
     return false
   }
 

@@ -387,6 +387,29 @@ try {
   const qo2 = (await (await fx9.ctx.request.get(`${API}/api/saved-quotes/${qt.id}`)).json()).data
   check('a sent quote with an old Best: the note saves, the cards stay as sent, nothing refused', qo2.notes === 'Old Best note' && qo2.proposal.options.length === 4 && qo2.proposal.options[2].fenceStyle.startsWith('TV-ND') && !/Not saved/.test(await fx9.page.locator('body').textContent()), `${qo2.proposal.options.length} options`)
 
+  // The same shape from before per option warranties, its link out: Good swapped to Aluminum saves as a new version.
+  const oldWords = 'Workmanship is warranted for 1 year from installation date.'
+  // The quote's own card with its real name, so the save knows it as the same option; today's tiers come in as new cards.
+  const ownLabel = qt.proposal.options.find(o => o.fenceStyle === qg.fenceStyle)?.label
+  const noW = qo2.proposal.options.map(({ warranty, ...o }) => (o.fenceStyle === qg.fenceStyle ? { ...o, label: ownLabel } : o))
+  execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `update "SavedQuote" set proposal = jsonb_set(jsonb_set(proposal::jsonb, '{options}', '${JSON.stringify(noW).replace(/'/g, "''")}'::jsonb), '{warranty}', '"${oldWords}"'::jsonb)::json where id = '${qt.id}' and "customerName" like 'Mixed e2e tiny%'`])
+  const tw = (await (await fx9.ctx.request.post(`${API}/api/saved-quotes/${qt.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
+  await fx9.ctx.close()
+  const fx10 = await phone(browser, SALES)
+  await fx10.page.goto(`${APP}/quotes?quote=${qt.id}`)
+  const wb = fx10.page.locator('[data-quote-builder]')
+  await wb.waitFor({ timeout: 30000 }); await wb.locator('[data-tiers]').waitFor({ timeout: 20000 }); await sleep(2500)
+  await swap(wb, 'good', 'Aluminum.*No dig')
+  await fx10.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(1500)
+  await fx10.page.locator('[data-save-submit]').tap({ timeout: 8000 })
+  await fx10.page.getByRole('button', { name: /Save new version/ }).first().tap({ timeout: 8000 })
+  await sleep(3500)
+  const qw = (await (await fx10.ctx.request.get(`${API}/api/saved-quotes/${qt.id}`)).json()).data
+  const alumOpt = qw.proposal.options.find(o => o.fenceStyle.startsWith('Alum'))
+  check('swapped on an old sent proposal with a link: saved, with its own warranty, the old cards as sent', !!alumOpt?.warranty?.name && qw.proposal.warranty === oldWords && !qw.proposal.options.find(o => o.fenceStyle === qg.fenceStyle)?.warranty && !/Not saved/.test(await fx10.page.locator('body').textContent()), JSON.stringify(qw.proposal.options.map(o => [o.fenceStyle, o.warranty?.name ?? null])))
+  const cw = await (await fx10.ctx.request.get(`${API}/p/${tw.shareToken}`)).text()
+  check('customer: the new option shows its warranty, the old words are still there', cw.includes(alumOpt?.warranty?.name) && cw.includes(oldWords))
+
   // Compare options stop at the limit.
   const fx7 = await phone(browser, SALES)
   b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall, 6 ft panels.*No dig')

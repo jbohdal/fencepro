@@ -786,7 +786,8 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
   // Each option's own warranty (frozen when the proposal was saved); the chosen option's words show, and
   // change as the customer picks. An older proposal has one warranty for every option.
   const perOption = p.options.some(o => o.warranty?.text)
-  const wOf = (o: ProposalOption | undefined) => perOption ? { name: o?.warranty?.name || '', text: o?.warranty?.text || '' } : { name: '', text: p.warranty || '' }
+  // An option with none of its own beside one that has (an option added to a proposal from before Oct 20, 2026): the words it went out with.
+  const wOf = (o: ProposalOption | undefined) => perOption && o?.warranty?.text ? { name: o.warranty.name || '', text: o.warranty.text } : { name: '', text: p.warranty || '' }
   const wNow = wOf(p.options[chosen])
   const wStart = accepted ? warrantyLines(null, installDay, p.kind).start : ''
   const warranty = (perOption || p.warranty) && !none ? `<section id="warranty" data-warranty-section><h2>Warranty</h2>${perOption ? `<p class="wname" id="wname">${esc(wNow.name)}</p>` : ''}<p id="wtext">${esc(wNow.text).replace(/\n/g, '<br>')}</p>${wStart ? `<p class="small" data-warranty-start><b>${esc(wStart)}</b></p>` : ''}</section>` : ''

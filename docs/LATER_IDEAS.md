@@ -135,3 +135,7 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
   - A tier's adjust % can drift from Settings on a quote that has the older set.
   - A refusal the phone shows, in place of "Quote stored" and a retry loop.
   - Compare against the quote's yard, not the phone's request.
+
+## From the last recheck of proposal options (Nov 2)
+
+- A second quote signed for the same customer at a similar price re-points the existing job and keeps that job's Salesman and commission flag (lib/proposalAccepted.ts, the same job rule). Logged, not fixed.

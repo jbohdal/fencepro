@@ -27,6 +27,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
   const { overOptionLimit, quoteChangedSince } = await import('../src/server/lib/quotePriceCheck.js')
   const { optionSeen } = await import('../src/server/lib/optionSeen.js')
   const { customerProposal } = await import('../src/server/lib/customerProposal.js')
+  const { stampWarranties } = await import('../../web/src/warranties')
   const { sectionsForRun } = await import('../../web/src/sectionCount')
   const { orderBasisFor } = await import('../src/server/lib/salesOrders.js')
 
@@ -257,6 +258,31 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
         expect(m.addsPastLimit(more, saved, { ...existing }, () => null)).toBeGreaterThan(3)
       }
     }
+  })
+
+  test('an option swapped onto a proposal from before per option warranties: its own warranty; the old cards as sent', async () => {
+    const OLD = 'Materials are covered by the manufacturer. Workmanship is warranted for 1 year.'
+    const old = (key: string, fenceStyle: string, finalPrice: number) => ({ fenceStyle, label: fenceStyle, finalPrice, perFoot: 40, sections: 10, tier: { key, label: key }, snapshot: { pullSheet: [{ item: fenceStyle, qty: 1 }] } })
+    const saved: any = { version: 1, warranty: OLD, options: [old('good', "WV-DS 6'x8' Privacy", 7396.53), old('better', "WV-ND 6'x8' Privacy", 9012.29), old('best', "TV-ND 6'x8' Privacy", 10509.95)] }
+    const next: any = { ...saved, options: [{ ...saved.options[0], fenceStyle: ALUM, label: 'Aluminum', finalPrice: 9000, tier: { key: 'good', label: 'Aluminum', swapped: true } }, saved.options[1], saved.options[2]] }
+    const p: any = await stampQuoteWarranties(accountId, next, { proposal: saved }, true)
+    expect(p.options[0].warranty.name).toBeTruthy()
+    expect(p.options[1].warranty).toBeUndefined()
+    expect(p.options[2].warranty).toBeUndefined()
+    expect(p.warranty).toBe(OLD)
+    expect(optionBlocks(p)).toEqual([])
+    // The phone's check is this same stamp and this same function; a style with really no warranty is stopped by both.
+    const none = stampWarranties(next, { list: [], byInstall: {}, extras: {} }, () => undefined, saved, true)
+    expect(optionBlocks(none)[0]).toMatch(/no warranty/)
+    // What the customer reads.
+    const q: any = { accountId, acceptedAt: null, fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: 9012.29, status: 'SENT', customerName: 'x', proposal: p }
+    const html = renderProposal(q, p, 't', 'n', [], null, '', { start: 1 })
+    expect(html).toContain(p.options[0].warranty.name)
+    expect(html).toContain(`<p id="wtext">${OLD}`)
+    const ws = JSON.parse(/var ws=(\[.*?\]),wn=/.exec(html)![1].replace(/\\u003c/g, '<'))
+    expect(ws[0].name).toBe(p.options[0].warranty.name)
+    expect(ws[1]).toEqual({ name: '', text: OLD })
+    expect(ws[2]).toEqual({ name: '', text: OLD })
   })
 
   test('odd gates: a warning on every option with no parts list, not only swapped ones, never a block', () => {

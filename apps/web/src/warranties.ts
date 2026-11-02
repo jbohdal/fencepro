@@ -183,9 +183,9 @@ export const optionKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? 
  * Sent or signed (`frozen` true, `saved` the proposal as saved): an option that
  * was already on it keeps exactly the warranty it went out with (none, for a
  * proposal sent before warranties were per option), and the proposal's
- * Warranty words stay as sent. A new option gets today's warranty, unless the
- * proposal went out with one warranty for every option (before Oct 20, 2026):
- * then it keeps that single warranty.
+ * Warranty words stay as sent. An option it did not have gets today's warranty,
+ * on a proposal that went out with one warranty for every option too (before
+ * Oct 20, 2026; a new fence is not covered by words written for another).
  */
 export function stampWarranties(proposal: Json, settings: WarrantySettings, styleOf: (name: string) => StyleLike | undefined, saved: Json, frozen: boolean): Json {
   if (!isObj(proposal) || !Array.isArray(proposal.options)) return proposal
@@ -194,11 +194,10 @@ export function stampWarranties(proposal: Json, settings: WarrantySettings, styl
     proposal.kind && !(isObj(o?.snapshot) && o.snapshot.work === null) ? proposal.kind : null)
   if (frozen && isObj(saved) && Array.isArray(saved.options)) {
     const before = new Map<string, Json>(saved.options.map((o: Json) => [optionKey(o), o]))
-    const perOption = saved.options.some((o: Json) => isObj(o?.warranty))
     const options = proposal.options.map((o: Json) => {
       const next = { ...o }
       const was = before.get(optionKey(o))
-      const w = was ? was.warranty : perOption ? fresh(o) : undefined
+      const w = was ? was.warranty : fresh(o)
       if (w) next.warranty = w; else delete next.warranty
       return next
     })
