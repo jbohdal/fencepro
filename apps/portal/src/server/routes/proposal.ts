@@ -570,10 +570,15 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : termsWere
   const termsNow = frozenWas && sameValue(termsAsShown, frozenWas) ? null : termsAsShown
   // The quote becomes the option the customer chose, exactly as it was priced.
-  const s = opt.snapshot ?? {}
   const layout = q.layout as any
-  // Only while still unaccepted: two taps on Accept at once are one acceptance.
-  const claimed = await prisma.savedQuote.updateMany({
+  // The row held: a Salesman move landing first is read here, so the margin is worked out from what is being signed
+  // (its commission, its copies), not from the quote as it stood when the customer's tap came in.
+  const claimed = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT 1 FROM "SavedQuote" WHERE id = ${q.id} FOR UPDATE`
+    const held: any = { ...q, ...(await tx.savedQuote.findUnique({ where: { id: q.id }, select: { hasSalesman: true, salesRep: true, pricing: true, work: true, proposal: true, gmPct: true, finalPrice: true, totalCOGS: true, fenceStyle: true } })) }
+    const s = held.proposal?.options?.[body.option]?.snapshot ?? opt.snapshot ?? {}
+    // Only while still unaccepted: two taps on Accept at once are one acceptance.
+    return tx.savedQuote.updateMany({
     where: { id: q.id, acceptedAt: null },
     data: {
       status: 'SOLD',
@@ -583,23 +588,24 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
       acceptedIp: signer.ip,
       acceptedUserAgent: signer.userAgent,
       chosenOption: body.option,
-      ...(termsNow ? { proposal: { ...(q.proposal as object), terms: termsNow } as any } : {}),
+      ...(termsNow ? { proposal: { ...(held.proposal as object), terms: termsNow } as any } : {}),
       // Ever sold: set once, never cleared (lib/everSold.ts).
       ...(q.soldAt ? {} : { soldAt: new Date() }),
       ...(signed ? {} : {
         fenceStyle: opt.fenceStyle,
         finalPrice: opt.finalPrice,
         sections: opt.sections,
-        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: gmPctAtSigning(q, opt, s) } : {}),
+        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: gmPctAtSigning(held, opt, s) } : {}),
         ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
         ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
         ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
         // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
         ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
         // The cents the chosen option was rounded down by to the whole dollar go with it into the contract (out of profit).
-        ...(typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true ? { pricing: { ...((q.pricing as any) ?? {}), wholeDollar: true, roundingCents: s.roundingCents } } : {}),
+        ...(typeof s.roundingCents === 'number' && held.proposal?.wholeDollar === true ? { pricing: { ...((held.pricing as any) ?? {}), wholeDollar: true, roundingCents: s.roundingCents } } : {}),
       }),
     },
+    })
   })
   const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
   if (claimed.count === 0) {
