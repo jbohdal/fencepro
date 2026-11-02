@@ -17,6 +17,7 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import type { AddressInfo } from 'net'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
@@ -99,7 +100,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('sales orders follow the job (dev
     const token = crypto.randomBytes(24).toString('base64url')
     const q = await prisma.savedQuote.create({ data: quoteData('SENT', { shareToken: token }) as any })
     ids.quotes.push(q.id)
-    const a = await call('', 'POST', `/api/proposal/${token}/accept`, { option: 1, name: 'E2E Customer' })
+    const a = await call('', 'POST', `/api/proposal/${token}/accept`, { option: 1, seen: await seenAt(token, 1), name: 'E2E Customer' })
     expect(a.status).toBe(200)
     const job = await prisma.savedJob.findFirst({ where: { quoteId: q.id } })
     expect(job).toBeTruthy()

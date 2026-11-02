@@ -11,6 +11,7 @@ import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
 import { issueShareToken, turnOffShare } from './savedQuotesApi'
 import { proposalUrl, optionBlocks } from './proposal'
+import { hasPending } from './outbox'
 import { askedDepositPct } from './contractTerms'
 import { shownOptions, proposalFold } from './proposalOptions'
 import { smsLink } from './appointmentLogic'
@@ -110,7 +111,8 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
   const textOf = (u: string) => customerText(message(u), company)
 
   // A style picked for this quote that the customer would read wrong is not sent (the server refuses too).
-  const blocks = optionBlocks(p)
+  // (While its save is on the way the option has no warranty yet: the server stamps it.)
+  const blocks = hasPending(`quote:${quote.id}`) ? [] : optionBlocks(p)
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
     if (blocks.length) { toast.error('This proposal cannot be sent yet. See what is missing above.'); return }
     if (kind !== 'open' && photoBlock) { toast.error(`Tick at least ${need} photos for the customer first (or take more), or tap Send anyway.`); return }

@@ -23,6 +23,7 @@ import crypto from 'crypto'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
+import { optionSeen } from '../src/server/lib/optionSeen.js'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { pdfText } from './pdfText'
 
@@ -70,7 +71,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('Oct 29 2026: customers pay what 
   }
   const sign = async (id: string, option = 0) => {
     const q = await prisma.savedQuote.findUnique({ where: { id } })
-    const out = await acceptQuote(q, { option, name: 'E2E Customer', signature: SIG } as any, { ip: '203.0.113.9', userAgent: 'vitest' })
+    const out = await acceptQuote(q, { option, seen: optionSeen((q as any).proposal.options[option]), name: 'E2E Customer', signature: SIG } as any, { ip: '203.0.113.9', userAgent: 'vitest' })
     expect(out.status).toBe(200)
     const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId: id } })
     return { job: job!, view: await billing.scheduleView(accountId, job!.id) }

@@ -29,17 +29,20 @@
 
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
-import { dataFor, requestFrom } from './quotePricing.js'
+import { dataFor, requestFrom, optKey } from './quotePricing.js'
 import { currentPricingStamp } from './pricingStamp.js'
 import { overheadInUseFor } from './liveOverhead.js'
 import { isSignedQuote, lockedChanges } from './quoteLock.js'
-import { proposalSent } from './ownTier.js'
+import { proposalSent, styleRecords } from './ownTier.js'
+import { can } from './permissions.js'
 
 type Json = any
 
 export const PRICES_CHANGED_CODE = 'PRICES_CHANGED'
 export const STYLE_NOT_QUOTABLE_CODE = 'STYLE_NOT_QUOTABLE'
 export const SUB_RATE_MISSING_CODE = 'SUB_RATE_MISSING'
+export const TOO_MANY_OPTIONS_CODE = 'TOO_MANY_OPTIONS'
+export const QUOTE_CHANGED_CODE = 'QUOTE_CHANGED'
 export const PRICES_CHANGED_MESSAGE = 'Prices changed since this quote was priced. Open it to see the new price, then save it again.'
 
 export type PriceCheck =
@@ -102,9 +105,16 @@ export async function subRateMissing(accountId: string, data: Json, existing: Js
  * priceRequest), `data` the quote as it will be written, `existing` the saved
  * quote (null for a new one).
  */
-export async function checkQuotePrices(accountId: string, body: Json, data: Json, existing: Json | null): Promise<PriceCheck> {
-  if (await pricesStand(existing)) return { kind: 'ok' }
+export async function checkQuotePrices(accountId: string, body: Json, data: Json, existing: Json | null, role?: string | null): Promise<PriceCheck> {
+  // A new version of a sent quote goes to the customer too: same checks of the limit and of the prices.
+  const stands = await pricesStand(existing)
+  if (stands && !(data?.needsResend === true && !isSignedQuote(existing))) return { kind: 'ok' }
   if (!pricesTheQuote(existing, data)) return { kind: 'ok' }
+  const over = await overOptionLimit(data, existing)
+  if (over) return over
+  const mine = role && !can(role as any, 'prices.change') && can(role as any, 'costs.view') ? await pricedByServer(accountId, body, data, existing) : null
+  if (mine) return mine
+  if (stands) return { kind: 'ok' }
   const gone = await unavailableStyles(accountId, data, existing)
   if (gone.length) {
     return {
@@ -115,14 +125,87 @@ export async function checkQuotePrices(accountId: string, body: Json, data: Json
   // Paid per a unit Settings has no rate for, with no rate typed: never priced with the other unit's rate (Oct 30 2026).
   const missing = await subRateMissing(accountId, data, existing)
   if (missing) return { kind: 'refuse', code: SUB_RATE_MISSING_CODE, error: missing }
-  // Priced here from the quote builder's inputs, with today's data: nothing to compare.
-  if (body?.priceRequest) return { kind: 'ok' }
+  // Priced here from the quote builder's inputs, with today's data: nothing to compare. (A login that sees costs prices
+  // on its phone and sends its stamp too: checked below.)
+  if (body?.priceRequest && !body?.pricingStamp) return { kind: 'ok' }
   const sent = typeof body?.pricingStamp === 'string' && body.pricingStamp ? body.pricingStamp : null
   if (!sent) return { kind: 'unstamped' }
   const now = await currentPricingStamp(accountId)
   if (sent !== now.stamp) return { kind: 'refuse', code: PRICES_CHANGED_CODE, error: PRICES_CHANGED_MESSAGE, stamp: now.stamp }
   if (!(await atOverheadInUse(accountId, data, existing))) return { kind: 'refuse', code: PRICES_CHANGED_CODE, error: PRICES_CHANGED_MESSAGE, stamp: now.stamp }
   return { kind: 'ok' }
+}
+
+/**
+ * The limit: 1 to 3 options on a proposal ("I can add or remove options (1 to 3)", Jonathan). Refused when styles ticked
+ * in Compare options or added by hand take the customer's cards over it. Good, Better, Best plus a quote's own fence that
+ * is none of them, nothing ticked, stays as it always was (today's automatic options).
+ */
+export async function overOptionLimit(data: Json, existing: Json | null): Promise<PriceCheck | null> {
+  const p = data?.proposal
+  if (!p || !Array.isArray(p.options) || p.kind) return null
+  const own = data?.fenceStyle ?? existing?.fenceStyle
+  const chosen = p.options.some((o: Json) => (!o?.tier && o?.fenceStyle !== own) || (o?.tier?.swapped && String(o.tier.key).startsWith('added')))
+  if (!chosen) return null
+  const m = await pricingModule() as Json
+  const quote = { ...(existing ?? {}), ...data, fenceStyle: own }
+  const shown = m.shownOptions(p.options, m.proposalFold(p, quote, await styleRecords())).length
+  if (shown <= 3) return null
+  return { kind: 'refuse', code: TOO_MANY_OPTIONS_CODE, error: `A proposal has 3 options at most, and this one has ${shown}. Take one off, then save again.` }
+}
+
+/** Each price a phone saved, against the server's own, for a login that prices on its phone but may not set prices. */
+export async function pricedByServer(accountId: string, body: Json, data: Json, existing: Json | null): Promise<PriceCheck | null> {
+  const refuse = (error: string): PriceCheck => ({ kind: 'refuse', code: PRICES_CHANGED_CODE, error })
+  // A draft with no price and no options has nothing for a customer to get.
+  const asked = Number(data?.finalPrice) > 0 || (Array.isArray(data?.proposal?.options) && data.proposal.options.length > 0)
+  if (!asked) return null
+  if (!body?.priceRequest) return refuse('This save came from an older copy of the app, so its price was not checked. Close the app, open it again and save.')
+  try {
+    const m = await pricingModule() as Json
+    const { req, overheadPct } = requestFrom(body.priceRequest, existing, m.importedOldPrice, m.keepsCents, { ownChoices: true })
+    const d = await dataFor(accountId)
+    req.tierSet = await trustedTierSet(accountId, req.tierSet, existing)
+    const job = m.quoteJobFor(d, req, overheadPct)
+    const t = job.totals
+    const cents = (n: unknown) => Math.round((Number(n) || 0) * 100)
+    if (data?.finalPrice !== undefined && Math.abs(cents(data.finalPrice) - cents(t.price)) > 1) return refuse(PRICES_CHANGED_MESSAGE)
+    if (t.price > 0 && cents(t.price) < cents(t.totalCOGS)) return refuse('This price is under what the fence costs, so it was not saved. Ask Jonathan.')
+    const priced = new Map<string, Json>(job.proposalOptions.map((o: Json) => [optKey(o), o]))
+    for (const o of Array.isArray(data?.proposal?.options) ? data.proposal.options : []) {
+      if (o?.fenceStyle === req.fenceStyle) { if (Math.abs(cents(o.finalPrice) - cents(t.price)) > 1) return refuse(PRICES_CHANGED_MESSAGE); continue }
+      const p = priced.get(optKey(o))
+      if (!p || Math.abs(cents(o.finalPrice) - cents(p.finalPrice)) > 1) return refuse(PRICES_CHANGED_MESSAGE)
+      if (cents(p.finalPrice) < cents(p.snapshot?.totalCOGS)) return refuse('An option\'s price is under what the fence costs, so it was not saved. Ask Jonathan.')
+    }
+    return null
+  } catch (err) {
+    console.error('[price check] could not price the quote:', err)
+    return refuse('The price could not be checked. Try again in a moment.')
+  }
+}
+
+/** The tier set a request may price with: each tier's Price adjust % as in Settings or as the quote already has it, never the phone's. */
+async function trustedTierSet(accountId: string, sent: Json | null, existing: Json | null): Promise<Json | null> {
+  if (!sent) return sent
+  const rows = await prisma.proposalTierSet.findMany({ where: { accountId }, select: { category: true, tiers: true } })
+  const live = rows.flatMap(r => (Array.isArray(r.tiers) ? r.tiers as Json[] : []).filter(t => r.category === sent.category))
+  const saved = (existing?.proposal?.tierSet?.category === sent.category ? existing.proposal.tierSet.tiers : []) as Json[]
+  return { ...sent, tiers: (sent.tiers as Json[]).map(t => ({ ...t, priceAdjustPct: (saved.find(x => x?.key === t?.key) ?? live.find(x => x?.key === t?.key))?.priceAdjustPct ?? null })) }
+}
+
+/**
+ * Two browsers on one quote (review Nov 2 2026: A added a Wood option, B, opened before it, saved and Wood was gone
+ * without a word). The quote builder says which options it opened with (proposalBase); a save built on others, that
+ * would put different ones on, is refused and the app reloads the quote. The same save sent twice passes.
+ */
+export async function quoteChangedSince(body: Json, data: Json, existing: Json): Promise<Extract<PriceCheck, { kind: 'refuse' }> | null> {
+  const base = body?.proposalBase
+  if (typeof base !== 'string' || !data?.proposal) return null
+  const m = await pricingModule() as Json
+  const now = m.proposalStamp(existing?.proposal ?? null)
+  if (now === base || m.proposalStamp(data.proposal) === now) return null
+  return { kind: 'refuse', code: QUOTE_CHANGED_CODE, error: 'This quote was changed on another phone or computer while you had it open, so this save was not made. Open the quote again to see the changes.' }
 }
 
 /**

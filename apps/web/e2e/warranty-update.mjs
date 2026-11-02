@@ -114,7 +114,8 @@ try {
   const c = await call('POST', '/api/crm-contacts', { id: contactId, firstName: 'E2E', lastName: NAME, phone: '3525550193', email: 'e2e-wupdate@example.invalid', leadSource: 'Other', lead: { id: cardId, customerId: contactId, firstName: 'E2E', lastName: NAME, phone: '3525550193', stage: 'Proposal Sent', leadSource: 'Other', createdAt: today, lastMoved: today }, leadBefore: null })
   const sent = await makeOldQuote(quoteIds[0])
   const sold = await makeOldQuote(quoteIds[1], 0.5)
-  const acc = await fetch(`${API}/p/${sold.token}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option: 2, name: `E2E ${NAME}`, signature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' }) })
+  const seenList = JSON.parse(/var seen=(\[.*?\]);/.exec(await (await fetch(`${API}/p/${sold.token}`)).text())[1])
+  const acc = await fetch(`${API}/p/${sold.token}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option: 2, seen: seenList[2], name: `E2E ${NAME}`, signature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' }) })
   jobs.push(await until(async () => ((await call('GET', '/api/saved-jobs')).json.data ?? []).find(j => j.quoteId === quoteIds[1])?.id))
   check('setup: test customer, a sent proposal and a sold one (one old 1 Year block), the sold one a job',
     c.status < 300 && sent.status < 300 && sold.status < 300 && !!sent.token && acc.status === 200 && !!jobs[0])

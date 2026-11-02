@@ -133,6 +133,8 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     ...(q.priceRequest ? { priceRequest: q.priceRequest } : {}),
     // The copy of the price data the quote builder priced it with: the server refuses an older one (broken list #58).
     ...(q.pricingStamp ? { pricingStamp: q.pricingStamp } : {}),
+    // The options the quote builder opened with: a save built on older ones is refused, never lost in silence.
+    ...(q.proposalBase !== undefined ? { proposalBase: q.proposalBase } : {}),
     // Back to Draft picked on a sent quote: the server moves a sent quote back to Draft only when this says so.
     ...(q.backToDraft && q.status === 'DRAFT' ? { backToDraft: true } : {}),
   }

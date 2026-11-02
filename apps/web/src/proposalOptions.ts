@@ -79,6 +79,14 @@ export function startingOption(options: OptionLike[] | null | undefined, quote: 
   return dup[pick] >= 0 ? dup[pick] : pick
 }
 
+/** An option's fence and price, as the portal's lib/optionSeen.ts says it (this file is pure: the server loads it from source, so it imports no server file; a test pins the two together). */
+const optionSeen = (o: OptionLike | null | undefined): string => `${String(o?.fenceStyle ?? '')}|${cents(o?.finalPrice)}`
+
+/** The options of a saved proposal in one line: another save changed them when this differs (the quote's save check, routes/saved-quotes.ts). */
+export function proposalStamp(p: { options?: Array<OptionLike | null> | null } | null | undefined): string {
+  return (Array.isArray(p?.options) ? p!.options! : []).map(o => `${optionSeen(o)}|${o?.tier?.key ?? ''}`).join('#')
+}
+
 // ── Reading a style name (tiers.ts builds tiers from it too) ─────────────────
 
 export interface StyleParts {

@@ -436,8 +436,18 @@ Decided by the builder (none of these change an automatic option):
 - **Tees** are posted as each option's style posts them (chain link, aluminum, wood: corner; vinyl: line). The post counts go on the quote when signed.
 - **Section counts on the drawing.** One drawing can only show one style's sections, so a proposal whose options differ shows no line posts or section counts. Each option's own sections are on its card.
 - **Blocked from sending** (a picked style only): no warranty in Settings, parts left out, no price, no labor. The card says so in red; the send box and the server refuse (`OPTION_NOT_READY`). A save onto a link already out is refused the same way.
-- **Said to staff, not blocked:** a gate width with no parts list of its own for that style (priced with the 4 ft or 8 ft gate's parts, as a vinyl quote's own gate is today), and no photo or description.
+- **Said to staff, not blocked:** no photo or description.
 - **A tier's Price adjust %** stays on a swapped option, as today.
+
+After the review, Jonathan: "The minimum job price applies to every option." "Odd gate sizes: warn the salesman (never the customer), don't block sending." "No 'Recommended' label when Most popular is cleared."
+
+Decided by the builder after the review:
+
+- **Signing** sends the option's style and price; the server compares them with the saved option in the signing transaction, the row locked. A page that sends neither (opened before this) is refused and reloads, once. Applies on the older share page too.
+- **Price check** covers logins with no `prices.change` that price on their phone (Salesman, office), on a new or changed price, and on Save new version. Their own margin and labor choices stand; a price under cost does not. A phone on an older copy of the app is asked to reopen it.
+- **Save conflict** compares the options the builder opened with; SavedQuote has no version number and its `updatedAt` moves with every customer open.
+- **4 cards:** Good, Better, Best plus a quote's own fence that is none of them stays, because "nothing changes unless someone swaps a style". On dev that is 15 live quotes with 4 or more options. Only hand picks are held to 3. Sent to the coordinator as a question.
+- **A signed option's adjustment:** the signed record holds what that option took, so a -$5,000 it could not take is cleared. Whether a dollar discount should be flat on a much cheaper option is Jonathan's question; today's math stays.
 
 Open questions for Jonathan are in the Nov 2 report; each was left as today.
 

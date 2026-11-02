@@ -109,9 +109,10 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 
 ## From proposal options of any style (Nov 2)
 
-- A new fence's minimum job price lifts only the quote's own option: other options, tiers included, can read under the minimum. Same as before; a cheap chain link option on a small yard makes it more likely. Needs Jonathan's word.
 - Playwright's WebKit page crashed twice on a second `page.goto` after the quote builder had been open. A fresh context did not, and iphone-safari passes. Could be the #17 memory question; not traced.
-- The dev database has no active office login, so salesman-choice and salesman-choice-booking fail their office checks until one is made.
+- The dev database has no active office login, so salesman-choice and salesman-choice-booking need a throwaway one (e2e lib makeTestLogin, role office_staff).
+- Wood premium words: the Wood set's Better text says "dog-ear pickets". Board on Board and Shadow Box premium options read it too, on a swapped option and on the automatic Better. Waiting on Jonathan.
+- e2e/proposal.mjs and signed-docs.mjs post a repeat signing after the first; they did not need the new `seen`. warranty-update.mjs was changed but not rerun.
 - builderProposalBetter (dev data) fails the same on main.
 
 ## From the Nov 2 job cost labor change

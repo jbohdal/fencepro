@@ -87,6 +87,8 @@ export interface SavedQuote {
   priceRequest?: QuoteJobRequest
   /** The copy of the price data the quote builder priced it with (pricingFreshness.ts); sent with the save, never saved. */
   pricingStamp?: string
+  /** The options the quote builder opened with (proposalOptions.ts proposalStamp). */
+  proposalBase?: string
   /** Back to Draft picked on a sent quote (sent with that save only): without it the server keeps a sent quote Sent. */
   backToDraft?: boolean
 }

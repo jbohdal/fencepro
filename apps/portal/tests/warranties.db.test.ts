@@ -20,6 +20,7 @@ import 'dotenv/config'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import path from 'path'
@@ -179,7 +180,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranties per option (dev datab
   })
 
   test('accepting Better (no dig): the signed contract has the Lifetime words; the install date once known; job and service calls', async () => {
-    const acc = await call('POST', `/p/${token}/accept`, { option: 1, name: 'E2E Warranty GBB', signature: SIG }, false)
+    const acc = await call('POST', `/p/${token}/accept`, { option: 1, seen: await seenAt(token, 1), name: 'E2E Warranty GBB', signature: SIG }, false)
     expect(acc.status).toBe(200)
     const page = (await raw(`/p/${token}`)).buf.toString()
     expect(page).toContain('data-contract-pdf')
@@ -233,7 +234,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranties per option (dev datab
     const id = made.json.data.id
     await call('PATCH', `/api/saved-quotes/${id}`, { status: 'SENT', proposal: made.json.data.proposal })
     const t = (await call('POST', `/api/saved-quotes/${id}/share-token`)).json.data.shareToken
-    expect((await call('POST', `/p/${t}/accept`, { option: 0, name: 'E2E Warranty DS', signature: SIG }, false)).status).toBe(200)
+    expect((await call('POST', `/p/${t}/accept`, { option: 0, seen: await seenAt(t, 0), name: 'E2E Warranty DS', signature: SIG }, false)).status).toBe(200)
     const text = pdfText((await raw(`/p/${t}/contract.pdf`)).buf)
     expect(text).toContain('1 Year Workmanship Warranty')
     expect(text).toContain(W.ONE_YEAR_TEXT)

@@ -54,7 +54,8 @@ import { pricingModule } from '../lib/estimates.js'
 import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { slimQuote, withHeavyParts } from '../lib/quoteSlim.js'
-import { checkQuotePrices, refusePrices, priceCheckAudit } from '../lib/quotePriceCheck.js'
+import { optionSeen } from '../lib/optionSeen.js'
+import { checkQuotePrices, refusePrices, priceCheckAudit, quoteChangedSince } from '../lib/quotePriceCheck.js'
 
 const router = Router()
 
@@ -287,7 +288,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     }
     // Priced at prices the server no longer has, or a fence not available for quoting now: refused, the phone
     // reprices and asks first (broken list #58, lib/quotePriceCheck.ts). An older app's save is taken and recorded.
-    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, null)
+    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, null, roleOf(req))
     if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
     const created = await prisma.savedQuote.create({
       data: {
@@ -375,8 +376,11 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     if (data.status === 'DRAFT' && (existing.status === 'SENT' || existing.status === 'LOST') && req.body?.backToDraft !== true) delete data.status
     // An unsent quote repriced at prices the server no longer has, or put on a fence not available for quoting
     // now: refused, the phone reprices and asks first (broken list #58). Sent and signed quotes are not checked.
-    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, existing)
+    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, existing, roleOf(req))
     if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
+    // Two people on one quote: a save built on options another save has since changed is refused, nothing lost (lib/quotePriceCheck.ts).
+    const stale = await quoteChangedSince(req.body, data, existing)
+    if (stale) { refusePrices(res, stale); return }
     // Each proposal option's warranty: a sent or signed proposal keeps the words it went out with (lib/warranties.ts).
     if (data.proposal) data.proposal = await stampQuoteWarranties(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing)) as any
     // Its terms and the company's address: a sent or signed proposal keeps the ones it went out with (lib/contractTerms.ts).
@@ -421,7 +425,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
       data.salesRep = customer?.salesRep?.trim() || existing.salesRep
     }
     const updated = await prisma.savedQuote.update({
-      where: { id: existing.id },
+      // Signed on the link since this save read the quote: it stands (routes/proposal.ts acceptQuote locks the row).
+      where: { id: existing.id, ...(existing.acceptedAt ? {} : { acceptedAt: null }) },
       data: {
         crmContactId: data.crmContactId === undefined ? undefined : await ownContactId(data.crmContactId, req.user.crmAccountId),
         customerName: data.customerName,
@@ -482,6 +487,8 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     if (updated.status === 'SOLD') await scheduleAfterSigning(updated.accountId, updated.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' })
     res.json({ success: true, data: updated.status === 'SOLD' && !updated.soldAt ? await prisma.savedQuote.findUnique({ where: { id: updated.id } }) : updated, ...(keptSentPrices.length ? { keptSentPrices } : {}) })
   } catch (err) {
+    // Signed on the customer's link while this save was on its way: the signature stands.
+    if ((err as any)?.code === 'P2025') { res.status(409).json({ success: false, code: LOCKED_CODE, error: lockMessage(['proposal']) }); return }
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] update error:', err)
     res.status(500).json({ success: false, error: 'Failed to update quote' })
@@ -727,6 +734,8 @@ async function shownToCustomer<T extends Record<string, any> & { accountId: stri
 const acceptSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   signature: z.string().max(1_000_000).optional(),
+  /** The fence and price the page showed (lib/optionSeen.ts). */
+  seen: z.string().max(400).optional(),
 })
 router.post('/share/:token/accept', async (req: any, res) => {
   try {
@@ -740,9 +749,15 @@ router.post('/share/:token/accept', async (req: any, res) => {
       res.json({ success: true, data: await shownToCustomer(q) })
       return
     }
+    // The quote changed while the page was open: nothing is signed, the page reloads (as the proposal link).
+    const seenNow = optionSeen(q)
+    if ((data.seen !== undefined || Array.isArray((q.proposal as any)?.options)) && data.seen !== seenNow) {
+      res.status(409).json({ success: false, changed: true, error: 'This quote was updated while the page was open, so nothing was signed. Please look it over and accept again.' })
+      return
+    }
     // Only while still unaccepted: two taps at once are one acceptance (the first name and signature stand).
     await prisma.savedQuote.updateMany({
-      where: { id: q.id, acceptedAt: null },
+      where: { id: q.id, acceptedAt: null, fenceStyle: q.fenceStyle, finalPrice: q.finalPrice },
       data: {
         status: 'SOLD',
         acceptedAt: new Date(),

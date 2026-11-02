@@ -121,6 +121,8 @@ export const REFUSED_EVENT = 'ezbiz:refused'
  * it would lose the quote, so it waits (with the server's reason) until the quote is opened and saved again.
  */
 // SUB_RATE_MISSING: its sub is paid per a unit with no rate for it (Oct 30 2026): a rate has to be typed on it first.
+/** Refused for good, in the server's own words: the change leaves the phone and the screen goes back to the server's copy. */
+export const SAID_CODES: ReadonlySet<string> = new Set(['QUOTE_LOCKED', 'QUOTE_CHANGED', 'TOO_MANY_OPTIONS', 'OPTION_NOT_READY'])
 export const REDO_CODES: ReadonlySet<string> = new Set(['PRICES_CHANGED', 'STYLE_NOT_QUOTABLE', 'SUB_RATE_MISSING'])
 
 export type RecordStatus = 'saved' | 'saving' | 'waiting' | 'failed'
@@ -361,7 +363,8 @@ async function pump() {
       // Or a signed quote's price (409 QUOTE_LOCKED): it stays as signed; the change goes on a change order.
       // Or (a Salesman) the record was moved to someone else (404 MOVED, "The owner moved this to Sam"): never sent
       // again, said in those words (review, Oct 30 2026: it was sent again and again as a connection problem).
-      if ((r.status === 403 && r.code === 'NOT_ALLOWED') || (r.status === 409 && r.code === 'QUOTE_LOCKED') || (r.status === 404 && r.code === 'MOVED')) {
+      // Or a quote someone else changed, or one the customer must not get as it is: said in the server's words (Nov 2 2026).
+      if ((r.status === 403 && r.code === 'NOT_ALLOWED') || (r.status === 409 && !!r.code && SAID_CODES.has(r.code)) || (r.status === 404 && r.code === 'MOVED')) {
         const message = (r.status === 409 || r.code === 'MOVED') && r.error ? r.error : plainError(403, r.error, handler.what?.(op) ?? 'This change').message
         await drop(op)
         try { handler.refused?.(op, message) } catch { /* the next load shows the server's copy */ }

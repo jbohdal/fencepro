@@ -45,6 +45,7 @@ import { svgWithNamespace } from '../lib/planSvg.js'
 import { currentTerms, companyAddress, termsOn, type Term } from '../lib/contractTerms.js'
 import { OFFICE_NOTICE_ROLE } from '../lib/notificationService.js'
 import { customerFenceName, customerIncluded, railsOf } from '../lib/customerFenceName.js'
+import { optionSeen } from '../lib/optionSeen.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -130,6 +131,8 @@ export interface Proposal {
   description?: string
   /** Priced to the whole dollar (Oct 21 2026 on): no cents anywhere on the page, the deposit whole dollars too. */
   wholeDollar?: boolean
+  /** No option is Most popular, so none is labeled (web/src/proposal.ts). */
+  noRecommendedLabel?: boolean
   /** Show a reduction (the quote's ± dollar adjustment) as the list price, a Discount line and the final. Otherwise the final price only. */
   showDiscount?: boolean
   /** Settings → Contract Templates as the customer reads and signs them (lib/contractTerms.ts), frozen on the proposal. */
@@ -158,6 +161,8 @@ export interface ProposalPageView {
   order?: number[]
   /** The page reloaded after a signing was refused (?refused=1): it says why, first (refusalText). */
   refused?: boolean
+  /** The page reloaded because the options changed while it was open (?changed=1): it says so, first. */
+  changed?: boolean
 }
 
 /**
@@ -330,6 +335,7 @@ publicProposal.get('/:token', async (req, res) => {
   const pv = await proposalPage(q, shown, !q.acceptedAt && await signedNow(q))
   // Back from a refused signing (a page opened before it was sold or accepted): it says why, over the fence that stands.
   if (req.query.refused) pv.view.refused = true
+  if (req.query.changed) pv.view.changed = true
   res.type('html').send(renderProposal(q, pv.p, token, nonce, photos, installDay, '', pv.view))
 })
 
@@ -440,7 +446,13 @@ export const acceptSchema = z.object({
   signature: z.string().max(1_000_000).regex(/^data:image\/png;base64,/, 'Please sign').optional(),
   /** The open it was signed in (lib/proposalViews.ts). */
   view: z.string().max(64).nullish(),
+  /** The fence and price the customer tapped (web/src/proposalOptions.ts optionSeen): the place alone signs nothing. */
+  seen: z.string().max(400).optional(),
 })
+
+/** Said when the options changed while the page was open; nothing was signed. */
+export const OPTIONS_CHANGED = 'Your proposal was updated while this page was open, so nothing was signed. Please look over the options below and sign again.'
+const optionsChanged = () => ({ status: 409, json: { success: false, error: OPTIONS_CHANGED, changed: true, reload: true } })
 
 publicProposal.post('/:token/accept', express.json({ limit: '1.5mb' }), async (req, res) => {
   try {
@@ -540,11 +552,19 @@ async function refused(q: any, why: 'signed' | 'accepted'): Promise<{ status: nu
  * the contract); an option of another style, its own cost factor, so a change order on the signed job follows its margin;
  * an option of another material, not the labor or per foot price typed for the quote's own (web/src/proposal.ts optionOverrides).
  */
-export function signedPricing(q: { pricing?: unknown; proposal?: unknown }, s: any): { pricing?: any } {
+export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceStyle?: string }, s: any, opt?: { fenceStyle?: string; adjustmentCents?: number }): { pricing?: any } {
   const rounded = typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true
   const factor = typeof s.costFactor === 'number' && s.costFactor > 0
-  if (!rounded && !factor && !s.otherMaterial) return {}
+  // Another option than the quote's own: the record says the adjustment that option really took (a -$5,000 it could not take is not on it).
+  const had = Number((q.pricing as any)?.priceAdjustmentCents) || 0
+  const other = !!opt && !!q.fenceStyle && opt.fenceStyle !== q.fenceStyle
+  const fixAdjustment = other && had !== (Number(opt!.adjustmentCents) || 0)
+  if (!rounded && !factor && !s.otherMaterial && !fixAdjustment) return {}
   const pricing: any = { ...((q.pricing as any) ?? {}) }
+  if (fixAdjustment) {
+    if (opt!.adjustmentCents) pricing.priceAdjustmentCents = opt!.adjustmentCents
+    else { delete pricing.priceAdjustmentCents; delete pricing.showDiscountOnProposal }
+  }
   if (rounded) { pricing.wholeDollar = true; pricing.roundingCents = s.roundingCents }
   if (factor) pricing.costFactor = s.costFactor
   if (s.otherMaterial) { delete pricing.laborCost; delete pricing.subRate; delete pricing.pricePerFoot }
@@ -569,7 +589,10 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   if (linkClosed(q)) { return { status: 410, json: { success: false, error: 'This link is no longer active. Please call us.' } } }
   const p = q.proposal as unknown as Proposal | null
   const opt = p?.options?.[body.option]
-  if (!opt) { return { status: 400, json: { success: false, error: 'Please choose an option.' } } }
+  if (!opt && body.seen === undefined) { return { status: 400, json: { success: false, error: 'Please choose an option.' } } }
+  // What the customer read, not only a place on the list (review Nov 2 2026: a place signed Aluminum at $16,456 for a
+  // customer who tapped Chain link at $7,483). Checked again under the row's lock below.
+  if (!opt || optionSeen(opt) !== body.seen) return optionsChanged()
   // Already signed in the app (Sold, or its quoted cost saved): the price stays as signed (lib/quoteLock.ts).
   // The customer's acceptance is recorded only for the option it was signed at.
   const signed = await signedNow(q)
@@ -584,41 +607,48 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   const termsWere = frozenWas ?? await currentTerms(q.accountId, { repair: p?.kind === 'repair' })
   const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : termsWere
   const termsNow = frozenWas && sameValue(termsAsShown, frozenWas) ? null : termsAsShown
-  // The quote becomes the option the customer chose, exactly as it was priced.
-  const s = opt.snapshot ?? {}
-  const layout = q.layout as any
-  // Only while still unaccepted: two taps on Accept at once are one acceptance.
-  const claimed = await prisma.savedQuote.updateMany({
-    where: { id: q.id, acceptedAt: null },
-    data: {
-      status: 'SOLD',
-      acceptedAt: new Date(),
-      acceptedBy: body.name,
-      acceptedSignature: body.signature ?? null,
-      acceptedIp: signer.ip,
-      acceptedUserAgent: signer.userAgent,
-      chosenOption: body.option,
-      ...(termsNow ? { proposal: { ...(q.proposal as object), terms: termsNow } as any } : {}),
-      // Ever sold: set once, never cleared (lib/everSold.ts).
-      ...(q.soldAt ? {} : { soldAt: new Date() }),
-      ...(signed ? {} : {
-        fenceStyle: opt.fenceStyle,
-        finalPrice: opt.finalPrice,
-        sections: opt.sections,
-        ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
-        ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
-        // An option of a fixed width style leaves no 6 ft / 8 ft picks of the quote's own best price style behind.
-        ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : Array.isArray(s.runSections) && opt.fenceStyle !== q.fenceStyle ? { runRails: Prisma.JsonNull } : {}),
-        // A style that posts a tee its own way goes with its own post counts (web/src/proposal.ts teePosts).
-        ...(s.posts && typeof s.posts.corners === 'number' ? { corners: s.posts.corners, ends: s.posts.ends } : {}),
-        ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections, ...(s.posts && typeof s.posts.teeLinePosts === 'number' ? { teeLinePosts: s.posts.teeLinePosts } : {}) } } : {}),
-        // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
-        ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
-        // The cents the chosen option was rounded down by to the whole dollar go with it into the contract (out of profit).
-        ...signedPricing(q, s),
-      }),
-    },
+  // The quote becomes the option the customer chose, exactly as it was priced. In one transaction with the row locked:
+  // a save that came in after the page's read waits, or has already changed what is read here.
+  const claimed = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "SavedQuote" WHERE id = ${q.id} FOR UPDATE`
+    const row = (await tx.savedQuote.findUnique({ where: { id: q.id } })) as any
+    const rowOpt = (row?.proposal as Proposal | null)?.options?.[body.option]
+    if (!row?.acceptedAt && (!rowOpt || optionSeen(rowOpt) !== body.seen)) return null
+    const s = rowOpt?.snapshot ?? {}
+    const layout = row?.layout as any
+    // Only while still unaccepted: two taps on Accept at once are one acceptance.
+    return tx.savedQuote.updateMany({
+      where: { id: q.id, acceptedAt: null },
+      data: {
+        status: 'SOLD',
+        acceptedAt: new Date(),
+        acceptedBy: body.name,
+        acceptedSignature: body.signature ?? null,
+        acceptedIp: signer.ip,
+        acceptedUserAgent: signer.userAgent,
+        chosenOption: body.option,
+        ...(termsNow ? { proposal: { ...(row.proposal as object), terms: termsNow } as any } : {}),
+        // Ever sold: set once, never cleared (lib/everSold.ts).
+        ...(q.soldAt ? {} : { soldAt: new Date() }),
+        ...(signed ? {} : {
+          fenceStyle: rowOpt!.fenceStyle,
+          finalPrice: rowOpt!.finalPrice,
+          sections: rowOpt!.sections,
+          ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
+          ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
+          // An option of a fixed width style leaves no 6 ft / 8 ft picks of the quote's own best price style behind.
+          ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : Array.isArray(s.runSections) && rowOpt!.fenceStyle !== row.fenceStyle ? { runRails: Prisma.JsonNull } : {}),
+          // A style that posts a tee its own way goes with its own post counts (web/src/proposal.ts teePosts).
+          ...(s.posts && typeof s.posts.corners === 'number' ? { corners: s.posts.corners, ends: s.posts.ends } : {}),
+          ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections, ...(s.posts && typeof s.posts.teeLinePosts === 'number' ? { teeLinePosts: s.posts.teeLinePosts } : {}) } } : {}),
+          // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
+          ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
+          ...signedPricing(row, s, rowOpt!),
+        }),
+      },
+    })
   })
+  if (claimed === null) return optionsChanged()
   const updated = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
   if (claimed.count === 0) {
     if (updated.chosenOption === body.option) { await fileContract(q.id); return { status: 200, json: { success: true, data: { acceptedAt: updated.acceptedAt, option: body.option } }, accepted: false } }
@@ -728,12 +758,12 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
       <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted || !canSign ? ' disabled' : ''}>
       ${photo}
       <span class="optbody">
-        ${accepted ? '' : sold !== null ? (p.kind ? '<span class="badge" data-sold-option>Your fence</span>' : '') : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 ? '<span class="badge">Recommended</span>' : ''}
+        ${accepted ? '' : sold !== null ? (p.kind ? '<span class="badge" data-sold-option>Your fence</span>' : '') : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 && !p.noRecommendedLabel ? '<span class="badge">Recommended</span>' : ''}
         ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}
         ${optionPriceHtml(p, o)}
-        ${o.perFoot > 0 ? `<span class="small">${perFootText(o.perFoot)} a foot · ${o.sections} sections</span>` : ''}
+        ${o.perFoot > 0 ? `<span class="small">${perFootText(o.perFoot)} a foot · ${o.sections} section${o.sections === 1 ? '' : 's'}</span>` : ''}
         ${o.warranty?.name ? `<span class="wbadge" data-warranty-badge>${esc(o.warranty.name)}</span>` : ''}
         ${save}${monthly}
       </span>
@@ -793,7 +823,7 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
     <h1>${esc(p.customer?.name || q.customerName)}</h1>
     <p class="small">${esc(p.customer?.address || q.customerAddress || '')}</p>
     ${p.kind ? `<p class="facts" data-work-description>${esc(p.description || '')}</p>` : `<p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>`}
-    ${refusedNote}${doneBlock}
+    ${refusedNote}${view.changed && canSign ? `<section class="refused" data-options-changed role="alert"><p>${esc(OPTIONS_CHANGED)}</p></section>` : ''}${doneBlock}
     ${photos.length ? `<section data-proposal-photos><h2>Photos</h2><div class="opts">${photos.map((m, i) => `<figure style="margin:0"><img class="photo" src="${esc(token)}/media/${esc(m.id)}" alt="Photo ${i + 1} of your fence" loading="lazy" style="width:100%;border-radius:10px"></figure>`).join('')}</div></section>` : ''}
     ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included.${p.kind === 'move' ? ' Brown dashed: the old fence line.' : p.kind === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p></section>` : ''}
     ${none ? '' : `<section><h2>${shownCount > 1 ? 'Your options' : p.kind ? 'Your price' : 'Your fence'}</h2><div class="opts${shownCount > 1 && p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>`}
@@ -808,6 +838,7 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
   (function(){
     var opts=[].slice.call(document.querySelectorAll('.opt'));
     var deps=${JSON.stringify(deposits)};
+    var seen=${JSON.stringify(saved.options.map(o => optionSeen(o))).replace(/</g, '\\u003c')};
     var dep=document.getElementById('deposit');
     var ws=${JSON.stringify(perOption ? p.options.map(o => wOf(o)) : []).replace(/</g, '\\u003c')},wn=document.getElementById('wname'),wt=document.getElementById('wtext');
     function pick(){opts.forEach(function(o){var r=o.querySelector('input');o.classList.toggle('on',r.checked);if(r.checked&&dep){dep.querySelector('b').textContent=deps[+r.value]||''}if(r.checked&&ws.length&&wt){var w=ws[+r.value]||{name:'',text:''};if(wn)wn.textContent=w.name;wt.textContent=w.text}});}
@@ -826,8 +857,8 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
       if(!name){err.textContent='Please type your name.';return}
       if(!inked){err.textContent='Please sign in the box.';return}
       go.disabled=true;go.textContent='Sending...';err.textContent='';
-      fetch('${esc(token)}/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:+sel.value,name:name,signature:c.toDataURL('image/png'),view:window.__proposalView?window.__proposalView():null})})
-        .then(function(r){return r.json()}).then(function(j){if(j.success){try{history.scrollRestoration='manual'}catch(_){}location.reload()}else if(j.reload){location.replace(location.pathname+'?refused=1')}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent=goText}})
+      fetch('${esc(token)}/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option:+sel.value,seen:seen[+sel.value]||'',name:name,signature:c.toDataURL('image/png'),view:window.__proposalView?window.__proposalView():null})})
+        .then(function(r){return r.json()}).then(function(j){if(j.success){try{history.scrollRestoration='manual'}catch(_){}location.reload()}else if(j.changed){location.replace(location.pathname+'?changed=1')}else if(j.reload){location.replace(location.pathname+'?refused=1')}else{err.textContent=j.error||'Something went wrong.';go.disabled=false;go.textContent=goText}})
         .catch(function(){err.textContent='No connection. Please try again.';go.disabled=false;go.textContent=goText});
     });
   })();`)

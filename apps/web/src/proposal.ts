@@ -10,6 +10,7 @@
  */
 
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
+import { adjustedPrice } from './pricingEngine'
 import { kitSetFor } from './materialKits'
 import { teePostFor, type TeePost } from './yardLayout'
 import type { LineItem } from './materialCalculator'
@@ -56,6 +57,10 @@ export interface ProposalOption {
    * proposal carries the same adjustment (the salesman took $X off the job).
    */
   adjustmentCents?: number
+  /** A ± dollar reduction the engine would not take: it would put this option under cost, so it is at full price. Staff only. */
+  adjustmentRefused?: boolean
+  /** Lifted to the minimum job price. Staff only. */
+  minimumLifted?: boolean
   /** What is wrong or unsure about this option's price: `block` stops a swapped option being sent (optionBlocks). Staff only. */
   problems?: OptionProblems
   /** Priced snapshot copied onto the quote if the customer picks this option. Never shown to the customer. */
@@ -103,6 +108,8 @@ export interface QuoteProposal {
   description?: string
   /** Priced to the whole dollar (Oct 21 2026 on): the deposit is whole dollars too, the final takes the rest. */
   wholeDollar?: boolean
+  /** No option is Most popular, so no option is labeled (Nov 2 2026 on). A proposal saved before keeps its "Recommended". */
+  noRecommendedLabel?: true
   /** Show a reduction as the list price, a Discount line and the final price (the quote's "Show as discount on the proposal"). Otherwise the final price only. */
   showDiscount?: boolean
   /**
@@ -199,19 +206,38 @@ function teePosts(input: QuoteCalcInput, style: QuoteStyle): { corners: number; 
   return { corners: n.corner, ends: n.end, extraLinePosts: n.line }
 }
 
-/** The kit kinds a gate width takes, for the words staff read. */
-const GATE_WIDTH_KIT: Array<{ side: 'walk' | 'dbl'; ft: number; kit: 'walkGate5' | 'walkGate6' | 'dblGate10' | 'dblGate12'; base: string }> = [
-  { side: 'walk', ft: 5, kit: 'walkGate5', base: '4 ft walk' },
-  { side: 'walk', ft: 6, kit: 'walkGate6', base: '4 ft walk' },
-  { side: 'dbl', ft: 10, kit: 'dblGate10', base: '8 ft double' },
-  { side: 'dbl', ft: 12, kit: 'dblGate12', base: '8 ft double' },
+/** The gate widths with parts lists of their own, and the standard gate's words. */
+const GATE_WIDTH_KIT: Array<{ side: 'walk' | 'dbl'; ft: number; kit: 'walkGate5' | 'walkGate6' | 'dblGate10' | 'dblGate12' }> = [
+  { side: 'walk', ft: 5, kit: 'walkGate5' },
+  { side: 'walk', ft: 6, kit: 'walkGate6' },
+  { side: 'dbl', ft: 10, kit: 'dblGate10' },
+  { side: 'dbl', ft: 12, kit: 'dblGate12' },
 ]
+
+/**
+ * Odd gate sizes ("warn the salesman (never the customer), don't block sending", Jonathan, Nov 2 2026): a gate on this
+ * yard whose width has no parts list of its own for this style. It is priced and pulled with the standard gate's parts
+ * (materialKits.ts GATE_WIDTH_FALLBACK). For any style, picked or automatic; staff only.
+ */
+export function gateWarnings(style: Pick<QuoteStyle, 'name'>, gateWidths: QuoteCalcInput['gateWidths'], walkGates = 0, dblGates = 0): string[] {
+  const kit = kitSetFor(style.name)
+  if (!kit || kit === 'archived') return []
+  const walk = ((gateWidths?.walk ?? []) as number[]).slice(0, walkGates || undefined), dbl = ((gateWidths?.dbl ?? []) as number[]).slice(0, dblGates || undefined)
+  const out: string[] = []
+  for (const g of GATE_WIDTH_KIT) {
+    const there = (g.side === 'walk' ? walk : dbl).some(w => Math.abs(w - g.ft) < 0.05)
+    if (there && !kit.kits[g.kit]?.length) out.push(g.side === 'walk' ? `${g.ft} ft walk gate: this style has no parts list for it, so it is priced and pulled as a 4 ft walk gate. Check the pull sheet.` : `${g.ft} ft double gate: this style has no parts list for it, so it is priced and pulled as an 8 ft double gate (two 4 ft leaves). Check the pull sheet.`)
+  }
+  const odd = [...walk.filter(w => ![4, 5, 6].includes(w)).map(w => `${w} ft walk`), ...dbl.filter(w => ![8, 10, 12].includes(w)).map(w => `${w} ft double`)]
+  if (odd.length) out.push(`${odd.join(', ')} gate: no parts list for that size, so it is priced and pulled with the standard gate's parts. Check the pull sheet.`)
+  return out
+}
 
 /** Words on a material warning that mean parts are left out, so the price would be wrong (materialCalculator.ts). */
 const PARTS_LEFT_OUT = /no material kit yet|gate material is not included|add the color premium by hand/i
 
 /** What is wrong or unsure about an option priced for this yard: nothing here changes its price. */
-export function optionProblems(q: ReturnType<typeof calculateQuote>, style: QuoteStyle, input: Pick<QuoteCalcInput, 'gateWidths' | 'walkGates' | 'dblGates' | 'hasSalesman'>): OptionProblems {
+export function optionProblems(q: ReturnType<typeof calculateQuote>): OptionProblems {
   const block: string[] = [], warn: string[] = []
   const sum = q.materials.items.reduce((t, i) => t + (Number(i.total) || 0), 0)
   if (q.sections > 0 && (!q.materials.items.length || !(sum > 0))) block.push('No parts are priced for this style.')
@@ -219,16 +245,6 @@ export function optionProblems(q: ReturnType<typeof calculateQuote>, style: Quot
   if (!(q.priced.laborCost > 0)) block.push('No install labor is set for this style.')
   for (const n of q.priced.notes) if (/labor is \$0|no subcontractor rate|paid per/i.test(n)) block.push(n)
   for (const w of q.materials.warnings) (PARTS_LEFT_OUT.test(w) ? block : warn).push(w)
-  // A gate width with no kit of its own takes the standard gate's parts (materialKits.ts GATE_WIDTH_FALLBACK): said, not hidden.
-  const kit = kitSetFor(style.name)
-  if (kit && kit !== 'archived') {
-    for (const g of GATE_WIDTH_KIT) {
-      const widths = (input.gateWidths?.[g.side] ?? []) as number[]
-      if (widths.some(w => Math.abs(w - g.ft) < 0.05) && !kit.kits[g.kit]?.length) warn.push(`This style has no parts list for a ${g.ft} ft ${g.side === 'walk' ? 'walk' : 'double'} gate: it is priced with the ${g.base} gate's parts. Check the pull sheet.`)
-    }
-    const odd = [...(input.gateWidths?.walk ?? []).filter(w => ![4, 5, 6].includes(w)).map(w => `${w} ft walk`), ...(input.gateWidths?.dbl ?? []).filter(w => ![8, 10, 12].includes(w)).map(w => `${w} ft double`)]
-    if (odd.length) warn.push(`This style has no parts list for a ${odd.join(', ')} gate: it is priced with the standard gate's parts. Check the pull sheet.`)
-  }
   return { block: [...new Set(block)], warn: [...new Set(warn)] }
 }
 
@@ -249,26 +265,46 @@ export function optionBlocks(p: { options?: Array<Partial<ProposalOption> & { wa
   return [...new Set(out)]
 }
 
+/** An option lifted to the minimum job price (input.minimumCents, a new fence only), or null: over it, or typed by hand. */
+function minimumFor(input: QuoteCalcInput, q: ReturnType<typeof calculateQuote>) {
+  const cents = input.minimumCents ?? 0
+  const p = q.priced
+  if (!(cents > 0) || p.priceMethod === 'manual' || !(p.price > 0) || Math.round(p.priceBeforeAdjustment * 100) >= cents) return null
+  const commissionCents = Math.round(cents * p.commissionPct)
+  const r = adjustedPrice(cents, input.overrides, Math.round(p.totalCOGS * 100) + commissionCents)
+  const price = r.priceCents / 100
+  const margin = Math.round((price - p.totalCOGS - commissionCents / 100) * 100) / 100
+  return { price, roundingCents: r.roundingCents, adjustmentCents: r.adjustmentCents, adjustmentRefused: r.refused, gmPct: price > 0 ? margin / price : 0 }
+}
+
 export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalOption {
   const posts = teePosts(input, style)
   const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides: optionOverrides(input, style) })
   const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const other = !!input.style && input.style.name !== style.name
-  const problems = other ? optionProblems(q, style, input) : null
+  const problems = other ? optionProblems(q) : null
+  // The minimum job price, on every option ("The minimum job price applies to every option", Jonathan, Nov 2 2026).
+  const min = minimumFor(input, q)
+  const price = min ? min.price : q.priced.price
+  const adjustment = min ? min.adjustmentCents : q.priced.adjustmentCents
+  const refused = min ? min.adjustmentRefused : q.priced.adjustmentRefused
+  const feet = filled.reduce((t, x) => t + x.r.ft, 0)
   return {
     label: optionLabel(style.name),
     fenceStyle: style.name,
-    finalPrice: q.priced.price,
-    perFoot: q.priced.pricePerFoot,
+    finalPrice: price,
+    perFoot: min ? (feet > 0 ? Math.round((price / feet) * 100) / 100 : 0) : q.priced.pricePerFoot,
     sections: q.sections,
-    ...(q.priced.adjustmentCents ? { adjustmentCents: q.priced.adjustmentCents } : {}),
+    ...(adjustment ? { adjustmentCents: adjustment } : {}),
+    ...(refused ? { adjustmentRefused: true } : {}),
+    ...(min ? { minimumLifted: true } : {}),
     ...(problems && (problems.block.length || problems.warn.length) ? { problems } : {}),
     snapshot: {
       materialCost: q.priced.materialCost, laborCost: q.priced.laborCost, tearOutCost: q.priced.tearOutCost,
-      totalCOGS: q.priced.totalCOGS, gmPct: q.priced.gmPct, pullSheet: q.materials.items,
+      totalCOGS: q.priced.totalCOGS, gmPct: min ? min.gmPct : q.priced.gmPct, pullSheet: q.materials.items,
       runRails: style.autoRailMix ? filled.map(x => q.perRunRail[x.i] ?? '6ft') : undefined,
       runSections: filled.map(x => q.perRunSections[x.i]),
-      roundingCents: q.priced.roundingCents,
+      roundingCents: min ? min.roundingCents : q.priced.roundingCents,
       ...(other && q.priced.costFactor > 0 ? { costFactor: q.priced.costFactor } : {}),
       ...(otherMaterial(input.style, style) ? { otherMaterial: true as const } : {}),
       ...(posts ? { posts: { corners: posts.corners, ends: posts.ends, teeLinePosts: posts.extraLinePosts } } : {}),
@@ -365,6 +401,7 @@ export function buildProposal(args: {
     tierPrefs: args.tierPrefs,
     tierSet: args.tierSet ? { category: args.tierSet.category, tiers: args.tierSet.tiers.map(t => ({ ...t })), popular: args.tierSet.popular } : undefined,
     recommended: popular >= 0 ? popular : Math.max(0, options.findIndex(o => o.fenceStyle === own.name)),
+    ...(popular >= 0 ? {} : { noRecommendedLabel: true as const }),
     options,
     ...(args.wholeDollar === false ? {} : { wholeDollar: true }),
     ...(args.showDiscount && options.some(o => (o.adjustmentCents ?? 0) < 0) ? { showDiscount: true } : {}),
@@ -435,6 +472,7 @@ export function buildWorkProposal(args: {
     depositNote: settings.depositNote?.trim() ?? '',
     financing: fin && (fin.months ?? 0) > 0 ? { provider: fin.provider ?? '', apr: fin.apr ?? 0, months: fin.months!, link: fin.link ?? '' } : null,
     recommended: 0,
+    noRecommendedLabel: true,
     options: args.options.map(o => ({ ...o, photoId: o.photoId || args.photoIds[o.fenceStyle] || null })),
     ...(args.wholeDollar === false ? {} : { wholeDollar: true }),
     ...(args.showDiscount && args.options.some(o => (o.adjustmentCents ?? 0) < 0) ? { showDiscount: true } : {}),

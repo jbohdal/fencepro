@@ -37,21 +37,20 @@ async function phone(browser, cookie) {
 }
 
 /** A new quote up to the Price step: the same drawn yard every time. */
-async function quoteUpToPrice(page, name, styleText) {
+async function quoteUpToPrice(page, name, styleText, shape = 'backyard', sides = [['Left return', '20', 'Walk gate'], ['Left side', '95'], ['Back', '128', 'Double gate'], ['Right side', '95'], ['Right return', '20']]) {
   const b = page.locator('[data-quote-builder]'), bar = page.locator('[data-quote-bar]')
   await page.goto(`${APP}/quotes`); await page.waitForSelector('[data-tabbar]', { timeout: 30000 }); await sleep(1500)
   await page.locator('button:has-text("New quote"):visible').first().tap(); await sleep(800)
   await b.locator('input[placeholder^="Customer name"]').fill(name)
   await bar.locator('[data-bar-next]').tap(); await sleep(300)
-  await b.locator('[data-shape="backyard"]').tap(); await sleep(300)
-  const sides = [['Left return', '20', 'Walk gate'], ['Left side', '95'], ['Back', '128', 'Double gate'], ['Right side', '95'], ['Right return', '20']]
+  await b.locator(`[data-shape="${shape}"]`).tap(); await sleep(300)
   for (const [side, ft, gate] of sides) {
     const open = b.locator(`[data-side-open="true"][data-side="${side}"]`)
     await open.locator('[data-side-length]').tap(); await sleep(150)
     for (const d of ft) { await page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`).tap(); await sleep(60) }
     await page.locator('[data-ftin-pad] [data-pad-done]').tap(); await sleep(150)
     if (gate) { await open.locator(`[data-gate-choice] button:has-text("${gate}")`).tap(); await sleep(200) }
-    if (side !== 'Right return') { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
+    if (side !== sides[sides.length - 1][0]) { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
   }
   await bar.locator('[data-bar-next]').tap(); await sleep(400)
   const pick = b.locator('[data-step-panel="style"] select').first()
@@ -259,6 +258,110 @@ try {
   console.log('MAINQUOTE', qm.id)
   await changeOrder(q0, 'chain link')
   await changeOrder(s2, 'wood')
+  // ── Fixes from the review (Nov 2) ──
+  const fx = await phone(browser, SALES)
+  // Clearing Most popular: no option is labeled.
+  const C = `Mixed e2e clear ${run}`
+  b = await quoteUpToPrice(fx.page, C, 'Aluminum.*No dig')
+  await swap(b, 'good', 'Galvanized.*4 ft.*No dig')
+  check('heading: two options', (await b.locator('[data-tiers-title]').textContent()).startsWith('Two options'))
+  await addOption(b, 'Black Chain Link, 4 ft.*No dig')
+  check('heading: not "Two options" with three on', !(await b.locator('[data-tiers-title]').textContent()).startsWith('Two options'), await b.locator('[data-tiers-title]').textContent())
+  const taken = await card(b, 'good').locator('[data-tier-swap] option[disabled]').allTextContents()
+  check('a style on another card cannot be picked again', taken.some(t => /Aluminum Emily.*No dig/.test(t)) && taken.some(t => /Black Chain Link, 4 ft/.test(t)), taken.join(' / '))
+  check('an odd gate says so on the option with no parts list', /10 ft double gate/.test(await card(b, 'better').textContent()) && /two 4 ft leaves/.test(await card(b, 'better').textContent()))
+  check('each option shows its margin', /Margin \d/.test(await card(b, 'good').locator('[data-tier-margin]').textContent()), await card(b, 'good').locator('[data-tier-margin]').textContent())
+  await b.locator('[data-tier-popular]').first().evaluate(() => {})
+  await card(b, 'better').locator('[data-tier-popular-pick]').tap(); await sleep(1500)
+  check('Most popular cleared on the card', (await b.locator('[data-tier-popular]').count()) === 0)
+  await save(fx.page, C)
+  const qc = (await quotesNamed(fx.ctx, C))[0]
+  const tc = (await (await fx.ctx.request.post(`${API}/api/saved-quotes/${qc.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
+  const cleared = await (await fx.ctx.request.get(`${API}/p/${tc.shareToken}`)).text()
+  check('customer, Most popular cleared: no badge at all', !/>Most popular</.test(cleared) && !/>Recommended</.test(cleared))
+  check('customer: odd gate words and margins are not on the page', !/parts list|Margin|two 4 ft leaves/.test(cleared))
+
+  // The stale signing: the customer has the page open, the Salesman takes the option off.
+  const S = `Mixed e2e stale ${run}`
+  const fx2 = await phone(browser, SALES)
+  b = await quoteUpToPrice(fx2.page, S, 'Aluminum.*No dig')
+  await swap(b, 'good', 'Galvanized.*4 ft.*No dig')
+  await save(fx2.page, S)
+  const qs = (await quotesNamed(fx2.ctx, S))[0]
+  const ts = (await (await fx2.ctx.request.post(`${API}/api/saved-quotes/${qs.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
+  await fx2.ctx.request.patch(`${API}/api/saved-quotes/${qs.id}`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { status: 'SENT' } })
+  const custCtx = await browser.newContext(PHONE)
+  const cust = await custCtx.newPage()
+  await cust.goto(`${API}/p/${ts.shareToken}`); await sleep(1200)
+  await cust.locator('.opt[data-option]', { hasText: 'Chain link' }).first().locator('input').check({ force: true }); await sleep(300)
+  await cust.locator('#name').fill('Stale Customer')
+  await cust.locator('#sig').scrollIntoViewIfNeeded()
+  const sb = await cust.locator('#sig').boundingBox()
+  const sp = i => ({ clientX: sb.x + 30 + i * 20, clientY: sb.y + 80 + (i % 2 ? -25 : 25), pointerId: 7, pointerType: 'touch', bubbles: true })
+  await cust.locator('#sig').dispatchEvent('pointerdown', sp(0))
+  for (let i = 1; i <= 12; i++) await cust.locator('#sig').dispatchEvent('pointermove', sp(i))
+  await cust.locator('#sig').dispatchEvent('pointerup', sp(12))
+  const fx3 = await phone(browser, SALES)
+  await fx3.page.goto(`${APP}/quotes?quote=${qs.id}`)
+  const eb = fx3.page.locator('[data-quote-builder]')
+  await eb.waitFor({ timeout: 30000 }); await eb.locator('[data-tiers]').waitFor({ timeout: 20000 }); await sleep(2500)
+  await eb.locator('[data-tiers-use-current]').tap().catch(() => {}); await sleep(1500)
+  await card(eb, 'good').locator('input[type="checkbox"]').uncheck(); await sleep(2000)
+  await fx3.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(800)
+  await fx3.page.locator('[data-save-submit]').tap(); await sleep(1500)
+  await fx3.page.getByText('Save new version').first().tap(); await sleep(3000)
+  const qs2 = (await (await fx3.ctx.request.get(`${API}/api/saved-quotes/${qs.id}`)).json()).data
+  check('Save new version: the chain link option is off the proposal', qs2.proposal.options.length === 1 && !qs2.proposal.options.some(o => /^CL/.test(o.fenceStyle)), JSON.stringify(qs2.proposal.options.map(o => [o.fenceStyle, o.finalPrice])))
+  await cust.locator('#go').tap(); await sleep(3500)
+  const stale = (await (await fx3.ctx.request.get(`${API}/api/saved-quotes/${qs.id}`)).json()).data
+  check('the stale page signs nothing', !stale.acceptedAt && stale.status !== 'SOLD' && !/Accepted/.test(await cust.locator('main').textContent().then(t => t.slice(0, 400))))
+  check('the page reloads to the current options and says why', (await cust.locator('[data-options-changed]').count()) === 1 && (await cust.locator('.opt[data-option]').count()) === 1, await cust.locator('[data-options-changed]').textContent().catch(() => ''))
+  if (SHOTS) await cust.screenshot({ path: `${SHOTS}/stale-refused.png` })
+  await custCtx.close()
+
+  // Two browsers: A adds Wood; B, opened first, saves; nothing is lost in silence.
+  const fx4 = await phone(browser, SALES), fx5 = await phone(browser, SALES)
+  await fx4.page.goto(`${APP}/quotes?quote=${qc.id}`); await fx5.page.goto(`${APP}/quotes?quote=${qc.id}`)
+  const ba = fx4.page.locator('[data-quote-builder]'), bb = fx5.page.locator('[data-quote-builder]')
+  await ba.waitFor({ timeout: 30000 }); await bb.waitFor({ timeout: 30000 }); await ba.locator('[data-tiers]').waitFor({ timeout: 20000 }); await bb.locator('[data-tiers]').waitFor({ timeout: 20000 }); await sleep(2500)
+  await card(ba, 'added1').locator('[data-option-remove]').tap(); await sleep(1500)
+  await addOption(ba, 'Wood.*Stockade.*(pine|PT).*')
+  await fx4.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(800)
+  await fx4.page.locator('[data-save-submit]').tap(); await sleep(1500)
+  await fx4.page.getByText('Save new version').first().tap(); await sleep(3000) // the link is out, so a save asks first
+  check('two browsers: the first save put the Wood option on', ((await (await fx4.ctx.request.get(`${API}/api/saved-quotes/${qc.id}`)).json()).data.proposal.options).some(o => o.fenceStyle.startsWith('wood')))
+  await fx5.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(800)
+  await fx5.page.locator('[data-save-submit]').tap()
+  // It asks only when today's prices differ from the sent ones (live overhead moves on dev); either way the save is refused.
+  await fx5.page.getByText('Save new version').first().tap({ timeout: 4000 }).catch(() => {})
+  await fx5.page.getByText('so this save was not made').first().waitFor({ timeout: 12000 }).catch(() => {})
+  const both = (await (await fx5.ctx.request.get(`${API}/api/saved-quotes/${qc.id}`)).json()).data
+  check('two browsers: the later save did not take the Wood option off', both.proposal.options.some(o => o.fenceStyle.startsWith('wood')), JSON.stringify(both.proposal.options.map(o => o.fenceStyle)))
+  const said = await fx5.page.locator('body').textContent()
+  check('two browsers: the second person is told', /so this save was not made/.test(said), said.match(/.{0,60}so this save was not made.{0,60}/)?.[0] ?? '')
+  if (SHOTS) await fx5.page.screenshot({ path: `${SHOTS}/two-browsers.png` })
+
+  // A 6 ft yard: every option at the minimum.
+  const fx6 = await phone(browser, SALES)
+  const T = `Mixed e2e tiny ${run}`
+  b = await quoteUpToPrice(fx6.page, T, 'White Vinyl Privacy.*(6 or 8 ft|best price).*No dig', 'straight', [['Fence', '6']])
+  await swap(b, 'good', 'Wood.*Stockade.*(pine|PT).*')
+  const main = dollars(await fx6.page.locator('[data-bar-price]').textContent())
+  const prices = []
+  for (const k of await b.locator('[data-tier]').evaluateAll(e => e.map(x => x.getAttribute('data-tier')))) prices.push(await priceOf(b, k))
+  check('tiny yard: every option at the minimum, and staff are told', prices.every(p => p === main) && (await b.locator('[data-tier-minimum]').count()) >= 1, `main $${main}, options ${prices.join(', ')}`)
+  if (SHOTS) await fx6.page.screenshot({ path: `${SHOTS}/tiny.png` })
+  await save(fx6.page, T)
+  const qt = (await quotesNamed(fx6.ctx, T))[0]
+  check('tiny yard: the stored prices are the minimum', qt.proposal.options.every(o => o.finalPrice === main), JSON.stringify(qt.proposal.options.map(o => o.finalPrice)))
+
+  // Compare options stop at the limit.
+  const fx7 = await phone(browser, SALES)
+  b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall, 6 ft panels.*No dig')
+  await b.locator('[data-compare-toggle]').tap(); await sleep(1500)
+  const free = await b.locator('[data-compare-row] input:not(:disabled):not(:checked)').count()
+  check('Compare options: with 3 on, no more can be ticked', free === 0, `${free} open, ${await b.locator('[data-compare-row]').count()} rows`)
+
   console.log('QUOTES', JSON.stringify([A, V]), 'jobs', job?.id)
   check('Salesman: no page errors', christa.errors.length + christa2.errors.length + christa4.errors.length === 0, [...christa.errors, ...christa2.errors, ...christa4.errors].join('|'))
 } catch (e) {

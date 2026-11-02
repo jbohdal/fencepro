@@ -21,6 +21,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import type { AddressInfo } from 'net'
 import type { Server } from 'http'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
@@ -170,7 +171,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('made once (dev database)', () =>
       },
     })
     quoteId = q.id
-    const accept = () => fetch(`${base}/p/${shareToken}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option: 0, name: 'Pat Seed' }) }).then(async r => ({ status: r.status, json: await r.json() as any }))
+    const seen = await seenAt(shareToken, 0)
+    const accept = () => fetch(`${base}/p/${shareToken}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option: 0, seen, name: 'Pat Seed' }) }).then(async r => ({ status: r.status, json: await r.json() as any }))
     const par = await Promise.all([accept(), accept(), accept()])
     const again = await accept()
     expect([...par, again].every(a => a.status === 200 && a.json.success)).toBe(true)

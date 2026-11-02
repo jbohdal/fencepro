@@ -26,6 +26,7 @@ import path from 'path'
 import zlib from 'zlib'
 import { execFileSync } from 'child_process'
 import type { AddressInfo } from 'net'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { pdfText } from './pdfText'
 
@@ -144,7 +145,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed documents (dev database)'
   test('accepting stores the signed contract once, with the name, IP and time on its last page, linked to customer, quote and job', async () => {
     const q = await sentQuote('E2E Signed Docs')
     quoteId = q.id
-    const acc = await post(`/p/${q.shareToken}/accept`, { option: 1, name: 'Pat E2E Signer', signature: SIG }, '203.0.113.7')
+    const acc = await post(`/p/${q.shareToken}/accept`, { option: 1, seen: await seenAt(q.shareToken!, 1), name: 'Pat E2E Signer', signature: SIG }, '203.0.113.7')
     expect(acc.status).toBe(200)
     const saved = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     expect(saved.acceptedIp).toBe('203.0.113.7')
@@ -202,8 +203,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed documents (dev database)'
 
   test('a repeat accept, a second link accept and three filings at once make no second one', async () => {
     const q = (await prisma.savedQuote.findUnique({ where: { id: quoteId } }))!
-    expect((await post(`/p/${q.shareToken}/accept`, { option: 1, name: 'Pat E2E Signer', signature: SIG }, '203.0.113.7')).status).toBe(200)
-    expect((await post(`/p/${q.shareToken}/accept`, { option: 0, name: 'Someone Else', signature: SIG }, '198.51.100.2')).status).toBe(409)
+    expect((await post(`/p/${q.shareToken}/accept`, { option: 1, seen: await seenAt(q.shareToken!, 1), name: 'Pat E2E Signer', signature: SIG }, '203.0.113.7')).status).toBe(200)
+    expect((await post(`/p/${q.shareToken}/accept`, { option: 0, seen: await seenAt(q.shareToken!, 0), name: 'Someone Else', signature: SIG }, '198.51.100.2')).status).toBe(409)
     const outs = await Promise.all([1, 2, 3].map(() => S.fileSignedContract(quoteId)))
     expect(outs.every(o => o?.doc.id === docId && o.made === false)).toBe(true)
     expect(await prisma.signedDocument.count({ where: { quoteId, kind: 'contract' } })).toBe(1)

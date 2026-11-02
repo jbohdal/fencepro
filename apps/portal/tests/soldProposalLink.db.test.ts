@@ -20,6 +20,7 @@ import express from 'express'
 import fs from 'fs'
 import path from 'path'
 import type { AddressInfo } from 'net'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
@@ -34,7 +35,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
   let server: ReturnType<express.Express['listen']>
   const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
   const page = (tok: string, qs = '') => fetch(`${base}/p/${tok}${qs}`).then(r => r.text())
-  const accept = (tok: string, option: number, name: string) => fetch(`${base}/p/${tok}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option, name, signature: SIG }) }).then(async r => ({ status: r.status, json: await r.json() as any }))
+  const accept = async (tok: string, option: number, name: string) => fetch(`${base}/p/${tok}/accept`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ option, seen: await seenAt(tok, option), name, signature: SIG }) }).then(async r => ({ status: r.status, json: await r.json() as any }))
   const opt = (label: string, fenceStyle: string, finalPrice: number) => ({ label, fenceStyle, finalPrice, perFoot: 0, sections: 19, snapshot: { pullSheet: [{ item: label, qty: 1 }] } })
   const options = [opt('Dig set', "WV-DS 6'x8' Privacy", 6093), opt('No dig', "WV-ND 6'x8' Privacy", 7363), opt('Tan no dig', "TV-ND 6'x8' Privacy", 7924)]
   const makeQuote = (name: string, extra: Record<string, unknown>) => prisma.savedQuote.create({

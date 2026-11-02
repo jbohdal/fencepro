@@ -39,10 +39,10 @@ import { saveGate, gatedOnce } from './movedGate'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
-import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
+import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf } from './warranties'
-import { proposalSent, ownTierToStamp } from './proposalOptions'
+import { proposalSent, ownTierToStamp, proposalStamp } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
 import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
@@ -766,6 +766,7 @@ export default function QuoteBuilder({
   const typedWidths = fitGateWidths(typedGateWidths, walkGates, dblGates)
   const keptTypedWidths = !fromLayout && !defaultGateWidths(typedWidths) ? typedWidths : null
   const effGateWidths = fromLayout ? layoutResult!.gateWidthsFt : keptTypedWidths
+  const mr = moveRepairSettings(cfg)
   const calcInput: QuoteCalcInput = {
     style,
     runs: effRuns,
@@ -773,6 +774,8 @@ export default function QuoteBuilder({
     ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     ...(effTees ? { tees: effTees } : {}),
+    // Every option is lifted to the minimum job price (proposal.ts priceOption).
+    ...(jobType === 'new' && mr.minimumAppliesToNew && mr.minimumJobCents > 0 ? { minimumCents: mr.minimumJobCents } : {}),
     tearOutSections: tearOutSec, tearOutGates,
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
     hasSalesman,
@@ -782,7 +785,6 @@ export default function QuoteBuilder({
     optimizer: optSettings,
   }
   // ── Move or repair inputs, and the tier set (the server needs them too) ──
-  const mr = moveRepairSettings(cfg)
   const stylePostType: PostType = style ? postTypeOf(style) : 'nd'
   const moveOldPosts = oldPostsMethod(move.oldPostType, stylePostType)
   const repairOldPosts = oldPostsMethod(repair.postType, stylePostType)
@@ -1026,7 +1028,7 @@ export default function QuoteBuilder({
   const tierCards: Record<string, OptionCard> = useMemo(() => {
     if (!internal) return sv?.tierCards ?? {}
     const w = warrantySettingsOf(cfg), out: Record<string, OptionCard> = {}
-    for (const t of tiersLocal) { const c = optionCard(t, photoIds, tierSets, w); if (c) out[t.spec.key] = c }
+    for (const t of tiersLocal) { const c = optionCard(t, photoIds, tierSets, w, calcInput); if (c) out[t.spec.key] = c }
     return out
   }, [internal, sv, tiersLocal, photoIds, tierSets, cfg])
   const mixed = Object.keys(tierPrefs.swap).length > 0 || !!tierPrefs.added?.length
@@ -1048,11 +1050,13 @@ export default function QuoteBuilder({
   })
   const offeredNow = offeredCount(tiers, style?.name, !!foldedTier || !!twinTier, offer)
   // Every style on for quoting, by material, for "Change style" and "Add option".
-  const stylePicks = useMemo(() => {
+  // A style already on another card is shown, and cannot be picked: the same fence twice is one card to the customer.
+  const stylePicks = (card?: TierKey) => {
+    const taken = new Set(tiers.filter(t => t.spec.key !== card && !t.off && t.style).map(t => t.style!.name))
     const groups = new Map<string, typeof FENCE_STYLES>()
     for (const s of FENCE_STYLES) { if (!isQuotable(s)) continue; const w = materialWord(s); groups.set(w, [...(groups.get(w) ?? []), s]) }
-    return [...groups].map(([word, list]) => <optgroup key={word} label={word}>{list.map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}</optgroup>)
-  }, [FENCE_STYLES])
+    return [...groups].map(([word, list]) => <optgroup key={word} label={word}>{list.map(s => <option key={s.id} value={s.name} disabled={taken.has(s.name)}>{s.label || s.name}{taken.has(s.name) ? ' (already an option)' : ''}</option>)}</optgroup>)
+  }
   const ownPanelsLabel = style ? customerFenceName(optionLabel(style.name), effRuns.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0).map(x => calc.perRunRail[x.i])) : ''
   // Compare options: the same yard as the styles that make sense for this one.
   const compareRowsLocal = useMemo(() => (internal && showCompare && style && sections > 0
@@ -1075,7 +1079,7 @@ export default function QuoteBuilder({
   const jobLotOld = !!jobLot && !jobLot.kit && !jobLot.tall && !!jobLot.quotedOn && jobLot.quotedOn <= staleCutoff(businessDate(new Date()), staleMonths)
   // A hand picked old posts' method that differs from the style: said here too, not only on the Style step.
   const oldPostsWarning = oldPostsCheck(jobType, moveOldPosts, repairOldPosts, repairIn.items)
-  const quoteWarnings = [...(oldPostsWarning ? [oldPostsWarning] : []), ...(work ? [
+  const quoteWarnings = [...(oldPostsWarning ? [oldPostsWarning] : []), ...(jobType === 'new' && style && !tiers.some(t => t.style?.name === style.name) ? gateWarnings(style, calcInput.gateWidths, calcInput.walkGates, calcInput.dblGates) : []), ...(work ? [
     ...(style && jobType === 'move' ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout && jobType === 'move' ? gateChecks(yard) : []),
     ...work.warnings,
@@ -1249,7 +1253,10 @@ export default function QuoteBuilder({
       pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents), ...adjustmentRecord(pricingOverrides, adjApplied) }),
       work: savedWork,
       // A Salesman's or Installer's save: the server works out the costs from these inputs.
-      ...(internal ? {} : { priceRequest }),
+      // A login that may not set prices prices on its phone, and the server checks it from these inputs (lib/quotePriceCheck.ts).
+      ...(internal && canPrice ? {} : { priceRequest }),
+      // The options this save is built on: if another save changed them meanwhile, it is refused (Nov 2 2026).
+      ...(init?.id && init.proposal ? { proposalBase: proposalStamp(init.proposal) } : {}),
       // Priced here: the copy of the price data it was priced with (the server refuses an older one).
       ...(pricingStampNow ? { pricingStamp: pricingStampNow } : {}),
       // Draft picked on a sent or lost quote: said, or the server keeps it as it is.
@@ -1997,7 +2004,7 @@ export default function QuoteBuilder({
               {jobType === 'new' && style && sections > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2" data-tiers>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-gray-500" data-tiers-title>{tierSet?.tiers.length === 2 ? 'Two options' : 'Good, Better, Best'} <span className="font-normal" data-tiers-where={sentTierSet && !usingSentTiers ? 'today' : 'proposal'}>{sentTierSet && !usingSentTiers ? "· at today's prices, not on the customer's proposal" : '· on the proposal'}</span></p>
+                    <p className="text-xs font-semibold text-gray-500" data-tiers-title>{tiers.length === 2 ? 'Two options' : tierPrefs.added?.length ? 'Options' : 'Good, Better, Best'} <span className="font-normal" data-tiers-where={sentTierSet && !usingSentTiers ? 'today' : 'proposal'}>{sentTierSet && !usingSentTiers ? "· at today's prices, not on the customer's proposal" : '· on the proposal'}</span></p>
                     {can('settings.change') && <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
                       onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>}
                   </div>
@@ -2046,7 +2053,7 @@ export default function QuoteBuilder({
                         <select className="mt-2 w-full border border-gray-300 rounded-lg px-2 h-11 text-sm bg-white" value="" aria-label={`Style for ${t.spec.name}`}
                           onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, swap: { ...p.swap, [t.spec.key]: v } })) }} data-tier-swap>
                           <option value="">Pick a style for this quote…</option>
-                          {stylePicks}
+                          {stylePicks(t.spec.key)}
                         </select>
                         {t.added && <button type="button" className="btn btn-quiet btn-sm mt-2" onClick={() => removeAdded(t.spec.key)} data-option-remove>Remove this option</button>}
                       </div>
@@ -2054,7 +2061,8 @@ export default function QuoteBuilder({
                     // The tier whose card is the quote's own best price option on the proposal: its price, its panels.
                     const folded = sent ? sent.own : t.spec.key === foldedTier
                     const twin = sent ? sent.twin : t.spec.key === twinTier
-                    const main = folded || twin || (!!t.style && t.style.name === style?.name)
+                    // One main card: a second card of the same style is not it.
+                    const main = folded || twin || (!!t.style && t.style.name === style?.name && tiers.find(x => x.style?.name === style?.name)?.spec.key === t.spec.key)
                     const price = sent ? sent.price : main ? adjPrice : t.option!.finalPrice
                     const perFoot = sent ? sent.perFoot : folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option!.perFoot
                     const card = sent ? undefined : tierCards[t.spec.key]
@@ -2079,6 +2087,10 @@ export default function QuoteBuilder({
                         </div>
                         <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
                         {words && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{words}</p>}
+                        {!sent && t.option && !t.off && t.option.minimumLifted && <p className="text-xs font-semibold text-gray-700 mt-0.5" data-tier-minimum>Lifted to the minimum job price (internal).</p>}
+                        {!sent && t.option && !t.off && t.option.adjustmentRefused && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-tier-adjust-refused>The dollar adjustment is not on this option: it would go under cost.</p>}
+                        {!sent && internal && t.option && !t.off && !main && <p className="text-xs text-gray-700 mt-0.5" data-tier-margin>Margin {(t.option.snapshot.gmPct * 100).toFixed(1)}%{t.option.adjustmentCents ? ` after ${t.option.adjustmentCents < 0 ? '−' : '+'}${fmt(Math.abs(t.option.adjustmentCents) / 100)}` : ''}</p>}
+                        {!sent && tierCards[t.spec.key]?.gates.map(w => <p key={w} className="text-xs text-amber-800 mt-1" data-tier-gate>{w}</p>)}
                         {picked && card && <p className="text-xs text-gray-700 mt-0.5" data-tier-warranty>{card.warranty ? `Warranty: ${card.warranty}` : ''}</p>}
                         {picked && card && !card.hasPhoto && !card.blurb && <p className="text-xs text-gray-600" data-tier-no-words>No photo or description for this style: the customer reads its name, price and warranty.</p>}
                         {picked && card && card.block.map(b => <p key={b} className="text-xs font-semibold text-red-800 mt-1" data-tier-block>Cannot be sent: {b}</p>)}
@@ -2114,7 +2126,7 @@ export default function QuoteBuilder({
                               setTierPrefs(p => { const swap = { ...p.swap }; if (v) swap[t.spec.key] = v; else delete swap[t.spec.key]; return { ...p, swap } })
                             }} data-tier-swap>
                             {!main && <option value="">{t.added ? t.style?.label || t.style?.name : 'Automatic'}</option>}
-                            {stylePicks}
+                            {stylePicks(t.spec.key)}
                           </select>
                         </label>}
                         {t.added && canPick && <button type="button" className="btn btn-quiet btn-sm mt-1" onClick={() => removeAdded(t.spec.key)} data-option-remove>Remove this option</button>}
@@ -2133,7 +2145,7 @@ export default function QuoteBuilder({
                       <select className="mt-0.5 w-full border border-gray-300 rounded-lg px-2 h-11 text-sm bg-white" value="" aria-label="Add option"
                         onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, added: [...(p.added ?? []), { key: newOptionKey(p), style: v }] })) }}>
                         <option value="">Pick a style…</option>
-                        {stylePicks}
+                        {stylePicks()}
                       </select>
                     </label>
                   )}
@@ -2380,7 +2392,17 @@ export default function QuoteBuilder({
                           <div className="flex justify-between"><span className="text-gray-600">Net profit after</span><span className={`tabular-nums font-semibold ${netAfter < 0 ? 'text-red-700' : 'text-gray-900'}`} data-adjust-profit>{fmt(netAfter)}</span></div>
                           <p className="text-xs text-gray-500" data-adjust-gave>{adjApplied < 0 ? `You give up ${fmt(netBefore - netAfter)} of profit.` : `${fmt(netAfter - netBefore)} more profit.`} {showCommission ? 'Overhead and commission stay' : 'Overhead stays'} on {fmt(listPrice)}.</p>
                         </>}
-                        {optionCount > 1 && <p className="text-xs font-semibold text-amber-800" data-adjust-every-option>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)} on every option on the proposal.</p>}
+                        {optionCount > 1 && tiers.some(t => !t.off && t.option && t.style?.name !== style?.name) && (
+                          // Each option as it came out (review Nov 2 2026: "on every option" over a chain link option at full price, or at 9.7%).
+                          <div className="text-xs text-gray-700 border-t border-gray-200 pt-1 mt-1" data-adjust-options>
+                            <p className="font-semibold text-gray-600">The other options</p>
+                            {tiers.filter(t => !t.off && t.option && t.style?.name !== style?.name).map(t => (
+                              <p key={t.spec.key} className={t.option!.adjustmentRefused ? 'text-amber-800 font-semibold' : ''} data-adjust-option={t.spec.key}>
+                                {tierCards[t.spec.key]?.name || t.spec.name}: {t.option!.adjustmentRefused ? 'not applied, it would go under cost' : t.option!.adjustmentCents ? `${t.option!.adjustmentCents < 0 ? '−' : '+'}${fmt(Math.abs(t.option!.adjustmentCents) / 100)}` : 'no change'}{internal ? `, margin ${(t.option!.snapshot.gmPct * 100).toFixed(1)}%` : ''}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         <p className="text-xs text-gray-500" data-adjust-customer-sees>{showDiscount && adjApplied < 0 ? 'The customer sees the list price, the discount and the final price.' : 'The customer sees the final price only.'}</p>
                       </div>
                     )
@@ -2403,7 +2425,7 @@ export default function QuoteBuilder({
                         const diff = price - adjPrice
                         return (
                           <label key={s.id} className={`flex items-start gap-3 rounded-lg border p-3 ${own ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`} data-compare-row={s.name}>
-                            <input type="checkbox" className="mt-1 w-5 h-5 accent-orange-500" checked={own || offer.includes(s.name)} disabled={own}
+                            <input type="checkbox" className="mt-1 w-5 h-5 accent-orange-500" checked={own || offer.includes(s.name)} disabled={own || (!offer.includes(s.name) && offeredNow >= MAX_TIERS)}
                               onChange={e => setOffer(list => e.target.checked ? [...list, s.name] : list.filter(n => n !== s.name))} />
                             <span className="flex-1 min-w-0">
                               <span className="block text-sm font-semibold text-gray-900">{o.label}</span>

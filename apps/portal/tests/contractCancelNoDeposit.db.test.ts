@@ -14,6 +14,7 @@ import 'dotenv/config'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { optionSeen } from '../src/server/lib/optionSeen.js'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { pdfText } from './pdfText'
 
@@ -93,7 +94,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('no deposit contracts: Cancellati
       const page = renderProposal(q, p, q.shareToken!, 'n', [], null, '', view)
       expect(page).toContain(NEW_SENTENCE)
       expect(page).not.toContain(OLD_SENTENCE)
-      const out = await acceptQuote(await prisma.savedQuote.findUnique({ where: { id: q.id } }), { option: 0, name: 'E2E Customer', signature: SIG } as any, { ip: '203.0.113.9', userAgent: 'vitest' })
+      const out = await acceptQuote(await prisma.savedQuote.findUnique({ where: { id: q.id } }), { option: 0, seen: optionSeen((q as any).proposal.options[0]), name: 'E2E Customer', signature: SIG } as any, { ip: '203.0.113.9', userAgent: 'vitest' })
       expect(out.status).toBe(200)
       const frozen = ((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.proposal as any).terms
       expect(frozen.find((t: any) => t.key === 'cancellation').text).toBe(CANCEL.replace(OLD_SENTENCE, NEW_SENTENCE))
@@ -109,7 +110,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('no deposit contracts: Cancellati
     const q = await sentQuote('E2E NoDep Thirty', 30)
     const { p, view } = await proposalPage(q as any, q.proposal as any)
     expect(renderProposal(q, p, q.shareToken!, 'n', [], null, '', view)).toContain(OLD_SENTENCE)
-    expect((await acceptQuote(await prisma.savedQuote.findUnique({ where: { id: q.id } }), { option: 0, name: 'E2E Customer', signature: SIG } as any)).status).toBe(200)
+    expect((await acceptQuote(await prisma.savedQuote.findUnique({ where: { id: q.id } }), { option: 0, seen: optionSeen((q as any).proposal.options[0]), name: 'E2E Customer', signature: SIG } as any)).status).toBe(200)
     for (const text of [await contractText(q.id), await storedText(q.id)]) {
       expect(text).toContain(OLD_SENTENCE)
       expect(text).not.toContain(NEW_SENTENCE)

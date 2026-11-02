@@ -21,6 +21,7 @@ import 'dotenv/config'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
 import path from 'path'
@@ -152,7 +153,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty updates (dev database)'
     expect(await stored(q.id)).toBe(before)
 
     // Accepting the Lifetime option on the new link: the price as offered, the contract with the Lifetime words.
-    const acc = await call('POST', `/p/wu/${tok}/accept`, { option: 1, name: 'E2E Update Sent', signature: SIG }, false)
+    const acc = await call('POST', `/p/wu/${tok}/accept`, { option: 1, seen: await seenAt(q.shareToken, 1), name: 'E2E Update Sent', signature: SIG }, false)
     expect(acc.status).toBe(200)
     const sold = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     expect(sold).toMatchObject({ status: 'SOLD', chosenOption: 1, finalPrice: 12900.91, fenceStyle: "WV-ND 6'x8' Privacy" })
@@ -179,7 +180,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('warranty updates (dev database)'
   test('a sold quote: acknowledging changes the job\'s warranty and the certificate; the quote and the signed contract stay as signed', async () => {
     const q = await makeQuote('E2E Update Sold', `wu-test-sold-${Date.now().toString(36)}-abcdef`)
     // Accepted before the change, on the old link: TV-ND, with the old 1 Year block.
-    expect((await call('POST', `/p/${q.shareToken}/accept`, { option: 2, name: 'E2E Update Sold', signature: SIG }, false)).status).toBe(200)
+    expect((await call('POST', `/p/${q.shareToken}/accept`, { option: 2, seen: await seenAt(q.shareToken, 2), name: 'E2E Update Sold', signature: SIG }, false)).status).toBe(200)
     const job = (await prisma.savedJob.findFirst({ where: { accountId, quoteId: q.id } }))!
     await prisma.savedJob.update({ where: { id: job.id }, data: { completedDate: '2026-10-01', status: 'completed' } })
     let jw = (await call('GET', `/api/warranties/job/${job.id}`)).json.data

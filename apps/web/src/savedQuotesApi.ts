@@ -66,11 +66,12 @@ export interface SavedQuotePayload {
   priceRequest?: QuoteJobRequest
   /** The copy of the price data it was priced with (pricingFreshness.ts): the server refuses a save on an older one. */
   pricingStamp?: string
+  proposalBase?: string
   /** Back to Draft picked on a sent quote: without it the server keeps a sent quote Sent. */
   backToDraft?: boolean
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp' | 'backToDraft'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp' | 'proposalBase' | 'backToDraft'>> {
   needsResend?: boolean
   id: string
   pricing: QuotePricingOverrides | null
@@ -213,7 +214,7 @@ export async function fetchPublicQuoteByToken(token: string): Promise<SavedQuote
  */
 export async function acceptPublicQuoteByToken(
   token: string,
-  payload: { name: string; signature?: string },
+  payload: { name: string; signature?: string; seen?: string },
 ): Promise<SavedQuoteRecord | null> {
   try {
     const res = await fetch(`${AUTH_API}/api/saved-quotes/share/${encodeURIComponent(token)}/accept`, {
@@ -221,6 +222,8 @@ export async function acceptPublicQuoteByToken(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
+    // Changed while the page was open: nothing was signed, so it shows the quote as it is now.
+    if (res.status === 409) { window.location.reload(); return null }
     if (!res.ok) return null
     const json = await res.json().catch(() => ({}))
     return json?.success ? (json.data as SavedQuoteRecord) : null

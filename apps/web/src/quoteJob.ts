@@ -14,7 +14,7 @@ import { totalMaterialCost, type GateWidths, type LineItem } from './materialCal
 import { gateWidthsOf, type YardLayout } from './yardLayout'
 import { resolveTiers, tierOptions, ownTierKey, twinTierKey, optionCard, type OptionCard, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
 import { warrantySettingsOf } from './warranties'
-import { compareStyles, priceOption, workOption, type ProposalOption } from './proposal'
+import { compareStyles, priceOption, workOption, gateWarnings, type ProposalOption } from './proposal'
 import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
   type JobType, type MoveInputs, type RepairInputs, type SavedWork, type WorkResult,
@@ -145,13 +145,14 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
     optimizer: cfg.railOptimizer!,
   }
+  const mr = moveRepairSettings(cfg)
+  if (req.jobType === 'new' && mr.minimumAppliesToNew && mr.minimumJobCents > 0) calcInput.minimumCents = mr.minimumJobCents
   const calc = calculateQuote(calcInput)
   const width = widthComparison(calcInput, styles)
   const priced = calc.priced
   const sections = calc.sections
 
   // Move or repair: moveRepair.ts on the same style, Settings and kits.
-  const mr = moveRepairSettings(cfg)
   const newLine = { runs: req.runs.map(r => r.ft), corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates }
   const workCommon = style ? { style, pricing: cfg.pricing, overrides: req.overrides, settings: mr, overheadPct, hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, extraLaborHrs: req.extraLaborHrs } : null
   const moveIn = req.move ?? null, repairIn = req.repair ?? null
@@ -248,7 +249,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   })
   const warranties = warrantySettingsOf(cfg)
   const tierCards: Record<string, OptionCard> = {}
-  for (const t of tiers) { const c = optionCard(t, req.photoIds ?? {}, tierSets, warranties); if (c) tierCards[t.spec.key] = c }
+  for (const t of tiers) { const c = optionCard(t, req.photoIds ?? {}, tierSets, warranties, calcInput); if (c) tierCards[t.spec.key] = c }
   return {
     style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, changePrice, totals,
     pullSheet: work ? work.pullSheet : calc.materials.items,
@@ -273,6 +274,7 @@ const optionView = (o: ProposalOption) => ({
   ...(o.adjustmentCents ? { adjustmentCents: o.adjustmentCents } : {}),
   ...(o.tier ? { tier: o.tier } : {}), ...(o.badge ? { badge: o.badge } : {}), ...(o.photoId ? { photoId: o.photoId } : {}),
   ...(o.problems ? { problems: o.problems } : {}),
+  ...(o.adjustmentRefused ? { adjustmentRefused: true } : {}), ...(o.minimumLifted ? { minimumLifted: true } : {}),
 })
 const workView = (w: WorkResult | null) => (w ? {
   type: w.type, priceCents: w.priceCents, listCents: w.listCents, adjustmentCents: w.adjustmentCents, adjustmentRefused: w.adjustmentRefused, manual: w.manual, minimumApplied: w.minimumApplied, pullSheet: w.pullSheet.map(lineView),
@@ -310,6 +312,7 @@ export function quoteView(job: QuoteJob) {
       pullSheet: t.option && (t.swapped || t.added) ? ((t.option.snapshot?.pullSheet ?? []) as LineItem[]).map(lineView) : null,
     })),
     tierCards: job.tierCards,
+    gateWarnings: job.style ? gateWarnings(job.style, job.calcInput.gateWidths, job.calcInput.walkGates, job.calcInput.dblGates) : [],
     compare: job.compareRows.map(r => ({ styleName: r.style.name, option: optionView(r.option) })),
     proposalOptions: job.proposalOptions.map(optionView),
     ownTierKey: job.ownTierKey,

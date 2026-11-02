@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SavedQuote } from './QuotesPage'
 import QuoteTemplateRenderer from './QuoteTemplateRenderer'
 import { getTemplate, getDefaultTemplateKey, type QuotePresentation } from './quoteTemplatesStore'
+import { optionSeen } from '../../portal/src/server/lib/optionSeen'
 import {
   fetchPublicQuoteByToken,
   acceptPublicQuoteByToken,
@@ -99,7 +100,7 @@ export default function PublicQuotePage({ token }: { token: string }) {
 
   async function handleAccept(name: string, signature: string) {
     if (!quote) return
-    const updated = await acceptPublicQuoteByToken(token, { name, signature })
+    const updated = await acceptPublicQuoteByToken(token, { name, signature, seen: optionSeen(quote) })
     if (updated) {
       setAcceptedAt(updated.acceptedAt)
       setQuote(recordToSavedQuote(updated))

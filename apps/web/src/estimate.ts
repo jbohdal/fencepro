@@ -57,7 +57,7 @@ export { kitSetFor } from './materialKits'
 // The contract terms frozen on a proposal and the company's address (server routes/proposal.ts, lib/contractPdf.ts).
 export { stampTerms, proposalTerms, frozenTerms, companyAddressOf, termsAsAsked } from './contractTerms'
 // Which proposal options are shown and which starts selected (server routes/proposal.ts).
-export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp } from './proposalOptions'
+export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp, proposalStamp } from './proposalOptions'
 export { optionBlocks } from './proposal'
 // What a save would change on a sent proposal's cards (server routes/saved-quotes.ts refuses it unless chosen).
 export { proposalPriceChanges } from './sentReprice'

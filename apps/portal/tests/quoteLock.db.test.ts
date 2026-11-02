@@ -18,6 +18,7 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import type { AddressInfo } from 'net'
+import { seenAt } from './seenAt'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
 const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
@@ -199,7 +200,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('signed quotes are locked (dev da
     expect(s.json.data.locked).toBe(1)
     expect((await prisma.savedQuote.findUnique({ where: { id: q.id } }))!.finalPrice).toBe(1000)
     // The customer picks the other option on a quote already signed in the app: refused, nothing changes.
-    const a = await call('', 'POST', `/api/proposal/${ids.token}/accept`, { option: 1, name: 'E2E Customer' })
+    const a = await call('', 'POST', `/api/proposal/${ids.token}/accept`, { option: 1, seen: await seenAt(ids.token, 1), name: 'E2E Customer' })
     expect(a.status).toBe(409)
     const after = await prisma.savedQuote.findUnique({ where: { id: q.id } })
     expect([after!.finalPrice, after!.fenceStyle, after!.acceptedAt]).toEqual([1000, "WV-ND 6'x8' Privacy", null])

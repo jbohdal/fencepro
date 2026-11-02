@@ -9,7 +9,7 @@
  * this quote says why.
  */
 
-import { priceOption, type ProposalOption } from './proposal'
+import { priceOption, gateWarnings, type ProposalOption } from './proposal'
 import { sectionWidthForStyle } from './materialCalculator'
 import { deriveLayout, layoutForShape, type YardLayout } from './yardLayout'
 import { layoutPanelFt } from './gateSlide'
@@ -315,9 +315,9 @@ export function tierOptions(tiers: ResolvedTier[], photoIds: Record<string, stri
 }
 
 /** What an option's card tells staff (the quote builder, and a Salesman's phone from the server): the name and words the customer reads, and what is missing. */
-export interface OptionCard { name: string; blurb: string; warranty: string | null; hasPhoto: boolean; block: string[]; warn: string[] }
+export interface OptionCard { name: string; blurb: string; warranty: string | null; hasPhoto: boolean; block: string[]; warn: string[]; gates: string[] }
 
-export function optionCard(t: ResolvedTier, photoIds: Record<string, string>, sets: Array<Pick<TierSet, 'category' | 'tiers'>> | null | undefined, warranties: WarrantySettings): OptionCard | null {
+export function optionCard(t: ResolvedTier, photoIds: Record<string, string>, sets: Array<Pick<TierSet, 'category' | 'tiers'>> | null | undefined, warranties: WarrantySettings, yard?: Pick<QuoteCalcInput, 'gateWidths' | 'walkGates' | 'dblGates'>): OptionCard | null {
   if (!t.option || !t.style) return null
   const o = tierOptions([{ ...t, off: false }], photoIds, sets)[0]
   const w = warrantyForStyle(warranties, t.style)
@@ -327,6 +327,7 @@ export function optionCard(t: ResolvedTier, photoIds: Record<string, string>, se
     hasPhoto: !!(o.photoId || photoIds[t.style.name]),
     block: own ? [...(t.option.problems?.block ?? []), ...(w ? [] : ['No warranty is set for this style in Settings → Warranties.'])] : [],
     warn: own ? t.option.problems?.warn ?? [] : [],
+    gates: yard ? gateWarnings(t.style, yard.gateWidths, yard.walkGates, yard.dblGates) : [],
   }
 }
 

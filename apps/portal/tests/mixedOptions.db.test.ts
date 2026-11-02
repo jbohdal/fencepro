@@ -24,6 +24,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
   const { optionBlocks, priceOption } = await import('../../web/src/proposal')
   const { ownTierFold } = await import('../../web/src/proposalOptions')
   const { pinnedForMain, offeredCount } = await import('../../web/src/tiers')
+  const { overOptionLimit, pricedByServer, quoteChangedSince } = await import('../src/server/lib/quotePriceCheck.js')
+  const { optionSeen } = await import('../src/server/lib/optionSeen.js')
   const { sectionsForRun } = await import('../../web/src/sectionCount')
   const { orderBasisFor } = await import('../src/server/lib/salesOrders.js')
 
@@ -192,8 +194,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
 
   test('a gate width with no parts list of its own is said to staff, on a style picked for the quote', () => {
     const j = job(request(CHAIN, setOf('Chainlink'), { off: [], swap: { good: ALUM } }, { gateWidths: { walk: [5], dbl: [10] } }))
-    expect(cardOf(j, 'good').problems.warn.join(' ')).toMatch(/no parts list for a 5 ft walk gate/)
-    expect(j.tierCards.good.warn.join(' ')).toMatch(/10 ft double gate/)
+    expect(j.tierCards.good.gates.join(' ')).toMatch(/5 ft walk gate/)
+    expect(j.tierCards.good.gates.join(' ')).toMatch(/10 ft double gate/)
   })
 
   test('signedPricing: an option of another style brings its margin; an old option changes nothing but the rounding', () => {
@@ -201,6 +203,97 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(signedPricing(q, { costFactor: 0.6, otherMaterial: true, roundingCents: 12 })).toEqual({ pricing: { costFactor: 0.6, overheadPct: 30, wholeDollar: true, roundingCents: 12 } })
     expect(signedPricing(q, { roundingCents: 12 })).toEqual({ pricing: { ...q.pricing, wholeDollar: true, roundingCents: 12 } })
     expect(signedPricing({ pricing: q.pricing }, {})).toEqual({})
+  })
+
+  test('the minimum job price lifts every option, on the server, and nothing above it moves', () => {
+    const tiny = { runs: [{ ft: 6, rail: 'auto' as const }], corners: 0, ends: 2, walkGates: 0, dblGates: 0, gateWidths: { walk: [], dbl: [] } }
+    const r = request(VINYL, setOf('Vinyl'), { off: [], swap: { good: WOOD } }, tiny)
+    const j = job(r)
+    expect(j.newMin).toBe(true)
+    for (const o of j.proposalOptions) { expect(o.finalPrice).toBe(j.totals.price); expect(o.minimumLifted).toBe(true) }
+    expect(j.tiers.every((t: any) => t.option.finalPrice === j.totals.price)).toBe(true)
+    expect(j.proposalOptions[0].perFoot).toBeCloseTo(j.totals.price / 6, 1)
+    const big = job(request(ALUM, setOf('Aluminum')))
+    for (const o of big.proposalOptions) expect(o.minimumLifted).toBeUndefined()
+  })
+
+  test('Compare options and Add option cannot pass 3; the automatic options stay as they are', async () => {
+    const options = [ALUM, CHAIN, VINYL, WOOD].map((fenceStyle, i) => ({ fenceStyle, label: fenceStyle, finalPrice: 1000 + i, snapshot: { pullSheet: [{ item: fenceStyle, qty: 1 }] } }))
+    const over = await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options } }, null)
+    expect(over).toMatchObject({ kind: 'refuse', code: 'TOO_MANY_OPTIONS' })
+    const auto = options.map((o, i) => (o.fenceStyle === ALUM ? o : { ...o, tier: { key: `t${i}` } }))
+    expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: auto } }, null)).toBeNull()
+    expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: options.slice(0, 3) } }, null)).toBeNull()
+  })
+
+  test('odd gates: a warning on every option with no parts list, not only swapped ones, never a block', () => {
+    const j = job(request(ALUM, setOf('Aluminum'), undefined, { gateWidths: { walk: [4], dbl: [12] } }))
+    expect(j.tierCards.good.gates.join(' ')).toMatch(/12 ft double gate.*two 4 ft leaves/)
+    expect(j.tierCards.good.block).toEqual([])
+    const chain = job(request(CHAIN, setOf('Chainlink'), undefined, { gateWidths: { walk: [5], dbl: [12] } }))
+    expect(chain.tierCards.better.gates).toEqual([])
+  })
+
+  test('each option says what the dollar adjustment did; the signed record says what the option took', () => {
+    const r = request(ALUM, setOf('Aluminum'), { off: [], swap: { good: CHAIN } }, { overrides: { priceAdjustmentCents: -500000 } })
+    const o = cardOf(job(r), 'good')
+    expect(o.adjustmentRefused).toBe(true)
+    expect(o.adjustmentCents).toBeUndefined()
+    expect(o.snapshot.gmPct).toBeGreaterThan(0.2)
+    const out = signedPricing({ fenceStyle: ALUM, pricing: { priceAdjustmentCents: -500000, showDiscountOnProposal: true } }, {}, o)
+    expect(out.pricing.priceAdjustmentCents).toBeUndefined()
+    expect(out.pricing.showDiscountOnProposal).toBeUndefined()
+  })
+
+  test('no Most popular: no Recommended label; a proposal saved before keeps its label', async () => {
+    const r = request(CHAIN, setOf('Chainlink'), { off: [], swap: {}, popular: null })
+    const j = job(r)
+    const p = await proposalOf(j, r)
+    const q: any = { accountId, acceptedAt: null, fenceStyle: CHAIN, finalPrice: j.totals.price, status: 'SENT', customerName: 'x', proposal: p }
+    const html = (x: any) => renderProposal(q, x, 't', 'n', [], null, '', { start: 0 })
+    expect(html({ ...p, noRecommendedLabel: true })).not.toContain('>Recommended<')
+    expect(html(p)).toContain('>Recommended<')
+    expect(html({ ...p, options: [{ ...p.options[0], sections: 1, perFoot: 5 }, p.options[1]] })).toContain('1 section<')
+  })
+
+  test('the option check and the save stamp read an option the same way', () => {
+    const o = { fenceStyle: CHAIN, finalPrice: 7483.1, tier: { key: 'good' } }
+    expect(m.proposalStamp({ options: [o] })).toBe(`${optionSeen(o)}|good`)
+  })
+
+  test('two browsers: a save built on older options is refused; the same save twice passes', async () => {
+    const was = { options: [{ fenceStyle: ALUM, finalPrice: 100 }] }
+    const now = { options: [{ fenceStyle: ALUM, finalPrice: 100 }, { fenceStyle: WOOD, finalPrice: 90, tier: { key: 'added1' } }] }
+    const base = m.proposalStamp(was)
+    expect(await quoteChangedSince({ proposalBase: base }, { proposal: was }, { proposal: now })).toMatchObject({ code: 'QUOTE_CHANGED' })
+    expect(await quoteChangedSince({ proposalBase: base }, { proposal: now }, { proposal: now })).toBeNull()
+    expect(await quoteChangedSince({ proposalBase: m.proposalStamp(now) }, { proposal: was }, { proposal: now })).toBeNull()
+    expect(await quoteChangedSince({}, { proposal: was }, { proposal: now })).toBeNull()
+  })
+
+  test('a Salesman\'s saved prices are the server\'s: $1 on an option or the main price is refused', async () => {
+    const pr = request(ALUM, setOf('Aluminum'), { off: [], swap: { good: CHAIN } })
+    const j = job(pr)
+    const options = j.proposalOptions.map((o: any) => (o.fenceStyle === ALUM ? { ...o, finalPrice: j.totals.price } : { ...o }))
+    const good = { finalPrice: j.totals.price, proposal: { options } }
+    expect(await pricedByServer(accountId, { priceRequest: pr }, good, null)).toBeNull()
+    const cheapOption = { ...good, proposal: { options: options.map((o: any) => (o.fenceStyle === CHAIN ? { ...o, finalPrice: 1 } : o)) } }
+    expect(await pricedByServer(accountId, { priceRequest: pr }, cheapOption, null)).toMatchObject({ kind: 'refuse' })
+    expect(await pricedByServer(accountId, { priceRequest: pr }, { ...good, finalPrice: 1 }, null)).toMatchObject({ kind: 'refuse' })
+    // A price typed in the request is still under cost.
+    const typed = { ...pr, overrides: { finalPrice: 1, priceMethod: 'manual' } }
+    expect(await pricedByServer(accountId, { priceRequest: typed }, { finalPrice: 1 }, null)).toMatchObject({ kind: 'refuse' })
+    // A cost factor made up to shrink the price.
+    const factor = { ...pr, overrides: { costFactor: 50 } }
+    const jf = job(factor)
+    expect(await pricedByServer(accountId, { priceRequest: factor }, { finalPrice: jf.totals.price }, null)).toMatchObject({ kind: 'refuse' })
+    // A tier's Price adjust % sent by the phone is not read.
+    const tierSet = { ...setOf('Aluminum'), tiers: setOf('Aluminum').tiers.map((t: any) => ({ ...t, priceAdjustPct: -90 })) }
+    const j2 = job({ ...pr, tierSet })
+    const o2 = j2.proposalOptions.map((o: any) => (o.fenceStyle === ALUM ? { ...o, finalPrice: j2.totals.price } : { ...o }))
+    expect(await pricedByServer(accountId, { priceRequest: { ...pr, tierSet } }, { finalPrice: j2.totals.price, proposal: { options: o2 } }, null)).toMatchObject({ kind: 'refuse' })
+    // No inputs to check: not taken.
+    expect(await pricedByServer(accountId, {}, good, null)).toMatchObject({ kind: 'refuse' })
   })
 
   describe('signed for the option that is not the quote\'s own', () => {
@@ -240,11 +333,33 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
       expect(html).not.toContain('Standard aluminum post set in concrete')
     })
 
+    test('a page read before the options changed signs nothing, and the page goes to the current options', async () => {
+      const q = (await prisma.savedQuote.findUnique({ where: { id } })) as any
+      const at = q.proposal.options.findIndex((o: any) => o.fenceStyle === CHAIN)
+      const seen = optionSeen(q.proposal.options[at])
+      // A place that now holds another fence, or the same fence at another price.
+      const swapped = { ...q.proposal, options: [...q.proposal.options].reverse() }
+      await prisma.savedQuote.update({ where: { id }, data: { proposal: swapped } })
+      const now = await prisma.savedQuote.findUnique({ where: { id } })
+      const out = await acceptQuote(now, { option: at, seen, name: 'Too Late' } as any)
+      expect(out.status).toBe(409)
+      expect(out.json).toMatchObject({ changed: true, reload: true })
+      // An old page that names nothing signs nothing either.
+      expect((await acceptQuote(now, { option: at, name: 'Old Page' } as any)).status).toBe(409)
+      // A save landing between the read and the signing: the check under the lock reads the row, not the page's copy.
+      const out2 = await acceptQuote(q, { option: at, seen, name: 'Too Late' } as any)
+      expect(out2.status).toBe(409)
+      const after = await prisma.savedQuote.findUnique({ where: { id } })
+      expect(after!.acceptedAt).toBeNull()
+      expect(after!.fenceStyle).toBe(ALUM)
+      await prisma.savedQuote.update({ where: { id }, data: { proposal: q.proposal } })
+    })
+
     test('quote, costs, pull sheet, job, deposit, Sales Order, warranty and contract are the signed option', async () => {
       const q = await prisma.savedQuote.findUnique({ where: { id } })
       const at = (q!.proposal as any).options.findIndex((o: any) => o.fenceStyle === CHAIN)
       // A forged price or style in the body is not read: only the option's place.
-      const out = await acceptQuote(q, { option: at, name: 'Test Customer', finalPrice: 1, fenceStyle: ALUM } as any)
+      const out = await acceptQuote(q, { option: at, seen: optionSeen((q!.proposal as any).options[at]), name: 'Test Customer', finalPrice: 1, fenceStyle: ALUM } as any)
       expect(out.status).toBe(200)
       const s = (await prisma.savedQuote.findUnique({ where: { id } })) as any
       expect(s.fenceStyle).toBe(CHAIN)

@@ -70,6 +70,8 @@ export interface QuoteCalcInput {
    * absent with a typed run list or typed post counts. calculateQuote does not read it.
    */
   tees?: number
+  /** The minimum job price for a new fence, in cents, when Settings apply it to new fences: every option is lifted to it (proposal.ts priceOption). calculateQuote does not read it. */
+  minimumCents?: number
   walkGates: number
   dblGates: number
   /** Each gate's width in feet, from the drawing (yardLayout.ts gateWidthsOf): chain link gate leaves go by width. */
