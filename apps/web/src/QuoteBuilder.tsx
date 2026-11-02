@@ -57,7 +57,7 @@ import { isQuotable } from './styleAvailability'
 import { isHeldSavedQuote, heldQuoteSave, heldSavedNumbers, heldNote, heldNotSaved, heldBarReason } from './heldQuote'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
-  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText, repairChangeWords, moveChangeWords,
+  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText, repairChangeWords, moveChangeWords, moveGateFlags,
   REPAIR_ITEMS, chargedRepairItems, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
@@ -658,7 +658,9 @@ export default function QuoteBuilder({
   // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
   const [jobType, setJobType] = useState<JobType>(init?.work?.type ?? 'new')
   // The old posts' method stays blank (it follows the style) until picked by hand; a saved quote opens with the one it saved.
-  const [move, setMove] = useState<MoveDraft>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
+  // An old "Replace gate" list reads with the walk gates it was saved with: as signed, whatever the change orders did since.
+  const moveOpened = useMemo(() => (init?.work?.move ? moveGateFlags(init.work.move, signedQuoteOf(init).walkGates) : null), [init])
+  const [move, setMove] = useState<MoveDraft>(() => moveOpened ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
   const [repair, setRepair] = useState<RepairDraft>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
   const [offerNewFence, setOfferNewFence] = useState<boolean>(!!init?.work?.newFence?.offered)
   const [offerMoveAsIs, setOfferMoveAsIs] = useState<boolean>(true)
@@ -1393,7 +1395,7 @@ export default function QuoteBuilder({
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       now: changeNow, priceNow, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
-      workWords: jobType === 'repair' ? repairChangeWords(init.work?.repair, repairIn) : jobType === 'move' ? moveChangeWords(init.work?.move, moveIn) : [],
+      workWords: jobType === 'repair' ? repairChangeWords(init.work?.repair, repairIn) : jobType === 'move' ? moveChangeWords(moveOpened, moveIn) : [],
       earlier: { orders: getOrdersForQuote(init.id) as never, states: foldedStates(init), sold: signedQuoteOf(init) },
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).

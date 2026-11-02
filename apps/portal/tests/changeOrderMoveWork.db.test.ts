@@ -302,11 +302,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
     await approve(await make(quoteId, { lines: lines(80000), work: move(140) }))
     expect((await sheet(contactId, jobId)).revision).toBe(3)
     await voidIt(quoteId, co1.id)
-    expect((await sheet(contactId, jobId)).revision).toBe(4)
+    const afterVoid = await sheet(contactId, jobId)
+    expect(afterVoid.revision).toBe(4)
+    expect(afterVoid.changeNote).toMatch(/This is pull sheet rev 4, from CO-1 voided/)
     await approve(await make(quoteId, { lines: lines(10000), work: move(125) }))
     const s = await sheet(contactId, jobId)
     expect(s.revision).toBe(5)
-    expect(s.revisions.map((r: any) => r.title.replace(/^Rev \d+: /, ''))).toEqual(['change order CO-3', 'CO-1 voided', 'change order CO-2', 'as signed'])
+    // Every number there: a crew holding printed rev 2 finds it, marked voided since.
+    expect(s.revisions.map((r: any) => r.rev)).toEqual([5, 4, 3, 2, 1])
+    expect(s.revisions.map((r: any) => r.title.replace(/^Rev \d+: /, ''))).toEqual(['change order CO-3', 'CO-1 voided', 'change order CO-2', 'change order CO-1', 'as signed'])
+    expect(s.revisions.find((r: any) => r.rev === 2).source).toMatch(/voided since/)
+    expect(s.changeNote).toMatch(/This is pull sheet rev 5, from change order CO-3/)
     const items = (await call('GET', `/api/change-orders/timeline?jobId=${jobId}`)).json.data.items.map((x: any) => x.title)
     expect(items).toEqual(expect.arrayContaining(['Pull sheet rev 4 for the crew (CO-1 voided)', 'Pull sheet rev 5 for the crew (change order CO-3)']))
   })
@@ -361,6 +367,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
     expect(page).toMatch(/data-packet-typed/)
     expect(page).toMatch(/Extra concrete footing/)
     expect(page).not.toMatch(/\$100/)
+  })
+
+  test('an old "Replace gate" list on a signed move reads as it was signed, and stays with the double through a walk gate added', async () => {
+    const old = { ...MOVE, oldWalkGates: 1, oldDblGates: 1, replaceGates: [false, true] }
+    const { quoteId } = await signed({ type: 'move', move: old })
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { walkGates: 1, dblGates: 1 } })
+    const was = (await start(quoteId)).move
+    expect(was).toMatchObject({ replaceWalk: [false], replaceDbl: [true] })
+    expect(was.replaceGates).toBeUndefined()
+    await approve(await make(quoteId, { lines: lines(90000), work: { request: { ...request(100, 2, 'move', { move: was }), dblGates: 1 }, layout: { yard: null } } }))
+    expect((await start(quoteId)).move.replaceDbl).toEqual([true])
   })
 
   test('a move or repair change order with no inputs is refused', async () => {

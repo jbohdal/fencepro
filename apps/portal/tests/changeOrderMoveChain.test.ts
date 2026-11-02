@@ -84,6 +84,10 @@ describe('how a change is said', () => {
     expect(moveChangeWords(m, { ...m, oldFt: 110 })).toEqual(['Old fence to move: 100 ft to 110 ft'])
     expect(moveChangeWords(m, { ...m, oldWalkGates: 1 })).toEqual(['Old walk gates: 0 to 1'])
     expect(moveChangeWords(m, { ...m, damagePct: 20 })).toEqual(['Damage allowance: standard to 20%'])
+    expect(moveChangeWords(m, { ...m, oldSections: 15 })).toEqual(['Old sections: 15'])
+    expect(moveChangeWords({ ...m, oldPosts: 30 }, m)).toEqual(['Old posts: back to the count from the old line'])
+    expect(moveChangeWords({ ...m, oldSections: 12 }, { ...m, oldSections: 15 })).toEqual(['Old sections: 12 to 15'])
+    expect(moveChangeWords(m, { ...m, replaceDbl: [true] })).toEqual(['Replace 1 double gate'])
   })
 
   test('a void\'s gap is its own line until the next change order after it, the total as it was', () => {

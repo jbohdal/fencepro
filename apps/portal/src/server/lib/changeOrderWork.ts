@@ -29,6 +29,7 @@
  */
 
 import prisma from './prisma.js'
+import { moveGateFlags } from './workWords.js'
 import { pricingModule } from './estimates.js'
 import { dataFor, requestFrom } from './quotePricing.js'
 import { shapeOf, sameShape, applyChange, clashes, sidesOf, singleTouches, ownChangeWords, ownGateChanges, type WorkShape, type ChangeStep, type DeriveRuns } from './changeOrderMerge.js'
@@ -99,7 +100,8 @@ export interface WorkDetail { crew: string[]; description: string; needs811: boo
 export function inputs(x: Json): WorkInputs {
   const r = isObj(x?.request) ? x.request : isObj(x?.work) ? x.work : null
   const kind = r?.jobType ?? r?.type
-  if (kind === 'move' && isObj(r.move)) return { move: r.move }
+  // An old "Replace gate" list, read with the walk gates it was saved with (workWords.ts moveGateFlags).
+  if (kind === 'move' && isObj(r.move)) return { move: moveGateFlags(r.move, num(isObj(x?.request) ? r.walkGates : x?.walkGates)) }
   if (kind === 'repair' && isObj(r.repair)) return { repair: r.repair }
   return null
 }
@@ -118,7 +120,7 @@ function sameData(a: unknown, b: unknown): boolean {
 const COUNT_INPUTS = new Set(['oldFt', 'oldSections', 'oldPosts', 'oldWalkGates', 'oldDblGates'])
 /** Where to draw or what started the list: they change no price and never clash. */
 const NOT_THE_WORK = new Set(['oldLinePlan', 'tapped', 'what'])
-const INPUT_WORDS: Record<string, string> = { oldPostType: 'the old post type', postType: 'the post type', newPostCaps: 'new post caps', damagePct: 'the damage allowance', replaceGates: 'the gates to replace', gateKind: 'the gate type', repairParts: 'the parts for a section repair', debrisCleared: 'the debris', items: 'the repair list' }
+const INPUT_WORDS: Record<string, string> = { oldPostType: 'the old post type', postType: 'the post type', newPostCaps: 'new post caps', damagePct: 'the damage allowance', replaceWalk: 'the walk gates to replace', replaceDbl: 'the double gates to replace', gateKind: 'the gate type', repairParts: 'the parts for a section repair', debrisCleared: 'the debris', items: 'the repair list' }
 
 /** The single values a change order's inputs set (counts add up, so never these). */
 function inputTouches(base: WorkInputs, mine: WorkInputs): string[] {
@@ -576,13 +578,14 @@ export type RevRow = { id: string; number: number; status: string; approvedAt: D
 /**
  * Each thing that changed the crew's sheet, in the order it happened, with its
  * revision: a signed change order with work (its contract revision when it can
- * be), and one voided since. Always up, one number each, so the job history and
- * the pull sheet read the same and a void is never skipped or jumped.
+ * be), voided since or not, and each void. Always up, one number each and none
+ * dropped: a crew holding printed rev 2 finds rev 2, the job history and the pull
+ * sheet read the same.
  */
 export function sheetEvents<T extends RevRow>(rows: T[]): Array<{ row: T; voided: boolean; at: Date; rev: number }> {
   const on = rows.filter(r => r.approvedAt && isObj(r.work))
   const list = [
-    ...on.filter(r => r.status === 'approved').map(r => ({ row: r, voided: false, at: r.approvedAt! })),
+    ...on.filter(r => r.status === 'approved' || r.status === 'void').map(r => ({ row: r, voided: false, at: r.approvedAt! })),
     ...on.filter(r => r.status === 'void' && r.voidedAt).map(r => ({ row: r, voided: true, at: r.voidedAt! })),
   ].sort((a, b) => a.at.getTime() - b.at.getTime() || a.row.number - b.row.number)
   let rev = 1
