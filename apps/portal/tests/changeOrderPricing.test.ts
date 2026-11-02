@@ -489,13 +489,38 @@ describe('back to a state the job was already in: the contract is what it was th
     test('credited more than it was charged, on a state the job was never in: both figures, and nothing false', () => {
       const s = listed(CL)
       const typed = chain(s.bare, [s.gate, { input: input(CL, [120], { walkGates: 1 }) }, s.longer], { edit: (d, n) => (n === 1 ? { ...d, lines: d.lines.map(l => ({ ...l, amountCents: 30000 })) } : d) })
-      expect(typed.drafts[2].warnings?.[0]).toMatch(/^CO-1 charged \$300 for this gate\. This change order credits \$[\d,]+, the price today on the fence as it is now\. Change the amount if it should be less\.$/)
+      expect(typed.drafts[2].warnings?.[0]).toMatch(/^CO-1 charged \$300 for this gate, and the same change is \$[\d,]+ at today's prices\. This change order credits \$[\d,]+\. Change the amount if it should be less\.$/)
       const fair = chain(s.bare, [s.gate, { input: input(CL, [120], { walkGates: 1 }) }, s.longer])
       expect(fair.drafts[2].warnings).toBeUndefined()
     })
     test('the gate box warning on two runs names the run', () => {
       const bare = { input: input(CL, [100, 50], { corners: 1 }) }, gate = { input: input(CL, [96, 50], { corners: 1, walkGates: 1 }) }, left = { input: input(CL, [96, 50], { corners: 1 }) }
       expect(chain(bare, [gate, left]).drafts[1].warnings?.[0]).toMatch(/If that fence goes back in, type 100 ft in Run 1 and make the change order again\.$/)
+    })
+    test('the gate box warning gives the run as it is now plus the gate\'s opening, never the sold length', () => {
+      const one = (ft: number, walkGates = 0) => ({ input: input(CL, [ft], { walkGates }) })
+      expect(chain(one(100), [one(96, 1), one(116, 1), one(116)]).drafts[2].warnings?.[0]).toMatch(/type 120 ft on the run list/)
+      const two = (a: number, walkGates = 0) => ({ input: input(CL, [a, 50], { corners: 1, walkGates }) })
+      expect(chain(two(60), [two(56, 1), two(66, 1), two(66)]).drafts[2].warnings?.[0]).toMatch(/type 70 ft in Run 1/)
+    })
+    test.each([[VINYL], [CL]])('no word about the charge on a longer fence, where the higher credit is right (%s)', name => {
+      const no = yard(100), gate = yard(100, true), long = yard(120, true), plain = yard(120)
+      const w = (y: YardLayout) => drawnWork(name, y)
+      const d = chain(w(no), [w(gate), w(long), w(plain)]).drafts[2]
+      expect(d.warnings).toBeUndefined()
+    })
+    test('walk swapped for a double, more fence, the double out: nothing false about whose charge, and by kind', () => {
+      const s = listed(CL), dbl20 = { input: input(CL, [120], { dblGates: 1 }) }
+      const plainRun = chain(s.bare, [s.gate, s.dbl, dbl20, s.longer])
+      expect(plainRun.drafts[3].warnings).toBeUndefined()
+      expect(plainRun.contracts[4]).toBe(chain(s.bare, [s.longer]).contracts[1])
+      const typed = chain(s.bare, [s.gate, s.dbl, dbl20, s.longer], { edit: (d, n) => (n === 2 ? { ...d, lines: d.lines.map(l => (/double/.test(l.description) ? { ...l, amountCents: l.amountCents - 20000 } : l)) } : d) })
+      expect(typed.drafts[3].warnings?.[0]).toMatch(/^CO-1 and CO-2 charged \$/)
+    })
+    test('a cost change since: the same warning, and only for what it is', () => {
+      const s = listed(CL), dear = (w: Work): Work => ({ input: { ...w.input, pricing: { ...pricing, subWalkGate: 90 } } })
+      const d = chain(s.bare, [s.gate, dear({ input: input(CL, [120], { walkGates: 1 }) }), dear(s.longer)]).drafts[2]
+      expect(d.warnings?.[0]).toMatch(/^CO-1 charged \$\d+ for this gate, and the same change is \$\d+ at today's prices\./)
     })
     test('a gate going as the fence grows: the feet a customer can check, the gate\'s said apart', () => {
       const d = drawnWork(CL, yard(40, true)), longer = drawnWork(CL, yard(50))

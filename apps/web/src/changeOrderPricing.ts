@@ -327,15 +327,30 @@ export function fabricFeet(steps: JobStep[], sold: WorkState, styles: QuoteStyle
   return from
 }
 
-/** The posts a gate over the sold count was priced with beyond the work's own, and what its change order charged (null: that one changed more than gates). */
-export interface GateOnJob { ends: number; linePosts: number; number: number; cents: number | null; side?: string; whole?: boolean }
+/**
+ * A gate over the sold count: the posts it was priced with beyond the work's
+ * own, the change orders that charged for it, what they charged (null: one
+ * changed more than gates) and what the same change comes to at today's prices,
+ * so a price typed by hand or a cost change since can be told from a longer fence.
+ */
+export interface GateOnJob { kind: 'walk' | 'double'; ends: number; linePosts: number; numbers: number[]; cents: number | null; todayCents: number; side?: string; whole?: boolean }
 
-/** Which of the gates on the job go when n come off: on a drawing the sides that lost theirs, else the newest. */
-export function gatesGoing(on: GateOnJob[], n: number, yardNow?: YardLayout | null): GateOnJob[] {
-  if (n <= 0) return []
+/** Which gates go, by kind: on a drawing the sides that lost theirs, else the newest. */
+export function gatesGoing(on: GateOnJob[], out: { walk: number; dbl: number }, yardNow?: YardLayout | null): GateOnJob[] {
   const gated = new Set((yardNow?.sides ?? []).filter(s => s.on && s.gate).map(s => s.id))
-  const bySide = yardNow ? on.filter(g => g.side && !gated.has(g.side)) : []
-  return [...bySide, ...on.filter(g => !bySide.includes(g)).reverse()].slice(0, n)
+  const take = (kind: GateOnJob['kind'], n: number) => {
+    const all = on.filter(g => g.kind === kind)
+    const bySide = yardNow ? all.filter(g => g.side && !gated.has(g.side)) : []
+    return [...bySide, ...all.filter(g => !bySide.includes(g)).reverse()].slice(0, Math.max(0, n))
+  }
+  return [...take('walk', out.walk), ...take('double', out.dbl)]
+}
+
+/** What a change does to the gates by kind: a gate out and one of the other kind in is a swap, the same gate on the job. */
+export function gateChange(was: Pick<WorkState, 'walkGates' | 'dblGates'>, now: Pick<WorkState, 'walkGates' | 'dblGates'>) {
+  const walk = now.walkGates - was.walkGates, dbl = now.dblGates - was.dblGates
+  const toDbl = Math.min(Math.max(0, -walk), Math.max(0, dbl)), toWalk = Math.min(Math.max(0, walk), Math.max(0, -dbl))
+  return { toDbl, toWalk, out: { walk: Math.max(0, -walk) - toDbl, dbl: Math.max(0, -dbl) - toWalk }, added: Math.max(0, walk) - toWalk + Math.max(0, dbl) - toDbl }
 }
 
 /** The gates over the sold count still on the job, oldest first. */
@@ -343,30 +358,46 @@ export function gatesOnJob(steps: JobStep[], sold: WorkState, like: QuoteCalcInp
   let on: GateOnJob[] = []
   let prev = sold
   for (const { order, state } of steps) {
-    const was = prev.walkGates + prev.dblGates, now = state.walkGates + state.dblGates, yard = yardOf(state), yardBefore = yardOf(prev)
-    const going = gatesGoing(on, was - now, yard)
+    const c = gateChange(prev, state), yard = yardOf(state), yardBefore = yardOf(prev)
+    const going = gatesGoing(on, c.out, yard)
     on = on.filter(g => !going.includes(g))
     const style = styles.find(s => s.name === state.fenceStyle)
-    if (now > was) {
-      const s = order.scope ?? {}
-      const cents = !s.toStyle && !((s.footageFt ?? 0) > 0) ? changeCents(order) / (now - was) : null
-      const nearIn = (style?.panelWidth ?? 6) * 12, teeAs = style ? teePostFor(style) : ('line' as TeePost)
-      const baseFor = (y: YardLayout | null) => changeBaseOf({ ...prev, layout: { yard: yardBefore } }, y ? { yard: y, nearIn, teeAs } : null)
-      const inputOf = (w: Pick<QuoteCalcInput, 'runs' | 'corners' | 'ends' | 'walkGates' | 'dblGates' | 'gateWidths'>) => ({ ...like, style, ...w })
+    const nearIn = (style?.panelWidth ?? 6) * 12, teeAs = style ? teePostFor(style) : ('line' as TeePost)
+    const baseFor = (y: YardLayout | null) => changeBaseOf({ ...prev, layout: { yard: yardBefore } }, y ? { yard: y, nearIn, teeAs } : null, styles.find(s => s.name === prev.fenceStyle))
+    const inputOf = (w: Pick<QuoteCalcInput, 'runs' | 'corners' | 'ends' | 'walkGates' | 'dblGates' | 'gateWidths'>, st = style) => ({ ...like, style: st, ...w })
+    const stateInput = (w: WorkState, st = style) => inputOf({ runs: w.runs.map(ft => ({ ft, rail: 'auto' as const })), corners: w.corners, ends: w.ends, walkGates: w.walkGates, dblGates: w.dblGates, gateWidths: widthsOf(w) }, st)
+    const changed = c.added + c.toDbl + c.toWalk
+    if (changed) {
+      const s = order.scope ?? {}, picked = order.lines?.some(l => l.source?.ref.startsWith('add:'))
+      const own = changeCents(order)
+      const cents = !s.toStyle && !((s.footageFt ?? 0) > 0) ? own / changed : null
+      const whole = (i: QuoteCalcInput) => { const { finalPrice, ...o } = i.overrides ?? {}; void finalPrice; return Math.round(calculateQuote({ ...i, overrides: { ...o, wholeDollar: true } }).priced.price * 100) }
+      // Today's price of that same change: a picked gate has its own price list.
+      const todayCents = cents === null || picked || !style ? (cents ?? 0) : (whole(changeOrderInput(stateInput(state), baseFor(yard))) - whole(changeOrderInput(stateInput(prev), baseFor(null)))) / changed
+      // A swap: the same gate on the job, its posts kept, the change's price on top of what it charged.
+      const swap = (from: GateOnJob['kind'], kind: GateOnJob['kind'], n: number) => {
+        for (const g of [...gatesGoing(on, from === 'walk' ? { walk: n, dbl: 0 } : { walk: 0, dbl: n })]) {
+          on = on.map(x => (x === g ? { ...x, kind, numbers: [...x.numbers, order.number], cents: x.cents === null || cents === null ? null : x.cents + cents, todayCents: x.todayCents + todayCents, whole: false } : x))
+        }
+      }
+      swap('walk', 'double', c.toDbl)
+      swap('double', 'walk', c.toWalk)
       const had = new Set((yardBefore?.sides ?? []).filter(x => x.on && x.gate).map(x => x.id))
-      const added = yard && yardBefore ? yard.sides.filter(x => x.on && x.gate && !had.has(x.id)).map(x => x.id) : []
-      if (style && added.length === now - was) {
+      const added = yard && yardBefore ? yard.sides.filter(x => x.on && x.gate && !had.has(x.id)) : []
+      const entry = { numbers: [order.number], cents, todayCents, whole: changed === 1 }
+      if (style && c.added && added.length === c.added) {
         // Each gate by its own side: the line posts one drops are not the other's.
         for (const side of added) {
-          const one = { ...yard!, sides: yard!.sides.map(x => (x.gate && !had.has(x.id) && x.id !== side ? { ...x, gate: null } : x)) }
+          const one = { ...yard!, sides: yard!.sides.map(x => (x.gate && !had.has(x.id) && x.id !== side.id ? { ...x, gate: null } : x)) }
           const d = deriveLayout(one, nearIn, { teeAs })
           const p = gatePostsOf(inputOf({ runs: d.runs.map(r => ({ ft: r.ft, rail: 'auto' as const })), corners: d.corners, ends: d.ends, walkGates: d.walkGates, dblGates: d.dblGates, gateWidths: d.gateWidthsFt }), baseFor(one))
-          on.push({ ...p, number: order.number, cents, side, whole: now - was === 1 })
+          on.push({ ...p, ...entry, kind: side.gate!.type === 'double' ? 'double' : 'walk', side: side.id })
         }
-      } else {
-        const p = style ? gatePostsOf(inputOf({ runs: state.runs.map(ft => ({ ft, rail: 'auto' as const })), corners: state.corners, ends: state.ends, walkGates: state.walkGates, dblGates: state.dblGates, gateWidths: widthsOf(state) }), baseFor(yard)) : { ends: 0, linePosts: 0 }
-        const share = (n: number, i: number, of: number) => Math.floor(n / of) + (i < n % of ? 1 : 0)
-        for (let i = 0; i < now - was; i++) on.push({ ends: share(p.ends, i, now - was), linePosts: share(p.linePosts, i, now - was), number: order.number, cents, whole: now - was === 1 })
+      } else if (c.added) {
+        const p = style ? gatePostsOf(stateInput(state), baseFor(yard)) : { ends: 0, linePosts: 0 }
+        const share = (n: number, i: number) => Math.floor(n / c.added) + (i < n % c.added ? 1 : 0)
+        const walks = Math.max(0, state.walkGates - prev.walkGates) - c.toWalk
+        for (let i = 0; i < c.added; i++) on.push({ ends: share(p.ends, i), linePosts: share(p.linePosts, i), ...entry, kind: i < walks ? 'walk' : 'double' })
       }
     }
     prev = state
