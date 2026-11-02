@@ -149,7 +149,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     // The tap read the quote (q); then the move took the commission off.
     const fields = withoutCommission(q as any) as any
     await prisma.savedQuote.update({ where: { id: q.id }, data: { salesRep: 'Olive', ...fields, pricing: { costFactor: 0.56, commissionMovedOff: true } } })
-    const r = await acceptQuote(q, { option: 0, name: 'Pat Race', signature: SIG })
+    const r = await acceptQuote(q, { option: 0, seen: await seenAt(q.shareToken!, 0), name: 'Pat Race', signature: SIG })
     expect(r.status).toBe(200)
     const now = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))! as any
     expect(now).toMatchObject({ status: 'SOLD', salesRep: 'Olive', hasSalesman: false, finalPrice: 6500 })
