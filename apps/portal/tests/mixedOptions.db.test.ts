@@ -320,6 +320,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
       for (const t of ['paymentSchedule', 'jobQuotedCost', 'signedDocument']) await (prisma as any)[t].deleteMany({ where: { quoteId: id } }).catch((e: Error) => console.error(t, e.message))
       await prisma.savedJob.deleteMany({ where: { id: { in: ids } } }).catch(() => {})
       await prisma.savedQuote.delete({ where: { id } }).catch(() => {})
+      // Its Sales Order lives on the business record.
+      for (const row of await prisma.businessState.findMany({ where: { accountId }, select: { id: true, pendingOrders: true } })) {
+        const list = (Array.isArray(row.pendingOrders) ? row.pendingOrders : []) as any[]
+        const keep = list.filter(o => o?.quoteId !== id)
+        if (keep.length !== list.length) await prisma.businessState.update({ where: { id: row.id }, data: { pendingOrders: keep as any, version: { increment: 1 } } })
+      }
+      await prisma.crmContact.deleteMany({ where: { firstName: { startsWith: 'Mixed' }, lastName: tag } }).catch(() => {})
     })
 
     test('the customer page shows each option and picks nothing but what was saved', async () => {
