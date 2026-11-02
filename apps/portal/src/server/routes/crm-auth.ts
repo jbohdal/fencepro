@@ -27,6 +27,7 @@ import { verifyStaffBearer } from '../lib/secrets.js'
 import { normalizeDirectPhone } from '../lib/appointmentRep.js'
 import { isOwnerLogin } from '../lib/salesmanChoice.js'
 import { changeLoginEmail, EMAIL_IN_USE, OWNER_ONLY } from '../lib/loginEmailChange.js'
+import { tryPassword } from '../lib/passwordTries.js'
 
 const router = Router()
 
@@ -818,18 +819,21 @@ router.post('/change-password', async (req, res) => {
       newPassword: z.string().min(8, 'New password must be at least 8 characters').max(200),
     }).parse(req.body)
 
+    // First, before the password is looked at: this answer must not tell a right guess from a wrong one.
+    if (newPassword === currentPassword) {
+      res.status(400).json({ success: false, error: 'New password must be different from the current one' })
+      return
+    }
     const user = await prisma.crmUser.findUnique({ where: { id: payload.sub } })
     if (!user || !user.passwordHash || user.status === 'deactivated') {
       res.status(401).json({ success: false, error: 'Account not found' })
       return
     }
-    const valid = await bcrypt.compare(currentPassword, user.passwordHash)
-    if (!valid) {
+    // Limited and audited with every other check of a signed in person's password (lib/passwordTries.ts).
+    const tried = await tryPassword(req, user, currentPassword, 'change_password')
+    if (!tried.ok) {
+      if (tried.status === 429) { res.status(429).json({ success: false, code: tried.code, error: tried.error }); return }
       res.status(400).json({ success: false, error: 'Current password is incorrect' })
-      return
-    }
-    if (newPassword === currentPassword) {
-      res.status(400).json({ success: false, error: 'New password must be different from the current one' })
       return
     }
 
