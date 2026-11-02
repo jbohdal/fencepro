@@ -28,7 +28,7 @@
  * whole dollar), so the cents never go on the customer.
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
-import { backToState, changeBaseOf, changeOrderInput, fabricFeet, gateOpeningFt, gatesGoing, gatesOnJob, jobSteps, type ChangeBase, type ChangeNow, type GateOnJob, type JobHistory, type JobStep, type WorkState } from './changeOrderPricing'
+import { backToState, changeBaseOf, changeOrderInput, fabricFeet, gateChange, gateOpeningFt, gatesGoing, gatesOnJob, jobSteps, type ChangeBase, type ChangeNow, type GateOnJob, type JobHistory, type JobStep, type WorkState } from './changeOrderPricing'
 import { wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
@@ -206,7 +206,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const soldState = sold as unknown as WorkState
   const gatesWas = s.walkGates + s.dblGates, netOut = Math.max(0, walkOut + dblOut - walkIn - dblIn)
   const on: GateOnJob[] = cur.style && (netOut || styleNow !== s.fenceStyle) ? gatesOnJob(steps, soldState, cur, d.styles as never) : []
-  const going = gatesGoing(on, netOut, d.now?.yard)
+  const going = gatesGoing(on, gateChange(s, cur).out, d.now?.yard)
   const postsAt = (gates: number) => on.filter(g => gates >= gatesWas || !going.includes(g)).reduce((t, g) => ({ ends: t.ends + g.ends, linePosts: t.linePosts + g.linePosts }), { ends: 0, linePosts: 0 })
   let at: QuoteCalcInput = {
     ...cur, ...(on.length ? { gateWidths: widthsWas ?? null, extraLinePosts: (s.layout as { teeLinePosts?: number } | undefined)?.teeLinePosts } : {}),
@@ -258,8 +258,8 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
  * on a line, never to the customer): a gate taken out that is still on another
  * change order waiting to be signed; a run list whose gate box was changed
  * with the gate's opening left out of the fence; a gate credited more than it
- * was charged, on a state the job was never in (the fence is longer, or the
- * price changed, or it was typed by hand: both figures, never a reason).
+ * was charged, on a state the job was never in, when that charge was typed by
+ * hand or a cost has changed since. Never on a longer fence: that credit is right.
  */
 function warningsOf(steps: JobStep[], s: SavedQuote, d: DraftInput, c: { back: number | null; walkOut: number; dblOut: number; feetNow: number; feetWas: number; openingOut: number; gateCents: number; going: GateOnJob[] }): string[] {
   const out: string[] = []
@@ -270,19 +270,21 @@ function warningsOf(steps: JobStep[], s: SavedQuote, d: DraftInput, c: { back: n
     const names = open.map(o => `CO-${o.number}`).join(' and ')
     out.push(`${names} ${open.length === 1 ? 'is' : 'are'} not signed yet. This credit only stands if ${names} ${open.length === 1 ? 'is' : 'are'} signed. If the customer no longer wants the gate, void ${names} instead of making this change order.`)
   }
-  const made = steps.findIndex(x => adds(x) && (x.order.scope?.footageFt ?? 0) < 0)
+  const made = steps.findLastIndex(x => adds(x) && (x.order.scope?.footageFt ?? 0) < 0)
   if (c.back === null && !d.now && Math.abs(c.feetNow - c.feetWas) < 0.01 && c.openingOut > 0 && made >= 0) {
-    // The run the gate took its feet from, when the list says: the whole fence is no number to type in one box.
-    const before = made ? steps[made - 1].state.runs : (d.earlier?.sold ?? s).runs
-    const moved = before.length === s.runs.length ? before.flatMap((f, i) => (f !== s.runs[i] ? [i] : [])) : []
+    // The run the gate took its feet from, as it is now with them back: the whole fence is no number to type in one box.
+    const before = made ? steps[made - 1].state.runs : (d.earlier?.sold ?? s).runs, after = steps[made].state.runs
+    const moved = before.length === after.length && after.length === s.runs.length ? after.flatMap((f, i) => (f !== before[i] ? [i] : [])) : []
+    const whole = moved.length === 1 ? Math.round((s.runs[moved[0]] + c.openingOut) * 100) / 100 : 0
     const fix = moved.length !== 1 ? `add the ${c.openingOut} ft back to the run the gate is on`
-      : s.runs.length > 1 ? `type ${before[moved[0]]} ft in Run ${moved[0] + 1}` : `type ${before[moved[0]]} ft on the run list`
+      : s.runs.length > 1 ? `type ${whole} ft in Run ${moved[0] + 1}` : `type ${whole} ft on the run list`
     out.push(`The gate took ${c.openingOut} ft out of the fence, and this leaves the fence at ${c.feetNow} ft with a ${c.openingOut} ft gap. If that fence goes back in, ${fix} and make the change order again.`)
   } else if (c.back === null && c.going.length && c.going.every(g => g.cents !== null)) {
-    const charged = c.going.reduce((t, g) => t + g.cents!, 0)
-    if (-c.gateCents > charged + 100) {
-      const names = [...new Set(c.going.map(g => `CO-${g.number}`))].join(' and ')
-      out.push(`${names} charged ${dollars(charged)} for ${c.going.length === 1 ? 'this gate' : 'these gates'}. This change order credits ${dollars(c.gateCents)}, the price today on the fence as it is now. Change the amount if it should be less.`)
+    // Only for a price typed by hand or a cost change since: on a longer fence the higher credit is right.
+    const charged = c.going.reduce((t, g) => t + g.cents!, 0), today = c.going.reduce((t, g) => t + g.todayCents, 0)
+    if (-c.gateCents > charged + 100 && Math.abs(charged - today) > 100) {
+      const names = [...new Set(c.going.flatMap(g => g.numbers))].map(n => `CO-${n}`).join(' and ')
+      out.push(`${names} charged ${dollars(charged)} for ${c.going.length === 1 ? 'this gate' : 'these gates'}, and the same change is ${dollars(today)} at today's prices. This change order credits ${dollars(c.gateCents)}. Change the amount if it should be less.`)
     }
   }
   return out

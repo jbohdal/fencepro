@@ -530,7 +530,8 @@ function PickSheet({ quoteId, onPick, onClose }: { quoteId: string; onPick: (ite
   )
 }
 /** A line in whole dollars (Oct 21 2026): rounded down, a credit to the larger whole dollar, so the cents never go on the customer. */
-const centsOf = (l: EditLine) => { const n = Math.round((parseFloat(l.amount) || 0) * 100); return wholeDollarCents(l.credit ? -Math.abs(n) : Math.abs(n)).cents }
+// A negative amount is a credit, whatever the Add or Credit box says: never a charge to the customer.
+const centsOf = (l: EditLine) => { const n = Math.round((parseFloat(l.amount) || 0) * 100); return wholeDollarCents(l.credit || n < 0 ? -Math.abs(n) : n).cents }
 const hasCents = (l: EditLine) => Math.round((parseFloat(l.amount) || 0) * 100) % 100 !== 0
 
 export function QuickChangeOrderModal({
@@ -669,7 +670,7 @@ export function QuickChangeOrderModal({
                     <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden flex-1 focus-within:ring-2 focus-within:ring-orange-400">
                       <span className="px-2 text-gray-500 bg-gray-50 border-r border-gray-300 py-2 text-sm">$</span>
                       <input type="number" inputMode="numeric" min={0} step="1" className="w-full px-2 py-2 text-sm text-right outline-none" placeholder="0"
-                        value={item.amount} onChange={e => update(item.id, { amount: e.target.value })} data-co-line-amount />
+                        value={item.amount} onChange={e => { const typed = e.target.value; update(item.id, /^\s*-/.test(typed) ? { amount: typed.replace(/^\s*-\s*/, ''), credit: true } : { amount: typed }) }} data-co-line-amount />
                     </div>
                     {items.length > 1 && (
                       <button onClick={() => setItems(p => p.filter(i => i.id !== item.id))} aria-label="Remove line" className="min-w-[44px] min-h-[44px] inline-grid place-items-center text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
