@@ -40,7 +40,8 @@ import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel } from './proposal'
-import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, type TierPrefs, type TierKey } from './tiers'
+import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
+import { warrantySettingsOf } from './warranties'
 import { proposalSent, ownTierToStamp } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
@@ -638,6 +639,9 @@ export default function QuoteBuilder({
   const [tierPrefs, setTierPrefs] = useState<TierPrefs>(() => ({
     off: (init?.proposal?.tierPrefs?.off ?? []) as TierKey[],
     swap: (init?.proposal?.tierPrefs?.swap ?? {}) as TierPrefs['swap'],
+    ...(init?.proposal?.tierPrefs?.added?.length ? { added: init.proposal.tierPrefs.added } : {}),
+    ...(init?.proposal?.tierPrefs?.popular !== undefined ? { popular: init.proposal.tierPrefs.popular } : {}),
+    ...(init?.proposal?.tierPrefs?.pin ? { pin: init.proposal.tierPrefs.pin } : {}),
   }))
   const { sets: tierSets } = useTierSets()
   const [photoIds, setPhotoIds] = useState<Record<string, string>>({})
@@ -755,6 +759,8 @@ export default function QuoteBuilder({
   const effDbl = fromLayout ? layoutResult!.dblGates : dblGates
   // Vinyl tees counted as line posts (VINYL_TEE_POST): line posts beyond the runs' own.
   const effTeeLines = fromLayout ? layoutResult!.linePosts : 0
+  // Tees on the drawing, for an option of a style that posts them another way (corners and ends typed on the drawing stand as typed).
+  const effTees = fromLayout && yard?.cornersOverride == null && yard?.endsOverride == null ? layoutResult!.tees : 0
   // Gate widths (chain link gate leaves go by width): the drawing's, or the typed list's (kept from the drawing
   // it was typed from, or set there). A typed list with every gate at 4 ft / 8 ft sends none, as before.
   const typedWidths = fitGateWidths(typedGateWidths, walkGates, dblGates)
@@ -766,6 +772,7 @@ export default function QuoteBuilder({
     corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
     ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
+    ...(effTees ? { tees: effTees } : {}),
     tearOutSections: tearOutSec, tearOutGates,
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
     hasSalesman,
@@ -786,8 +793,12 @@ export default function QuoteBuilder({
   // tiers it was sent with unless "Use current tiers" is tapped.
   const sentTierSet = init?.id && (init.shareToken || init.status === 'SENT' || init.status === 'SOLD' || heldSaved) ? init.proposal?.tierSet : undefined
   const [keepSentTiers, setKeepSentTiers] = useState(!!sentTierSet)
-  const liveTierSet = tierSetFor(tierSets, style)
-  const usingSentTiers = (keepSentTiers || heldSaved) && !!sentTierSet && !!style && sentTierSet.category.trim().toLowerCase() === String(style.category).trim().toLowerCase()
+  // The tier set of the quote's own material; another material made main stays on the set it had (tiers.ts tierCategory).
+  const tierCat = tierCategory(tierPrefs, style)
+  const liveTierSet = tierSetFor(tierSets, style ? { category: tierCat } : undefined)
+  // Mixed styles: a quote signed for another material's option keeps the set it went out with.
+  const sentMixed = (init?.proposal?.options ?? []).some(o => o.tier?.swapped)
+  const usingSentTiers = (keepSentTiers || heldSaved) && !!sentTierSet && !!style && (sentMixed || sentTierSet.category.trim().toLowerCase() === String(tierCat).trim().toLowerCase())
   const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
   // What prices the tiers: the fence, its gates, its pricing choices and the tier choices. Changed since the quote
   // opened, the Price step prices them anew; unchanged, a sent proposal's tiers show as the customer reads them.
@@ -817,6 +828,7 @@ export default function QuoteBuilder({
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
     ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
+    ...(effTees ? { tees: effTees } : {}),
     tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
     overrides: pricingOverrides, jobType,
     move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
@@ -1010,6 +1022,36 @@ export default function QuoteBuilder({
   }, [jobType, style, sections, internal, sv, tiersLocal, adjPrice, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
   const foldedTier: TierKey | null = ownTierNow && (!init?.id || !proposalSent(init as Parameters<typeof proposalSent>[0]) || frozenOwnTierKey(init.proposal as Parameters<typeof frozenOwnTierKey>[0]) === ownTierNow) ? ownTierNow : null
   // The panels the quote's runs took, as the customer reads them ("6 ft and 8 ft panels"; lib/customerFenceName.ts).
+  // Each option's card for staff (tiers.ts optionCard): from the server on a Salesman's phone.
+  const tierCards: Record<string, OptionCard> = useMemo(() => {
+    if (!internal) return sv?.tierCards ?? {}
+    const w = warrantySettingsOf(cfg), out: Record<string, OptionCard> = {}
+    for (const t of tiersLocal) { const c = optionCard(t, photoIds, tierSets, w); if (c) out[t.spec.key] = c }
+    return out
+  }, [internal, sv, tiersLocal, photoIds, tierSets, cfg])
+  const mixed = Object.keys(tierPrefs.swap).length > 0 || !!tierPrefs.added?.length
+  // The card that is the quote's own fence.
+  const mainCard: TierKey | null = tiers.find(t => t.style?.name === style?.name)?.spec.key ?? foldedTier ?? twinTier
+  /** Another option becomes the quote's main one. A mixed quote keeps every option where it is: nothing changes for one that is not. */
+  const makeMain = (t: ResolvedTier, name: string) => {
+    const s = FENCE_STYLES.find(x => x.name === name)
+    if (!s) return
+    if (mixed || name !== t.style?.name) setTierPrefs(p => pinnedForMain(p, tiers, t.spec.key, name, tierSet?.category ?? String(style?.category ?? ''), style?.name, mainCard))
+    setStyleId(s.id)
+  }
+  const removeAdded = (key: TierKey) => setTierPrefs(p => {
+    const swap = { ...p.swap }; delete swap[key]
+    const added = (p.added ?? []).filter(a => a.key !== key)
+    const { added: _a, popular, ...rest } = p
+    return { ...rest, swap, ...(added.length ? { added } : {}), ...(popular !== undefined && popular !== key ? { popular } : {}) }
+  })
+  const offeredNow = offeredCount(tiers, style?.name, !!foldedTier || !!twinTier, offer)
+  // Every style on for quoting, by material, for "Change style" and "Add option".
+  const stylePicks = useMemo(() => {
+    const groups = new Map<string, typeof FENCE_STYLES>()
+    for (const s of FENCE_STYLES) { if (!isQuotable(s)) continue; const w = materialWord(s); groups.set(w, [...(groups.get(w) ?? []), s]) }
+    return [...groups].map(([word, list]) => <optgroup key={word} label={word}>{list.map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}</optgroup>)
+  }, [FENCE_STYLES])
   const ownPanelsLabel = style ? customerFenceName(optionLabel(style.name), effRuns.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0).map(x => calc.perRunRail[x.i])) : ''
   // Compare options: the same yard as the styles that make sense for this one.
   const compareRowsLocal = useMemo(() => (internal && showCompare && style && sections > 0
@@ -1222,12 +1264,17 @@ export default function QuoteBuilder({
         wholeDollar: !keepCents,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
-        planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} />) : undefined,
+        planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} noSections={tiers.some(t => (t.added || t.ownWords) && !t.off && !!t.option && t.option.sections !== sections)} />) : undefined,
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
-        tiers: internal ? tierOptions(tiers, photoIds) : viewProposalOptions(sv),
-        tierPrefs: { off: tierPrefs.off, swap: tierPrefs.swap as Record<string, string> },
+        tiers: internal ? tierOptions(tiers, photoIds, tierSets) : viewProposalOptions(sv),
+        tierPrefs: {
+          off: tierPrefs.off, swap: tierPrefs.swap as Record<string, string>,
+          ...(tierPrefs.added?.length ? { added: tierPrefs.added } : {}),
+          ...(tierPrefs.popular !== undefined ? { popular: tierPrefs.popular } : {}),
+          ...(tierPrefs.pin ? { pin: tierPrefs.pin } : {}),
+        },
         tierSet: tierSet ?? undefined,
       }) : undefined),
     }
@@ -1995,11 +2042,12 @@ export default function QuoteBuilder({
                       <div key={t.spec.key} className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3" data-tier={t.spec.key}>
                         <p className="font-bold text-gray-900">{t.spec.name}</p>
                         <p className="text-xs text-amber-900 mt-1" data-tier-reason>Not offered on this quote: {t.reason}</p>
-                        <select className="mt-2 w-full border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value="" aria-label={`Style for ${t.spec.name}`}
+                        <select className="mt-2 w-full border border-gray-300 rounded-lg px-2 h-11 text-sm bg-white" value="" aria-label={`Style for ${t.spec.name}`}
                           onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, swap: { ...p.swap, [t.spec.key]: v } })) }} data-tier-swap>
                           <option value="">Pick a style for this quote…</option>
-                          {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}
+                          {stylePicks}
                         </select>
+                        {t.added && <button type="button" className="btn btn-quiet btn-sm mt-2" onClick={() => removeAdded(t.spec.key)} data-option-remove>Remove this option</button>}
                       </div>
                     )
                     // The tier whose card is the quote's own best price option on the proposal: its price, its panels.
@@ -2008,14 +2056,20 @@ export default function QuoteBuilder({
                     const main = folded || twin || (!!t.style && t.style.name === style?.name)
                     const price = sent ? sent.price : main ? adjPrice : t.option!.finalPrice
                     const perFoot = sent ? sent.perFoot : folded ? (totalFootage > 0 ? Math.round((adjPrice / totalFootage) * 100) / 100 : 0) : t.option!.perFoot
+                    const card = sent ? undefined : tierCards[t.spec.key]
+                    const name = sent?.name ?? card?.name ?? t.spec.name
+                    const words = sent ? sent.blurb ?? t.spec.text : card ? card.blurb : t.spec.text
+                    const picked = !sent && !!(t.added || t.ownWords)
+                    const canPick = !heldSaved && !signedQuote
                     return (
                       <div key={t.spec.key} className={`rounded-lg border p-3 ${main ? 'border-orange-500 bg-orange-50' : 'border-gray-200'} ${t.off ? 'opacity-60' : ''}`} data-tier={t.spec.key}>
                         <div className="flex items-start justify-between gap-2">
                           <label className="flex items-center gap-2 min-w-0">
-                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} disabled={heldSaved} aria-label={`Offer ${t.spec.name}`}
+                            {/* The quote's own fence stays on the proposal: another option is made main first. Three at most. */}
+                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} disabled={heldSaved || (main && !t.off) || (t.off && offeredNow >= MAX_TIERS)} aria-label={`Offer ${t.spec.name}`}
                               onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
-                            <span className="font-bold text-gray-900" data-tier-name>{t.spec.name}</span>
-                            {t.popular && <span className="text-[11px] font-semibold bg-orange-500 text-white rounded-full px-2 py-0.5">Most popular</span>}
+                            <span className="font-bold text-gray-900" data-tier-name>{name}</span>
+                            {t.popular && <span className="text-[11px] font-semibold bg-orange-500 text-white rounded-full px-2 py-0.5" data-tier-popular>Most popular</span>}
                           </label>
                           <span className="text-right">
                             <span className="block font-bold tabular-nums" data-tier-price>{fmt(price)}</span>
@@ -2023,7 +2077,11 @@ export default function QuoteBuilder({
                           </span>
                         </div>
                         <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
-                        {t.spec.text && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{t.spec.text}</p>}
+                        {words && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{words}</p>}
+                        {picked && card && <p className="text-xs text-gray-700 mt-0.5" data-tier-warranty>{card.warranty ? `Warranty: ${card.warranty}` : ''}</p>}
+                        {picked && card && !card.hasPhoto && !card.blurb && <p className="text-xs text-gray-600" data-tier-no-words>No photo or description for this style: the customer reads its name, price and warranty.</p>}
+                        {picked && card && card.block.map(b => <p key={b} className="text-xs font-semibold text-red-800 mt-1" data-tier-block>Cannot be sent: {b}</p>)}
+                        {picked && card && card.warn.map(w => <p key={w} className="text-xs text-amber-800 mt-1" data-tier-warn>{w}</p>)}
                         {folded && <p className="text-xs text-gray-600" data-tier-own>Your best price quote (the cheaper panel for each run), shown as {t.spec.name} on the proposal.{!sent && t.widthFt && t.option ? ` All ${t.widthFt} ft panels would be ${fmt(t.option.finalPrice)}.` : ''}</p>}
                         {!sent && !folded && t.widthFt && t.otherWidth && <p className="text-xs text-gray-600" data-tier-width>{t.widthFt} ft wide prices lower for this yard ({t.otherWidth.widthFt} ft wide: {fmt(t.otherWidth.price)}).</p>}
                         {!sent && !folded && t.widthFt && !t.otherWidth && t.otherWidthHeld && <p className="text-xs text-amber-700" data-tier-width-held>Priced with {t.widthFt} ft wide panels: {t.otherWidthHeld.widthFt} ft wide is not priced yet ({t.otherWidthHeld.held}).</p>}
@@ -2041,16 +2099,43 @@ export default function QuoteBuilder({
                         })()}
                         {!heldSaved && <div className="flex gap-2 mt-2">
                           <button type="button" className="btn btn-secondary btn-sm shrink-0" disabled={main || !t.style}
-                            onClick={() => { const s = FENCE_STYLES.find(x => x.name === t.style!.name); if (s) setStyleId(s.id) }} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
-                          <select className="min-w-0 flex-1 border border-gray-300 rounded-lg px-2 h-9 text-xs bg-white" value={tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
-                            onChange={e => setTierPrefs(p => { const swap = { ...p.swap }; if (e.target.value) swap[t.spec.key] = e.target.value; else delete swap[t.spec.key]; return { ...p, swap } })} data-tier-swap>
-                            <option value="">Style: automatic</option>
-                            {FENCE_STYLES.filter(s => isQuotable(s) && !s.autoRailMix).map(s => <option key={s.id} value={s.name}>{s.label || s.name}</option>)}
-                          </select>
+                            onClick={() => makeMain(t, t.style!.name)} data-tier-main>{main ? 'Main option' : 'Make main'}</button>
+                          {canPick && <button type="button" className={`btn btn-sm shrink-0 ${t.popular ? 'btn-primary' : 'btn-quiet'}`} aria-pressed={t.popular} disabled={t.off}
+                            onClick={() => setTierPrefs(p => ({ ...p, popular: t.popular ? null : t.spec.key }))} data-tier-popular-pick>{t.popular ? 'Most popular ✓' : 'Most popular'}</button>}
                         </div>}
+                        {!heldSaved && <label className="block mt-2">
+                          <span className="block text-xs font-semibold text-gray-600">Change style</span>
+                          <select className="mt-0.5 w-full border border-gray-300 rounded-lg px-2 h-11 text-sm bg-white" disabled={signedQuote} value={main ? style?.name ?? '' : tierPrefs.swap[t.spec.key] ?? ''} aria-label={`Style for ${t.spec.name}`}
+                            onChange={e => {
+                              const v = e.target.value
+                              // The main option's style is the quote's: the other options stay as they are.
+                              if (main) { if (v) makeMain(t, v); return }
+                              setTierPrefs(p => { const swap = { ...p.swap }; if (v) swap[t.spec.key] = v; else delete swap[t.spec.key]; return { ...p, swap } })
+                            }} data-tier-swap>
+                            {!main && <option value="">{t.added ? t.style?.label || t.style?.name : 'Automatic'}</option>}
+                            {stylePicks}
+                          </select>
+                        </label>}
+                        {t.added && canPick && <button type="button" className="btn btn-quiet btn-sm mt-1" onClick={() => removeAdded(t.spec.key)} data-option-remove>Remove this option</button>}
+                        {picked && (t.option?.snapshot?.pullSheet?.length ?? 0) > 0 && (
+                          <details className="mt-1" data-tier-pull>
+                            <summary className="text-xs font-semibold text-gray-600 min-h-[44px] flex items-center">This option's pull sheet</summary>
+                            <ul className="text-xs text-gray-700 space-y-0.5">{t.option!.snapshot.pullSheet.filter(l => !l.moneyOnly).map(l => <li key={l.item} className="flex justify-between gap-2"><span>{l.item}</span><span className="tabular-nums">{l.qty}</span></li>)}</ul>
+                          </details>
+                        )}
                       </div>
                     )
                   })}
+                  {tierSet && !heldSaved && !signedQuote && offeredNow < MAX_TIERS && (
+                    <label className="block" data-option-add>
+                      <span className="block text-xs font-semibold text-gray-600">Add option ({offeredNow} of {MAX_TIERS} on the proposal)</span>
+                      <select className="mt-0.5 w-full border border-gray-300 rounded-lg px-2 h-11 text-sm bg-white" value="" aria-label="Add option"
+                        onChange={e => { const v = e.target.value; if (v) setTierPrefs(p => ({ ...p, added: [...(p.added ?? []), { key: newOptionKey(p), style: v }] })) }}>
+                        <option value="">Pick a style…</option>
+                        {stylePicks}
+                      </select>
+                    </label>
+                  )}
                 </div>
               )}
 

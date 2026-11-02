@@ -24,10 +24,13 @@ export interface SentTierCard {
   own: boolean
   /** The quote's own option is the same fence at the same price as this tier (a best price quote all one width), so this card is the quote's. */
   twin: boolean
+  /** The name and words on the proposal: a swapped option's are its own, not the tier's. */
+  name?: string
+  blurb?: string
 }
 
 interface SentOption {
-  tier?: { key?: string } | null
+  tier?: { key?: string; label?: string; blurb?: string } | null
   fenceStyle?: string
   label?: string
   finalPrice?: number
@@ -67,6 +70,8 @@ export function sentTierCards(
       at,
       own: at !== i,
       twin: twinOf === i,
+      name: o?.tier?.label,
+      blurb: o?.tier?.blurb,
     }
   })
   return out

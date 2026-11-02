@@ -12,7 +12,8 @@
 import { calculateQuote, widthComparison, type QuoteCalc, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import { totalMaterialCost, type GateWidths, type LineItem } from './materialCalculator'
 import { gateWidthsOf, type YardLayout } from './yardLayout'
-import { resolveTiers, tierOptions, ownTierKey, twinTierKey, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
+import { resolveTiers, tierOptions, ownTierKey, twinTierKey, optionCard, type OptionCard, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
+import { warrantySettingsOf } from './warranties'
 import { compareStyles, priceOption, workOption, type ProposalOption } from './proposal'
 import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
@@ -30,6 +31,8 @@ export interface QuoteJobRequest {
   ends: number
   /** Line posts beyond the runs' own: vinyl tees (deriveLayout `linePosts`). */
   extraLinePosts?: number
+  /** Tees on the drawing: an option of another style posts them its own way (QuoteCalcInput.tees). */
+  tees?: number
   walkGates: number
   dblGates: number
   /** Each gate's width in feet (the drawing's, yardLayout.ts gateWidthsOf). */
@@ -88,6 +91,8 @@ export interface QuoteJob {
   }
   pullSheet: LineItem[]
   tiers: ResolvedTier[]
+  /** Each tier's card for staff, by tier key: the name and words the customer reads, its warranty and what is missing (tiers.ts optionCard). */
+  tierCards: Record<string, OptionCard>
   compareRows: Array<{ style: QuoteStyle; option: ProposalOption }>
   /** The proposal's options, priced (tiers, then the quote's own style and the ones ticked; or the move / repair options). */
   proposalOptions: ProposalOption[]
@@ -128,13 +133,14 @@ export function quoteStyles(cfg: AppConfig, keep?: string | null): FenceStyle[] 
   return cfg.fenceStyles.filter(s => isQuotable(s) || s.name === keep)
 }
 
-export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct: number): QuoteJob {
+export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct: number, tierSets?: Array<Pick<TierSet, 'category' | 'tiers'>> | null): QuoteJob {
   const styles = quoteStyles(cfg, req.keepStyle ?? req.fenceStyle)
   const style = styles.find(s => s.name === req.fenceStyle)
   const calcInput: QuoteCalcInput = {
     style, runs: req.runs, corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates,
     gateWidths: req.gateWidths ?? gateWidthsOf(req.yard),
     ...(req.extraLinePosts ? { extraLinePosts: req.extraLinePosts } : {}),
+    ...(req.tees ? { tees: req.tees } : {}),
     tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates, extraLaborHrs: req.extraLaborHrs,
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
     optimizer: cfg.railOptimizer!,
@@ -220,7 +226,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
       }
     }
   } else if (style) {
-    proposalOptions.push(...tierOptions(tiers, req.photoIds ?? {}).map(o => ({ ...o })))
+    proposalOptions.push(...tierOptions(tiers, req.photoIds ?? {}, tierSets).map(o => ({ ...o })))
     const offered = [style, ...styles.filter(s => (req.offer ?? []).includes(s.name) && s.name !== style.name)]
     for (const s of offered) if (!proposalOptions.some(o => o.fenceStyle === s.name)) proposalOptions.push(priceOption(calcInput, s))
   }
@@ -240,10 +246,13 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...wholeDollarRecord(req.overrides, roundingCents),
     ...adjustmentRecord(req.overrides, adjustmentCents),
   })
+  const warranties = warrantySettingsOf(cfg)
+  const tierCards: Record<string, OptionCard> = {}
+  for (const t of tiers) { const c = optionCard(t, req.photoIds ?? {}, tierSets, warranties); if (c) tierCards[t.spec.key] = c }
   return {
     style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, changePrice, totals,
     pullSheet: work ? work.pullSheet : calc.materials.items,
-    tiers, compareRows, proposalOptions, ownTierKey: ownTier, twinTierKey: twinTier, pricing,
+    tiers, tierCards, compareRows, proposalOptions, ownTierKey: ownTier, twinTierKey: twinTier, pricing,
   }
 }
 
@@ -263,6 +272,7 @@ const optionView = (o: ProposalOption) => ({
   label: o.label, fenceStyle: o.fenceStyle, finalPrice: o.finalPrice, perFoot: o.perFoot, sections: o.sections,
   ...(o.adjustmentCents ? { adjustmentCents: o.adjustmentCents } : {}),
   ...(o.tier ? { tier: o.tier } : {}), ...(o.badge ? { badge: o.badge } : {}), ...(o.photoId ? { photoId: o.photoId } : {}),
+  ...(o.problems ? { problems: o.problems } : {}),
 })
 const workView = (w: WorkResult | null) => (w ? {
   type: w.type, priceCents: w.priceCents, listCents: w.listCents, adjustmentCents: w.adjustmentCents, adjustmentRefused: w.adjustmentRefused, manual: w.manual, minimumApplied: w.minimumApplied, pullSheet: w.pullSheet.map(lineView),
@@ -295,7 +305,11 @@ export function quoteView(job: QuoteJob) {
     tiers: job.tiers.map(t => ({
       spec: t.spec, category: t.category, popular: t.popular, off: t.off, swapped: t.swapped, reason: t.reason ?? null,
       styleName: t.style?.name ?? null, option: t.option ? optionView(t.option) : null, widthFt: t.widthFt, otherWidth: t.otherWidth, sameAs: t.sameAs ?? null,
+      ...(t.added ? { added: true } : {}), ...(t.ownWords ? { ownWords: true } : {}),
+      // Each option's own pull sheet, parts and counts only.
+      pullSheet: t.option && (t.swapped || t.added) ? ((t.option.snapshot?.pullSheet ?? []) as LineItem[]).map(lineView) : null,
     })),
+    tierCards: job.tierCards,
     compare: job.compareRows.map(r => ({ styleName: r.style.name, option: optionView(r.option) })),
     proposalOptions: job.proposalOptions.map(optionView),
     ownTierKey: job.ownTierKey,

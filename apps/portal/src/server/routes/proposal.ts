@@ -536,6 +536,22 @@ async function refused(q: any, why: 'signed' | 'accepted'): Promise<{ status: nu
 }
 
 /**
+ * The pricing choices that go on the quote with the signed option: the cents it was rounded down by (out of profit, into
+ * the contract); an option of another style, its own cost factor, so a change order on the signed job follows its margin;
+ * an option of another material, not the labor or per foot price typed for the quote's own (web/src/proposal.ts optionOverrides).
+ */
+export function signedPricing(q: { pricing?: unknown; proposal?: unknown }, s: any): { pricing?: any } {
+  const rounded = typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true
+  const factor = typeof s.costFactor === 'number' && s.costFactor > 0
+  if (!rounded && !factor && !s.otherMaterial) return {}
+  const pricing: any = { ...((q.pricing as any) ?? {}) }
+  if (rounded) { pricing.wholeDollar = true; pricing.roundingCents = s.roundingCents }
+  if (factor) pricing.costFactor = s.costFactor
+  if (s.otherMaterial) { delete pricing.laborCost; delete pricing.subRate; delete pricing.pricePerFoot }
+  return { pricing }
+}
+
+/**
  * The customer accepts option `body.option` of quote `q` (the proposal link, or
  * a warranty update link: routes/warrantyUpdatePublic.ts). `accepted`: this
  * call is the one that accepted it (not a repeat of an acceptance that stands).
@@ -591,12 +607,15 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
         sections: opt.sections,
         ...(typeof s.materialCost === 'number' ? { materialCost: s.materialCost, laborCost: s.laborCost, tearOutCost: s.tearOutCost, totalCOGS: s.totalCOGS, gmPct: s.gmPct } : {}),
         ...(Array.isArray(s.pullSheet) ? { pullSheet: s.pullSheet } : {}),
-        ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : {}),
-        ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections } } : {}),
+        // An option of a fixed width style leaves no 6 ft / 8 ft picks of the quote's own best price style behind.
+        ...(Array.isArray(s.runRails) ? { runRails: s.runRails } : Array.isArray(s.runSections) && opt.fenceStyle !== q.fenceStyle ? { runRails: Prisma.JsonNull } : {}),
+        // A style that posts a tee its own way goes with its own post counts (web/src/proposal.ts teePosts).
+        ...(s.posts && typeof s.posts.corners === 'number' ? { corners: s.posts.corners, ends: s.posts.ends } : {}),
+        ...(layout && Array.isArray(s.runSections) ? { layout: { ...layout, runSections: s.runSections, ...(s.posts && typeof s.posts.teeLinePosts === 'number' ? { teeLinePosts: s.posts.teeLinePosts } : {}) } } : {}),
         // A move or repair option carries its work; "New fence instead" carries null (the quote becomes a new fence).
         ...(s && Object.prototype.hasOwnProperty.call(s, 'work') ? { work: s.work === null ? Prisma.JsonNull : s.work } : {}),
         // The cents the chosen option was rounded down by to the whole dollar go with it into the contract (out of profit).
-        ...(typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true ? { pricing: { ...((q.pricing as any) ?? {}), wholeDollar: true, roundingCents: s.roundingCents } } : {}),
+        ...signedPricing(q, s),
       }),
     },
   })

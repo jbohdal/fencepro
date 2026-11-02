@@ -399,6 +399,11 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         keptSentPrices = changes
       }
     }
+    // A link is out and this save would put a hand picked style on it that the customer would read wrong: not saved (optionBlocks; share-token stops a new link).
+    if (data.proposal && existing.shareToken && !(await signedNow(existing))) {
+      const blocks = (await pricingModule()).optionBlocks(data.proposal as any) as string[]
+      if (blocks.length) { res.status(409).json({ success: false, code: 'OPTION_NOT_READY', error: `This proposal is on the customer's link, so this cannot be saved yet. ${blocks.join(' ')}`, blocks }); return }
+    }
     // A style held now for missing costs: a save that would change the price is refused, drafts too; the saved
     // price with only words changed goes through (lib/heldStylePrice.ts; review Oct 29 2026, $5,050 → $698).
     const held = await heldPriceRefusal(existing.accountId, data, existing)
@@ -631,6 +636,9 @@ router.post('/:id/share-token', requireUser, requireAccount, requireCan('quotes.
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
+    // A style picked by hand that the customer would read wrong (no warranty, parts left out) is not sent (web/src/proposal.ts optionBlocks).
+    const blocks = (await pricingModule()).optionBlocks(existing.proposal as any) as string[]
+    if (blocks.length) { res.status(409).json({ success: false, code: 'OPTION_NOT_READY', error: `This proposal cannot be sent yet. ${blocks.join(' ')}`, blocks }); return }
     // A link already sent keeps working until it runs out or is turned off;
     // after that (or with ?new=1) a new link is made.
     const open = existing.shareToken && !existing.shareDisabledAt && !(existing.shareExpiresAt && existing.shareExpiresAt.getTime() < Date.now())

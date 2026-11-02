@@ -58,6 +58,7 @@ export { kitSetFor } from './materialKits'
 export { stampTerms, proposalTerms, frozenTerms, companyAddressOf, termsAsAsked } from './contractTerms'
 // Which proposal options are shown and which starts selected (server routes/proposal.ts).
 export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp } from './proposalOptions'
+export { optionBlocks } from './proposal'
 // What a save would change on a sent proposal's cards (server routes/saved-quotes.ts refuses it unless chosen).
 export { proposalPriceChanges } from './sentReprice'
 // Warranties per option (server lib/warranties.ts).
@@ -89,6 +90,8 @@ export interface EstimateData {
   config: Partial<AppConfig> | null
   inventory: Array<{ name: string; unitCost: unknown; status?: string }>
   kits: KitSet[]
+  /** The tier sets (Settings → Good Better Best): a swapped option's words come from its own category's set. */
+  tierSets?: Array<Pick<TierSet, 'category' | 'tiers'>> | null
 }
 
 export interface EstimateJob {
@@ -190,7 +193,7 @@ export { overheadNowOf, liveOverheadPctIn } from './liveOverheadMath'
 export function quoteJobFor(data: EstimateData, req: QuoteJobRequest, overheadPct?: number | null): QuoteJob {
   useData(data)
   const cfg = estimateConfig(data.config)
-  return priceQuoteJob(cfg, req, typeof overheadPct === 'number' && Number.isFinite(overheadPct) ? overheadPct : estimateOverheadPct(cfg))
+  return priceQuoteJob(cfg, req, typeof overheadPct === 'number' && Number.isFinite(overheadPct) ? overheadPct : estimateOverheadPct(cfg), data.tierSets)
 }
 export { quoteView, savedWorkOf }
 

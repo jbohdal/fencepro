@@ -55,11 +55,13 @@ type Drag =
 /** A fence move's old line: drawn dashed along a side of the new line, this many feet inside it. */
 export interface PlanOldLine { sideId: string; offsetFt: number; ft: number; label: string }
 
-export default function SitePlan({ layout, result, runSections, widthFt = 8, onSideTap, aerial, onDrawingChange, onAngleTap, checks = false, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps, onGateSlide, gateLocked, onGateDistanceTap }: {
+export default function SitePlan({ layout, result, runSections, widthFt = 8, noSections = false, onSideTap, aerial, onDrawingChange, onAngleTap, checks = false, title, pins, onPinTap, onPlanTap, onHouseMeetsChange, onHouseDragEnd, onGateTap, oldLine, damaged, onSectionTap, onPlanMove, onRotate, onLineUpTap, lineUpTaps, onGateSlide, gateLocked, onGateDistanceTap }: {
   layout: YardLayout
   result?: LayoutResult
   runSections?: number[]
   widthFt?: number
+  /** A proposal whose options have different section widths: the one drawing shows no line posts or section counts. */
+  noSections?: boolean
   /** A side tapped: its line, or its length label (`label`: the length is what the finger is after). */
   onSideTap?: (sideId: string, via?: 'label' | 'line') => void
   /** Drawn to the photo's real scale, centered on it; corners can be dragged. */
@@ -107,7 +109,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, onS
   /** With this, tapping the length of a piece next to a gate types that distance. */
   onGateDistanceTap?: (sideId: string, which: 'before' | 'after') => void
 }) {
-  const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt), [layout, result, runSections, widthFt])
+  const plan = useMemo(() => buildPlan(layout, result, runSections, widthFt, { noSections }), [layout, result, runSections, widthFt, noSections])
   const derived = useMemo(() => result ?? deriveLayout(layout), [layout, result])
   // Ids for the magnifier (it shows the drawing again, closer); only on a plan where gates slide.
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')

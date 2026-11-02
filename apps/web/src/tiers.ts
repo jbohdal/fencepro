@@ -17,6 +17,7 @@ import type { QuoteCalcInput, QuoteStyle } from './quoteCalc'
 import { isQuotable } from './styleAvailability'
 import { styleLabel, colorNamesOf } from './fenceCatalog'
 import { styleParts, ownTierFold, sameFenceAs, type StyleParts, type StyleRecordOf } from './proposalOptions'
+import { warrantyForStyle, type WarrantySettings } from './warranties'
 
 export { styleParts, type StyleParts }
 
@@ -117,6 +118,10 @@ export interface ResolvedTier {
   off: boolean
   /** The style swapped in by hand on this quote, when it was. */
   swapped: boolean
+  /** An option added on this quote ("Add option"), not one of the tier set's. */
+  added?: boolean
+  /** Swapped to a style the tier would not have picked itself, so the tier's name, words and photo are not this fence's (tierOptions). */
+  ownWords?: boolean
   /** The style and its price; missing when the tier cannot be built for this quote. */
   style?: QuoteStyle
   option?: ProposalOption
@@ -194,14 +199,22 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   const own = input.style
   if (!set || !own) return []
   const out: ResolvedTier[] = []
-  for (const spec of set.tiers) {
-    const base = { spec, category: set.category, popular: spec.key === set.popular, off: prefs.off.includes(spec.key), widthFt: null as number | null, otherWidth: null as ResolvedTier['otherWidth'] }
+  const added = (prefs.added ?? []).filter(a => a?.key && a.style && !set.tiers.some(t => t.key === a.key)).slice(0, MAX_TIERS)
+  const specs: TierSpec[] = [...set.tiers, ...added.map(a => ({ key: a.key, name: 'Option', install: 'same' as const, width: 'same' as const, color: 'same', style: a.style, text: '' }))]
+  // The Most popular pick on this quote (null: none), else the tier set's; one at most.
+  const popular = prefs.popular !== undefined ? prefs.popular : set.popular
+  for (const spec of specs) {
+    const isAdded = added.some(a => a.key === spec.key)
+    const base = { spec, category: set.category, popular: spec.key === popular && !prefs.off.includes(spec.key), off: prefs.off.includes(spec.key), widthFt: null as number | null, otherWidth: null as ResolvedTier['otherWidth'], ...(isAdded ? { added: true } : {}) }
     // The price this tier adds on, through the quote's own Price adjust.
     const tierInput: QuoteCalcInput = { ...input, priceAdjust: (input.priceAdjust || 0) + (Number(spec.priceAdjustPct) || 0) / 100 }
-    const swapName = prefs.swap[spec.key]
+    const swapName = prefs.swap[spec.key] ?? (isAdded ? spec.style ?? undefined : undefined)
     const swapStyle = swapName ? styles.find(s => s.name === swapName && isQuotable(s)) : undefined
     if (swapStyle) {
-      out.push({ ...base, swapped: true, style: swapStyle, option: priceOption(tierInput, swapStyle) })
+      // The style the tier would have picked anyway keeps the tier's own name and words.
+      const auto = isAdded ? null : tierStyles(spec, own, styles)
+      const same = !!auto && 'styles' in auto && auto.styles.some(s => s.name === swapStyle.name)
+      out.push({ ...base, swapped: true, ownWords: !same, style: swapStyle, option: priceOption(tierInput, swapStyle) })
       continue
     }
     const r = tierStyles(spec, own, styles)
@@ -226,18 +239,121 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   return out
 }
 
-/** Choices made on one quote: tiers left off, and tiers swapped to another style. */
-export interface TierPrefs { off: TierKey[]; swap: Partial<Record<TierKey, string>> }
+/**
+ * Choices made on one quote: tiers left off, tiers swapped to another style (any style on for quoting, Nov 2 2026),
+ * options added beyond the tier set, and the Most popular pick. Only what was chosen is kept: a quote nobody touched
+ * has none of `added`, `popular` or `pin`.
+ */
+export interface TierPrefs {
+  off: TierKey[]
+  swap: Partial<Record<TierKey, string>>
+  /** Options added on this quote: each its own key and style. */
+  added?: Array<{ key: TierKey; style: string }>
+  /** The option marked Most popular on this quote; null: none. Not set: the tier set's. */
+  popular?: TierKey | null
+  /** Another option was made the quote's main one: the tier set stays the one it was (`category`) while the quote's style is `main`. */
+  pin?: { category: string; main: string }
+}
 
-/** Tier options as they go on the proposal: name, text, badge and the tier's own photo. */
-export function tierOptions(tiers: ResolvedTier[], photoIds: Record<string, string> = {}): ProposalOption[] {
-  return tiers.filter(t => !t.off && t.option && t.style).map(t => ({
-    ...t.option!,
-    label: styleLabel(t.style!.name),
-    tier: { key: t.spec.key, label: t.spec.name, blurb: t.spec.text },
-    badge: t.popular ? 'Most popular' : undefined,
-    photoId: photoIds[tierPhotoName(t.category, t.spec.key)] ?? undefined,
-  }))
+/** The category whose tier set a quote uses: its own, or the one it stayed on when another material was made main. */
+export function tierCategory(prefs: TierPrefs, style: { name?: string; category?: string } | undefined): string | undefined {
+  return prefs.pin && style?.name === prefs.pin.main ? prefs.pin.category : style?.category
+}
+
+/** Names that say nothing about the fence, so they stay on a swapped option. "Dig set with concrete" would not. */
+const RANK_NAME = /^(good|better|best)$/i
+
+const MATERIAL_WORD: Record<StyleParts['family'], string> = { vinyl: 'Vinyl', chain: 'Chain link', alum: 'Aluminum', wood: 'Wood' }
+
+/** A material in a word, for an option with no tier name of its own. */
+export function materialWord(style: (QuoteStyle & { material?: string }) | undefined): string {
+  const p = style ? styleParts(style.name, style as Parameters<typeof styleParts>[1]) : null
+  if (p) return MATERIAL_WORD[p.family]
+  return String(style?.category ?? 'Option').trim() || 'Option'
+}
+
+/**
+ * The owner's own words and photo for a fence, from its own category's tier set (Settings → Good Better Best): the tier
+ * of that set this style is, by a named style, or by install, color and width. Nothing when no tier says this fence:
+ * styles have no description of their own, and none is made up.
+ */
+export function styleWords(style: QuoteStyle & { material?: string }, sets: Array<Pick<TierSet, 'category' | 'tiers'>> | null | undefined, photoIds: Record<string, string> = {}): { blurb: string; photoId?: string } {
+  const set = tierSetFor(sets ?? [], style)
+  const p = styleParts(style.name, style as Parameters<typeof styleParts>[1])
+  if (!set || !p) return { blurb: '' }
+  const spec = set.tiers.find(t => t.style === style.name) ?? set.tiers.find(t => {
+    if (t.style) return false
+    if (t.install !== 'same' && t.install !== p.install) return false
+    if (t.color !== 'same' && t.color !== p.color) return false
+    return t.width === 'same' || t.width === 'cheapest' || p.width === 'auto' || Number(t.width) === p.width
+  })
+  return spec ? { blurb: spec.text ?? '', photoId: photoIds[tierPhotoName(set.category, spec.key)] } : { blurb: '' }
+}
+
+/**
+ * Tier options as they go on the proposal: name, text, badge and the tier's own photo. A style swapped in by hand has
+ * none of the tier's words (a wood option must not read "Steel pipe driven deep"): its name stays a plain rank (Good)
+ * or becomes its material, its words and photo come from styleWords, else the style's photo (buildProposal).
+ */
+export function tierOptions(tiers: ResolvedTier[], photoIds: Record<string, string> = {}, sets?: Array<Pick<TierSet, 'category' | 'tiers'>> | null): ProposalOption[] {
+  return tiers.filter(t => !t.off && t.option && t.style).map(t => {
+    const own = t.added || t.ownWords
+    const words = own ? styleWords(t.style!, sets, photoIds) : null
+    return {
+      ...t.option!,
+      label: styleLabel(t.style!.name),
+      tier: {
+        key: t.spec.key,
+        label: own ? (!t.added && RANK_NAME.test(t.spec.name.trim()) ? t.spec.name : materialWord(t.style)) : t.spec.name,
+        blurb: own ? words!.blurb : t.spec.text,
+        ...(own ? { swapped: true as const } : {}),
+      },
+      badge: t.popular ? 'Most popular' : undefined,
+      photoId: (own ? words!.photoId : photoIds[tierPhotoName(t.category, t.spec.key)]) ?? undefined,
+    }
+  })
+}
+
+/** What an option's card tells staff (the quote builder, and a Salesman's phone from the server): the name and words the customer reads, and what is missing. */
+export interface OptionCard { name: string; blurb: string; warranty: string | null; hasPhoto: boolean; block: string[]; warn: string[] }
+
+export function optionCard(t: ResolvedTier, photoIds: Record<string, string>, sets: Array<Pick<TierSet, 'category' | 'tiers'>> | null | undefined, warranties: WarrantySettings): OptionCard | null {
+  if (!t.option || !t.style) return null
+  const o = tierOptions([{ ...t, off: false }], photoIds, sets)[0]
+  const w = warrantyForStyle(warranties, t.style)
+  const own = !!o.tier?.swapped
+  return {
+    name: o.tier?.label ?? '', blurb: o.tier?.blurb ?? '', warranty: w?.name ?? null,
+    hasPhoto: !!(o.photoId || photoIds[t.style.name]),
+    block: own ? [...(t.option.problems?.block ?? []), ...(w ? [] : ['No warranty is set for this style in Settings → Warranties.'])] : [],
+    warn: own ? t.option.problems?.warn ?? [] : [],
+  }
+}
+
+/** How many options a proposal saved now would show: the tiers on, the quote's own when no tier is its card, and the styles ticked. */
+export function offeredCount(tiers: ResolvedTier[], ownName: string | undefined, foldedOrTwin: boolean, ticked: string[] = []): number {
+  const on = new Set(tiers.filter(t => !t.off && t.option && t.style).map(t => t.style!.name))
+  const own = ownName && !on.has(ownName) && !foldedOrTwin ? 1 : 0
+  return on.size + own + ticked.filter(n => n !== ownName && !on.has(n)).length
+}
+
+/** A key for a new added option. */
+export function newOptionKey(prefs: TierPrefs): TierKey {
+  const taken = new Set((prefs.added ?? []).map(a => a.key))
+  for (let i = 1; ; i++) if (!taken.has(`added${i}`)) return `added${i}`
+}
+
+/**
+ * The tiers fixed at the styles they are now, so another option can be made the main one without the rest following it
+ * (a tier's own rules read the quote's style): `main` becomes the main style on `tierKey`'s card, the old main stays offered.
+ */
+export function pinnedForMain(prefs: TierPrefs, tiers: ResolvedTier[], tierKey: TierKey, main: string, category: string, ownName?: string, ownCard?: TierKey | null): TierPrefs {
+  const swap: TierPrefs['swap'] = { ...prefs.swap }
+  for (const t of tiers) if (t.style) swap[t.spec.key] = t.style.name
+  // The card that was the main one: the quote's own style, a best price mix included.
+  if (ownCard && ownName && ownCard !== tierKey) swap[ownCard] = ownName
+  swap[tierKey] = main
+  return { ...prefs, swap, pin: { category, main } }
 }
 
 /**

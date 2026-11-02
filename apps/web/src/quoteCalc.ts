@@ -64,6 +64,12 @@ export interface QuoteCalcInput {
   ends: number
   /** Line posts beyond the runs' own: vinyl tees from the yard layout (deriveLayout `linePosts`). */
   extraLinePosts?: number
+  /**
+   * Tees on the drawing, counted into corners, ends or extraLinePosts as this quote's style posts them (yardLayout.ts
+   * teePostFor). Only for an option of another style (proposal.ts optionInput), which posts them its own way; 0 or
+   * absent with a typed run list or typed post counts. calculateQuote does not read it.
+   */
+  tees?: number
   walkGates: number
   dblGates: number
   /** Each gate's width in feet, from the drawing (yardLayout.ts gateWidthsOf): chain link gate leaves go by width. */

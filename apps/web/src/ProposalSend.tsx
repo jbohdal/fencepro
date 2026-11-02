@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { ExternalLink, MessageSquare, Mail, Copy } from 'lucide-react'
 import type { SavedQuote } from './QuotesPage'
 import { issueShareToken, turnOffShare } from './savedQuotesApi'
-import { proposalUrl } from './proposal'
+import { proposalUrl, optionBlocks } from './proposal'
 import { askedDepositPct } from './contractTerms'
 import { shownOptions, proposalFold } from './proposalOptions'
 import { smsLink } from './appointmentLogic'
@@ -109,7 +109,10 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
   // The text: "Company: ... Reply STOP to opt out." (lib/customerText.ts); the email is the plain message.
   const textOf = (u: string) => customerText(message(u), company)
 
+  // A style picked for this quote that the customer would read wrong is not sent (the server refuses too).
+  const blocks = optionBlocks(p)
   async function go(kind: 'open' | 'text' | 'email' | 'copy') {
+    if (blocks.length) { toast.error('This proposal cannot be sent yet. See what is missing above.'); return }
     if (kind !== 'open' && photoBlock) { toast.error(`Tick at least ${need} photos for the customer first (or take more), or tap Send anyway.`); return }
     if (kind === 'open') { await openOwn(); return }
     const u = await link()
@@ -141,6 +144,12 @@ export default function ProposalSend({ quote, onTicksShown }: { quote: SavedQuot
     : 'No link sent yet.'
   return (
     <div className="space-y-3" data-proposal-send>
+      {blocks.length > 0 && !quote.acceptedAt && (
+        <div className="rounded-lg bg-red-50 border border-red-300 px-3 py-2 text-sm text-red-900" data-proposal-blocked>
+          <p className="font-semibold">This proposal cannot be sent yet</p>
+          {blocks.map(b => <p key={b}>{b}</p>)}
+        </div>
+      )}
       {quote.needsResend && !quote.acceptedAt && (
         <p className="rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 text-sm text-amber-900" data-proposal-needs-resend>
           This quote was saved at new prices after it was sent. Send it to the customer again.

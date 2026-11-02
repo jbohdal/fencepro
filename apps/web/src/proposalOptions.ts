@@ -23,7 +23,7 @@
 
 interface OptionLike {
   fenceStyle?: string
-  tier?: { key?: string } | null
+  tier?: { key?: string; swapped?: boolean } | null
   finalPrice?: number
   warranty?: { name?: string } | null
   snapshot?: { pullSheet?: Array<{ item?: string; name?: string; qty?: number }> } | null
@@ -153,7 +153,8 @@ export function ownTierFold(options: OptionLike[] | null | undefined, quote: { f
   const p = styleParts(style, styleOf(style))
   if (!p || p.width !== 'auto') return null
   const tier = list.findIndex((o, i) => {
-    if (i === own || !o?.tier || dup[i] >= 0 || !o.fenceStyle) return false
+    // A style picked by hand for this quote stays what was picked: never folded into the quote's own.
+    if (i === own || !o?.tier || o.tier.swapped || dup[i] >= 0 || !o.fenceStyle) return false
     const spec = tierSpecs?.find(t => t.key === o.tier?.key)
     if (spec && spec.width !== 'cheapest' && spec.width !== 'same') return false
     const q = styleParts(o.fenceStyle, styleOf(o.fenceStyle))

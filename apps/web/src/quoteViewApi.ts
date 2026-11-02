@@ -85,8 +85,12 @@ export function viewWork(w: QuoteView['work']): WorkResult | null {
 export function viewTiers(v: QuoteView | null, styles: QuoteStyle[]): ResolvedTier[] {
   return (v?.tiers ?? []).map(t => ({
     spec: t.spec, category: t.category, popular: t.popular, off: t.off, swapped: t.swapped, widthFt: t.widthFt, otherWidth: t.otherWidth,
+    ...(t.added ? { added: true } : {}), ...(t.ownWords ? { ownWords: true } : {}),
     ...(t.reason ? { reason: t.reason } : {}), ...(t.sameAs ? { sameAs: t.sameAs } : {}),
-    ...(t.styleName && t.option ? { style: styles.find(s => s.name === t.styleName) ?? ({ name: t.styleName } as QuoteStyle), option: option(t.option) } : {}),
+    ...(t.styleName && t.option ? {
+      style: styles.find(s => s.name === t.styleName) ?? ({ name: t.styleName } as QuoteStyle),
+      option: { ...option(t.option), ...(t.pullSheet ? { snapshot: { ...NO_SNAPSHOT, pullSheet: t.pullSheet.map(line) } } : {}) },
+    } : {}),
   }))
 }
 

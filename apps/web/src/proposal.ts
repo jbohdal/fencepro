@@ -10,8 +10,10 @@
  */
 
 import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
+import { kitSetFor } from './materialKits'
+import { teePostFor, type TeePost } from './yardLayout'
 import type { LineItem } from './materialCalculator'
-import type { TierSet } from './tiers'
+import type { TierPrefs, TierSet } from './tiers'
 import { isQuotable } from './styleAvailability'
 import { askedDepositPct } from './contractTerms'
 import { styleLabel, styleChoicesOf } from './fenceCatalog'
@@ -41,8 +43,11 @@ export interface ProposalOption {
   perFoot: number
   sections: number
   photoId?: string | null
-  /** Good, Better or Best, with what makes it better. */
-  tier?: { key: string; label: string; blurb: string }
+  /**
+   * Good, Better or Best, with what makes it better. `swapped`: a style picked for this one quote ("Change style" or
+   * "Add option"), so its name and words are its own (tiers.ts tierOptions) and sending checks it (optionBlocks).
+   */
+  tier?: { key: string; label: string; blurb: string; swapped?: true }
   /** "Most popular" */
   badge?: string
   /**
@@ -51,6 +56,8 @@ export interface ProposalOption {
    * proposal carries the same adjustment (the salesman took $X off the job).
    */
   adjustmentCents?: number
+  /** What is wrong or unsure about this option's price: `block` stops a swapped option being sent (optionBlocks). Staff only. */
+  problems?: OptionProblems
   /** Priced snapshot copied onto the quote if the customer picks this option. Never shown to the customer. */
   snapshot: {
     materialCost: number; laborCost: number; tearOutCost: number; totalCOGS: number; gmPct: number
@@ -59,8 +66,17 @@ export interface ProposalOption {
     roundingCents?: number
     /** A move or repair option: the work the quote becomes if picked; null: a new fence (the quote stops being a move or repair). */
     work?: SavedWork | null
+    /** An option of another style: its own cost factor (1 − margin), which goes on the quote with it when signed, so a change order follows its margin. */
+    costFactor?: number
+    /** An option of another material: signing it clears the labor and per foot price typed for the quote's own style (optionOverrides). */
+    otherMaterial?: true
+    /** An option of a style that posts a tee differently: its own post counts, which go on the quote with it when signed. */
+    posts?: { corners: number; ends: number; teeLinePosts: number }
   }
 }
+
+/** block: the customer would read something wrong; warn: said to staff, sending goes on. */
+export interface OptionProblems { block: string[]; warn: string[] }
 
 export interface QuoteProposal {
   version: 1
@@ -78,8 +94,8 @@ export interface QuoteProposal {
   financing: { provider: string; apr: number; months: number; link: string } | null
   recommended: number
   options: ProposalOption[]
-  /** Tiers left off or swapped on this quote, so it reopens the same way. */
-  tierPrefs?: { off: string[]; swap: Record<string, string> }
+  /** Tiers left off or swapped on this quote, options added and the Most popular pick, so it reopens the same way (tiers.ts TierPrefs). */
+  tierPrefs?: { off: string[]; swap: Record<string, string> } & Pick<TierPrefs, 'added' | 'popular' | 'pin'>
   /** The tier set as it was when this proposal was made: a sent quote reopens with it, not with later Settings. */
   tierSet?: Pick<TierSet, 'category' | 'tiers' | 'popular'>
   /** A fence move or repair: the plain words of the work (no cost lines). */
@@ -158,14 +174,87 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
  * website showed the customer (review, Oct 25, 2026). Each other style is
  * priced at its own factor, as on a new quote and on the website.
  */
-export function optionOverrides(input: Pick<QuoteCalcInput, 'overrides' | 'style'>, style: Pick<QuoteStyle, 'name'>): QuoteCalcInput['overrides'] {
+export function optionOverrides(input: Pick<QuoteCalcInput, 'overrides' | 'style'>, style: Pick<QuoteStyle, 'name' | 'category'>): QuoteCalcInput['overrides'] {
   const same = !!input.style && input.style.name === style.name
-  return { ...(input.overrides ?? {}), finalPrice: undefined, ...(same ? {} : { costFactor: undefined }) }
+  return {
+    ...(input.overrides ?? {}), finalPrice: undefined, ...(same ? {} : { costFactor: undefined }),
+    // Labor or a per foot price typed for the quote's own material is not this material's (Nov 2 2026: "priced with its own kit, labor and margin").
+    ...(otherMaterial(input.style, style) ? { laborCost: undefined, subRate: undefined, pricePerFoot: undefined } : {}),
+  }
+}
+
+/** Another material than the quote's own (Settings category): Vinyl, Chainlink, Aluminum, Wood. */
+function otherMaterial(own: Pick<QuoteStyle, 'category'> | undefined, style: Pick<QuoteStyle, 'category'>): boolean {
+  return !!own && String(own.category ?? '').trim().toLowerCase() !== String(style.category ?? '').trim().toLowerCase()
+}
+
+/** A tee's post by how the quote's style counted it, moved to how `style` posts it. */
+function teePosts(input: QuoteCalcInput, style: QuoteStyle): { corners: number; ends: number; extraLinePosts: number } | null {
+  const tees = input.tees ?? 0
+  const from: TeePost = teePostFor(input.style), to: TeePost = teePostFor(style)
+  if (!(tees > 0) || from === to) return null
+  const n: Record<TeePost, number> = { corner: input.corners, end: input.ends, line: input.extraLinePosts ?? 0 }
+  n[from] = Math.max(0, n[from] - tees)
+  n[to] += tees
+  return { corners: n.corner, ends: n.end, extraLinePosts: n.line }
+}
+
+/** The kit kinds a gate width takes, for the words staff read. */
+const GATE_WIDTH_KIT: Array<{ side: 'walk' | 'dbl'; ft: number; kit: 'walkGate5' | 'walkGate6' | 'dblGate10' | 'dblGate12'; base: string }> = [
+  { side: 'walk', ft: 5, kit: 'walkGate5', base: '4 ft walk' },
+  { side: 'walk', ft: 6, kit: 'walkGate6', base: '4 ft walk' },
+  { side: 'dbl', ft: 10, kit: 'dblGate10', base: '8 ft double' },
+  { side: 'dbl', ft: 12, kit: 'dblGate12', base: '8 ft double' },
+]
+
+/** Words on a material warning that mean parts are left out, so the price would be wrong (materialCalculator.ts). */
+const PARTS_LEFT_OUT = /no material kit yet|gate material is not included|add the color premium by hand/i
+
+/** What is wrong or unsure about an option priced for this yard: nothing here changes its price. */
+export function optionProblems(q: ReturnType<typeof calculateQuote>, style: QuoteStyle, input: Pick<QuoteCalcInput, 'gateWidths' | 'walkGates' | 'dblGates' | 'hasSalesman'>): OptionProblems {
+  const block: string[] = [], warn: string[] = []
+  const sum = q.materials.items.reduce((t, i) => t + (Number(i.total) || 0), 0)
+  if (q.sections > 0 && (!q.materials.items.length || !(sum > 0))) block.push('No parts are priced for this style.')
+  if (!(q.priced.price > 0)) block.push('This style has no price for this yard.')
+  if (!(q.priced.laborCost > 0)) block.push('No install labor is set for this style.')
+  for (const n of q.priced.notes) if (/labor is \$0|no subcontractor rate|paid per/i.test(n)) block.push(n)
+  for (const w of q.materials.warnings) (PARTS_LEFT_OUT.test(w) ? block : warn).push(w)
+  // A gate width with no kit of its own takes the standard gate's parts (materialKits.ts GATE_WIDTH_FALLBACK): said, not hidden.
+  const kit = kitSetFor(style.name)
+  if (kit && kit !== 'archived') {
+    for (const g of GATE_WIDTH_KIT) {
+      const widths = (input.gateWidths?.[g.side] ?? []) as number[]
+      if (widths.some(w => Math.abs(w - g.ft) < 0.05) && !kit.kits[g.kit]?.length) warn.push(`This style has no parts list for a ${g.ft} ft ${g.side === 'walk' ? 'walk' : 'double'} gate: it is priced with the ${g.base} gate's parts. Check the pull sheet.`)
+    }
+    const odd = [...(input.gateWidths?.walk ?? []).filter(w => ![4, 5, 6].includes(w)).map(w => `${w} ft walk`), ...(input.gateWidths?.dbl ?? []).filter(w => ![8, 10, 12].includes(w)).map(w => `${w} ft double`)]
+    if (odd.length) warn.push(`This style has no parts list for a ${odd.join(', ')} gate: it is priced with the standard gate's parts. Check the pull sheet.`)
+  }
+  return { block: [...new Set(block)], warn: [...new Set(warn)] }
+}
+
+/**
+ * Why a proposal's picked style cannot go to the customer: what its option says is wrong (optionProblems), or no
+ * warranty (Settings → Warranties gives its install none, so the page and the contract would print none). Only options
+ * picked by hand ("Change style", "Add option"): today's automatic options go out as they always did. Sent proposals
+ * were saved without `swapped`, so they are never stopped here. Empty: it may be sent.
+ */
+export function optionBlocks(p: { options?: Array<Partial<ProposalOption> & { warranty?: unknown }> | null } | null | undefined): string[] {
+  const out: string[] = []
+  for (const o of Array.isArray(p?.options) ? p!.options! : []) {
+    if (!o?.tier?.swapped) continue
+    const name = o.label || o.fenceStyle || 'An option'
+    for (const b of o.problems?.block ?? []) out.push(`${name}: ${b}`)
+    if (!o.warranty) out.push(`${name}: no warranty is set for this style. Set it in Settings → Warranties.`)
+  }
+  return [...new Set(out)]
 }
 
 export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalOption {
-  const q = calculateQuote({ ...input, style, overrides: optionOverrides(input, style) })
+  const posts = teePosts(input, style)
+  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides: optionOverrides(input, style) })
   const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
+  const other = !!input.style && input.style.name !== style.name
+  const problems = other ? optionProblems(q, style, input) : null
   return {
     label: optionLabel(style.name),
     fenceStyle: style.name,
@@ -173,12 +262,16 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
     perFoot: q.priced.pricePerFoot,
     sections: q.sections,
     ...(q.priced.adjustmentCents ? { adjustmentCents: q.priced.adjustmentCents } : {}),
+    ...(problems && (problems.block.length || problems.warn.length) ? { problems } : {}),
     snapshot: {
       materialCost: q.priced.materialCost, laborCost: q.priced.laborCost, tearOutCost: q.priced.tearOutCost,
       totalCOGS: q.priced.totalCOGS, gmPct: q.priced.gmPct, pullSheet: q.materials.items,
       runRails: style.autoRailMix ? filled.map(x => q.perRunRail[x.i] ?? '6ft') : undefined,
       runSections: filled.map(x => q.perRunSections[x.i]),
       roundingCents: q.priced.roundingCents,
+      ...(other && q.priced.costFactor > 0 ? { costFactor: q.priced.costFactor } : {}),
+      ...(otherMaterial(input.style, style) ? { otherMaterial: true as const } : {}),
+      ...(posts ? { posts: { corners: posts.corners, ends: posts.ends, teeLinePosts: posts.extraLinePosts } } : {}),
     },
   }
 }

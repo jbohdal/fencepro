@@ -40,6 +40,10 @@ const gateWidthsIn = (g: Json): { walk: number[]; dbl: number[] } | null => {
 }
 
 /** The work a change order starts from (web changeOrderPricing.ts ChangeBase): numbers only, or null. */
+/** Options added on a quote (web tiers.ts TierPrefs): plain names only, three at most. */
+const addedIn = (a: unknown): Array<{ key: string; style: string }> =>
+  (Array.isArray(a) ? a : []).filter((x: Json) => typeof x?.key === 'string' && typeof x?.style === 'string' && x.key && x.style).slice(0, 3).map((x: Json) => ({ key: x.key.slice(0, 40), style: x.style.slice(0, 200) }))
+
 const changeBaseIn = (b: Json): Json | null => {
   if (!b || typeof b !== 'object' || !Array.isArray(b.runs)) return null
   const gateRuns = Array.isArray(b.drawn?.gateRuns) ? b.drawn.gateRuns.slice(0, 200).map((r: Json) => ({ ft: num(r?.ft), from: num(r?.from, -1) })) : null
@@ -51,15 +55,17 @@ const changeBaseIn = (b: Json): Json | null => {
 }
 
 export async function dataFor(accountId: string) {
-  const [b, inv] = await Promise.all([
+  const [b, inv, sets] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } }),
+    prisma.proposalTierSet.findMany({ where: { accountId }, select: { category: true, tiers: true } }),
   ])
   return {
     // With the live Overhead % in use (lib/liveOverhead.ts): the figure every phone prices with.
     config: (b?.config ? await withLiveOverhead(accountId, b.config) : null) as Json,
     inventory: (Array.isArray(inv?.items) ? inv!.items : []) as Json[],
     kits: (Array.isArray(inv?.kits) ? inv!.kits : []) as Json[],
+    tierSets: sets as Json[],
   }
 }
 
@@ -89,6 +95,7 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     ...(b.yard && typeof b.yard === 'object' && Array.isArray(b.yard.sides) ? { yard: b.yard } : {}),
     // Vinyl tees counted as line posts (yardLayout.ts VINYL_TEE_POST).
     ...(num(b.extraLinePosts) > 0 ? { extraLinePosts: Math.round(num(b.extraLinePosts)) } : {}),
+    ...(num(b.tees) > 0 ? { tees: Math.round(num(b.tees)) } : {}),
     tearOutSections: num(b.tearOutSections), tearOutGates: num(b.tearOutGates),
     extraLaborHrs: num(b.extraLaborHrs), hasSalesman: !!b.hasSalesman, priceAdjust: num(b.priceAdjust),
     overrides,
@@ -96,7 +103,11 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     move: jobType === 'move' && b.move && typeof b.move === 'object' ? b.move : null,
     repair: jobType === 'repair' && b.repair && typeof b.repair === 'object' ? b.repair : null,
     tierSet: b.tierSet && typeof b.tierSet === 'object' && Array.isArray(b.tierSet.tiers) ? b.tierSet : null,
-    tierPrefs: b.tierPrefs && typeof b.tierPrefs === 'object' ? { off: Array.isArray(b.tierPrefs.off) ? b.tierPrefs.off : [], swap: b.tierPrefs.swap && typeof b.tierPrefs.swap === 'object' ? b.tierPrefs.swap : {} } : { off: [], swap: {} },
+    tierPrefs: b.tierPrefs && typeof b.tierPrefs === 'object' ? {
+      off: Array.isArray(b.tierPrefs.off) ? b.tierPrefs.off : [], swap: b.tierPrefs.swap && typeof b.tierPrefs.swap === 'object' ? b.tierPrefs.swap : {},
+      ...(Array.isArray(b.tierPrefs.added) && b.tierPrefs.added.length ? { added: addedIn(b.tierPrefs.added) } : {}),
+      ...(b.tierPrefs.popular === null || typeof b.tierPrefs.popular === 'string' ? { popular: b.tierPrefs.popular } : {}),
+    } : { off: [], swap: {} },
     compare: !!b.compare,
     offer: Array.isArray(b.offer) ? b.offer.filter((x: unknown) => typeof x === 'string') : [],
     offerNewFence: !!b.offerNewFence,
@@ -149,13 +160,16 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
     const feet = req.runs.reduce((s: number, r: Json) => s + (r.ft > 0 ? r.ft : 0), 0)
     out.proposal = {
       ...out.proposal,
-      options: out.proposal.options.map((o: Json) => {
+      options: out.proposal.options.flatMap((o: Json) => {
         const p = priced.get(optKey(o))
         const own = o.fenceStyle === req.fenceStyle && !job.work
+        // A style picked by hand that the server did not price is never taken at the phone's price.
+        if (!p && o?.tier?.swapped) return []
         const next: Json = { ...o }
         if (p) {
           next.snapshot = p.snapshot; next.finalPrice = p.finalPrice; next.perFoot = p.perFoot; next.sections = p.sections
           if (p.adjustmentCents) next.adjustmentCents = p.adjustmentCents; else delete next.adjustmentCents
+          if (p.problems) next.problems = p.problems; else delete next.problems
         } else { delete next.snapshot; delete next.adjustmentCents }
         // The quote's own option keeps the quote's price (QuoteBuilder's buildProposal does the same).
         if (own && t.price > 0) {
@@ -163,7 +177,7 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
           if (t.adjustmentCents) next.adjustmentCents = t.adjustmentCents; else delete next.adjustmentCents
           if (next.snapshot) next.snapshot = { ...next.snapshot, roundingCents: t.roundingCents }
         }
-        return next
+        return [next]
       }),
     }
     // Priced to the whole dollar unless this quote keeps its cents: the deposit follows (lib/paymentMath.ts).

@@ -610,7 +610,7 @@ const unit = (dx: number, dy: number): PlanPoint => { const l = Math.hypot(dx, d
  * @param runSections Sections in each run of `result.runs`, same order, for
  *   the line posts. When missing, `widthFt` is used to count them.
  */
-export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayout(layout), runSections?: number[], widthFt = 8): Plan {
+export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayout(layout), runSections?: number[], widthFt = 8, opts: { noSections?: boolean } = {}): Plan {
   const drawing = yardDrawing(layout)
   const v = drawing.vertices
 
@@ -654,7 +654,8 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     r.pieceSpans.forEach(([f, t]) => {
       const secs = runSections?.[runIndex] ?? Math.ceil((t - f) / 12 / widthFt - 1e-9)
       runIndex += 1
-      for (let k = 1; k < secs; k++) posts.push({ ...pt(f + ((t - f) * k) / secs), kind: 'line' })
+      // A proposal whose options have different section widths: one drawing, so no line posts or section counts on it.
+      if (!opts.noSections) for (let k = 1; k < secs; k++) posts.push({ ...pt(f + ((t - f) * k) / secs), kind: 'line' })
     })
 
     // Ends: corners are drawn once, at the earlier side's end.
@@ -675,7 +676,7 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
     sides.push({
       sideId: s.id, name: s.name, a, b, fence, skip, gate, pieces, out, placeholder,
       label: placeholder ? `${s.name}: tap to enter` : formatFtIn(L),
-      sublabel: placeholder ? '' : `${s.name}${sideSections > 0 ? ` · ${sideSections} section${sideSections === 1 ? '' : 's'}` : ''}`,
+      sublabel: placeholder ? '' : `${s.name}${sideSections > 0 && !opts.noSections ? ` · ${sideSections} section${sideSections === 1 ? '' : 's'}` : ''}`,
     })
   })
 

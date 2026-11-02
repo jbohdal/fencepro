@@ -70,6 +70,7 @@ interface EstimateModule {
   /** Live overhead from the budget and the jobs, both bases (web/src/liveOverheadMath.ts; lib/liveOverhead.ts). */
   overheadNowOf(budget: unknown, jobs: Array<{ completedDate?: string | null; contractValue?: number | null; quotePrice?: number | null }>, today?: Date): unknown
   liveOverheadPctIn(pricing: unknown, now: unknown): number | null
+  optionBlocks(p: unknown): string[]
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
