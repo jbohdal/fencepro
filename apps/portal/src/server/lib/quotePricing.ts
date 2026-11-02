@@ -70,7 +70,7 @@ export async function dataFor(accountId: string) {
 }
 
 /** The quote builder's request, with the saved quote's cost choices and Overhead %. */
-export function requestFrom(body: Json, existing: Json | null, importedOldPrice: (q: Json) => number | null, keepsCents: (q: Json) => boolean = () => false, opts: { ownChoices?: boolean } = {}): { req: Json; overheadPct: number | null } {
+export function requestFrom(body: Json, existing: Json | null, importedOldPrice: (q: Json) => number | null, keepsCents: (q: Json) => boolean = () => false): { req: Json; overheadPct: number | null } {
   const b = body && typeof body === 'object' ? body : {}
   const runs = (Array.isArray(b.runs) ? b.runs : []).slice(0, 200).map((r: Json) => ({
     ft: num(typeof r === 'number' ? r : r?.ft), rail: r?.rail === '6ft' || r?.rail === '8ft' ? r.rail : 'auto',
@@ -82,8 +82,6 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
   const overrides: Record<string, unknown> = {}
   for (const k of COST_CHOICES) if (savedPricing[k] !== undefined && savedPricing[k] !== null) overrides[k] = savedPricing[k]
   for (const k of PRICE_CHOICES) if (sent[k] !== undefined && sent[k] !== null && sent[k] !== '') overrides[k] = sent[k]
-  // A login that sees costs sets these on its own phone: the price is checked as it priced it (lib/quotePriceCheck.ts).
-  if (opts.ownChoices) for (const k of COST_CHOICES) { if (sent[k] !== undefined && sent[k] !== null && sent[k] !== '') overrides[k] = sent[k]; else delete overrides[k] }
   // Whole dollar prices (Oct 21 2026): a quote sent, sold or accepted before keeps its cents while it is
   // unchanged (the phone says keepCents: false once it is changed); every other quote is priced to the whole dollar.
   if (existing && keepsCents(existing) && b.keepCents !== false) overrides.wholeDollar = false
@@ -131,7 +129,7 @@ export async function quoteViewFor(accountId: string, body: Json, quoteId?: stri
   return m.quoteView(job)
 }
 
-export const optKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.label ?? ''}`
+const optKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.label ?? ''}`
 
 /**
  * A quote a Salesman or Installer saves, with its costs filled in on the

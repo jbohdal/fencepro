@@ -215,7 +215,7 @@ try {
     let { page } = christaPhone
     const qid = crypto.randomUUID()
     const today = new Date().toISOString().slice(0, 10)
-    const q = await call(T.sales, 'POST', '/api/saved-quotes', { id: qid, customerName: `Max ${LAST}`, customerAddress: '110 SE Watula Ave, Ocala, FL 34471', date: today, status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy", runs: [60], corners: 0, ends: 2, sections: 10, finalPrice: 0, pullSheet: [] })
+    const q = await call(T.sales, 'POST', '/api/saved-quotes', { id: qid, customerName: `Max ${LAST}`, customerAddress: '110 SE Watula Ave, Ocala, FL 34471', date: today, status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy", runs: [60], corners: 0, ends: 2, sections: 10, finalPrice: 10, pullSheet: [] })
     made.quotes.push(qid)
     check(q.status === 201 || q.status === 200, `Christa's draft quote is saved (${q.status})`)
     page = await go(christaPhone, `/?quote=${qid}`)

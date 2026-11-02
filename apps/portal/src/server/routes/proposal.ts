@@ -593,6 +593,8 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   // What the customer read, not only a place on the list (review Nov 2 2026: a place signed Aluminum at $16,456 for a
   // customer who tapped Chain link at $7,483). Checked again under the row's lock below.
   if (!opt || optionSeen(opt) !== body.seen) return optionsChanged()
+  // An option with no fence or no price signs nothing: the quote's own would stand in for it (review Nov 2 2026).
+  if (!opt.fenceStyle || !(Number(opt.finalPrice) > 0)) return { status: 409, json: { success: false, error: `This option cannot be signed online. Please call us${(await companyPhone(q.accountId, p)) ? ` at ${phoneText(await companyPhone(q.accountId, p))}` : ''}.` } }
   // Already signed in the app (Sold, or its quoted cost saved): the price stays as signed (lib/quoteLock.ts).
   // The customer's acceptance is recorded only for the option it was signed at.
   const signed = await signedNow(q)
@@ -613,7 +615,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
     await tx.$queryRaw`SELECT id FROM "SavedQuote" WHERE id = ${q.id} FOR UPDATE`
     const row = (await tx.savedQuote.findUnique({ where: { id: q.id } })) as any
     const rowOpt = (row?.proposal as Proposal | null)?.options?.[body.option]
-    if (!row?.acceptedAt && (!rowOpt || optionSeen(rowOpt) !== body.seen)) return null
+    if (!row?.acceptedAt && (!rowOpt || optionSeen(rowOpt) !== body.seen || !rowOpt.fenceStyle || !(Number(rowOpt.finalPrice) > 0))) return null
     const s = rowOpt?.snapshot ?? {}
     const layout = row?.layout as any
     // Only while still unaccepted: two taps on Accept at once are one acceptance.

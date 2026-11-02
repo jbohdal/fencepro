@@ -120,6 +120,8 @@ export interface ResolvedTier {
   swapped: boolean
   /** An option added on this quote ("Add option"), not one of the tier set's. */
   added?: boolean
+  /** The style picked here is off for quoting now, so this tier went back to automatic: staff are told. */
+  swapOff?: string
   /** Swapped to a style the tier would not have picked itself, so the tier's name, words and photo are not this fence's (tierOptions). */
   ownWords?: boolean
   /** The style and its price; missing when the tier cannot be built for this quote. */
@@ -218,12 +220,13 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
       continue
     }
     const r = tierStyles(spec, own, styles)
-    if ('reason' in r) { out.push({ ...base, swapped: false, reason: r.reason }); continue }
+    const swapOff = swapName && !isAdded ? { swapOff: swapName } : {}
+    if ('reason' in r) { out.push({ ...base, ...swapOff, swapped: false, reason: r.reason }); continue }
     const priced = r.styles.map(s => ({ s, o: priceOption(tierInput, s), w: styleParts(s.name, s as Parameters<typeof styleParts>[1])?.width }))
     // The cheaper width; on a tie the wider one (fewer posts to set).
     priced.sort((a, b) => a.o.finalPrice - b.o.finalPrice || (typeof b.w === 'number' && typeof a.w === 'number' ? b.w - a.w : 0))
     const pick = priced[0]
-    const res: ResolvedTier = { ...base, swapped: false, style: pick.s, option: pick.o }
+    const res: ResolvedTier = { ...base, ...swapOff, swapped: false, style: pick.s, option: pick.o }
     if (r.pickCheaper && typeof pick.w === 'number') {
       res.widthFt = pick.w
       const other = priced.find(x => typeof x.w === 'number' && x.w !== pick.w)

@@ -125,3 +125,13 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - P&L bill dates: `new Date(b.billDate)` reads a date alone as midnight UTC, the evening before here, so a bill dated the 1st lands in the month before. Job cost entries are fixed; bills are left, since changing them moves existing month totals.
 - Vendor record, a refused save from an installer: the 403 (and a stale 409) sends back the vendor list, bill numbers, categories and line descriptions. The dollar fields are already taken out by the cost scrubber. It should send none of it, as the GET does.
 
+
+## A server check on saved prices (taken out of proposal options, Nov 2)
+
+- **The hole, on main too:** a Salesman or the office sees costs, so the phone prices the quote and the server takes the numbers. A crafted save of $1 was accepted on a swapped option and on the main price. The customer signs only a stored price, so the $1 would have to be saved first, by a signed in staff member. The owner and managers may set prices.
+- **Why it came out:** the check built for this refused honest work in review (coordinator's decision, to get proposal options live). Saves behave as on main.
+- **What it needs when it returns as its own piece:**
+  - "Move as is" and "New fence instead" are options at their own price on the same style; the check took them for the main option.
+  - A tier's adjust % can drift from Settings on a quote that has the older set.
+  - A refusal the phone shows, in place of "Quote stored" and a retry loop.
+  - Compare against the quote's yard, not the phone's request.

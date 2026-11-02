@@ -729,11 +729,13 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Most popular on each card: one at most, and removing the option clears the pick. **DEV**
 * Same yard for every option. Each option has its own sections (per run, at its own section length), kit, labor, margin, warranty and pull sheet ("This option's pull sheet" on the card). **DEV**
 * The customer's page shows each option's name, price, warranty and its photo or words. Signing makes the quote that option: price, costs, pull sheet, sections, margin and post counts, and from them the contract, deposit, Sales Order, warranty and job. Change orders follow it. **DEV**
-* A Salesman sees costs, so her phone prices her quote, and the office's too. Neither may set prices, so the server prices the same inputs and refuses a save whose price or any option's price differs from its own, or is under cost. The owner and managers may set prices and are not checked. **DEV**
+* A Salesman sees costs, so her phone prices her quote, as the owner's and the office's do. The customer signs only a stored price. A server check on saved prices is on the later list. **DEV**
 * Signing names what the customer read: the option's fence and price, compared with the saved option under a lock on the quote. Changed while the page was open: nothing is signed and the page reloads to the current options and says why. Every proposal, mixed or not. **DEV**
 * Every option is lifted to the minimum job price, tiers included, on the stored price; the card says so. **DEV**
 * No Most popular: no option is labeled. A proposal saved before keeps its label. **DEV**
-* 3 options at most: Compare options stops at the limit and the server refuses more. Good, Better, Best plus a quote's own fence that is none of them stays at 4 cards, as it always was. **DEV**
+* 3 options at most: Compare options stops at the limit and the server refuses a save that adds past it. A proposal that already has more keeps them or comes down. Good, Better, Best plus a quote's own fence that is none of them stays at 4 cards, as it always was. **DEV**
+* Public JSON carries only what the customer reads, by a list of fields (lib/customerProposal.ts). **DEV**
+* An option with no fence or price cannot be signed. A style picked on an option and later turned off says so on the card. **DEV**
 * Odd gate sizes: an amber line on every option with no parts list for that gate, for staff only; sending is not blocked. **DEV**
 * Each option shows staff its margin and what the dollar adjustment did to it, including when it was not applied. **DEV**
 * A save built on options another person has since changed is refused and says so. **DEV**

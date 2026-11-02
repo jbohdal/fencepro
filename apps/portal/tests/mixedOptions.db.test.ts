@@ -24,8 +24,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
   const { optionBlocks, priceOption } = await import('../../web/src/proposal')
   const { ownTierFold } = await import('../../web/src/proposalOptions')
   const { pinnedForMain, offeredCount } = await import('../../web/src/tiers')
-  const { overOptionLimit, pricedByServer, quoteChangedSince } = await import('../src/server/lib/quotePriceCheck.js')
+  const { overOptionLimit, quoteChangedSince } = await import('../src/server/lib/quotePriceCheck.js')
   const { optionSeen } = await import('../src/server/lib/optionSeen.js')
+  const { customerProposal } = await import('../src/server/lib/customerProposal.js')
   const { sectionsForRun } = await import('../../web/src/sectionCount')
   const { orderBasisFor } = await import('../src/server/lib/salesOrders.js')
 
@@ -224,6 +225,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     const auto = options.map((o, i) => (o.fenceStyle === ALUM ? o : { ...o, tier: { key: `t${i}` } }))
     expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: auto } }, null)).toBeNull()
     expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: options.slice(0, 3) } }, null)).toBeNull()
+    // A proposal that already has more keeps them, or comes down; adding one more is refused.
+    const five = [...options, { ...options[1], fenceStyle: "CL - 6' Black", snapshot: { pullSheet: [{ item: 'b', qty: 1 }] } }]
+    const was = { fenceStyle: ALUM, status: 'SENT', proposal: { version: 1, options } }
+    expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options } }, was)).toBeNull()
+    expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: options.slice(0, 4) } }, { ...was, proposal: { version: 1, options: five } })).toBeNull()
+    expect(await overOptionLimit({ fenceStyle: ALUM, proposal: { version: 1, options: five } }, was)).toMatchObject({ code: 'TOO_MANY_OPTIONS' })
   })
 
   test('odd gates: a warning on every option with no parts list, not only swapped ones, never a block', () => {
@@ -271,29 +278,21 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(await quoteChangedSince({}, { proposal: was }, { proposal: now })).toBeNull()
   })
 
-  test('a Salesman\'s saved prices are the server\'s: $1 on an option or the main price is refused', async () => {
-    const pr = request(ALUM, setOf('Aluminum'), { off: [], swap: { good: CHAIN } })
-    const j = job(pr)
-    const options = j.proposalOptions.map((o: any) => (o.fenceStyle === ALUM ? { ...o, finalPrice: j.totals.price } : { ...o }))
-    const good = { finalPrice: j.totals.price, proposal: { options } }
-    expect(await pricedByServer(accountId, { priceRequest: pr }, good, null)).toBeNull()
-    const cheapOption = { ...good, proposal: { options: options.map((o: any) => (o.fenceStyle === CHAIN ? { ...o, finalPrice: 1 } : o)) } }
-    expect(await pricedByServer(accountId, { priceRequest: pr }, cheapOption, null)).toMatchObject({ kind: 'refuse' })
-    expect(await pricedByServer(accountId, { priceRequest: pr }, { ...good, finalPrice: 1 }, null)).toMatchObject({ kind: 'refuse' })
-    // A price typed in the request is still under cost.
-    const typed = { ...pr, overrides: { finalPrice: 1, priceMethod: 'manual' } }
-    expect(await pricedByServer(accountId, { priceRequest: typed }, { finalPrice: 1 }, null)).toMatchObject({ kind: 'refuse' })
-    // A cost factor made up to shrink the price.
-    const factor = { ...pr, overrides: { costFactor: 50 } }
-    const jf = job(factor)
-    expect(await pricedByServer(accountId, { priceRequest: factor }, { finalPrice: jf.totals.price }, null)).toMatchObject({ kind: 'refuse' })
-    // A tier's Price adjust % sent by the phone is not read.
-    const tierSet = { ...setOf('Aluminum'), tiers: setOf('Aluminum').tiers.map((t: any) => ({ ...t, priceAdjustPct: -90 })) }
-    const j2 = job({ ...pr, tierSet })
-    const o2 = j2.proposalOptions.map((o: any) => (o.fenceStyle === ALUM ? { ...o, finalPrice: j2.totals.price } : { ...o }))
-    expect(await pricedByServer(accountId, { priceRequest: { ...pr, tierSet } }, { finalPrice: j2.totals.price, proposal: { options: o2 } }, null)).toMatchObject({ kind: 'refuse' })
-    // No inputs to check: not taken.
-    expect(await pricedByServer(accountId, {}, good, null)).toMatchObject({ kind: 'refuse' })
+  test('public JSON carries no staff field, by a list of what stays', () => {
+    const o = { label: 'x', fenceStyle: CHAIN, finalPrice: 1, perFoot: 1, sections: 1, badge: 'Most popular', warranty: { name: 'w' }, tier: { key: 'k', label: 'l', blurb: 'b', swapped: true }, minimumLifted: true, adjustmentRefused: true, problems: { block: [], warn: ['x'] }, snapshot: { totalCOGS: 1 }, somethingNew: 1 }
+    const p: any = customerProposal({ version: 1, options: [o], tierPrefs: { off: [] }, tierSet: { tiers: [] }, warranty: 'w' })
+    const text = JSON.stringify(p)
+    for (const word of ['minimumLifted', 'adjustmentRefused', 'problems', 'snapshot', 'swapped', 'somethingNew', 'tierPrefs', 'tierSet']) expect(text).not.toContain(word)
+    expect(p.options[0]).toMatchObject({ label: 'x', finalPrice: 1, badge: 'Most popular', tier: { key: 'k', label: 'l', blurb: 'b' }, warranty: { name: 'w' } })
+    expect(p.warranty).toBe('w')
+  })
+
+  test('a style turned off says so; the option goes back to automatic', () => {
+    const j = job(request(ALUM, setOf('Aluminum'), { off: [], swap: { good: 'Nobody' } }))
+    const t = j.tiers.find((x: any) => x.spec.key === 'good')
+    expect(t.swapOff).toBe('Nobody')
+    expect(t.style.name).toBe('Alum - DS - Emily - 48')
+    expect(m.quoteView(j).tiers.find((x: any) => x.spec.key === 'good').swapOff).toBe('Nobody')
   })
 
   describe('signed for the option that is not the quote\'s own', () => {
@@ -344,6 +343,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
       const out = await acceptQuote(now, { option: at, seen, name: 'Too Late' } as any)
       expect(out.status).toBe(409)
       expect(out.json).toMatchObject({ changed: true, reload: true })
+      // An option with no fence or no price signs nothing.
+      const blank = { ...q.proposal, options: q.proposal.options.map((o: any, i: number) => (i === at ? { ...o, fenceStyle: '' } : o)) }
+      await prisma.savedQuote.update({ where: { id }, data: { proposal: blank } })
+      const b = await prisma.savedQuote.findUnique({ where: { id } })
+      expect((await acceptQuote(b, { option: at, seen: optionSeen((b as any).proposal.options[at]), name: 'Blank' } as any)).status).toBe(409)
+      expect((await prisma.savedQuote.findUnique({ where: { id } }))!.acceptedAt).toBeNull()
+      await prisma.savedQuote.update({ where: { id }, data: { proposal: swapped } })
       // An old page that names nothing signs nothing either.
       expect((await acceptQuote(now, { option: at, name: 'Old Page' } as any)).status).toBe(409)
       // A save landing between the read and the signing: the check under the lock reads the row, not the page's copy.

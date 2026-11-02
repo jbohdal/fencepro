@@ -307,7 +307,7 @@ export function quoteView(job: QuoteJob) {
     tiers: job.tiers.map(t => ({
       spec: t.spec, category: t.category, popular: t.popular, off: t.off, swapped: t.swapped, reason: t.reason ?? null,
       styleName: t.style?.name ?? null, option: t.option ? optionView(t.option) : null, widthFt: t.widthFt, otherWidth: t.otherWidth, sameAs: t.sameAs ?? null,
-      ...(t.added ? { added: true } : {}), ...(t.ownWords ? { ownWords: true } : {}),
+      ...(t.added ? { added: true } : {}), ...(t.ownWords ? { ownWords: true } : {}), ...(t.swapOff ? { swapOff: t.swapOff } : {}),
       // Each option's own pull sheet, parts and counts only.
       pullSheet: t.option && (t.swapped || t.added) ? ((t.option.snapshot?.pullSheet ?? []) as LineItem[]).map(lineView) : null,
     })),

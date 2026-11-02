@@ -10,6 +10,7 @@
 // Makes two throwaway quotes named "Mixed e2e ..." and leaves them for the caller to remove (a dev copy).
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
+import { execFileSync } from 'child_process'
 import { signInByCookie } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
@@ -331,14 +332,12 @@ try {
   await fx4.page.getByText('Save new version').first().tap(); await sleep(3000) // the link is out, so a save asks first
   check('two browsers: the first save put the Wood option on', ((await (await fx4.ctx.request.get(`${API}/api/saved-quotes/${qc.id}`)).json()).data.proposal.options).some(o => o.fenceStyle.startsWith('wood')))
   await fx5.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(800)
-  await fx5.page.locator('[data-save-submit]').tap()
-  // It asks only when today's prices differ from the sent ones (live overhead moves on dev); either way the save is refused.
-  await fx5.page.getByText('Save new version').first().tap({ timeout: 4000 }).catch(() => {})
-  await fx5.page.getByText('so this save was not made').first().waitFor({ timeout: 12000 }).catch(() => {})
+  // Said on tapping Save, before anything says the quote is stored.
+  await fx5.page.getByText('while you had it open').first().waitFor({ timeout: 12000 }).catch(() => {})
   const both = (await (await fx5.ctx.request.get(`${API}/api/saved-quotes/${qc.id}`)).json()).data
   check('two browsers: the later save did not take the Wood option off', both.proposal.options.some(o => o.fenceStyle.startsWith('wood')), JSON.stringify(both.proposal.options.map(o => o.fenceStyle)))
   const said = await fx5.page.locator('body').textContent()
-  check('two browsers: the second person is told', /so this save was not made/.test(said), said.match(/.{0,60}so this save was not made.{0,60}/)?.[0] ?? '')
+  check('two browsers: the second person is told', /while you had it open/.test(said) && !/Quote stored/.test(said) && (await fx5.page.locator('[data-save-submit]').count()) === 0, said.match(/.{0,60}while you had it open.{0,60}/)?.[0] ?? '')
   if (SHOTS) await fx5.page.screenshot({ path: `${SHOTS}/two-browsers.png` })
 
   // A 6 ft yard: every option at the minimum.
@@ -354,6 +353,23 @@ try {
   await save(fx6.page, T)
   const qt = (await quotesNamed(fx6.ctx, T))[0]
   check('tiny yard: the stored prices are the minimum', qt.proposal.options.every(o => o.finalPrice === main), JSON.stringify(qt.proposal.options.map(o => o.finalPrice)))
+
+  // A proposal that already holds more than 3 (real ones do): her edit saves and nothing says "Not saved".
+  const shareT = (await (await fx6.ctx.request.post(`${API}/api/saved-quotes/${qt.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
+  const pub = JSON.stringify((await (await fx6.ctx.request.get(`${API}/api/saved-quotes/share/${shareT.shareToken}`)).json()).data ?? {})
+  check('public JSON: no staff fields', pub.includes('finalPrice') && !/minimumLifted|adjustmentRefused|"problems"|snapshot|swapped|tierPrefs|tierSet/.test(pub))
+  const extra = qt.proposal.options[0]
+  const more = [...qt.proposal.options, { ...extra, fenceStyle: "CL - 4' Galv", label: 'Galvanized Chain Link, 4 ft, Residential, No dig', tier: undefined, finalPrice: 351 }, { ...extra, fenceStyle: "CL - 4' Black", label: 'Black Chain Link, 4 ft, Residential, No dig', tier: undefined, finalPrice: 352 }]
+  execFileSync('psql', ['-d', 'ezbiz_dev', '-q', '-c', `update "SavedQuote" set proposal = jsonb_set(proposal::jsonb, '{options}', '${JSON.stringify(more).replace(/'/g, "''")}'::jsonb)::json, "shareToken" = null where id = '${qt.id}' and "customerName" like 'Mixed e2e tiny%'`])
+  const fx8 = await phone(browser, SALES)
+  await fx8.page.goto(`${APP}/quotes?quote=${qt.id}`)
+  const gb = fx8.page.locator('[data-quote-builder]')
+  await gb.waitFor({ timeout: 30000 }); await gb.locator('[data-tiers]').waitFor({ timeout: 20000 }); await sleep(2500)
+  await fx8.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(900)
+  await fx8.page.locator('textarea[placeholder^="HOA"]').fill('Gate code 1234')
+  await fx8.page.locator('[data-save-submit]').tap(); await sleep(3500)
+  const qg = (await (await fx8.ctx.request.get(`${API}/api/saved-quotes/${qt.id}`)).json()).data
+  check('a proposal with more than 3: her edit saves, the options stay, nothing refused', qg.notes === 'Gate code 1234' && qg.proposal.options.length > 3 && !/Not saved/.test(await fx8.page.locator('body').textContent()), `${qg.proposal.options.length} options, note: ${qg.notes}`)
 
   // Compare options stop at the limit.
   const fx7 = await phone(browser, SALES)

@@ -36,6 +36,7 @@ import { saveConfig } from './configStore'
 import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
 import { getQuotes, quoteStillMine, QUOTE_REPRICE_EVENT, serverSavedPrice } from './quoteStore'
 import { saveGate, gatedOnce } from './movedGate'
+import { sendJson } from './syncHttp'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
@@ -1253,8 +1254,7 @@ export default function QuoteBuilder({
       pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents), ...adjustmentRecord(pricingOverrides, adjApplied) }),
       work: savedWork,
       // A Salesman's or Installer's save: the server works out the costs from these inputs.
-      // A login that may not set prices prices on its phone, and the server checks it from these inputs (lib/quotePriceCheck.ts).
-      ...(internal && canPrice ? {} : { priceRequest }),
+      ...(internal ? {} : { priceRequest }),
       // The options this save is built on: if another save changed them meanwhile, it is refused (Nov 2 2026).
       ...(init?.id && init.proposal ? { proposalBase: proposalStamp(init.proposal) } : {}),
       // Priced here: the copy of the price data it was priced with (the server refuses an older one).
@@ -1360,10 +1360,28 @@ export default function QuoteBuilder({
   }
   /** Save / Update quote: prices are checked before the Save window opens (nothing, a new customer included, is made first). */
   const [checkingPrices, setCheckingPrices] = useState(false)
+  /** Options added past the limit, a picked style not fit to go on a link already out, or options someone else changed since this opened. Offline: the server decides. */
+  async function saveWouldBeRefused(): Promise<boolean> {
+    const opened = init?.proposal ? proposalStamp(init.proposal) : null
+    if (init?.id && opened !== null && !signedQuote) {
+      const r = await sendJson('GET', `/api/saved-quotes/${encodeURIComponent(init.id)}`).catch(() => null)
+      const saved = r?.result.ok ? (r.json?.data as SavedQuote | undefined) : undefined
+      if (saved?.proposal && proposalStamp(saved.proposal) !== opened) { toast.error('Not saved', 'This quote was changed on another phone or computer while you had it open. Close it and open it again to see the changes.'); return true }
+    }
+    if (jobType !== 'new' || signedQuote) return false
+    const had = init?.proposal?.options?.length ?? 0
+    if (offeredNow > MAX_TIERS && offeredNow > had && (offer.length > 0 || !!tierPrefs.added?.length)) { toast.error('Not saved', `A proposal has ${MAX_TIERS} options at most, and this one has ${offeredNow}. Take one off, then save again.`); return true }
+    const blocked = init?.shareToken ? tiers.filter(t => !t.off).flatMap(t => tierCards[t.spec.key]?.block ?? []) : []
+    if (blocked.length) { toast.error('Not saved', `This proposal is on the customer's link. ${blocked.join(' ')}`); return true }
+    return false
+  }
+
   async function openSave() {
     // Order on Save: is it still hers (a Salesman's saved quote the owner may have moved), then the prices, then the
     // Save window. Moved: the app says so once and closes the builder; nothing opens and nothing is made.
     if (!(await stillMineNow())) { setShowSaveModal(false); return }
+    // What the server would refuse is said here, before anything says the quote is stored.
+    if (await saveWouldBeRefused()) return
     // A held saved quote keeps its saved price (heldQuote.ts): no reprice to check.
     if (!internal || pricesStand || heldSaved) { setShowSaveModal(true); return }
     const was = repriced?.was ?? adjPrice
@@ -2087,6 +2105,7 @@ export default function QuoteBuilder({
                         </div>
                         <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
                         {words && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{words}</p>}
+                        {!sent && t.swapOff && <p className="text-xs font-semibold text-amber-800 mt-1" data-tier-swap-off>{optionLabel(t.swapOff)} is off for quoting now, so this option went back to automatic. Pick another style or take it off.</p>}
                         {!sent && t.option && !t.off && t.option.minimumLifted && <p className="text-xs font-semibold text-gray-700 mt-0.5" data-tier-minimum>Lifted to the minimum job price (internal).</p>}
                         {!sent && t.option && !t.off && t.option.adjustmentRefused && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-tier-adjust-refused>The dollar adjustment is not on this option: it would go under cost.</p>}
                         {!sent && internal && t.option && !t.off && !main && <p className="text-xs text-gray-700 mt-0.5" data-tier-margin>Margin {(t.option.snapshot.gmPct * 100).toFixed(1)}%{t.option.adjustmentCents ? ` after ${t.option.adjustmentCents < 0 ? '−' : '+'}${fmt(Math.abs(t.option.adjustmentCents) / 100)}` : ''}</p>}
@@ -2429,7 +2448,7 @@ export default function QuoteBuilder({
                               onChange={e => setOffer(list => e.target.checked ? [...list, s.name] : list.filter(n => n !== s.name))} />
                             <span className="flex-1 min-w-0">
                               <span className="block text-sm font-semibold text-gray-900">{o.label}</span>
-                              <span className="block text-xs text-gray-600">{o.sections} sections · {fmt(o.perFoot)}/ft</span>
+                              <span className="block text-xs text-gray-600">{o.sections} section{o.sections === 1 ? '' : 's'} · {fmt(o.perFoot)}/ft</span>
                             </span>
                             <span className="text-right shrink-0">
                               <span className="block text-sm font-bold tabular-nums">{fmt(price)}</span>
@@ -2496,8 +2515,8 @@ export default function QuoteBuilder({
             <p className="text-xs font-semibold text-gray-600 truncate tabular-nums" data-bar-facts>
               {step === 'yard' && entry === 'layout' && yard
                 ? `${sidesDone} of ${sidesOn} sides · ${totalFootage} ft · ${effCorners} corner, ${effEnds} end`
-                : work ? (jobType === 'move' ? `Move ${Math.round(moveIn.oldFt)} ft → ${totalFootage} ft · ${work.sections} sections` : `Repair · ${REPAIR_ITEMS.reduce((t, k) => t + (chargedRepairItems(repairIn)[k] ?? 0), 0)} items`)
-                : totalFootage > 0 ? `${totalFootage} ft · ${sections} sections · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
+                : work ? (jobType === 'move' ? `Move ${Math.round(moveIn.oldFt)} ft → ${totalFootage} ft · ${work.sections} section${work.sections === 1 ? '' : 's'}` : `Repair · ${REPAIR_ITEMS.reduce((t, k) => t + (chargedRepairItems(repairIn)[k] ?? 0), 0)} items`)
+                : totalFootage > 0 ? `${totalFootage} ft · ${sections} section${sections === 1 ? '' : 's'} · ${effCorners} corner, ${effEnds} end` : 'No fence yet'}
             </p>
             <div className={`flex items-center gap-2 mt-1 ${signedQuote ? 'flex-wrap md:flex-nowrap' : ''}`}>
               <p className="text-xl font-bold tabular-nums text-gray-900 shrink-0 whitespace-nowrap mr-auto" data-bar-price data-builder-cents={Math.round(adjPrice * 100)}>{fmt(shownPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>

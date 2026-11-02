@@ -444,9 +444,9 @@ After the review, Jonathan: "The minimum job price applies to every option." "Od
 Decided by the builder after the review:
 
 - **Signing** sends the option's style and price; the server compares them with the saved option in the signing transaction, the row locked. A page that sends neither (opened before this) is refused and reloads, once. Applies on the older share page too.
-- **Price check** covers logins with no `prices.change` that price on their phone (Salesman, office), on a new or changed price, and on Save new version. Their own margin and labor choices stand; a price under cost does not. A phone on an older copy of the app is asked to reopen it.
+- **Price check:** built, failed honest work in review, taken out by the coordinator's decision. See LATER_IDEAS.
 - **Save conflict** compares the options the builder opened with; SavedQuote has no version number and its `updatedAt` moves with every customer open.
-- **4 cards:** Good, Better, Best plus a quote's own fence that is none of them stays, because "nothing changes unless someone swaps a style". On dev that is 15 live quotes with 4 or more options. Only hand picks are held to 3. Sent to the coordinator as a question.
+- **4 cards:** Good, Better, Best plus a quote's own fence that is none of them stays, because "nothing changes unless someone swaps a style". On dev that is 15 live quotes with 4 or more options. Only hand picks are held to 3, and a proposal saved with more keeps them (10 of 36 real proposals hold 4 to 7 with Compare ticks).
 - **A signed option's adjustment:** the signed record holds what that option took, so a -$5,000 it could not take is cleared. Whether a dollar discount should be flat on a much cheaper option is Jonathan's question; today's math stays.
 
 Open questions for Jonathan are in the Nov 2 report; each was left as today.

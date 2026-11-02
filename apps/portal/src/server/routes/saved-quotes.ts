@@ -55,7 +55,8 @@ import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { slimQuote, withHeavyParts } from '../lib/quoteSlim.js'
 import { optionSeen } from '../lib/optionSeen.js'
-import { checkQuotePrices, refusePrices, priceCheckAudit, quoteChangedSince } from '../lib/quotePriceCheck.js'
+import { customerProposal } from '../lib/customerProposal.js'
+import { checkQuotePrices, refusePrices, priceCheckAudit, quoteChangedSince, overOptionLimit } from '../lib/quotePriceCheck.js'
 
 const router = Router()
 
@@ -288,8 +289,10 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     }
     // Priced at prices the server no longer has, or a fence not available for quoting now: refused, the phone
     // reprices and asks first (broken list #58, lib/quotePriceCheck.ts). An older app's save is taken and recorded.
-    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, null, roleOf(req))
+    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, null)
     if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
+    const over = await overOptionLimit(data, null)
+    if (over) { refusePrices(res, over); return }
     const created = await prisma.savedQuote.create({
       data: {
         ...(decision.kind === 'use' ? { id: decision.id } : {}),
@@ -376,8 +379,11 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     if (data.status === 'DRAFT' && (existing.status === 'SENT' || existing.status === 'LOST') && req.body?.backToDraft !== true) delete data.status
     // An unsent quote repriced at prices the server no longer has, or put on a fence not available for quoting
     // now: refused, the phone reprices and asks first (broken list #58). Sent and signed quotes are not checked.
-    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, existing, roleOf(req))
+    const priceCheck = await checkQuotePrices(req.user.crmAccountId, req.body, data, existing)
     if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
+    // Never adds options past the limit; a proposal that already has more keeps them or comes down (lib/quotePriceCheck.ts).
+    const over = (await signedNow(existing)) ? null : await overOptionLimit(data, existing)
+    if (over) { refusePrices(res, over); return }
     // Two people on one quote: a save built on options another save has since changed is refused, nothing lost (lib/quotePriceCheck.ts).
     const stale = await quoteChangedSince(req.body, data, existing)
     if (stale) { refusePrices(res, stale); return }
@@ -712,9 +718,7 @@ router.get('/share/:token', async (req: any, res) => {
 function forCustomer<T extends Record<string, any>>(q: T) {
   const { materialCost, laborCost, tearOutCost, totalCOGS, gmPct, pullSheet, pricing, ownerId, adjLaborHrs, work, acceptedIp, acceptedUserAgent, ...rest } = q
   void materialCost; void laborCost; void tearOutCost; void totalCOGS; void gmPct; void pullSheet; void pricing; void ownerId; void adjLaborHrs; void acceptedIp; void acceptedUserAgent
-  const proposal = rest.proposal && typeof rest.proposal === 'object' && Array.isArray((rest.proposal as any).options)
-    ? { ...(rest.proposal as any), options: (rest.proposal as any).options.map(({ snapshot, ...o }: any) => { void snapshot; return o }) }
-    : rest.proposal
+  const proposal = customerProposal(rest.proposal)
   // A move or repair: only what kind of job it is (its cost lines stay inside).
   const jobType = work && typeof work === 'object' && typeof (work as any).type === 'string' ? (work as any).type : null
   return { ...rest, proposal, materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], pricing: null, adjLaborHrs: 0, work: jobType ? { type: jobType } : null }
