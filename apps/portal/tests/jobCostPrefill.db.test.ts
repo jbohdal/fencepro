@@ -34,7 +34,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
   const get = (role: string, p: string) => fetch(`${base}/api/job-costing${p}`, { headers: { Authorization: `Bearer ${token(role)}` } }).then(async r => ({ status: r.status, json: await r.json().catch(() => null) as any }))
 
   const sold = (id: string, extra: Record<string, unknown> = {}) => prisma.savedQuote.create({ data: {
-    id, accountId, customerName: 'E2E Job Cost Prefill', fenceStyle: "WV-ND 6'x8' Privacy", runs: [], sections: 10, materialCost: 4222.99, laborCost: 769, tearOutCost: 0,
+    id, accountId, customerName: 'E2E Job Cost Prefill', fenceStyle: "WV-ND 6'x8' Privacy", runs: [], pullSheet: [], sections: 10, materialCost: 4222.99, laborCost: 769, tearOutCost: 0,
     totalCOGS: 4991.99, finalPrice: 8914.27, gmPct: 0.35, pricing: { laborMode: 'subcontractor' }, status: 'SOLD', ...extra,
   } as any })
   const putBills = (bills: unknown[]) => prisma.vendorState.upsert({ where: { accountId }, create: { accountId, vendors: [], bills: bills as any, payments: [] }, update: { bills: bills as any } })
