@@ -287,6 +287,33 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     await prisma.savedQuote.deleteMany({ where: { id: { in: [q.id, s.id] } } })
   })
 
+  test('a quote signed between the move\'s read and its write: nothing changes, and it says so', async () => {
+    const qid = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 6500, totalCOGS: 2932.35, gmPct: 0.4661, hasSalesman: true } })).id
+    // The customer's acceptance lands after the move has read the quote as unsigned, as the two do at once.
+    const real = prisma.$transaction.bind(prisma)
+    Object.defineProperty(prisma, '$transaction', { configurable: true, value: async (fn: any) => {
+      delete (prisma as any).$transaction
+      await prisma.savedQuote.update({ where: { id: qid }, data: { status: 'SOLD', acceptedAt: new Date(), soldAt: new Date(), acceptedBy: 'Pat' } })
+      await prisma.savedJob.create({ data: { id: `${tag}-race`, accountId, quoteId: qid, crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), quotePrice: 6500, contractValue: 6500, gmPct: 0.4661, hasSalesman: true } })
+      return real(fn)
+    } })
+    const r = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.owner, confirm: true })
+    delete (prisma as any).$transaction
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'CHANGED' })
+    expect(r.json.error).toMatch(/changed a moment ago/)
+    const now = (await quoteOf(qid))! as any
+    expect(now).toMatchObject({ status: 'SOLD', salesRep: SAM(), hasSalesman: true, gmPct: 0.4661 })
+    expect(now.pricing?.commissionMovedOff).toBeUndefined()
+    expect(await prisma.savedJob.findUnique({ where: { id: `${tag}-race` } })).toMatchObject({ salesRep: SAM(), gmPct: 0.4661, hasSalesman: true })
+    expect(await prisma.crmContactNote.count({ where: { accountId, body: { contains: qid.slice(-6).toUpperCase() } } })).toBe(0)
+    // Asked again it is a signed move: the owner's question, and its commission stays.
+    const ask = await call('POST', `/api/saved-quotes/${qid}/salesman`, tok.owner, { to: id.owner })
+    expect(ask.json.code).toBe('CONFIRM_SIGNED')
+    await prisma.savedJob.delete({ where: { id: `${tag}-race` } })
+    await prisma.savedQuote.delete({ where: { id: qid } })
+  })
+
   test('Save without commission on a move or a repair: no commission left in any copy, and a move says so', async () => {
     for (const type of ['move', 'repair']) {
       const work = { version: 1, type, description: 'd', priced: { commissionCents: 53227, grossMarginCents: 283000, priceCents: 591400, costCents: 255000 } }

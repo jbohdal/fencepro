@@ -16,6 +16,7 @@
  */
 
 import 'dotenv/config'
+import bcrypt from 'bcryptjs'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import type { AddressInfo } from 'net'
@@ -40,6 +41,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('email: never a fake "sent" (dev 
   let server: ReturnType<express.Express['listen']>
   const saved: Record<string, string | undefined> = {}
 
+  const OWNER_PASSWORD = `pw-${Date.now().toString(36)}`
   const call = async (method: string, p: string, body?: unknown, auth = true) => {
     const r = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) })
     return { status: r.status, json: await r.json().catch(() => null) as any }
@@ -48,7 +50,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('email: never a fake "sent" (dev 
   beforeAll(async () => {
     for (const k of KEYS) { saved[k] = process.env[k]; process.env[k] = '' }
     accountId = (await prisma.crmAccount.create({ data: { name: `Test ${tag}`, status: 'active' } })).id
-    const owner = await prisma.crmUser.create({ data: { email: ownerEmail, firstName: 'Test', lastName: 'Owner', role: 'super_admin', status: 'active', mustChangePassword: false, crmAccountId: accountId } })
+    const owner = await prisma.crmUser.create({ data: { email: ownerEmail, firstName: 'Test', lastName: 'Owner', role: 'super_admin', status: 'active', mustChangePassword: false, passwordHash: await bcrypt.hash(OWNER_PASSWORD, 4), crmAccountId: accountId } })
     ownerId = owner.id
     token = jwt.sign({ sub: owner.id, email: owner.email, role: 'super_admin', firstName: 'Test', lastName: 'Owner', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     contactId = (await prisma.crmContact.create({ data: { accountId, firstName: 'Email', lastName: tag, phone: '3525550199' } as any })).id
@@ -147,7 +149,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('email: never a fake "sent" (dev 
       const words: Record<string, string> = { field_crew: 'Installer', sales_rep: 'Salesman', office_staff: 'Office', manager: 'Manager', admin: 'Admin' }
       for (const [role, word] of Object.entries(words)) {
         const to = `${tag}-${role.replace('_', '')}@example.test`
-        const ti = await call('POST', '/api/crm-auth/invite', { firstName: 'Role', lastName: 'Words', email: to, role })
+        // Inviting an admin asks the caller's own password (the Team rule).
+        const ti = await call('POST', '/api/crm-auth/invite', { firstName: 'Role', lastName: 'Words', email: to, role, ...(role === 'admin' ? { currentPassword: OWNER_PASSWORD } : {}) })
         expect(ti.json.data).toMatchObject({ emailSent: true })
         const rs = await call('POST', `/api/crm-auth/invite/${ti.json.data.id}/resend`)
         expect(rs.json.data).toMatchObject({ emailSent: true })

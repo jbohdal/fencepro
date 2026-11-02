@@ -135,8 +135,9 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   const contactId = quote?.crmContactId ?? job?.crmContactId ?? null
   const changed = await prisma.$transaction(async tx => {
     if (quote) {
-      // Only if nobody changed its Salesman since it was read here.
-      const q = await tx.savedQuote.updateMany({ where: { id: quote.id, accountId, deletedAt: null, salesRep: quote.salesRep }, data: { salesRep: target.name, ...((commission.fields ?? {}) as any) } })
+      // Only if nobody changed its Salesman since it was read here, and, read as unsigned, it still is: a customer signing
+      // at this moment wins, and nothing here changes (it would need the question a signed job gets, and its commission stays).
+      const q = await tx.savedQuote.updateMany({ where: { id: quote.id, accountId, deletedAt: null, salesRep: quote.salesRep, ...(signed ? {} : { status: { not: 'SOLD' as const }, soldAt: null, acceptedAt: null }) }, data: { salesRep: target.name, ...((commission.fields ?? {}) as any) } })
       if (q.count !== 1) return false
       await tx.jobQuotedCost.updateMany({ where: { accountId, quoteId: quote.id }, data: { salesRep: target.name } })
     }
@@ -147,7 +148,7 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
     }
     return true
   })
-  if (!changed) return { ok: false, status: 409, code: 'CHANGED', error: 'The Salesman on this quote was changed a moment ago. Look at it again.' }
+  if (!changed) return { ok: false, status: 409, code: 'CHANGED', error: 'This quote was changed a moment ago. Nothing was changed. Look at it again.' }
   // The new Salesman has it on the next request; the old one no longer does (the rep decides).
   forgetAllScopes()
   return { ok: true, already: false, moved }
