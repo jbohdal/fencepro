@@ -34,7 +34,7 @@ import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
-import { scheduleFit, startOfChange, effectiveWork, afterVoid } from '../lib/changeOrderWork.js'
+import { scheduleFit, startOfChange, effectiveWork, afterVoid, layoutNote } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { isSalesman, salesmanLogin, salesmanOwnsJob, forSalesman } from '../lib/salesmanJobs.js'
@@ -249,7 +249,9 @@ router.get('/:id/for-signing', requireCan('quotes.change'), async (req: any, res
     const also = planSvg ? alsoInDrawingWords(alsoInDrawing(co, await siblingsOf(co))) : []
     // "Questions? Call ...": the number the signed PDF and the customer's link give.
     const questionsPhone = (await changeOrderPhonesFor(accountId, q?.proposal)).questions || null
-    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also, questionsPhone } })
+    const full = planSvg ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId } }) : null
+    const jobNote = full ? await layoutNote(accountId, full, co as any, await siblingsOf(co) as any) : null
+    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, jobNote, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also, questionsPhone } })
   } catch (e) { fail(res, e, 'load the change order to sign') }
 })
 

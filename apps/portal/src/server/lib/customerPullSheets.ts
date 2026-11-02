@@ -26,7 +26,7 @@ import { plainStyleName } from './estimates.js'
 import { toCents, qty } from './jobCostingMath.js'
 import { quotedCostFor, quotedNow, actualFor, linesOf as takeoffLinesOf } from './jobCosting.js'
 import { linesOf as coLinesOf } from './changeOrders.js'
-import { approvedInOrder, sheetChanges, effectiveWork, type LineChange, type StoredWork } from './changeOrderWork.js'
+import { approvedInOrder, sheetChanges, sheetEvents, effectiveWork, type LineChange, type StoredWork } from './changeOrderWork.js'
 
 export type PullSheetStatus = 'Draft' | 'Sent' | 'Signed' | 'Sold' | 'Lost' | 'Linked by hand'
 
@@ -171,7 +171,7 @@ type CoForNote = { number: number; approvedAt: Date | null; reason: string; scop
  * newest revision with the changes highlighted (a change made from the yard
  * drawing), or as signed (typed lines only change the price).
  */
-export function changeNoteOf(rows: CoForNote[]): string | null {
+export function changeNoteOf(rows: CoForNote[], sheetRev?: number): string | null {
   if (!rows.length) return null
   const parts = rows.map(r => {
     const s = (r.scope && typeof r.scope === 'object' ? r.scope : null) as Record<string, unknown> | null
@@ -192,7 +192,7 @@ export function changeNoteOf(rows: CoForNote[]): string | null {
   if (!withWork.length) return `${parts.join(' ')} This pull sheet is as signed and does not include ${rows.length === 1 ? 'that change' : 'those changes'}.`
   const last = withWork[withWork.length - 1]
   const tail = priceOnly.length ? ` ${priceOnly.map(r => `CO-${r.number}`).join(', ')} changed the price only (typed lines), not the materials.` : ''
-  return `${parts.join(' ')} This is pull sheet rev ${last.contractRev ?? withWork.length + 1}, from change order CO-${last.number}; what changed is marked, and the earlier revisions are kept below.${tail}`
+  return `${parts.join(' ')} This is pull sheet rev ${sheetRev ?? last.contractRev ?? withWork.length + 1}, from change order CO-${last.number}; what changed is marked, and the earlier revisions are kept below.${tail}`
 }
 
 /**
@@ -256,24 +256,18 @@ export async function customerPullSheets(accountId: string, contactId: string): 
     // drawing), its pull sheet as priced on the server, with what changed marked. The old ones are kept.
     const changed = j.quoteId ? approvedInOrder(cos.filter(c => c.quoteId === j.quoteId)).filter(c => c.work && typeof c.work === 'object') : []
     let revisions: PullSheetRevision[] | undefined
-    if (changed.length) {
-      revisions = [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
+    // In the order it happened: a void is its own revision, between the change orders around it, the work as it then is.
+    const undone = j.quoteId ? voids.filter(c => c.quoteId === j.quoteId) : []
+    const events = sheetEvents([...changed, ...undone])
+    if (events.length) {
+      revisions = revisions ?? [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
       let prev = lines
-      for (const c of changed) {
-        const l = linesFromSheet((effectiveWork(c) as StoredWork).pullSheet)
-        const rev = c.contractRev ?? revisions.length + 1
-        revisions.push({ rev, title: `Rev ${rev}: change order CO-${c.number}`, date: day(c.approvedAt), source: `Change order CO-${c.number} (approved ${words(day(c.approvedAt))})`, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
+      for (const { row: c, voided, rev } of events) {
+        const l = voided ? prev : linesFromSheet((effectiveWork(c) as StoredWork).pullSheet)
+        const what = `${voided ? `CO-${c.number} voided` : `Change order CO-${c.number}`} (${voided ? '' : 'approved '}${words(day(voided ? c.voidedAt : c.approvedAt))})`
+        revisions.push({ rev, title: `Rev ${rev}: ${voided ? `CO-${c.number} voided` : `change order CO-${c.number}`}`, date: day(voided ? c.voidedAt : c.approvedAt), source: what, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
         prev = l
       }
-    }
-    // Voided since it was signed: the crew's sheet is the work as it is now, its own revision, the site of the change said.
-    const undone = j.quoteId ? voids.filter(c => c.quoteId === j.quoteId) : []
-    if (undone.length) {
-      revisions = revisions ?? [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
-      const last = undone[undone.length - 1], was = revisions[revisions.length - 1]
-      const names = undone.map(c => `CO-${c.number}`).join(' and ')
-      const rev = Math.max(...revisions.map(r => r.rev)) + 1
-      revisions.push({ rev, title: `Rev ${rev}: ${names} voided`, date: day(last.voidedAt), source: `${names} voided (${words(day(last.voidedAt))})`, lines: was.lines, totalCostCents: was.totalCostCents, changes: [] })
     }
     if (revisions) {
       revisions.reverse()
@@ -303,7 +297,7 @@ export async function customerPullSheets(accountId: string, contactId: string): 
       sections: changed.length ? (effectiveWork(changed[changed.length - 1]) as StoredWork).sections : q?.sections || j.sections,
       status, archived: !!(j.archivedAt || q?.archivedAt), date: (revisions && revisions[0].date) || (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt) || day(j.createdAt),
       source, lines, totalCostCents: sumCost(lines),
-      changeNote: j.quoteId ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === j.quoteId))) : null,
+      changeNote: j.quoteId ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === j.quoteId)), revisions?.[0]?.rev) : null,
       ...(revisions ? { revision: revisions[0].rev, changes: revisions[0].changes, revisions } : {}),
       finalTakeoff, packetToken: packets.find(p => p.jobId === j.id)?.token ?? null,
     })

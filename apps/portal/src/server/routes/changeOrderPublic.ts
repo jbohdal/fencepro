@@ -11,6 +11,7 @@
  * Policy allows only this page's own inline script.
  */
 
+import { layoutNote } from '../lib/changeOrderWork.js'
 import { Router } from 'express'
 import express from 'express'
 import crypto from 'crypto'
@@ -77,7 +78,10 @@ changeOrderPublic.get('/:token', async (req, res) => {
   const also = work?.planSvg ? alsoInDrawingWords(alsoInDrawing(co, await prisma.changeOrder.findMany({ where: { accountId: co.accountId, quoteId: co.quoteId, deletedAt: null } }))) : []
   const own = ownChangeWords(work)
   // A repair changes no layout: its list is the change.
-  const plan = (q.work as any)?.type !== 'repair' && work?.planSvg && safeSvg(work.planSvg) ? `<section><h2>The new layout</h2>${own && also.length ? `<p class="small" data-co-own-change><b>This change order:</b> ${esc(own)}.</p>` : ''}${also.map(t => `<p class="facts" data-co-not-part>${esc(t)}</p>`).join('')}<div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
+  const showPlan = (q.work as any)?.type !== 'repair' && work?.planSvg && safeSvg(work.planSvg)
+  // The drawing is this change order's: when what is signed takes the job further, said here.
+  const jobNote = showPlan && work ? await layoutNote(co.accountId, await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId } }), co as any, await prisma.changeOrder.findMany({ where: { accountId: co.accountId, quoteId: co.quoteId, deletedAt: null } }) as any) : null
+  const plan = showPlan ? `<section><h2>The new layout</h2>${jobNote ? `<p class="facts" data-co-job-feet>${esc(jobNote)}</p>` : ''}${own && also.length ? `<p class="small" data-co-own-change><b>This change order:</b> ${esc(own)}.</p>` : ''}${also.map(t => `<p class="facts" data-co-not-part>${esc(t)}</p>`).join('')}<div class="plan">${safeSvg(work.planSvg)}</div></section>` : ''
   const state = co.status === 'void'
     ? `<section class="void"><h2>Cancelled</h2><p>This change order was cancelled and is not part of your contract. ${call}</p></section>`
     : !toSign

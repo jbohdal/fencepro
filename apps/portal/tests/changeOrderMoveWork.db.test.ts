@@ -21,11 +21,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
   const { default: changeOrders } = await import('../src/server/routes/change-orders.js')
   const { default: pullSheets } = await import('../src/server/routes/pull-sheets.js')
   const { packetStaff, packetPublic } = await import('../src/server/routes/installPacket.js')
+  const { changeOrderPublic } = await import('../src/server/routes/changeOrderPublic.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const { snapshotQuotedCost } = await import('../src/server/lib/jobCosting.js')
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
 
   const STYLE = "WV-ND 6'x8' Privacy"
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
   const made = { contacts: [] as string[], quotes: [] as string[], jobs: [] as string[] }
   let accountId = '', owner = '', base = '', userId = '', n = 0
   let server: ReturnType<express.Express['listen']>
@@ -68,6 +70,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
     app.use('/api/pull-sheets', pullSheets)
     app.use('/api/install-packets', packetStaff)
     app.use('/p/i', packetPublic)
+    app.use('/p/co', changeOrderPublic)
     server = app.listen(0)
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
@@ -262,6 +265,63 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders on a move or repai
     expect((r.json.creditWarning as string)).toContain(`$${(now.voidGapCents / 100).toLocaleString('en-US')}`)
     const items = (await call('GET', `/api/change-orders/timeline?jobId=${jobId}`)).json.data.items.map((x: any) => x.title)
     expect(items.some((t: string) => /The job after CO-1 was voided: 110 ft/.test(t))).toBe(true)
+  })
+
+  /** New fence: the warning never says an amount or a line, whatever the chain (Nov 2 2026: "$202 under" with a true gap of $161, $1 and $0). */
+  const plainWarning = (w: string) => {
+    expect(w).toMatch(/the contract stands as it is\. Check the contract against the work/)
+    expect(w).not.toMatch(/\$\d/)
+    expect(w).not.toMatch(/own line/)
+  }
+  const sold = (ft: number, walk: number) => ({ request: request(ft, walk, 'new'), layout: { yard: null } })
+
+  test.each([['chain link', "CL - 5' Galv"], ['vinyl', STYLE]])('a new fence, %s: gate signed, 20 ft signed, gate voided: true words, no amount', async (_n, style) => {
+    const { quoteId, jobId } = await signed(null)
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { fenceStyle: style } })
+    const w = (ft: number, walk: number) => ({ request: { ...request(ft, walk, 'new'), fenceStyle: style }, layout: { yard: null } })
+    const co1 = await approve(await make(quoteId, { lines: lines(49500), work: w(100, 1) }))
+    await approve(await make(quoteId, { lines: lines(43100), work: w(120, 1) }))
+    const r = await voidIt(quoteId, co1.id)
+    plainWarning(r.json.creditWarning)
+    expect((await fresh(quoteId, co1.id)).voidGapCents).toBe(0)
+    expect(await job(jobId)).toMatchObject({ contractValue: 4431, totalFeet: 120 })
+  })
+
+  test('a new fence: gate signed, gate out still open, gate voided: no amount', async () => {
+    const { quoteId } = await signed(null)
+    const co1 = await approve(await make(quoteId, { lines: lines(49500), work: sold(100, 1) }))
+    await make(quoteId, { lines: lines(-49500), work: sold(100, 0) })
+    const r = await voidIt(quoteId, co1.id)
+    plainWarning(r.json.creditWarning)
+    expect(r.json.creditWarning).toMatch(/Void CO-2 too/)
+  })
+
+  test('a void is a pull sheet revision of its own, between the orders around it, and the job history reads the same', async () => {
+    const { quoteId, jobId, contactId } = await signed({ type: 'move', move: MOVE })
+    const co1 = await approve(await make(quoteId, { lines: lines(80000), work: move(120) }))
+    await approve(await make(quoteId, { lines: lines(80000), work: move(140) }))
+    expect((await sheet(contactId, jobId)).revision).toBe(3)
+    await voidIt(quoteId, co1.id)
+    expect((await sheet(contactId, jobId)).revision).toBe(4)
+    await approve(await make(quoteId, { lines: lines(10000), work: move(125) }))
+    const s = await sheet(contactId, jobId)
+    expect(s.revision).toBe(5)
+    expect(s.revisions.map((r: any) => r.title.replace(/^Rev \d+: /, ''))).toEqual(['change order CO-3', 'CO-1 voided', 'change order CO-2', 'as signed'])
+    const items = (await call('GET', `/api/change-orders/timeline?jobId=${jobId}`)).json.data.items.map((x: any) => x.title)
+    expect(items).toEqual(expect.arrayContaining(['Pull sheet rev 4 for the crew (CO-1 voided)', 'Pull sheet rev 5 for the crew (change order CO-3)']))
+  })
+
+  test('signing CO-1 after CO-2: its drawing is said to be its own, with the feet the job goes to', async () => {
+    const { quoteId } = await signed({ type: 'move', move: MOVE })
+    const co1 = await make(quoteId, { lines: lines(80000), work: { ...move(120), planSvg: SVG } })
+    const co2 = await make(quoteId, { lines: lines(80000), work: { ...move(140), planSvg: SVG } })
+    await approve(co2)
+    const now = await fresh(quoteId, co1.id)
+    const data = (await call('GET', `/api/change-orders/${co1.id}/for-signing`)).json.data
+    expect(data.jobNote).toBe('This drawing shows 120 ft. With what is signed so far, the job will be 140 ft.')
+    await call('PATCH', `/api/change-orders/${co1.id}`, { baseVersion: now.version, status: 'sent' })
+    const token = (await call('POST', `/api/change-orders/${co1.id}/link`)).json.data.token
+    expect(await fetch(`${base}/p/co/${token}`).then(x => x.text())).toMatch(/data-co-job-feet>This drawing shows 120 ft\. With what is signed so far, the job will be 140 ft\./)
   })
 
   test('voiding a typed line says nothing false', async () => {

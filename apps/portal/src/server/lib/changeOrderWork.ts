@@ -192,10 +192,10 @@ export function requestOfQuote(q: Json): Json {
 export const workChangeable = (q: { work?: unknown } | null | undefined) => !(isObj(q?.work) && (q!.work.type === 'move' || q!.work.type === 'repair'))
 
 /** Price a request on the server, with the signed quote's cost choices (its sub rate, labor, Overhead %). */
-async function price(accountId: string, body: Json, signed: Json) {
+async function price(accountId: string, body: Json, signed: Json, changeBase: Json = null) {
   const m = await pricingModule() as Json
   // The real work and its real costs, never a change order's price (web changeOrderPricing.ts): changeBase stays out.
-  const { req, overheadPct } = requestFrom({ ...body, keepCents: false, changeBase: null }, signed, m.importedOldPrice, m.keepsCents)
+  const { req, overheadPct } = requestFrom({ ...body, keepCents: false, changeBase }, signed, m.importedOldPrice, m.keepsCents)
   const job = m.quoteJobFor(await dataFor(accountId), req, overheadPct)
   return { req, job }
 }
@@ -348,6 +348,18 @@ export function signingClash(me: CoRow, rows: CoRow[], quote: Json): string | nu
   return null
 }
 
+/**
+ * Said under a change order's drawing when the job is not that drawing, the
+ * customer signing CO-1 after CO-2: the drawing is CO-1's, the job goes further.
+ * Null when they agree.
+ */
+export async function layoutNote(accountId: string, quote: Json, co: CoRow, rows: CoRow[]): Promise<string | null> {
+  if (!isObj(co.work) || co.status === 'void') return null
+  const signing = rows.map(r => (r.id === co.id ? { ...r, status: 'approved', approvedAt: r.approvedAt ?? new Date() } : r))
+  const own = sumFt(shapeOf(co.work).runs), job = sumFt(foldShapes(quote, signing, await deriveFor(accountId)).shape.runs)
+  return own === job ? null : `This drawing shows ${own} ft. With what is signed so far, the job ${co.status === 'approved' ? 'is' : 'will be'} ${job} ft.`
+}
+
 /** What is left when a change order is voided: said to whoever voids it, kept on it for the job history and the next change order. */
 export interface AfterVoid { warning: string | null; feet: number; sections: number; gapCents: number }
 
@@ -359,9 +371,12 @@ const GAP_WORTH_SAYING = 500
  * After a change order with work is voided. Null for typed lines: they changed
  * no work, so voiding one says nothing about it. What is said is what the fold
  * did: the voided change out of the job, unless a later one changed the same
- * thing (then it stayed); and when one was signed, the difference the void left
- * between the contract and what the work prices at today, whichever way. The
- * price is kept; the next change order shows that on its own line.
+ * thing (then it stayed). On a move or repair, when one was signed, also the
+ * difference the void left between the contract and what the work prices at
+ * today, whichever way: both priced the way its change orders are, and the next
+ * change order shows it on its own line; the price is kept. A new fence has no
+ * such figure (its step lines price a change, not the job, so nothing here adds
+ * up to a true gap, and its lines don't carry one): no amount, no promise.
  */
 export async function afterVoid(accountId: string, quote: Json, voided: CoRow, wasSigned: boolean, rows: CoRow[]): Promise<AfterVoid | null> {
   if (!isObj(voided.work)) return null
@@ -377,17 +392,21 @@ export async function afterVoid(accountId: string, quote: Json, voided: CoRow, w
     ? `${list} also changed ${stayed.join(', ')}, so that stays as ${one ? 'it' : 'they'} left it, and CO-${voided.number}'s amount is off the contract.`
     : `CO-${voided.number}'s change is out of the job now and ${list} ${one ? 'keeps its' : 'keep their'} own, at the price worked out then.`)
   let gapCents = 0
-  if (wasSigned && later.length) {
+  const moveOrRepair = !!inputs(quote)
+  if (wasSigned && later.length && moveOrRepair) {
     const was = foldShapes(quote, rows.map(r => (r.id === voided.id ? { ...r, status: 'approved' } : r)), derive)
+    // A move's change orders price from the sold job (fabric by the foot, 2 new posts a gate): the same here.
+    const sold = shapeOf(quote)
+    const base = { feet: sumFt(sold.runs), runs: sold.runs.map((ft, i) => ({ ft, rail: sold.runRails?.[i] ?? 'auto' })), ends: sold.ends, walkGates: sold.walkGates, dblGates: sold.dblGates, drawn: null }
     const priceOf = async (f: { shape: WorkShape; inputs: WorkInputs }) => {
-      const { job } = await price(accountId, { ...requestForShape(f.shape, requestOfQuote(quote)), ...(f.inputs ?? {}) }, quote)
-      return cents(job.totals.price)
+      const { job } = await price(accountId, { ...requestForShape(f.shape, requestOfQuote(quote)), ...(f.inputs ?? {}) }, quote, base)
+      return cents(job.changePrice ?? job.totals.price)
     }
     gapCents = (await priceOf(now)) - (await priceOf(was)) + num(voided.totalCents)
     if (Math.abs(gapCents) < GAP_WORTH_SAYING) gapCents = 0
     else bits.push(`That leaves the contract ${dollars(gapCents)} ${gapCents > 0 ? 'under' : 'over'} what this work prices at today. The next change order shows it on its own line.`)
   }
-  if (later.length) bits.push(`The job is ${feet} ft now. Check it against the contract before the crew goes.`)
+  if (later.length) bits.push(moveOrRepair ? `The job is ${feet} ft now. Check it against the contract before the crew goes.` : `The job is ${feet} ft now and the contract stands as it is. Check the contract against the work before the crew goes.`)
   return { warning: bits.length ? bits.join(' ') : null, feet, sections: 0, gapCents }
 }
 
@@ -551,6 +570,24 @@ export function approvedText(co: { number: number; totalCents: number; approvedA
 }
 
 // ── Pull sheet revisions ─────────────────────────────────────────────────────
+
+export type RevRow = { id: string; number: number; status: string; approvedAt: Date | null; voidedAt?: Date | null; contractRev?: number | null; work?: unknown }
+
+/**
+ * Each thing that changed the crew's sheet, in the order it happened, with its
+ * revision: a signed change order with work (its contract revision when it can
+ * be), and one voided since. Always up, one number each, so the job history and
+ * the pull sheet read the same and a void is never skipped or jumped.
+ */
+export function sheetEvents<T extends RevRow>(rows: T[]): Array<{ row: T; voided: boolean; at: Date; rev: number }> {
+  const on = rows.filter(r => r.approvedAt && isObj(r.work))
+  const list = [
+    ...on.filter(r => r.status === 'approved').map(r => ({ row: r, voided: false, at: r.approvedAt! })),
+    ...on.filter(r => r.status === 'void' && r.voidedAt).map(r => ({ row: r, voided: true, at: r.voidedAt! })),
+  ].sort((a, b) => a.at.getTime() - b.at.getTime() || a.row.number - b.row.number)
+  let rev = 1
+  return list.map(e => { rev = e.voided ? rev + 1 : Math.max(rev + 1, e.row.contractRev ?? 0); return { ...e, rev } })
+}
 
 export interface LineChange { item: string; was: number; now: number }
 

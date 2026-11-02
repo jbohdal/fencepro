@@ -734,6 +734,8 @@ interface ForSigning {
   own: string | null
   /** "The drawing also shows CO-1's change (Left side 40 ft → 50 ft): not part of this change order (CO-1, not signed yet)." */
   alsoInDrawing: string[]
+  /** The drawing is this change order's: when what is signed takes the job further (server layoutNote). */
+  jobNote?: string | null
   /** "Questions? Call ...": the number the signed PDF and the customer's link give (Jonathan's Direct). */
   questionsPhone?: string | null
 }
@@ -796,6 +798,7 @@ function SignInPersonSheet({ co, customerName, contract, onDone, onClose }: { co
         {shown?.planSvg && (
           <section className="space-y-1.5" data-co-sign-plan>
             <h3 className="text-sm font-bold text-gray-900">The new layout</h3>
+            {shown.jobNote && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-co-job-feet>{shown.jobNote}</p>}
             {shown.own && <p className="text-xs text-gray-700" data-co-sign-own><b>This change order:</b> {shown.own}.</p>}
             {shown.alsoInDrawing.map((t, i) => <p key={i} className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5" data-co-sign-not-part>{t}</p>)}
             <img src={svgDataUrl(shown.planSvg)} alt={`The new layout with change order CO-${co.number}`} className="w-full h-auto rounded-xl border border-gray-200 bg-white" />
