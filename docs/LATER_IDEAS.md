@@ -99,3 +99,10 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - staff-signin: WebKit "Page crashed" once in the full run, then 49 of 49 alone. The test build's crash, as in the Oct 31 reports.
 - address-suggest.mjs hardcodes localhost:4001, so a worktree nightly tests the folder's server for that suite. Other suites may do the same; 109 suites default to 4001.
 - Still failing, known: sales-orders (AUD Web Chainlink fixture), quotable-styles (stale), builderProposalBetter and contractBilling (2) on dev data, devDbScrubbed (CrmContact (352) 789-4314).
+
+## From the Nov 2 night (nightly triage)
+
+- contractBilling is not dev data, as noted above. Both failures come from running in a worktree: "never share a number" needs more than connection_limit=4, and the payment photo 404s because res.sendFile refuses a path under `.claude/`. With limit 10 and UPLOAD_DIR outside `.claude/`: 9 of 9. Live's uploads are under ~/ezbiz, so live is not affected. Have the nightly worktree set both.
+- devDbScrubbed: (352) 789-4314 is the company's own office line on a dev contact, not a customer's number. The test could allow it.
+- E2E_SALES_TOKEN and E2E_SALES_COOKIE mean a file path to salesman-live-overhead but the value itself to option-lists, pipeline-stages, round4-co and visit-quote-send, so no single setting works for all five in `all`. Make salesman-live-overhead accept the value.
+- Still failing, known: sales-orders (AUD Web Chainlink fixture), quotable-styles (stale), builderProposalBetter (dev data).
