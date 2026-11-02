@@ -63,7 +63,9 @@ import {
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
-import { salesmanSwitchDefault, seesCommission, repRulesOutCommission, SALESMAN_ROLE } from './salesmanCommission'
+import { sendJson } from './syncHttp'
+import { salesmanSwitchDefault, seesCommission } from './salesmanCommission'
+import { marginTone, pricedTarget } from './moneyTruth'
 import { getBookingTeam } from './bookingTeamStore'
 import { toast } from './toast'
 import { useServerQuoteView, viewCalc, viewWork, viewTiers, viewCompare, viewProposalOptions } from './quoteViewApi'
@@ -579,8 +581,17 @@ export default function QuoteBuilder({
   const [priceAdjust, setPriceAdjust]   = useState(init?.priceAdjust ?? 0)
   // On for a new quote by a Salesman (or for her customer); a saved quote keeps its own (Oct 27 2026, salesmanCommission.ts).
   const [hasSalesman, setHasSalesman]   = useState(() => salesmanSwitchDefault(init as any, signedInRole(), getBookingTeam()))
-  // A rep on the quote who is not a Salesman: the switch stays off (blank: the rep comes with the customer at save).
-  const repOff = !!init?.salesRep?.trim() && !hasSalesman && signedInRole() !== SALESMAN_ROLE && repRulesOutCommission(init.salesRep, getBookingTeam())
+  // A saved quote whose rep is positively not a Salesman (the server's one rule, lib/commissionRule.ts): a save would
+  // take commission off, so the switch does not offer it. A new quote's rep comes with the customer at save.
+  const [repOff, setRepOff] = useState<{ rep: string } | null>(null)
+  useEffect(() => {
+    if (!init?.id || !seesCommission(signedInRole(), can('costs.view'))) return
+    let live = true
+    void sendJson('POST', '/api/saved-quotes/commission-rule', { quoteId: init.id }).then(r => { if (live && r.result.ok && r.json?.data?.off) setRepOff({ rep: String(r.json.data.rep ?? '') }) })
+    return () => { live = false }
+  }, [init?.id])
+  // A save that would take commission off: said first, and it saves only when that is chosen.
+  const [commissionAsk, setCommissionAsk] = useState<{ data: Parameters<typeof handleSave>[0]; rep: string } | null>(null)
   // Pricing choices for this quote. A saved quote reopens with the choices it
   // was saved with; a new quote starts from Settings → Pricing.
   const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
@@ -932,9 +943,10 @@ export default function QuoteBuilder({
   const shownItems: LineItem[] = heldNums ? (heldNums.pullSheet as LineItem[]) : materialItems
   const shownMaterial = heldNums ? heldNums.material : null
   const materialCost = work ? work.materialCents / 100 : newFenceMaterial
-  const gmGood      = cfg.margins?.good ?? 0.34
-  const gmWarn      = cfg.margins?.warning ?? 0.27
-  const gmColor     = viewGmPct >= gmGood ? 'text-green-600' : viewGmPct >= gmWarn ? 'text-yellow-500' : 'text-red-500'
+  // Graded as every screen grades a quote (moneyTruth.quoteGrade): against its Target Margin. The "good" margin in Settings is its own warning line.
+  const quoteTarget = pricedTarget({ fenceStyle: style?.name, pricing: { costFactor: work ? work.costFactor : priced.priceMethod === 'cost_factor' ? priced.costFactor : undefined, overheadPct: overheadNow }, work: work ? { priced: { targetMarginPct: work.targetMarginPct } } : null }, cfg.fenceStyles, 0)
+  const gmTone      = marginTone(viewGmPct, quoteTarget)
+  const gmColor     = gmTone === 'good' ? 'text-green-600' : gmTone === 'near' ? 'text-yellow-500' : 'text-red-500'
   const defaultSubRate = resolveSubRate(cfgStyle, cfg.pricing)
   totalsRef.current = { footage: totalFootage, sections, price: adjPrice }
   // What the quote prices at today, as it opened (before any change): a sent quote compares it with the price sent.
@@ -1114,7 +1126,18 @@ export default function QuoteBuilder({
     status: SavedQuote['status']
     notes: string
     leadTemp: number
-  }, opts: { pricesChecked?: boolean } = {}) {
+  }, opts: { pricesChecked?: boolean; commissionOff?: boolean } = {}) {
+    // The switch shows commission on: what a save would do is asked first, so nothing changes silently. No signal: it is saved
+    // as shown and the server holds to the rule when it arrives.
+    if (hasSalesman && !opts.commissionOff && showCommission && !signedQuote && !directCo.current) {
+      const r = await sendJson('POST', '/api/saved-quotes/commission-rule', { ...(init?.id ? { quoteId: init.id } : {}), rep: data.salesRep || mySalesRepName() })
+      if (r.result.ok && r.json?.data?.off) {
+        setShowSaveModal(false)
+        keepSaveWindow(data)
+        setCommissionAsk({ data, rep: String(r.json.data.rep ?? '') })
+        return
+      }
+    }
     // Before a quote priced here is saved, its prices are the server's current ones (broken list #58): a part that
     // changed is read again, the quote reprices, and a changed price is shown and confirmed first (never saved
     // silently at old prices). No signal: it is saved, and the server checks it when it arrives.
@@ -1164,9 +1187,8 @@ export default function QuoteBuilder({
         gatesText: jobType === 'move' ? workGatesText(effWalk, effDbl) : '', photoIds, wholeDollar: !keepCents, showDiscount: showDiscount && adjApplied < 0,
       })
     })() : undefined
-    // Commission only with a Salesman as the rep (Jonathan, Nov 2 2026): the rep is known for sure here (one already on the
-    // quote stays, routes/saved-quotes.ts, else the customer's, else the Salesman saving it). A signed quote keeps its own.
-    const commissionOn = hasSalesman && (!!signedQuote || signedInRole() === SALESMAN_ROLE || !repRulesOutCommission(init?.salesRep?.trim() || data.salesRep || mySalesRepName(), getBookingTeam()))
+    // Commission as the switch shows it, unless "Save without commission" was chosen above.
+    const commissionOn = hasSalesman && !opts.commissionOff
     const quote: SavedQuote = {
       id: quoteIdRef.current,
       customerId: data.customerId,
@@ -1869,7 +1891,7 @@ export default function QuoteBuilder({
               <div>
                 <p className="text-sm font-medium text-gray-700">Salesman on this job?</p>
                 {showCommission && <p className="text-xs text-gray-400" data-salesman-commission-words>
-                  {repOff ? `No commission: ${init?.salesRep?.trim()} is not a Salesman` : <>{commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}. Only with a Salesman as the rep.</>}
+                  {repOff ? `No commission: ${repOff.rep || 'no rep, and this quote was not made by a Salesman'}${repOff.rep ? ' is not a Salesman' : ''}` : <>{commissionPctLabel} commission, {priced.commissionMode === 'added' ? 'added on top of the price' : 'taken out of the price'}. Only with a Salesman as the rep.</>}
                 </p>}
               </div>
               <button
@@ -1877,9 +1899,9 @@ export default function QuoteBuilder({
                 role="switch"
                 aria-checked={hasSalesman}
                 aria-label="Salesman on this job"
-                disabled={repOff}
+                disabled={!!repOff && !hasSalesman}
                 onClick={() => setHasSalesman(h => !h)}
-                className={`shrink-0 w-14 h-12 grid place-items-center rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300 ${repOff ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                className={`shrink-0 w-14 h-12 grid place-items-center rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300 ${repOff && !hasSalesman ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
               >
                 <span className={`relative block w-11 h-6 rounded-full transition-colors ${hasSalesman ? 'bg-orange-500' : 'bg-gray-300'}`}>
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${hasSalesman ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -2141,10 +2163,10 @@ export default function QuoteBuilder({
                 )}
                 <div className="mt-2">
                   <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full transition-all ${viewGmPct >= gmGood ? 'bg-green-500' : viewGmPct >= gmWarn ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(viewGmPct * 100, 100))}%` }} />
+                    <div className={`h-1.5 rounded-full transition-all ${gmTone === 'good' ? 'bg-green-500' : gmTone === 'near' ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(viewGmPct * 100, 100))}%` }} />
                   </div>
                   <p className={`text-xs mt-1 ${gmColor}`}>
-                    {viewGmPct >= gmGood ? '✓ Above target' : viewGmPct >= gmWarn ? '⚠ Below target' : '✗ Danger zone'}
+                    {`${gmTone === 'good' ? '✓ At or above' : gmTone === 'near' ? '⚠ Below' : '✗ Well below'} its ${Math.round(quoteTarget * 1000) / 10}% Target Margin`}
                   </p>
                 </div>
               </div>
@@ -2505,6 +2527,18 @@ export default function QuoteBuilder({
         </div>
       )}
       {recheck?.asked && recheckOutcome && recheckOutcome.kind !== 'save' && <BackClose name="price-recheck" onClose={() => setRecheck(null)} />}
+      {commissionAsk && (
+        <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-3" data-commission-ask>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">
+            <p className="text-base font-bold text-gray-900">Commission comes off when this saves</p>
+            <p className="text-sm text-gray-600">{commissionAsk.rep ? `${commissionAsk.rep} is not a Salesman` : 'This quote has no rep and was not made by a Salesman'}, so nobody is paid on it. The price stays {priceText(adjPrice)}.</p>
+            <div className="flex flex-col gap-2">
+              <button type="button" className="btn btn-primary min-h-[48px]" data-commission-ask-save onClick={() => { const d = commissionAsk.data; setCommissionAsk(null); setHasSalesman(false); void handleSave(d, { commissionOff: true }) }}>Save without commission</button>
+              <button type="button" className="min-h-[44px] text-sm text-gray-600" data-commission-ask-back onClick={() => setCommissionAsk(null)}>Back to the quote</button>
+            </div>
+          </div>
+        </div>
+      )}
       {recheck?.asked && recheckOutcome && recheckOutcome.kind !== 'save' && (
         <div className="fixed inset-0 z-[75] bg-black/50 flex items-center justify-center p-3" data-price-recheck={recheckOutcome.kind}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4">

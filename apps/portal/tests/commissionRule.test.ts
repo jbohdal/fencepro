@@ -4,39 +4,91 @@
  * salesmanCommission.ts, pricingEngine.ts.)
  */
 import { describe, test, expect } from 'vitest'
-import { repNamesSalesman, withoutCommission, gmPctAtSigning, carriesCommission } from '../src/server/lib/commissionRule'
+import { repRulesOut, withoutCommission, withCommission, gmPctAtSigning, carriesCommission, commissionOnMove, signedMoveChangesCommission, type RuleLogin } from '../src/server/lib/commissionRule'
+import { commissionWords, confirmQuestion, movedNote } from '../src/server/lib/salesmanMove'
 import { calculatePrice, type PriceInputs, type PricingSettings } from '../../web/src/pricingEngine'
-import { isSalesmanRep, repRulesOutCommission, salesmanSwitchDefault } from '../../web/src/salesmanCommission'
+import { isSalesmanRep, salesmanSwitchDefault } from '../../web/src/salesmanCommission'
 
-const LOGINS = [{ firstName: 'Christa', lastName: 'Feagin' }]
 const TEAM = [{ name: 'Jonathan Bohdal', role: 'super_admin' }, { name: 'Christa Feagin', role: 'sales_rep' }, { name: 'Pat Office', role: 'office_staff' }]
 
-describe('who counts as a Salesman rep', () => {
-  test('a Salesman login: full name, first name, initials, any spacing', () => {
-    for (const rep of ['Christa Feagin', 'christa  feagin ', 'Christa ', 'CF']) {
-      expect(repNamesSalesman(rep, LOGINS), rep).toBe(true)
-      expect(isSalesmanRep(rep, TEAM), rep).toBe(true)
-      expect(repRulesOutCommission(rep, TEAM), rep).toBe(false)
-    }
+const login = (id: string, firstName: string, lastName: string, role: string, extra: Partial<RuleLogin> = {}): RuleLogin => ({ id, firstName, lastName, role, status: 'active', wasSalesman: false, ...extra })
+const ALL = [login('o', 'Jonathan', 'Bohdal', 'super_admin'), login('p', 'Pat', 'Office', 'office_staff'), login('m', 'Mo', 'Manager', 'manager'), login('c', 'Christa', 'Feagin', 'sales_rep')]
+
+describe('never on a guess: commission comes off only when the rep is positively not a Salesman', () => {
+  test('a current owner, office or manager login, by full name, first name or initials', () => {
+    for (const rep of ['Jonathan Bohdal', 'jonathan', 'Jb', 'JB', 'Pat Office', 'Pat', 'Mo Manager']) expect(repRulesOut(rep, null, ALL), rep).toBe(true)
   })
-  test('owner, office, Jb, blank: no', () => {
-    for (const rep of ['Jonathan Bohdal', 'Jb', 'Pat Office', '', '   ', null]) expect(repNamesSalesman(rep, LOGINS), String(rep)).toBe(false)
-    for (const rep of ['Jonathan Bohdal', 'Jb', 'Pat Office', '', null]) expect(repRulesOutCommission(rep, TEAM), String(rep)).toBe(true)
+  test('blank: only on a quote made by such a login', () => {
+    expect(repRulesOut('', 'o', ALL)).toBe(true)
+    expect(repRulesOut('  ', 'p', ALL)).toBe(true)
+    expect(repRulesOut('', 'c', ALL)).toBe(false)
+    expect(repRulesOut('', 'gone', ALL)).toBe(false)
+    expect(repRulesOut('', null, ALL)).toBe(false)
+  })
+  test('a Salesman by any spelling, or any name that is no login, keeps what it has', () => {
+    for (const rep of ['Christa Feagin', 'Christa', 'CF', 'Christa F', 'Christa F.', 'C. Feagin', 'Feagin', 'C.F.', 'C F', 'Crista Feagin', 'Christa/Jb', 'Somebody Else']) expect(repRulesOut(rep, 'o', ALL), rep).toBe(false)
+  })
+  test('a Salesman who left, was renamed or changed role keeps it', () => {
+    const left = [ALL[0]]
+    expect(repRulesOut('Christa Feagin', 'o', left)).toBe(false)
+    const roleChanged = [ALL[0], login('c', 'Christa', 'Feagin', 'office_staff', { wasSalesman: true })]
+    expect(repRulesOut('Christa Feagin', 'o', roleChanged)).toBe(false)
+    expect(repRulesOut('', 'c', roleChanged)).toBe(false)
+    expect(repRulesOut('Christa Feagin', 'o', [ALL[0], login('c', 'Christa', 'Married', 'sales_rep')])).toBe(false)
+  })
+  test('a name two logins share: a Salesman among them keeps it; an inactive login or an Installer is not proof', () => {
+    expect(repRulesOut('Jonathan', null, [...ALL, login('j2', 'Jonathan', 'Second', 'sales_rep')])).toBe(false)
+    expect(repRulesOut('Pat Office', null, [login('p', 'Pat', 'Office', 'office_staff', { status: 'disabled' })])).toBe(false)
+    expect(repRulesOut('Ivan Crew', null, [login('i', 'Ivan', 'Crew', 'field_crew')])).toBe(false)
+  })
+})
+
+describe('a move', () => {
+  const settings = { pct: 0.09, mode: 'included' }
+  const q = { finalPrice: 10000, totalCOGS: 5600, gmPct: 0.35, hasSalesman: true, pricing: { costFactor: 0.56 }, proposal: { options: [{ fenceStyle: 'A', finalPrice: 10000, snapshot: { totalCOGS: 5600, gmPct: 0.35 } }] } }
+  test('signed: nothing changes, whichever way', () => {
+    expect(signedMoveChangesCommission()).toBe(false)
+    expect(commissionOnMove(q, { signed: true, toRep: 'Jonathan Bohdal', logins: ALL, settings })).toEqual({ change: 'none', why: 'signed', fields: null })
+    expect(commissionOnMove({ ...q, hasSalesman: false }, { signed: true, toRep: 'Christa Feagin', logins: ALL, settings }).change).toBe('none')
+  })
+  test('unsigned: off to the owner, back on to a Salesman, the same margin', () => {
+    const off = commissionOnMove(q, { signed: false, toRep: 'Jonathan Bohdal', logins: ALL, settings })
+    expect(off.change).toBe('off')
+    const q2 = { ...q, ...off.fields! }
+    expect(q2.gmPct).toBeCloseTo(0.44, 6)
+    const on = commissionOnMove(q2, { signed: false, toRep: 'Christa Feagin', logins: ALL, settings })
+    expect(on.change).toBe('on')
+    expect(on.fields!.gmPct).toBeCloseTo(0.35, 6)
+    expect(on.fields!.proposal.options[0].snapshot.gmPct).toBeCloseTo(0.35, 6)
+    expect(on.fields!.proposal.options[0].finalPrice).toBe(10000)
+  })
+  test('commission is on the price before the adjustment and the rounding, as the engine has it', () => {
+    const f = withCommission({ finalPrice: 9970, totalCOGS: 5600, pricing: { priceAdjustmentCents: -3000, roundingCents: 0 } }, 0.09)
+    expect(f.gmPct).toBeCloseTo((9970 - 5600 - 900) / 9970, 6)
+  })
+  test('commission added on top of the price: never touched', () => {
+    expect(commissionOnMove(q, { signed: false, toRep: 'Jonathan Bohdal', logins: ALL, settings: { pct: 0.09, mode: 'added' } })).toEqual({ change: 'none', why: 'added', fields: null })
+    expect(commissionOnMove({ ...q, pricing: { commissionMode: 'added' } }, { signed: false, toRep: 'Jonathan Bohdal', logins: ALL, settings }).why).toBe('added')
+  })
+  test('an unknown rep: nothing changes', () => {
+    expect(commissionOnMove(q, { signed: false, toRep: 'Somebody Else', logins: ALL, settings }).change).toBe('none')
+  })
+  test('the words say what happened', () => {
+    expect(commissionWords({ change: 'none', why: 'signed', fields: null }, 80000)).toBe('Its commission stays on the job, unchanged.')
+    expect(confirmQuestion('Christa', 'Jonathan', 80000)).toContain('$800.00 commission stays on the job, unchanged')
+    expect(movedNote('quote #A', 'Christa', 'Jonathan', 'Jonathan', true, commissionWords({ change: 'none', why: 'signed', fields: null }, 80000))).toContain('(signed job; its commission stays on the job, unchanged)')
+    expect(movedNote('quote #A', 'Christa', 'Jonathan', 'Jonathan', false, 'Its commission is off: this person is not a Salesman.')).toContain('(not sold yet; its commission is off')
   })
 })
 
 describe('the builder\'s switch', () => {
   const saved = { id: 'q', status: 'SENT', hasSalesman: true }
-  test('a saved quote keeps it only with a Salesman as the rep', () => {
-    expect(salesmanSwitchDefault({ ...saved, salesRep: 'Christa Feagin' }, 'super_admin', TEAM)).toBe(true)
-    expect(salesmanSwitchDefault({ ...saved, salesRep: 'Jonathan Bohdal' }, 'super_admin', TEAM)).toBe(false)
-    expect(salesmanSwitchDefault({ ...saved, salesRep: '' }, 'super_admin', TEAM)).toBe(false)
+  test('a saved quote opens as it was saved: the server\'s rule is asked at save', () => {
+    for (const salesRep of ['Christa', 'CF', 'Christa F.', 'Jonathan Bohdal', '']) expect(salesmanSwitchDefault({ ...saved, salesRep }, 'super_admin', TEAM), salesRep).toBe(true)
   })
-  test('a real Salesman written by first name or initials keeps it: never stripped', () => {
-    for (const salesRep of ['Christa', 'christa ', 'CF', 'cf', 'Christa  Feagin']) expect(salesmanSwitchDefault({ ...saved, salesRep }, 'super_admin', TEAM), salesRep).toBe(true)
-  })
-  test('a signed quote keeps its own: only a logged fix changes it', () => {
-    expect(salesmanSwitchDefault({ ...saved, status: 'SOLD', salesRep: '' }, 'super_admin', TEAM)).toBe(true)
+  test('a new quote for a Salesman\'s customer: on by full name, first name or initials', () => {
+    for (const salesRep of ['Christa Feagin', 'Christa', 'CF']) { expect(isSalesmanRep(salesRep, TEAM), salesRep).toBe(true); expect(salesmanSwitchDefault({ salesRep }, 'super_admin', TEAM), salesRep).toBe(true) }
+    expect(salesmanSwitchDefault({ salesRep: 'Jonathan Bohdal' }, 'super_admin', TEAM)).toBe(false)
   })
 })
 

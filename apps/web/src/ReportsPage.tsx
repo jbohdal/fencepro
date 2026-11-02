@@ -973,8 +973,8 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                       className={`h-5 rounded-full transition-all ${marginBgAt(s.margin, s.target)}`}
                       style={{ width: `${(s.margin ?? 0) * 100}%` }}
                     />
-                    {/* Target Margin marker (Settings › Pricing) */}
-                    <div className="absolute top-0 h-5 border-l-2 border-dashed border-gray-600" style={{ left: `${targets.minPct}%` }} />
+                    {/* These quotes' Target Margin */}
+                    <div className="absolute top-0 h-5 border-l-2 border-dashed border-gray-600" style={{ left: `${s.target * 100}%` }} />
                   </div>
                   <span className={`text-sm font-bold w-14 text-right ${marginColorAt(s.margin, s.target)}`}>
                     {pctOrDash(s.margin)}

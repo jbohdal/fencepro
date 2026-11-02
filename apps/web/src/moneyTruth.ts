@@ -290,6 +290,11 @@ export function pricedTarget(q: Pick<QuoteForGrade, 'fenceStyle' | 'pricing' | '
   return 1 - (Number(style.margin) || 0)
 }
 
+/** Does the quote keep what its target came from? No: pricedTarget read today's Settings, and a screen must say so. */
+export function targetIsSaved(q: Pick<QuoteForGrade, 'pricing' | 'work'>): boolean {
+  return inRange(q.work?.priced?.targetMarginPct) || inRange(q.pricing?.costFactor) || typeof q.pricing?.overheadPct === 'number'
+}
+
 export type MarginTone = 'good' | 'near' | 'bad' | 'none'
 export interface QuoteGrade { margin: number | null; target: number; tone: MarginTone }
 

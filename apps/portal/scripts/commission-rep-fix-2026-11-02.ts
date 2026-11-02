@@ -15,11 +15,12 @@
  * where the rep is me, Jb or blank, including Kristi Murphy's sold job. Nobody
  * is paid on those."
  *
- * Found by the rule (lib/commissionRule.ts), then checked against the seven he
- * named: anything else found, or one of them not as named, and it stops with
- * nothing changed. A quote with a Salesman as its rep, or made by a Salesman
- * login with no rep, is never touched. Commission "added" on top of the price
- * stops it too: taking that off would change a price.
+ * Found by the rule (lib/commissionRule.ts repRulesOut: the rep is positively
+ * not a Salesman), then checked against the seven he named: anything else
+ * found, or one of them not as named, and it stops with nothing changed. A
+ * quote with a Salesman as its rep, an unknown rep, or a blank rep made by a
+ * Salesman login is never found. Commission "added" on top of the price stops
+ * it too: taking that off would change a price.
  *
  * Changes only the commission switch, the saved margin, the quote's own
  * commission fields, the internal copies on its proposal options (never read
@@ -34,7 +35,7 @@ import 'dotenv/config'
 import { liveDatabaseMisuse, databaseNameOf, LIVE_DATABASE_NAME } from '../src/server/lib/liveGuard.js'
 import { assertLiveWriteAllowed } from '../src/server/lib/liveWriteGuard.js'
 import { auditSystem } from '../src/server/lib/auditLog.js'
-import { carriesCommission, repNamesSalesman, withoutCommission } from '../src/server/lib/commissionRule.js'
+import { carriesCommission, repRulesOut, ruleLogins, withoutCommission, type RuleLogin } from '../src/server/lib/commissionRule.js'
 import { quoteCommissionCents } from '../src/server/lib/quotesFollowCustomer.js'
 
 const SCRIPT = 'scripts/commission-rep-fix-2026-11-02.ts'
@@ -81,11 +82,13 @@ async function commissionFix(prisma: Json) {
   const biz = await prisma.businessState.findMany({ select: { accountId: true, config: true } })
   const modeOf = new Map(biz.map((b: Json) => [b.accountId, b.config?.pricing?.commissionMode ?? 'included']))
   const rows: Json[] = await prisma.savedQuote.findMany({ where: { deletedAt: null } })
-  const logins: Json[] = await prisma.crmUser.findMany({ where: { role: 'sales_rep' }, select: { id: true, firstName: true, lastName: true, crmAccountId: true } })
+  const loginsOf = new Map<string, RuleLogin[]>()
+  for (const b of biz) loginsOf.set(b.accountId, await ruleLogins(b.accountId))
+  const ruledOut = (q: Json) => repRulesOut(q.salesRep, q.ownerId, loginsOf.get(q.accountId) ?? [])
+  const salesmanMade = (q: Json) => (loginsOf.get(q.accountId) ?? []).some(u => u.id === q.ownerId && u.role === 'sales_rep')
   const found: Json[] = [], left: Json[] = []
   for (const q of rows.filter(r => carriesCommission(r))) {
-    const salesmen = logins.filter(u => u.crmAccountId === q.accountId)
-    if (repNamesSalesman(q.salesRep, salesmen)) continue
+    if (!ruledOut(q)) continue
     if (LEAVE.includes(id8(q.id))) { left.push(q); continue }
     found.push(q)
   }
@@ -98,12 +101,12 @@ async function commissionFix(prisma: Json) {
   for (const n of NAMED) {
     const i = unmatched.findIndex(q => q.customerName === n.name && Math.round(q.finalPrice) === n.price && Math.round(quoteCommissionCents(q) / 100) === n.commission)
     if (i >= 0) { todo.push(unmatched.splice(i, 1)[0]); continue }
-    const was = rows.find(q => q.customerName === n.name && Math.round(q.finalPrice) === n.price && !carriesCommission(q) && !done.includes(q) && !repNamesSalesman(q.salesRep, logins.filter(u => u.crmAccountId === q.accountId)))
+    const was = rows.find(q => q.customerName === n.name && Math.round(q.finalPrice) === n.price && !carriesCommission(q) && !done.includes(q) && ruledOut(q))
     if (was) done.push(was); else missing.push(`${n.name} ${usd(n.price)}, commission ${usd(n.commission)}`)
   }
   if (unmatched.length) {
     say('\nFound by the rule, not among the seven named:')
-    for (const q of unmatched) say(`  ${id8(q.id)} ${q.customerName}, ${q.status}, ${q.date}, rep "${q.salesRep}", made by ${q.ownerId ? (logins.some(u => u.id === q.ownerId) ? 'a Salesman login' : 'another login') : 'no login'}, ${usd(q.finalPrice)}, commission ${usd(quoteCommissionCents(q) / 100)}`)
+    for (const q of unmatched) say(`  ${id8(q.id)} ${q.customerName}, ${q.status}, ${q.date}, rep "${q.salesRep}", ${usd(q.finalPrice)}, commission ${usd(quoteCommissionCents(q) / 100)}`)
     stop(`${unmatched.length} quote(s) beyond the seven. Ask Jonathan; to go on without one, name it with --leave.`)
   }
   if (missing.length) stop(`not as named: ${missing.join('; ')}.`)
@@ -111,7 +114,7 @@ async function commissionFix(prisma: Json) {
   const plan: Array<{ q: Json; out: Json; jobs: Json[] }> = []
   for (const q of todo) {
     if ((q.pricing?.commissionMode ?? modeOf.get(q.accountId) ?? 'included') === 'added') stop(`${id8(q.id)} ${q.customerName} has commission added on top of the price: taking it off would change the price.`)
-    if (logins.some(u => u.id === q.ownerId && u.crmAccountId === q.accountId)) stop(`${id8(q.id)} ${q.customerName} was made by a Salesman login: refused.`)
+    if (salesmanMade(q)) stop(`${id8(q.id)} ${q.customerName} was made by a Salesman login: refused.`)
     const out = withoutCommission(q)
     const jobs: Json[] = await prisma.savedJob.findMany({ where: { accountId: q.accountId, quoteId: q.id }, select: { id: true, status: true, hasSalesman: true, gmPct: true, updatedAt: true } })
     if (customerSees(out.proposal ?? q.proposal) !== customerSees(q.proposal)) stop(`${id8(q.id)}: the proposal a customer reads would change.`)

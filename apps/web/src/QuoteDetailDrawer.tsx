@@ -41,6 +41,7 @@ import { useBackLayer, BackClose, navigate } from './nav'
 import { SaveStatus } from './SaveStatus'
 import SignedDocuments from './SignedDocuments'
 import { gradeOfQuote } from './moneyLoad'
+import { targetIsSaved } from './moneyTruth'
 import { quoteNumber } from './quoteNumber'
 import SalesmanOnQuote from './SalesmanOnQuote'
 
@@ -306,7 +307,7 @@ export default function QuoteDetailDrawer({
                 {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%</span><span>{fmt(commission.cents / 100)}</span></div>}
                 <div className="flex justify-between pt-1 text-xs text-gray-500" data-quote-gross-margin><span>Gross Margin (price less cost)</span><span>{fmtPct(shownGm)}</span></div>
                 {afterComm !== null && <div className="flex justify-between text-xs text-gray-500" data-quote-margin-after><span>Margin after commission</span><span>{fmtPct(afterComm)}</span></div>}
-                <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>Target Margin it was priced with</span><span>{fmtPct(grade.target)}</span></div>
+                <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>{targetIsSaved(quote) ? 'Target Margin it was priced with' : 'Target Margin today'}</span><span>{fmtPct(grade.target)}</span></div>
               </div>
             </section>
           )}

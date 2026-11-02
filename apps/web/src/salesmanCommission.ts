@@ -17,9 +17,9 @@
  *
  * Commission only when an actual Salesman is the rep (Jonathan, Nov 2 2026:
  * "Commission only applies when an actual Salesman (Christa or another
- * salesman login) is the rep."). Owner, office, admin or blank rep: $0. A saved
- * quote keeps its switch only with such a rep; the server holds to the same
- * rule on every save (portal lib/commissionRule.ts).
+ * salesman login) is the rep."), never removed on a guess: the server's
+ * lib/commissionRule.ts is the one rule, and the quote builder asks it before a
+ * save (POST /api/saved-quotes/commission-rule) and says so first.
  *
  * Pure: QuoteBuilder and QuoteDetailDrawer call it, tests call it directly.
  */
@@ -52,23 +52,12 @@ const initialsOf = (name: string) => norm(name).split(' ').map(w => w[0] ?? '').
 
 /**
  * Is this rep a Salesman login? The login's full name, first name alone or initials ("Christa
- * Feagin", "Christa ", "CF"), the same as the server's lib/commissionRule.ts repIsSalesman.
+ * Feagin", "Christa ", "CF"), the same matching as the server's lib/commissionRule.ts repNamesLogin.
  */
 export function isSalesmanRep(rep: string | null | undefined, team: readonly Member[]): boolean {
   const n = norm(rep)
   if (!n) return false
   return team.some(m => m.role === SALESMAN_ROLE && (norm(m.name) === n || norm(m.name).split(' ')[0] === n || initialsOf(m.name) === n))
-}
-
-/**
- * A rep who rules commission out on the screen: blank, or someone on the team who is not a Salesman
- * (the team holds active logins only, so a name it does not know is left to the server, which knows them all).
- */
-export function repRulesOutCommission(rep: string | null | undefined, team: readonly Member[]): boolean {
-  const n = norm(rep)
-  if (!n) return true
-  if (isSalesmanRep(n, team)) return false
-  return team.some(m => m.role !== SALESMAN_ROLE && (norm(m.name) === n || norm(m.name).split(' ')[0] === n || initialsOf(m.name) === n))
 }
 
 /** A quote no one on staff has decided the switch on yet: not saved, or the website's draft not yet sent. */
@@ -79,9 +68,7 @@ export function isFreshQuote(q: QuoteLike): boolean {
 
 /** Where "Salesman on this job?" starts when the quote builder opens. */
 export function salesmanSwitchDefault(q: QuoteLike, role: string | null | undefined, team: readonly Member[]): boolean {
-  // A signed quote keeps its own (only a change order or a logged fix changes it).
-  if (q?.acceptedAt || q?.soldAt || q?.status === 'SOLD') return !!q.hasSalesman
-  if (!isFreshQuote(q)) return !!q?.hasSalesman && (role === SALESMAN_ROLE || !repRulesOutCommission(q?.salesRep, team))
+  if (!isFreshQuote(q)) return !!q?.hasSalesman
   return role === SALESMAN_ROLE || isSalesmanRep(q?.salesRep, team)
 }
 

@@ -11,8 +11,8 @@
  *     Salesman made (its ownerId), or whose pipeline card names her as the
  *     card's rep; a job with no rep whose quote is hers.
  *
- * The rep is a name only: it never changes a price (hasSalesman, the
- * commission switch that is part of the price, is left as the quote has it).
+ * The rep never changes a price. Commission follows it only by the rule in
+ * lib/commissionRule.ts.
  */
 
 import prisma from './prisma.js'
