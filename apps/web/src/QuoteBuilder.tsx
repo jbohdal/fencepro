@@ -59,7 +59,7 @@ import { isQuotable } from './styleAvailability'
 import { isHeldSavedQuote, heldQuoteSave, heldSavedNumbers, heldNote, heldNotSaved, heldBarReason } from './heldQuote'
 import { calculateQuote as calcNewFence } from './quoteCalc'
 import {
-  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText,
+  priceMove, priceRepair, moveRepairSettings, damagePctFor, postTypeOf, seesCosts, newFenceBetter, matchRisk, toSavedWork, gatesText as workGatesText, repairChangeWords, moveChangeWords, moveGateFlags,
   REPAIR_ITEMS, chargedRepairItems, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
@@ -74,9 +74,9 @@ import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
 import { shapeOf, sideChanges, sideChangeWords } from '../../portal/src/server/lib/changeOrderMerge'
-import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, type ChangeOrderPrefill } from './ChangeOrders'
+import { QuickChangeOrderModal, foldedStates, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
-import { changeBaseOf, changeOrderPrice, type ChangeNow } from './changeOrderPricing'
+import { changeBaseOf, changeOrderPrice, noWorkNote, type ChangeNow } from './changeOrderPricing'
 import { SignedDocumentLinks } from './SignedDocuments'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import SalesmanPicker from './SalesmanPicker'
@@ -611,7 +611,7 @@ export default function QuoteBuilder({
   }, [])
   const [showPullSheet, setShowPullSheet] = useState(true)
   // One step on screen at a time: a new quote starts with the customer, a saved one on its price.
-  const [step, setStep] = useState<StepKey>(() => (startOnYard ? 'yard' : init?.id ? 'price' : 'customer'))
+  const [step, setStep] = useState<StepKey>(() => (startOnYard ? (init?.work?.type === 'repair' ? 'style' : 'yard') : init?.id ? 'price' : 'customer'))
   // The one side of the yard shown open (Next side moves it on).
   const [openSide, setOpenSide] = useState<string | null>(null)
   const [photosOpen, setPhotosOpen] = useState(false)
@@ -663,7 +663,9 @@ export default function QuoteBuilder({
   // Fence moves and repairs (moveRepair.ts). A new fence is priced exactly as before.
   const [jobType, setJobType] = useState<JobType>(init?.work?.type ?? 'new')
   // The old posts' method stays blank (it follows the style) until picked by hand; a saved quote opens with the one it saved.
-  const [move, setMove] = useState<MoveDraft>(() => init?.work?.move ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
+  // An old "Replace gate" list reads with the walk gates it was saved with: as signed, whatever the change orders did since.
+  const moveOpened = useMemo(() => (init?.work?.move ? moveGateFlags(init.work.move, signedQuoteOf(init).walkGates) : null), [init])
+  const [move, setMove] = useState<MoveDraft>(() => moveOpened ?? { oldFt: 0, oldWalkGates: 0, oldDblGates: 0, newPostCaps: false })
   const [repair, setRepair] = useState<RepairDraft>(() => init?.work?.repair ?? { what: 'other', items: {}, newPostCaps: false, gateKind: 'walk' })
   const [offerNewFence, setOfferNewFence] = useState<boolean>(!!init?.work?.newFence?.offered)
   const [offerMoveAsIs, setOfferMoveAsIs] = useState<boolean>(true)
@@ -825,7 +827,7 @@ export default function QuoteBuilder({
   const customerPrice: number | null = signedQuote ? signedQuoteOf(init!).finalPrice : heldSaved ? init!.finalPrice : sentQuote && !fenceChanged ? init!.finalPrice : null
   // A signed quote changed: the drawing now and what a change order starts from (the signed quote, so it holds across change orders).
   const changeNow: ChangeNow | null = entry === 'layout' && yard ? { yard, nearIn: widthFt * 12, teeAs } : null
-  const changeBase = signedQuote ? changeBaseOf(signedQuoteOf(init!), changeNow) : null
+  const changeBase = signedQuote ? changeBaseOf(signedQuoteOf(init!), changeNow, FENCE_STYLES.find(s => s.name === signedQuoteOf(init!).fenceStyle)) : null
   // What the server prices for a Salesman or Installer (and what their save sends).
   const priceRequest: QuoteJobRequest = {
     fenceStyle: style?.name ?? '', runs: effRuns.map(r => ({ ft: r.ft, rail: r.rail ?? 'auto' })), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl,
@@ -1452,6 +1454,9 @@ export default function QuoteBuilder({
   }, [makeQueued, svPricing])  // eslint-disable-line react-hooks/exhaustive-deps
   const [typeInstead, setTypeInstead] = useState(false)
 
+  // A move or repair with an earlier change order whose work was not kept: said on screen (changeOrderPricing.ts noWorkNote).
+  const coNoWorkNote = signedQuote && init?.id && jobType !== 'new' ? noWorkNote(getOrdersForQuote(init.id)) : null
+
   /** The change order, filled in from what was changed here, priced at today's costs. */
   function startChangeOrder(changedQuote?: SavedQuote) {
     const q = changedQuote ?? pending?.quote
@@ -1463,15 +1468,18 @@ export default function QuoteBuilder({
     const draft = changeOrderDraft({
       signed: init, current: calcInput, signedOverrides: openOverrides.current, styles: FENCE_STYLES,
       now: changeNow, priceNow, sectionsNow: work ? work.sections : sections, simple: !internal || jobType !== 'new',
+      workWords: jobType === 'repair' ? repairChangeWords(init.work?.repair, repairIn) : jobType === 'move' ? moveChangeWords(moveOpened, moveIn) : [],
+      earlier: { orders: getOrdersForQuote(init.id) as never, states: foldedStates(init), sold: signedQuoteOf(init) },
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
       sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard
         ? sideChangeWords(sideChanges(shapeOf({ yard: (init.layout as { yard?: YardLayout | null }).yard }), shapeOf({ yard })))
         : null,
     })
-    // A new fence: the new work goes with it (the server prices it and keeps it, so the pull sheet, packet,
-    // site plan, crew days and job costing follow once it is approved).
-    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: { ...priceRequest, changeBase: undefined } as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
+    // The new work goes with it (the server prices it and keeps it, so the pull sheet, packet, site plan, crew days
+    // and job costing follow once it is approved), and the next change order opens on it. A move or repair too, its
+    // inputs in the request: else that one is priced against a contract holding work it never opens on.
+    setCoPrefill(style ? { ...draft, note: coNoWorkNote, work: { request: { ...priceRequest, changeBase: undefined } as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
   }
 
   return (
@@ -1483,9 +1491,10 @@ export default function QuoteBuilder({
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
-            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? 'Change order: change the drawing, then tap Make change order.' : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
+            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? `Change order: change the ${jobType === 'repair' ? 'repair list' : entry === 'layout' ? 'drawing' : 'run list'}, then tap Make change order.` : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
             {/* Another change order still open is in this drawing and its price: said, not only in a passing toast (round 3 recheck). */}
             {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
+            {coNoWorkNote && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-no-work-note>{coNoWorkNote}</p>}
             {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({priceText(init!.finalPrice)} then, {priceText(adjPrice)} now).</p>}
@@ -1803,7 +1812,10 @@ export default function QuoteBuilder({
           </div>
 
           <div className={step === 'style' ? 'space-y-6' : 'hidden'} data-step-panel="style">
-            <JobTypePicker value={jobType} onChange={setJobType} />
+            {/* A signed job stays what it was sold as: a flip to Repair made a -$8,239 change order (the server refuses it too). */}
+            {signedQuote
+              ? <p className="text-sm text-gray-700" data-job-type-locked>Job type: <b>{jobType === 'move' ? 'Fence move' : jobType === 'repair' ? 'Repair' : 'New fence'}</b>. A signed job stays what it was sold as.</p>
+              : <JobTypePicker value={jobType} onChange={setJobType} />}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 mb-3">{jobType === 'new' ? 'Fence' : 'The fence (its style)'}</h3>
               <StyleChoices styles={PICKER_STYLES} catalog={catalog} value={styleId} onChange={setStyleId} isOk={pickable} />

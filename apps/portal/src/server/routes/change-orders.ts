@@ -32,9 +32,9 @@ import { requireCan, roleOf, can, refuse } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { createChangeOrder, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
+import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
 import { hidesCosts } from '../lib/costRedact.js'
-import { scheduleFit, startOfChange, effectiveWork } from '../lib/changeOrderWork.js'
+import { scheduleFit, startOfChange, effectiveWork, afterVoid, layoutNote } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
 import { jobTimeline } from '../lib/changeOrderHistory.js'
 import { isSalesman, salesmanLogin, salesmanOwnsJob, forSalesman } from '../lib/salesmanJobs.js'
@@ -87,6 +87,8 @@ const lineSchema = z.object({
   id: z.string().min(1).max(64),
   description: z.string().max(500),
   amountCents: z.number().int().min(-100_000_000).max(100_000_000),
+  // Filled in from the change itself, not typed beside it (web changeOrderPricing.ts changeCents).
+  fromChange: z.boolean().optional(),
   // Picked from the pick list: how many, and where it came from (kept for history).
   qty: z.number().int().min(1).max(10_000).optional(),
   source: z.object({
@@ -192,7 +194,19 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     if (backToOk) await askForOk(row, by, true)
     // The OK (or a void before it): the "to OK" notices are cleared and the maker is told (lib/changeOrderNotices.ts).
     if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void', roleOf(req))
-    res.json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
+    const siblings = await siblingsOf(row)
+    let creditWarning: string | null = null
+    if (row.status === 'void' && cur.status !== 'void') {
+      const q = await prisma.savedQuote.findFirst({ where: { id: row.quoteId, accountId } })
+      const after = q ? await afterVoid(accountId, q, row as any, cur.status === 'approved', siblings as any) : null
+      creditWarning = [creditAfterVoid(row, siblings), after?.warning].filter(Boolean).join(' ') || null
+      // Kept on it: the job history says what it left, the next change order shows the gap on its own line.
+      if (after && cur.status === 'approved') {
+        const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId: row.quoteId, deletedAt: null, archivedAt: null }, select: { sections: true } })
+        await prisma.changeOrder.update({ where: { id: row.id }, data: { work: { ...(row.work as any), afterVoid: { feet: after.feet, sections: job?.sections ?? 0, gapCents: after.gapCents } } } })
+      }
+    }
+    res.json({ success: true, data: viewFor(req, siblings)(row), ...(creditWarning ? { creditWarning } : {}), ...(row.status !== cur.status ? { scheduleWarning: await warningFor(accountId, row.quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
 })
 
@@ -228,13 +242,16 @@ router.get('/:id/for-signing', requireCan('quotes.change'), async (req: any, res
     const accountId = req.user.crmAccountId
     const co = await prisma.changeOrder.findUnique({ where: { id: String(req.params.id) } })
     if (!co || co.accountId !== accountId || co.deletedAt) { res.status(404).json({ success: false, error: 'Change order not found' }); return }
-    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true, proposal: true } })
+    const q = await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId }, select: { finalPrice: true, proposal: true, work: true } })
     const work = co.work as any
-    const planSvg = work?.planSvg ? safeSvg(work.planSvg) || null : null
+    // A repair changes no layout: its list is the change.
+    const planSvg = (q?.work as any)?.type !== 'repair' && work?.planSvg ? safeSvg(work.planSvg) || null : null
     const also = planSvg ? alsoInDrawingWords(alsoInDrawing(co, await siblingsOf(co))) : []
     // "Questions? Call ...": the number the signed PDF and the customer's link give.
     const questionsPhone = (await changeOrderPhonesFor(accountId, q?.proposal)).questions || null
-    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also, questionsPhone } })
+    const full = planSvg ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId } }) : null
+    const jobNote = full ? await layoutNote(accountId, full, co as any, await siblingsOf(co) as any) : null
+    res.json({ success: true, data: { contract: await contractAround(co, q?.finalPrice ?? 0), planSvg, jobNote, own: planSvg && also.length ? ownChangeWords(work) : null, alsoInDrawing: also, questionsPhone } })
   } catch (e) { fail(res, e, 'load the change order to sign') }
 })
 
@@ -263,8 +280,12 @@ router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
     const layout = same && known?.layout && typeof known.layout === 'object' ? known.layout : { yard: start.shape.yard, runSections: [], ...(!start.shape.yard && start.shape.gateWidths ? { gateWidths: start.shape.gateWidths } : {}) }
     res.json({ success: true, data: {
       ...start.shape, layout, sections: same ? (known?.sections ?? null) : null,
+      // A move's or repair's inputs as they are now (the old line, the repair's items).
+      ...(start.inputs ?? {}),
       planSvg: same ? (last ? known?.planSvg ?? null : known?.proposal?.planSvg ?? null) : null,
       open: start.steps.filter(s => ['needs_ok', 'draft', 'sent'].includes(s.row.status)).map(s => ({ id: s.row.id, number: s.row.number, status: s.row.status })),
+      // The job's state after each one, in the order the work really happened; a void one is in none of them.
+      states: start.steps.map(s => ({ number: s.row.number, state: s.shape })),
     } })
   } catch (e) { fail(res, e, 'load the drawing') }
 })

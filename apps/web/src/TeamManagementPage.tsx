@@ -18,6 +18,17 @@ import { TEAM_ROLES, ROLE_NAMES, roleName } from './teamRoles'
 
 const AUTH_API = (window.location.hostname === 'localhost' ? LOCAL_API_ORIGIN : '') + '/api/crm-auth'
 
+/** Making an admin or moving an admin's or owner's sign in asks the password of whoever is doing it (routes/crm-auth.ts). */
+function YourPassword({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label htmlFor="team-your-password" className="block text-xs text-gray-500 mb-1">Your own password, to confirm this</label>
+      <input id="team-your-password" type="password" value={value} onChange={e => onChange(e.target.value)} autoComplete="off" data-1p-ignore data-lpignore="true" data-team-password
+        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-base md:text-sm" />
+    </div>
+  )
+}
+
 async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
   return authFetch<T>(`${AUTH_API}${path}`, opts)
 }
@@ -324,12 +335,13 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [sent, setSent] = useState<InviteOutcome | null>(null)
+  const [currentPassword, setCurrentPassword] = useState('')
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true); setError('')
     try {
-      const d = await api<InviteAnswer>('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role }) })
+      const d = await api<InviteAnswer>('/invite', { method: 'POST', body: JSON.stringify({ firstName, lastName, email, phone: phone || undefined, role, ...(role === 'admin' ? { currentPassword } : {}) }) })
       if (d?.inviteUrl) setSent(outcomeOf(d, email))
       else onInvited()
     } catch (err: any) { setError(plainText(err)) }
@@ -397,10 +409,12 @@ function InviteModal({ onClose, onInvited }: { onClose: () => void; onInvited: (
           </div>
         </div>
 
+        {role === 'admin' && <YourPassword value={currentPassword} onChange={setCurrentPassword} />}
+
         <div className="flex gap-2 pt-2">
           <button type="button" onClick={onClose}
             className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button type="submit" disabled={saving || !firstName || !lastName || !email}
+          <button type="submit" disabled={saving || !firstName || !lastName || !email || (role === 'admin' && !currentPassword)}
             className="btn btn-primary flex-1 disabled:opacity-40">
             {saving ? 'Sending invite...' : 'Send Invite'}
           </button>
@@ -425,16 +439,19 @@ function EditUserModal({ user, canChangeEmail, onClose, onSaved }: { user: TeamU
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const emailChanged = canChangeEmail && email.trim().toLowerCase() !== user.email.toLowerCase()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const raising = role !== user.role && (role === 'admin' || role === 'super_admin')
+  const needsPassword = raising || (emailChanged && (user.role === 'admin' || user.role === 'super_admin'))
 
   async function handleSave() {
     setSaving(true); setError('')
     let emailSaved = false
     try {
       // The email first: a refused one (in use, not an address) saves nothing else, and the window stays open.
-      if (emailChanged) { await api(`/users/${user.id}/email`, { method: 'PATCH', body: JSON.stringify({ email: email.trim() }) }); emailSaved = true }
+      if (emailChanged) { await api(`/users/${user.id}/email`, { method: 'PATCH', body: JSON.stringify({ email: email.trim(), ...(needsPassword ? { currentPassword } : {}) }) }); emailSaved = true }
       await api(`/users/${user.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ firstName, lastName, phone: phone.trim(), role, status }),
+        body: JSON.stringify({ firstName, lastName, phone: phone.trim(), role, status, ...(raising ? { currentPassword } : {}) }),
       })
       onSaved()
     } catch (err: any) {
@@ -511,9 +528,11 @@ function EditUserModal({ user, canChangeEmail, onClose, onSaved }: { user: TeamU
           {status === 'deactivated' && <p className="text-xs text-red-600 mt-0.5">User cannot log in — all data preserved</p>}
         </div>
 
+        {needsPassword && <YourPassword value={currentPassword} onChange={setCurrentPassword} />}
+
         <div className="flex gap-2 pt-2">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 text-sm py-2.5 rounded-xl hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} disabled={saving} data-save-user
+          <button onClick={handleSave} disabled={saving || (needsPassword && !currentPassword)} data-save-user
             className="btn btn-primary flex-1 disabled:opacity-40">
             {saving ? 'Saving...' : 'Save Changes'}
           </button>

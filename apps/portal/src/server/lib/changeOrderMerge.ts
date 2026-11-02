@@ -96,9 +96,12 @@ const FIELD_WORDS: Record<string, string> = { lengthIn: 'length', gate: 'gate', 
 
 /**
  * Put one change (base -> mine) on the yard as it is now. A side is matched by
- * its id; each of its fields that the change touched takes the change's value.
- * When the yard now has a different value there too (another change order
- * changed the same thing), the change's value wins and it is said.
+ * its id; a length takes the change's difference, so two change orders on one
+ * side add up whatever order they are signed in, or either is voided (Nov 2
+ * 2026: signed backwards, the contract paid for 140 ft and the crew built 120).
+ * Each other field the change touched takes the change's value; when the yard
+ * now has a different value there too (another change order changed the same
+ * thing), the change's value wins and it is said.
  */
 export function mergeYard(base: Json, mine: Json, cur: Json): { yard: Json; conflicts: string[] } {
   const conflicts: string[] = []
@@ -119,6 +122,7 @@ export function mergeYard(base: Json, mine: Json, cur: Json): { yard: Json; conf
     const next = { ...c }
     for (const key of new Set([...Object.keys(b), ...Object.keys(m)])) {
       if (key === 'id' || same(m[key], b[key])) continue
+      if (key === 'lengthIn') { next.lengthIn = plus(num(c.lengthIn), num(b.lengthIn), num(m.lengthIn)); continue }
       if (!same(c[key], b[key]) && !same(c[key], m[key])) conflicts.push(`${sideName(c)}: ${FIELD_WORDS[key] ?? key}`)
       if (m[key] === undefined) delete next[key]; else next[key] = m[key]
     }
@@ -181,13 +185,11 @@ export function applyChange(cur: WorkShape, step: ChangeStep, derive: DeriveRuns
       return { shape: out, conflicts, merged: true }
     }
   }
-  // A run list (no drawing): run by run when the list is as long as it was, else the whole list.
-  if (mine.runs.length === base.runs.length && cur.runs.length === base.runs.length) {
-    out.runs = cur.runs.map((f, i) => pick(f, base.runs[i], mine.runs[i], `run ${i + 1}`, conflicts))
-  } else if (!same(mine.runs, base.runs)) {
-    if (!same(cur.runs, base.runs)) conflicts.push('the runs')
-    out.runs = mine.runs
-    delete out.runRails
+  // A run list (no drawing): each run takes the change's difference, a run added or taken out too.
+  if (!same(mine.runs, base.runs)) {
+    // A run it added stays a run of its own, never feet on another (each run has its own panels).
+    out.runs = [...cur.runs.map((f, i) => (i < base.runs.length ? plus(f, base.runs[i], mine.runs[i] ?? 0) : f)), ...mine.runs.slice(base.runs.length)].filter(f => f > 0)
+    if (out.runs.length !== cur.runs.length) delete out.runRails
   }
   out.corners = plus(cur.corners, base.corners, mine.corners)
   out.ends = plus(cur.ends, base.ends, mine.ends)
@@ -389,6 +391,16 @@ export function ownLineWords(description: string, sides: string | null): string 
 
 /** "the Back side's length" words for a clash: the same things two changes touch. */
 export function clashes(a: ChangeStep, b: ChangeStep): string[] {
-  const t = new Set(touches(a))
-  return touches(b).filter(x => t.has(x))
+  const t = new Set(singleTouches(a))
+  return singleTouches(b).filter(x => t.has(x))
+}
+
+/** What a change sets to one value: lengths add up (mergeYard), so never these. */
+export const singleTouches = (step: ChangeStep) => touches(step).filter(x => x !== 'the runs' && !x.endsWith(': length'))
+
+/** The ids of the sides a change added, and of those it changed (one that needs the other's side can't go first). */
+export function sidesOf(step: ChangeStep): { added: string[]; changed: string[] } {
+  const was = new Map<string, Json>((step.base.yard?.sides ?? []).map((s: Json) => [String(s.id), s]))
+  const now: Json[] = step.work.yard?.sides ?? []
+  return { added: now.filter(s => !was.has(String(s.id))).map(s => String(s.id)), changed: now.filter(s => was.has(String(s.id)) && !same(s, was.get(String(s.id)))).map(s => String(s.id)) }
 }

@@ -19,13 +19,14 @@
  * Integer cents.
  */
 
+import { Prisma } from '@prisma/client'
 import prisma from './prisma.js'
 import { nyDay } from './warranties.js'
 import { plainStyleName } from './estimates.js'
 import { toCents, qty } from './jobCostingMath.js'
 import { quotedCostFor, quotedNow, actualFor, linesOf as takeoffLinesOf } from './jobCosting.js'
 import { linesOf as coLinesOf } from './changeOrders.js'
-import { approvedInOrder, sheetChanges, effectiveWork, type LineChange, type StoredWork } from './changeOrderWork.js'
+import { approvedInOrder, sheetChanges, sheetEvents, effectiveWork, type LineChange, type StoredWork } from './changeOrderWork.js'
 
 export type PullSheetStatus = 'Draft' | 'Sent' | 'Signed' | 'Sold' | 'Lost' | 'Linked by hand'
 
@@ -170,7 +171,7 @@ type CoForNote = { number: number; approvedAt: Date | null; reason: string; scop
  * newest revision with the changes highlighted (a change made from the yard
  * drawing), or as signed (typed lines only change the price).
  */
-export function changeNoteOf(rows: CoForNote[]): string | null {
+export function changeNoteOf(rows: CoForNote[], top?: { rev: number; title: string }): string | null {
   if (!rows.length) return null
   const parts = rows.map(r => {
     const s = (r.scope && typeof r.scope === 'object' ? r.scope : null) as Record<string, unknown> | null
@@ -191,7 +192,8 @@ export function changeNoteOf(rows: CoForNote[]): string | null {
   if (!withWork.length) return `${parts.join(' ')} This pull sheet is as signed and does not include ${rows.length === 1 ? 'that change' : 'those changes'}.`
   const last = withWork[withWork.length - 1]
   const tail = priceOnly.length ? ` ${priceOnly.map(r => `CO-${r.number}`).join(', ')} changed the price only (typed lines), not the materials.` : ''
-  return `${parts.join(' ')} This is pull sheet rev ${last.contractRev ?? withWork.length + 1}, from change order CO-${last.number}; what changed is marked, and the earlier revisions are kept below.${tail}`
+  const from = top ? top.title.replace(/^Rev \d+: /, '') : `change order CO-${last.number}`
+  return `${parts.join(' ')} This is pull sheet rev ${top?.rev ?? last.contractRev ?? withWork.length + 1}, from ${from}; what changed is marked, and the earlier revisions are kept below.${tail}`
 }
 
 /**
@@ -215,8 +217,10 @@ export async function customerPullSheets(accountId: string, contactId: string): 
     select: { id: true, quoteId: true, fenceStyle: true, totalFeet: true, sections: true, createdAt: true, archivedAt: true },
   })
   const jobIds = jobs.map(j => j.id)
-  const [cos, takeoffs, packets, biz] = await Promise.all([
+  const [cos, voids, takeoffs, packets, biz] = await Promise.all([
     quoteIds.length ? prisma.changeOrder.findMany({ where: { accountId, quoteId: { in: quoteIds }, status: 'approved', deletedAt: null }, orderBy: { number: 'asc' } }) : [],
+    // Signed, with work, voided since.
+    quoteIds.length ? prisma.changeOrder.findMany({ where: { accountId, quoteId: { in: quoteIds }, status: 'void', approvedAt: { not: null }, work: { not: Prisma.DbNull }, deletedAt: null }, orderBy: { voidedAt: 'asc' } }) : [],
     jobIds.length ? prisma.jobTakeoff.findMany({ where: { accountId, jobId: { in: jobIds }, status: { in: ['submitted', 'approved'] } } }) : [],
     jobIds.length ? prisma.installPacket.findMany({ where: { accountId, jobId: { in: jobIds }, disabledAt: null }, select: { jobId: true, token: true } }) : [],
     prisma.businessState.findUnique({ where: { accountId }, select: { pullSheets: true } }),
@@ -253,15 +257,27 @@ export async function customerPullSheets(accountId: string, contactId: string): 
     // drawing), its pull sheet as priced on the server, with what changed marked. The old ones are kept.
     const changed = j.quoteId ? approvedInOrder(cos.filter(c => c.quoteId === j.quoteId)).filter(c => c.work && typeof c.work === 'object') : []
     let revisions: PullSheetRevision[] | undefined
-    if (changed.length) {
-      revisions = [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
+    // In the order it happened: a void is its own revision, between the change orders around it, the work as it then is.
+    const undone = j.quoteId ? voids.filter(c => c.quoteId === j.quoteId) : []
+    const events = sheetEvents([...changed, ...undone])
+    if (events.length) {
+      revisions = revisions ?? [{ rev: 1, title: 'Rev 1: as signed', date: (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt), source, lines, totalCostCents: sumCost(lines), changes: [] }]
       let prev = lines
-      for (const c of changed) {
-        const l = linesFromSheet((effectiveWork(c) as StoredWork).pullSheet)
-        const rev = c.contractRev ?? revisions.length + 1
-        revisions.push({ rev, title: `Rev ${rev}: change order CO-${c.number}`, date: day(c.approvedAt), source: `Change order CO-${c.number} (approved ${words(day(c.approvedAt))})`, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
+      // What the crew held at each revision: a change order's own sheet until a void came after it; each void, the job it left.
+      let job: typeof changed[number] | null = null
+      for (const { row: c, voided, at, rev } of events) {
+        const undoneLater = undone.some(v => v.voidedAt! > at)
+        const own = !voided && (undoneLater || c.status === 'void')
+        if (!voided && c.status !== 'void') job = c as typeof changed[number]
+        const l = voided ? (job ? linesFromSheet((effectiveWork(job) as StoredWork).pullSheet) : lines)
+          : linesFromSheet(((own ? c.work : effectiveWork(c)) as StoredWork).pullSheet)
+        const name = voided ? `CO-${c.number} voided` : `change order CO-${c.number}`
+        const when = words(day(voided ? c.voidedAt : c.approvedAt))
+        revisions.push({ rev, title: `Rev ${rev}: ${name}`, date: day(voided ? c.voidedAt : c.approvedAt), source: voided ? `${name} (${when})` : `Change order CO-${c.number} (approved ${when})${c.status === 'void' ? ', voided since' : ''}`, lines: l, totalCostCents: sumCost(l), changes: sheetChanges(prev, l) })
         prev = l
       }
+    }
+    if (revisions) {
       revisions.reverse()
       lines = revisions[0].lines; source = `Rev ${revisions[0].rev}: ${revisions[0].source}`
     }
@@ -289,7 +305,7 @@ export async function customerPullSheets(accountId: string, contactId: string): 
       sections: changed.length ? (effectiveWork(changed[changed.length - 1]) as StoredWork).sections : q?.sections || j.sections,
       status, archived: !!(j.archivedAt || q?.archivedAt), date: (revisions && revisions[0].date) || (quoted ? quoted.signedAt.slice(0, 10) : '') || day(q?.acceptedAt ?? q?.soldAt) || day(j.createdAt),
       source, lines, totalCostCents: sumCost(lines),
-      changeNote: j.quoteId ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === j.quoteId))) : null,
+      changeNote: j.quoteId ? changeNoteOf(approvedInOrder(cos.filter(c => c.quoteId === j.quoteId)), revisions?.[0]) : null,
       ...(revisions ? { revision: revisions[0].rev, changes: revisions[0].changes, revisions } : {}),
       finalTakeoff, packetToken: packets.find(p => p.jobId === j.id)?.token ?? null,
     })
