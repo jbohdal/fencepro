@@ -15,6 +15,7 @@
  */
 
 import { getBills } from './vendorStore'
+import { plLaborCents, type PlRecord } from './jobCostLabor'
 import { getPlEntries } from './financeStore'
 import type { PlManualEntry } from './financeStore'
 import type { VendorBillCategory } from './vendorStore'
@@ -119,43 +120,34 @@ function sumManualByCategory(from: Date, to: Date, categories: PlManualEntry['ca
   return total
 }
 
-function sumJobCostingLabor(from: Date, to: Date): number {
+function sumJobCostingLabor(from: Date, to: Date, jobs: JobForRevenue[]): number {
   // Job costing records are written by JobCostingTab under fencepro_jobcosting:
-  //   { quoteId, completionDate, actualLaborHrs, crew: [{ name, hours, rate }], ... }
+  //   { quoteId, completionDate, actualLaborCostCents, crew: [{ name, hours, rate }], ... }
   // (This used to read a different key, fencepro_job_costing, and different
   // field names, so the P&L never saw any job costing labor.)
   try {
     const raw = cloudStorage.getItem('fencepro_jobcosting')
-    const records: Array<{
-      completionDate?: string; dateISO?: string; date?: string
-      actualLaborHrs?: number; crew?: Array<{ hours?: number; rate?: number }>
-      laborCents?: number; labor?: number
-    }> = raw ? JSON.parse(raw) : []
+    const records: Array<PlRecord & { completionDate?: string; dateISO?: string; date?: string }> = raw ? JSON.parse(raw) : []
     const hourlyRate = getConfig().pricing?.manHourRate ?? 22
     // Approved job takeoffs (job costing): their crew labor, by install date.
     // A hand entry for the same quote is left out so it is not counted twice.
     const takeoffs = financeLabor()
     const takenQuotes = new Set(takeoffs.map(t => t.quoteId).filter(Boolean))
+    // A sub's pay reaches the P&L through the sub's bill (Subcontractors, Direct Labor): the same pay on a hand entry is not added.
+    const billedJobs = new Set(getBills().filter(b => b.status !== 'void' && b.status !== 'draft' && (b.category === 'subcontractor' || b.category === 'labor') && b.jobId).map(b => b.jobId))
+    const billedQuotes = new Set(jobs.filter(j => j.quoteId && billedJobs.has(j.id)).map(j => j.quoteId))
     let total = 0
     for (const t of takeoffs) {
       if (inPeriod(new Date(`${t.installDate}T12:00:00`), from, to)) total += t.crewLaborCostCents
     }
     for (const r of records) {
-      const quoteId = (r as { quoteId?: string }).quoteId
+      const quoteId = r.quoteId
       if (quoteId && takenQuotes.has(quoteId)) continue
       const dateStr = r.completionDate || r.dateISO || r.date
       if (!dateStr) continue
       const d = new Date(dateStr)
       if (!inPeriod(d, from, to)) continue
-      if (typeof r.laborCents === 'number') { total += r.laborCents; continue }
-      if (typeof r.labor === 'number') { total += Math.round(r.labor * 100); continue }
-      // Same rule as the Job Costing screen: crew lines if there are any,
-      // otherwise actual hours at the man hour rate.
-      const crewDollars = Array.isArray(r.crew)
-        ? r.crew.reduce((sum, c) => sum + (Number(c.hours) || 0) * (Number(c.rate) || 0), 0)
-        : 0
-      const dollars = crewDollars > 0 ? crewDollars : (Number(r.actualLaborHrs) || 0) * hourlyRate
-      total += Math.round(dollars * 100)
+      total += plLaborCents(r, hourlyRate, !!quoteId && billedQuotes.has(quoteId))
     }
     return total
   } catch { return 0 }
@@ -175,7 +167,7 @@ export function calculatePl(from: Date, to: Date, label: string, src: RevenueSou
   // COGS
   const materials = sumBillsByCategory(from, to, ['materials'])
   const laborBills = sumBillsByCategory(from, to, ['labor'])
-  const directLabor = laborBills + sumJobCostingLabor(from, to)
+  const directLabor = laborBills + sumJobCostingLabor(from, to, src.jobs)
   const subcontractors = sumBillsByCategory(from, to, ['subcontractor'])
   const equipment = sumBillsByCategory(from, to, ['equipment'])
   const totalCogs = materials + directLabor + subcontractors + equipment

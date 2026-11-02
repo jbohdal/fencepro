@@ -106,3 +106,12 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - devDbScrubbed: (352) 789-4314 is the company's own office line on a dev contact, not a customer's number. The test could allow it.
 - E2E_SALES_TOKEN and E2E_SALES_COOKIE mean a file path to salesman-live-overhead but the value itself to option-lists, pipeline-stages, round4-co and visit-quote-send, so no single setting works for all five in `all`. Make salesman-live-overhead accept the value.
 - Still failing, known: sales-orders (AUD Web Chainlink fixture), quotable-styles (stale), builderProposalBetter (dev data).
+
+## From the Nov 2 job cost labor change
+
+- Two job costings: Budget > Job Costing (hand entries) and the takeoff (job page, Reports > Job Costing) do not read each other. A typed labor cost never reaches the Reports tab.
+- Job Costing's price is the signed quote, without approved change orders (the job page uses the contract value). The form warns when a job has some.
+- Tear out is in the estimate but not in actual cost unless typed in Other Costs. The form says so.
+- Crew hours on a takeoff are not used to fill in hours or labor here.
+- A bill filed as Other or Equipment on a job is not counted as material; the form says so.
+

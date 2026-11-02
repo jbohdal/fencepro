@@ -63,6 +63,7 @@ import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
 import { can, canOpenOperations, signedInRole } from './permissions'
 import { seesCommission, shownMargin } from './salesmanCommission'
+import { entryLaborCents, estMargin } from './jobCostLabor'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
 import PossibleMatch from './PossibleMatch'
@@ -809,12 +810,12 @@ function CustomerJobCostingTab({ quotes }: { quotes: any[] }) {
   const costedJobs = soldQuotes.map((q: any) => {
     const entry = costEntries.find((e: any) => e.quoteId === q.id)
     if (!entry) return null
-    const estLabor = (q.adjLaborHrs || 0) * 22
-    const actLabor = entry.actualLaborHrs * 22
+    // One rule with Budget > Job Costing: the saved labor cost (jobCostLabor.ts), never hours x a rate.
+    const actLabor = entryLaborCents(entry, q) / 100
     const estCOGS = q.totalCOGS || 0
     const actCOGS = actLabor + entry.actualMaterialCost + (entry.actualOtherCosts || 0)
     const variance = actCOGS - estCOGS
-    const estGM = shownMargin(q, seesCommission(signedInRole(), can('costs.view'))) || 0
+    const estGM = estMargin(q) || 0
     const actGM = q.finalPrice > 0 ? (q.finalPrice - actCOGS) / q.finalPrice : 0
     return { quote: q, entry, estCOGS, actCOGS, variance, estGM, actGM }
   }).filter(Boolean) as any[]

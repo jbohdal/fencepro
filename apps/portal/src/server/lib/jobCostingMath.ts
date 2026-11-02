@@ -158,6 +158,22 @@ export interface ActualCost {
   frozen: boolean
 }
 
+/** What Budget > Job Costing fills in on a new entry (lib/jobCostPrefill.ts). */
+export interface PrefillAnswer {
+  sub: boolean
+  /** Why it counts as a sub job or a crew job, in words. */
+  kindWhy: string
+  labor: { cents: number; source: 'quote' | 'takeoff' | 'bills'; words: string; note: string }
+  material: { cents: number; source: 'quote' | 'bills' | 'sales_order'; words: string; note: string }
+}
+
+export interface JobCostPrefill extends PrefillAnswer {
+  quoteId: string
+  jobId: string | null
+  tearOutCents: number
+  changeOrders: { count: number; priceCents: number }
+}
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : d)
