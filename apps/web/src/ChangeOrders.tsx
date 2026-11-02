@@ -141,6 +141,8 @@ export interface ChangeOrderPrefill {
   lines: ChangeOrderLine[]
   scope: ChangeOrderScope | null
   work?: ChangeOrderWorkInput | null
+  /** Said above the lines (changeOrderPricing.ts noWorkNote). */
+  note?: string | null
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
@@ -281,6 +283,8 @@ export async function quoteForChange(quote: SavedQuote): Promise<SavedQuote> {
     fenceStyle: d.fenceStyle || now.fenceStyle, runs: d.runs, runRails: d.runRails, corners: d.corners, ends: d.ends,
     walkGates: d.walkGates, dblGates: d.dblGates, tearOutSections: d.tearOutSections, tearOutGates: d.tearOutGates,
     ...(typeof d.sections === 'number' ? { sections: d.sections } : {}),
+    // A move's or repair's inputs as change orders left them: the builder opens on them.
+    ...(now.work && (d.move || d.repair) ? { work: { ...now.work, ...(d.move ? { move: d.move } : {}), ...(d.repair ? { repair: d.repair } : {}) } } : {}),
     layout: d.layout ? { ...(now.layout ?? {}), ...d.layout } as SavedQuote['layout'] : now.layout,
     proposal: now.proposal ? { ...now.proposal, ...(d.planSvg ? { planSvg: d.planSvg } : {}) } : now.proposal,
   }
@@ -613,7 +617,8 @@ export function QuickChangeOrderModal({
         </div>
 
         <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
-          {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.</p>}
+          {prefill?.note && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-co-modal-no-work-note>{prefill.note}</p>}
+          {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>{prefill.work.request.jobType === 'move' || prefill.work.request.jobType === 'repair' ? 'Once approved, the pull sheet, install packet, crew days and job costing follow this work, and the next change order starts from it.' : 'From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.'}</p>}
           <div>
             <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>
             <input id="co-reason" required maxLength={1000} enterKeyHint="done" autoCapitalize="sentences"

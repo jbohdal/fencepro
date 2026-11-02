@@ -33,7 +33,8 @@
  * Gates added are net: a gate of the sold job taken out, a gate whose charge
  * can't be read (gateCreditOf), or one swapped for another, prices as it
  * always has. The one price difference line credits in full by itself: it is
- * the new work's price minus the contract, which holds the earlier charge.
+ * the new work's price minus the contract, which holds the earlier charge
+ * (workOffContract below for what the contract holds that the work does not).
  * The pull sheet, crew packet, Sales Order and a change order's stored work
  * and costDelta never come through here: they keep whole rolls and the real
  * post count (lib/changeOrderWork.ts priceWork).
@@ -181,16 +182,59 @@ export function changeOrderPrice(input: QuoteCalcInput, base: ChangeBase, move?:
 
 // ── A gate an earlier change order added, taken out by a later one ───────────
 
+/** The words of the one price difference line (changeOrderDraft.ts). */
+export const DIFFERENCE_LINE = "Price difference at today's prices"
+export const CHANGES_LINE = "Changes to the work, at today's prices"
+const DIFFERENCE_LINES = [DIFFERENCE_LINE, CHANGES_LINE]
+
 /** An earlier change order as this one reads it (ChangeOrders.tsx ChangeOrder). */
 export interface EarlierOrder {
   number: number
   status: string
   lines: Array<{ description: string; amountCents: number; qty?: number; source?: { ref: string } | null }>
-  scope?: { walkGates?: number; dblGates?: number } | null
+  scope?: { walkGates?: number; dblGates?: number; footageFt?: number; sections?: number; fromStyle?: string; toStyle?: string } | null
   /** Only a change order with work changed the job: typed lines change the price, never the gates a later one can take out. */
   work?: unknown
   /** The drawing's own gate changes (server ownGateSides); null: a run list. */
   gateSides?: { added: Array<{ side: string; type: 'walk' | 'double' }>; removed: string[] } | null
+}
+
+/**
+ * A move or repair's earlier change orders with no work kept (its one price
+ * difference line is the new work's price minus the contract, so what is in
+ * the contract and not in the work would be handed back):
+ *
+ *   priceOnly  typed or picked lines: they change the price, never the work,
+ *              as on a new fence. Their amounts stay on the job, out of the
+ *              comparison.
+ *   unknown    made in the quote builder before a move or repair kept its work
+ *              (Nov 2 2026): a scope or its price difference line says it
+ *              changed the work, nothing says how. The price stays compared
+ *              with the contract, which is right once its change is put on
+ *              the work again, and the person is told (noWorkNote).
+ *
+ * Approved ones only: an open one is not in the price compared with.
+ */
+export function workOffContract(orders: EarlierOrder[]): { priceOnly: EarlierOrder[]; unknown: EarlierOrder[] } {
+  const off = orders.filter(o => o.status === 'approved' && !o.work)
+  const fromBuilder = (o: EarlierOrder) => Object.values(o.scope ?? {}).some(Boolean) || o.lines.some(l => DIFFERENCE_LINES.includes(l.description))
+  return { priceOnly: off.filter(o => !fromBuilder(o)), unknown: off.filter(fromBuilder) }
+}
+
+const orderCents = (o: EarlierOrder) => o.lines.reduce((t, l) => t + l.amountCents, 0)
+const dollars = (cents: number) => `${cents < 0 ? '-' : '+'}$${(Math.abs(cents) / 100).toLocaleString('en-US')}`
+
+/** What the person changing a move or repair is told about those change orders. Null: nothing to say. */
+export function noWorkNote(orders: EarlierOrder[]): string | null {
+  const { priceOnly, unknown } = workOffContract(orders)
+  const list = (os: EarlierOrder[]) => os.map(o => `CO-${o.number} (${dollars(orderCents(o))})`).join(', ')
+  const notes: string[] = []
+  if (unknown.length) {
+    const total = unknown.reduce((t, o) => t + orderCents(o), 0)
+    notes.push(`${list(unknown)} changed this job before change orders on a move or repair kept their work, so it is not in the work shown here, but the contract holds its price. Put that change in here first, or this change order takes the ${dollars(total).slice(1)} back.`)
+  }
+  if (priceOnly.length) notes.push(`${list(priceOnly)} was typed: its price stays on the job and is not part of this change. It is not in the work shown here.`)
+  return notes.length ? notes.join(' ') : null
 }
 
 /** Gates one line of a change order charged for, still on the job. */

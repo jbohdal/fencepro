@@ -263,6 +263,8 @@ router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
     const layout = same && known?.layout && typeof known.layout === 'object' ? known.layout : { yard: start.shape.yard, runSections: [], ...(!start.shape.yard && start.shape.gateWidths ? { gateWidths: start.shape.gateWidths } : {}) }
     res.json({ success: true, data: {
       ...start.shape, layout, sections: same ? (known?.sections ?? null) : null,
+      // A move's or repair's inputs as they are now (the old line, the repair's items).
+      ...(start.inputs ?? {}),
       planSvg: same ? (last ? known?.planSvg ?? null : known?.proposal?.planSvg ?? null) : null,
       open: start.steps.filter(s => ['needs_ok', 'draft', 'sent'].includes(s.row.status)).map(s => ({ id: s.row.id, number: s.row.number, status: s.row.status })),
     } })

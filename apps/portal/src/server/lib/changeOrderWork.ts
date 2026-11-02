@@ -18,6 +18,12 @@
  * work, else the signed quote. Typed lines (no drawing) change the price only.
  * The signed quote itself is never changed.
  *
+ * A move or a repair changed in the quote builder keeps its work the same way
+ * (Nov 2 2026: without it the next change order opened on the signed work but
+ * was priced against the contract, and handed the last one's amount back).
+ * Beside the shape, its work has its own inputs (the old line, the repair's
+ * items; `inputs` below). Typed or picked lines on one stay price only.
+ *
  * Money in integer cents, except the quote's own dollar fields kept in `work`
  * (materialCost, laborCost, ...) the way a saved quote has them.
  */
@@ -42,6 +48,8 @@ export interface SheetLine { item: string; qty: number; unitCost?: number; total
 
 export interface StoredWork {
   request: Json
+  /** A move's or repair's inputs the change started from (inputs). */
+  baseInputs?: WorkInputs
   fenceStyle: string
   runs: number[]
   runRails?: string[]
@@ -77,6 +85,45 @@ function typedGateWidths(layout: Json): { walk: number[]; dbl: number[] } | null
   return isObj(g) && ok(g.walk) && ok(g.dbl) ? { walk: g.walk, dbl: g.dbl } : null
 }
 
+/** A move's or repair's own inputs, as a request or a saved quote's work keeps them. Null: a new fence. */
+export type WorkInputs = { move: Json } | { repair: Json } | null
+
+/** The inputs of a saved quote or of a change order's stored work. */
+export function inputs(x: Json): WorkInputs {
+  const r = isObj(x?.request) ? x.request : isObj(x?.work) ? x.work : null
+  const kind = r?.jobType ?? r?.type
+  if (kind === 'move' && isObj(r.move)) return { move: r.move }
+  if (kind === 'repair' && isObj(r.repair)) return { repair: r.repair }
+  return null
+}
+
+/** The same, whatever order the keys were saved in. */
+function sameData(a: unknown, b: unknown): boolean {
+  if (isObj(a) && isObj(b)) {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    return [...keys].every(k => sameData(a[k], b[k]))
+  }
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+}
+
+/** One change order's own input changes put on the inputs as they are: a key at a time, a repair's items one by one. */
+function putInputs(cur: WorkInputs, base: WorkInputs, mine: WorkInputs): WorkInputs {
+  if (!cur || !mine) return cur
+  const key = 'move' in cur ? 'move' : 'repair'
+  const was = (base as Json)?.[key] ?? (cur as Json)[key], now = (mine as Json)[key]
+  if (!now) return cur
+  const out: Json = { ...(cur as Json)[key] }
+  for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
+    if (sameData(was[k], now[k])) continue
+    if (isObj(was[k]) && isObj(now[k])) {
+      const inner: Json = { ...(isObj(out[k]) ? out[k] : {}) }
+      for (const i of new Set([...Object.keys(was[k]), ...Object.keys(now[k])])) if (!sameData(was[k][i], now[k][i])) inner[i] = now[k][i]
+      out[k] = inner
+    } else out[k] = now[k]
+  }
+  return { [key]: out } as WorkInputs
+}
+
 /** The quote builder's request for a saved quote (or a change order's stored work). */
 export function requestOfQuote(q: Json): Json {
   const runs: number[] = Array.isArray(q?.runs) ? q.runs.map((r: Json) => num(typeof r === 'number' ? r : r?.ft)) : []
@@ -92,11 +139,17 @@ export function requestOfQuote(q: Json): Json {
     ...(!isObj(q?.layout?.yard) && typedGateWidths(q?.layout) ? { gateWidths: typedGateWidths(q.layout) } : {}),
     tearOutSections: num(q?.tearOutSections), tearOutGates: num(q?.tearOutGates),
     extraLaborHrs: num(q?.adjLaborHrs), hasSalesman: !!q?.hasSalesman, priceAdjust: num(q?.priceAdjust),
-    overrides: {}, jobType: 'new',
+    overrides: {},
+    // A move or repair is priced as one (its cost difference too), never as a new fence of the same runs.
+    ...(() => { const i = inputs(q); return i ? { jobType: 'move' in i ? 'move' : 'repair', ...i } : { jobType: 'new' } })(),
   }
 }
 
-/** A new fence only: a move or a repair is changed with typed lines. */
+/**
+ * A new fence: the work picked sections and gates leave. A move or a repair
+ * has no such thing: its picked lines are priced from a list, not from its own
+ * math, so they stay price only (its work comes from the quote builder).
+ */
 export const workChangeable = (q: { work?: unknown } | null | undefined) => !(isObj(q?.work) && (q!.work.type === 'move' || q!.work.type === 'repair'))
 
 /** Price a request on the server, with the signed quote's cost choices (its sub rate, labor, Overhead %). */
@@ -122,7 +175,8 @@ export async function priceWork(accountId: string, signed: Json, input: WorkInpu
   return {
     request: req, fenceStyle: req.fenceStyle, runs, ...(rails.some(r => r !== 'auto') ? { runRails: rails } : {}),
     corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates, tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates,
-    sections: job.calc.sections, footage: sumFt(runs), layout, planSvg,
+    // A move's or repair's own count, as a saved quote keeps it (quotePricing.ts withServerCosts).
+    sections: job.work ? job.work.sections : job.calc.sections, footage: sumFt(runs), layout, planSvg,
     pullSheet: (job.pullSheet as SheetLine[]).map(l => ({ item: l.item, qty: l.qty, unitCost: l.unitCost, total: l.total, ...(l.moneyOnly || l.jobLotPiece ? { moneyOnly: true } : {}) })),
     materialCost: t.materialCost, laborCost: t.laborCost, tearOutCost: t.tearOutCost, totalCOGS: t.totalCOGS, pricedAt: new Date().toISOString(),
   }
@@ -190,7 +244,7 @@ function baseOf(r: CoRow, quote: WorkShape, approvedBefore: Array<{ at: number; 
   return before.length ? before[before.length - 1].shape : quote
 }
 
-export interface FoldedStep { row: CoRow; step: ChangeStep; shape: WorkShape; merged: boolean; conflicts: string[] }
+export interface FoldedStep { row: CoRow; step: ChangeStep; shape: WorkShape; merged: boolean; conflicts: string[]; inputs: WorkInputs }
 
 /**
  * The work's shape after each approved change order with a drawing, in the
@@ -198,21 +252,23 @@ export interface FoldedStep { row: CoRow; step: ChangeStep; shape: WorkShape; me
  * Shapes only (no prices): what a new change order starts from, and what the
  * job's work must be.
  */
-export function foldShapes(quote: Json, rows: CoRow[], derive: DeriveRuns, opts: { open?: boolean } = {}): { shape: WorkShape; steps: FoldedStep[] } {
+export function foldShapes(quote: Json, rows: CoRow[], derive: DeriveRuns, opts: { open?: boolean } = {}): { shape: WorkShape; steps: FoldedStep[]; inputs: WorkInputs } {
   const start = shapeOf(quote)
   const approved = approvedInOrder(rows).filter(r => isObj(r.work))
   const open = opts.open ? rows.filter(r => OPEN.has(r.status) && !r.deletedAt && isObj(r.work)).sort((a, b) => a.number - b.number) : []
   let cur = start
+  let ins = inputs(quote)
   const snaps: Array<{ at: number; shape: WorkShape }> = []
   const steps: FoldedStep[] = []
   for (const r of [...approved, ...open]) {
     const step: ChangeStep = { number: r.number, base: baseOf(r, start, snaps), work: shapeOf(r.work) }
     const out = applyChange(cur, step, derive)
-    steps.push({ row: r, step, shape: out.shape, merged: out.merged, conflicts: out.conflicts })
+    ins = putInputs(ins, ((r.work as Json).baseInputs ?? null) as WorkInputs, inputs(r.work))
+    steps.push({ row: r, step, shape: out.shape, merged: out.merged, conflicts: out.conflicts, inputs: ins })
     cur = out.shape
     if (r.status === 'approved' && r.approvedAt) snaps.push({ at: new Date(r.approvedAt).getTime(), shape: cur })
   }
-  return { shape: cur, steps }
+  return { shape: cur, steps, inputs: ins }
 }
 
 /** The quote builder's request for a shape, with the other choices of `like` (a stored request). */
@@ -254,14 +310,15 @@ export async function rebuildJobWork(accountId: string, quoteId: string, tx: any
   for (const s of steps) {
     const own = s.row.work as Json
     let applied: StoredWork | null = null
-    if (s.merged) {
+    // A move's or repair's inputs another change order changed too: its own request no longer holds them all.
+    if (s.merged || !sameData(s.inputs, inputs(own))) {
       // Rebuilt already for the same work: kept as it was priced (a later approval does not price it again).
-      if (isObj(own.applied) && sameShape(shapeOf(own.applied), s.shape)) applied = own.applied as StoredWork
+      if (isObj(own.applied) && sameShape(shapeOf(own.applied), s.shape) && sameData(inputs(own.applied), s.inputs)) applied = own.applied as StoredWork
       else {
         const layout = s.shape.yard ? { yard: s.shape.yard, ...(num(s.shape.teeLinePosts) > 0 ? { teeLinePosts: s.shape.teeLinePosts } : {}) }
           // A run list keeps its gate widths with the work (the builder and packet read them from the layout).
           : s.shape.gateWidths ? { yard: null, gateWidths: s.shape.gateWidths } : null
-        applied = await priceWork(accountId, q, { request: requestForShape(s.shape, own.request), layout, planSvg: null })
+        applied = await priceWork(accountId, q, { request: { ...requestForShape(s.shape, own.request), ...(s.inputs ?? {}) }, layout, planSvg: null })
       }
       for (const c of s.conflicts) conflicts.push(`CO-${s.row.number}: ${c}`)
     }
@@ -284,15 +341,15 @@ async function keepApplied(tx: any, id: string, own: Json, applied: StoredWork |
  * every approved change order's change and every still open one's (Waiting
  * for OK, draft, sent), and the open ones it includes.
  */
-export async function startOfChange(accountId: string, quoteId: string, tx: any = prisma, exclude: string | null = null): Promise<{ shape: WorkShape; like: Json; quote: Json; open: CoRow[]; steps: FoldedStep[] } | null> {
+export async function startOfChange(accountId: string, quoteId: string, tx: any = prisma, exclude: string | null = null): Promise<{ shape: WorkShape; like: Json; quote: Json; open: CoRow[]; steps: FoldedStep[]; inputs: WorkInputs } | null> {
   const q = await tx.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q) return null
   // `exclude`: the change order being worked out again (its lines changed), never on top of itself.
   const rows: CoRow[] = await tx.changeOrder.findMany({ where: { accountId, quoteId, deletedAt: null, ...(exclude ? { id: { not: exclude } } : {}) } })
-  const { shape, steps } = foldShapes(q, rows, await deriveFor(accountId), { open: true })
+  const { shape, steps, inputs: ins } = foldShapes(q, rows, await deriveFor(accountId), { open: true })
   const last = steps[steps.length - 1]
   const like = last && isObj(last.row.work) && isObj((last.row.work as Json).request) ? (last.row.work as Json).request : requestOfQuote(q)
-  return { shape, like, quote: q, open: steps.filter(s => OPEN.has(s.row.status)).map(s => s.row), steps }
+  return { shape, like: ins ? { ...like, ...ins } : like, quote: q, open: steps.filter(s => OPEN.has(s.row.status)).map(s => s.row), steps, inputs: ins }
 }
 
 /**

@@ -13,7 +13,10 @@
  *
  * A move or repair, or a login that sees prices only (the server prices
  * their quotes), gets the changes as lines and one price difference line:
- * today's price of the new version minus the signed price.
+ * today's price of the new version minus the job as it stands, the contract
+ * after the last change order, whose work the builder opened on. Typed lines
+ * are not in that work, so their amounts are out of it (changeOrderPricing.ts
+ * workOffContract); the rest of a cost change since signing is still in it.
  *
  * Both price a change the way changeOrderPricing.ts does (Jonathan, Oct 31
  * 2026): chain link fabric by the foot, 2 new posts for each gate added. A
@@ -27,7 +30,7 @@
  * whole dollar), so the cents never go on the customer.
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
-import { changeBaseOf, changeOrderInput, gateCreditOf, gateOpeningFt, type ChangeBase, type ChangeNow, type EarlierOrder, type GateCredit } from './changeOrderPricing'
+import { changeBaseOf, changeOrderInput, gateCreditOf, gateOpeningFt, workOffContract, CHANGES_LINE, DIFFERENCE_LINE, type ChangeBase, type ChangeNow, type EarlierOrder, type GateCredit } from './changeOrderPricing'
 import { wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
@@ -62,7 +65,7 @@ export interface DraftInput {
   signedOverrides: QuoteCalcInput['overrides']
   /** Every style (the signed one is looked up by name). */
   styles: Style[]
-  /** The new version's change order price (dollars; changeOrderPricing.ts changeOrderPrice): the one price difference line is this minus the signed price. */
+  /** The new version's change order price (dollars; changeOrderPricing.ts changeOrderPrice): the one price difference line is this minus the job as it stands. */
   priceNow: number
   /** Sections now. */
   sectionsNow: number
@@ -181,8 +184,9 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
 
   if (d.simple || !signedStyle) {
     const lines = words.filter(w => w.text !== 'Other price changes').map(w => ({ id: newId(), description: w.text, amountCents: 0 }))
-    const diff = wholeDollarCents(Math.round(d.priceNow * 100) - Math.round(s.finalPrice * 100)).cents
-    lines.push({ id: newId(), description: lines.length ? "Price difference at today's prices" : "Changes to the work, at today's prices", amountCents: diff })
+    const typed = workOffContract(d.earlier?.orders ?? []).priceOnly.reduce((t, o) => t + o.lines.reduce((n, l) => n + l.amountCents, 0), 0)
+    const diff = wholeDollarCents(Math.round(d.priceNow * 100) - (Math.round(s.finalPrice * 100) - typed)).cents
+    lines.push({ id: newId(), description: lines.length ? DIFFERENCE_LINE : CHANGES_LINE, amountCents: diff })
     return done(lines)
   }
 

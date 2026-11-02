@@ -470,7 +470,9 @@ function verbalReasonOf(r: string | null | undefined): string {
 async function workPart(accountId: string, quoteId: string, input: WorkInput, exclude: string | null = null): Promise<Record<string, unknown>> {
   const q = await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } })
   if (!q) throw err(404, 'Quote not found')
-  if (!workChangeable(q)) return {}
+  // A move or repair keeps its work as one: priced as anything else, a request for another kind of job says nothing.
+  const kind = (q.work as any)?.type
+  if (!workChangeable(q) && input.request?.jobType !== kind) return {}
   const priced = await priceWork(accountId, q, input)
   // It starts from the work with every signed and every still open change order's change in it
   // (round 3, Oct 26 2026: a second one drawn from the signed quote dropped the first one's change).
@@ -483,7 +485,7 @@ async function workPart(accountId: string, quoteId: string, input: WorkInput, ex
       : await priceWork(accountId, q, { request: requestForShape(start.shape, start.like), layout: start.shape.yard ? { yard: start.shape.yard } : null, planSvg: null })
   }
   const base = shapeOf(before)
-  const after = { ...priced, base }
+  const after = { ...priced, base, ...(start?.inputs ? { baseInputs: start.inputs } : {}) }
   const notice = start ? openNotice('This change order', start, { number: 0, base, work: shapeOf(priced) }) : null
   const out: Record<string, unknown> = { work: after, costDelta: await costDeltaOf(accountId, q, before, priced), scope: scopeOf(before, priced), ...(notice ? { notice } : {}) }
   // No dig <-> dig set: the warranty that goes with the install changes too, and the customer signs the new words.

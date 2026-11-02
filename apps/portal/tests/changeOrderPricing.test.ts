@@ -302,7 +302,7 @@ describe('the other ways a change order is priced', () => {
     expect(co).toBeGreaterThan(priceMove(common, move, line(100, 1)).priceCents / 100)
   })
 
-  test('a repair: no change order price, so the price difference stays as it is today', () => {
+  test('a repair: no change order price of its own, its price is the repair today', () => {
     const req: QuoteJobRequest = {
       fenceStyle: CL, runs: [{ ft: 100, rail: 'auto' }], corners: 0, ends: 2, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
       overrides: {}, jobType: 'repair', repair: { what: 'other', items: { replaceSection: 2 }, postType: 'ds', newPostCaps: false, gateKind: 'walk', debrisCleared: true },

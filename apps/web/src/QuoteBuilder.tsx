@@ -74,7 +74,7 @@ import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../
 import { shapeOf, sideChanges, sideChangeWords } from '../../portal/src/server/lib/changeOrderMerge'
 import { QuickChangeOrderModal, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
-import { changeBaseOf, changeOrderPrice, type ChangeNow } from './changeOrderPricing'
+import { changeBaseOf, changeOrderPrice, noWorkNote, type ChangeNow } from './changeOrderPricing'
 import { SignedDocumentLinks } from './SignedDocuments'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
 import SalesmanPicker from './SalesmanPicker'
@@ -1379,6 +1379,9 @@ export default function QuoteBuilder({
   }, [makeQueued, svPricing])  // eslint-disable-line react-hooks/exhaustive-deps
   const [typeInstead, setTypeInstead] = useState(false)
 
+  // A move or repair with an earlier change order whose work was not kept: said on screen (changeOrderPricing.ts noWorkNote).
+  const coNoWorkNote = signedQuote && init?.id && jobType !== 'new' ? noWorkNote(getOrdersForQuote(init.id)) : null
+
   /** The change order, filled in from what was changed here, priced at today's costs. */
   function startChangeOrder(changedQuote?: SavedQuote) {
     const q = changedQuote ?? pending?.quote
@@ -1397,9 +1400,10 @@ export default function QuoteBuilder({
         ? sideChangeWords(sideChanges(shapeOf({ yard: (init.layout as { yard?: YardLayout | null }).yard }), shapeOf({ yard })))
         : null,
     })
-    // A new fence: the new work goes with it (the server prices it and keeps it, so the pull sheet, packet,
-    // site plan, crew days and job costing follow once it is approved).
-    setCoPrefill(jobType === 'new' && style ? { ...draft, work: { request: { ...priceRequest, changeBase: undefined } as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
+    // The new work goes with it (the server prices it and keeps it, so the pull sheet, packet, site plan, crew days
+    // and job costing follow once it is approved), and the next change order opens on it. A move or repair too, its
+    // inputs in the request: else that one is priced against a contract holding work it never opens on.
+    setCoPrefill(style ? { ...draft, note: coNoWorkNote, work: { request: { ...priceRequest, changeBase: undefined } as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
   }
 
   return (
@@ -1414,6 +1418,7 @@ export default function QuoteBuilder({
             {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? 'Change order: change the drawing, then tap Make change order.' : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
             {/* Another change order still open is in this drawing and its price: said, not only in a passing toast (round 3 recheck). */}
             {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
+            {coNoWorkNote && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-no-work-note>{coNoWorkNote}</p>}
             {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({priceText(init!.finalPrice)} then, {priceText(adjPrice)} now).</p>}
