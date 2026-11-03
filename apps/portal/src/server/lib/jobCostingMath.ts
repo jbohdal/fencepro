@@ -247,13 +247,24 @@ export interface PricingSettings {
   subTearOutGate?: number
 }
 
-export interface StyleForRate { name?: string; category?: string; subRate?: number }
+export interface StyleForRate {
+  name?: string; category?: string; subRate?: number; subWalkGate?: number; subDblGate?: number
+  /** Sub rates set on its material or a choice (web fenceRates.ts), as the estimate bundle reads the style. */
+  followed?: { subRate?: { value: number }; subWalkGate?: { value: number }; subDblGate?: { value: number } }
+}
 
 const pos = (v: unknown) => { const n = num(v, NaN); return Number.isFinite(n) && n > 0 ? n : undefined }
 
-/** The sub rate a quote is priced with: its own, the style's, the style category's, Settings' default (as pricingEngine.resolveSubRate). */
+/** The sub rate a quote is priced with: its own, the style's, its choices' or material's, the style category's, Settings' default (as pricingEngine.resolveSubRate). */
 export function subRateFor(style: StyleForRate | undefined, pricing: PricingSettings, quoteOverride?: unknown): number {
-  return pos(quoteOverride) ?? pos(style?.subRate) ?? pos(style?.category ? pricing.subRateByCategory?.[style.category] : undefined) ?? pos(pricing.subRateDefault) ?? 0
+  return pos(quoteOverride) ?? pos(style?.subRate) ?? pos(style?.followed?.subRate?.value) ?? pos(style?.category ? pricing.subRateByCategory?.[style.category] : undefined) ?? pos(pricing.subRateDefault) ?? 0
+}
+
+/** The sub's pay per walk gate or double gate: the style's, its choices' or material's, Settings' (as pricingEngine.resolveSubGateRate). */
+export function subGateRateFor(style: StyleForRate | undefined, pricing: PricingSettings, gate: 'walk' | 'dbl'): number {
+  return gate === 'walk'
+    ? pos(style?.subWalkGate) ?? pos(style?.followed?.subWalkGate?.value) ?? num(pricing.subWalkGate)
+    : pos(style?.subDblGate) ?? pos(style?.followed?.subDblGate?.value) ?? num(pricing.subDblGate)
 }
 
 /** The quoted cost of a quote as it is now (called once, when it is signed). */
@@ -303,7 +314,7 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
       // Settings' rate past what the quote priced (Jack Chappell: 164 ft at $4 on $458 of labor priced per section): the sub is still paid for the gates.
       ...(laborMode === 'sub' ? { subOtherCents: Math.min(
         laborCents < Math.round(subUnits * subRateCostCents) ? Number.MAX_SAFE_INTEGER : laborCents - Math.round(subUnits * subRateCostCents),
-        toCents(num(q.walkGates) * num(ctx.pricing.subWalkGate) + num(q.dblGates) * num(ctx.pricing.subDblGate)
+        toCents(num(q.walkGates) * subGateRateFor(ctx.style, ctx.pricing, 'walk') + num(q.dblGates) * subGateRateFor(ctx.style, ctx.pricing, 'dbl')
           + num(q.tearOutSections) * num(ctx.pricing.subTearOutSection) + num(q.tearOutGates) * num(ctx.pricing.subTearOutGate)
           + num(q.adjLaborHrs) * num(ctx.pricing.manHourRate)),
       ) } : {}),

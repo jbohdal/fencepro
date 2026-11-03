@@ -40,6 +40,8 @@ export const COST_KEYS: ReadonlySet<string> = new Set([
   // Settings → Pricing, Fence styles, Moves and repairs
   'margin', 'margins', 'targetProfitPct', 'colorTargetProfitPct', 'targetMarginPct', 'targetMargin', 'marginFrom',
   'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate',
+  // Target Profit % and sub rates set on a material or a choice, and what a fence follows (web fenceRates.ts)
+  'rateDefaults', 'followed', 'ownProfit',
   'manHourRate', 'wage', 'wages', 'hourlyWage', 'overheadPct', 'overheadHistory', 'liveOverhead',
   'commissionSalesman', 'commissionNonSalesman', 'tearOutFence', 'tearOutGate', 'repairProfitPct',
   'pullNdLaborCents', 'pullNdDisposalCents', 'pullDsLaborCents', 'pullDsDisposalCents', 'footerDisposalCents', 'rateHistory', 'woodFactor', 'woodFactorPct',

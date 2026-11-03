@@ -207,7 +207,7 @@ export function soldInYear<Q extends { status: string; date?: string | null }>(q
 
 // ── Target Margin (Settings › Pricing) ──────────────────────────────────────
 
-export interface StyleForTarget { name: string; margin: number; isActive?: boolean; woodOf?: string; targetProfitPct?: number; colorTargetProfitPct?: number }
+export interface StyleForTarget { name: string; margin: number; isActive?: boolean; woodOf?: string; targetProfitPct?: number; colorTargetProfitPct?: number; ownProfit?: boolean }
 
 export interface TargetMargins {
   /** Overhead % in use (typed, or live from the budget when switched on). */
@@ -285,7 +285,8 @@ export function pricedTarget(q: Pick<QuoteForGrade, 'fenceStyle' | 'pricing' | '
   const style = styles.find(s => s.name === q.fenceStyle)
   if (!style) return fallback
   const overhead = q.pricing?.overheadPct
-  const profit = inRange(style.colorTargetProfitPct) ? style.colorTargetProfitPct : style.targetProfitPct
+  // A fence's own Target Profit beats its color's (fenceRates.ts).
+  const profit = !style.ownProfit && inRange(style.colorTargetProfitPct) ? style.colorTargetProfitPct : style.targetProfitPct
   if (typeof overhead === 'number' && Number.isFinite(overhead) && overhead >= 0 && inRange(profit)) return (overhead + profit) / 100
   return 1 - (Number(style.margin) || 0)
 }

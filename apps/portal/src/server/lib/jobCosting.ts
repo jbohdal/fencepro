@@ -16,6 +16,7 @@
  */
 
 import prisma from './prisma.js'
+import { pricingModule } from './estimates.js'
 import { markSignedNow } from './everSold.js'
 import { serializeMedia } from './media.js'
 import { landedCostOn, jobLotInvoiceLines } from './priceHistory.js'
@@ -33,15 +34,24 @@ const err = (status: number, message: string) => Object.assign(new Error(message
 /** Today in Ocala (YYYY-MM-DD). */
 export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
+/** Is a Target Profit % or sub rate set on a material or a choice (web fenceRates.ts catalogHasRates)? */
+function hasRateDefaults(c: any): boolean {
+  const set = (d: unknown) => !!d && typeof d === 'object' && Object.keys(d).length > 0
+  return Array.isArray(c?.materials) && c.materials.some((m: any) => set(m?.rateDefaults) || (Array.isArray(m?.dims) && m.dims.some((d: any) => Array.isArray(d?.options) && d.options.some((o: any) => set(o?.rateDefaults)))))
+}
+
 async function settingsOf(accountId: string): Promise<{ pricing: PricingSettings; styles: any[]; items: any[] }> {
   const [b, inv] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } }),
   ])
   const config = (b?.config ?? {}) as any
+  const saved: any[] = Array.isArray(config.fenceStyles) ? config.fenceStyles : []
+  // Sub rates set on a material or a choice in Settings → Fence styles (web fenceRates.ts): each fence follows them.
+  const followed = hasRateDefaults(config.fenceCatalog) ? (await pricingModule()).followedRatesByStyle(config) : {}
   return {
     pricing: (config.pricing && typeof config.pricing === 'object' ? config.pricing : {}) as PricingSettings,
-    styles: Array.isArray(config.fenceStyles) ? config.fenceStyles : [],
+    styles: saved.map(s => (s && followed[s.name] ? { ...s, followed: followed[s.name] } : s)),
     items: Array.isArray(inv?.items) ? (inv!.items as any[]) : [],
   }
 }

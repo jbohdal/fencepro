@@ -105,11 +105,13 @@ export async function setupList(accountId: string): Promise<SetupItem[]> {
   const p = cfg.pricing ?? {}
   const pos = (n: unknown) => Number(n) > 0
   const styleRate = (cat: string) => styles.some((s: any) => quotable(s) && s.category === cat && pos(s.subRate))
+  // A rate set on the material in Settings → Fence styles (web fenceRates.ts) counts too.
+  const materialRate = (key: string, rate = 'subRate') => pos((Array.isArray(cfg.fenceCatalog?.materials) ? cfg.fenceCatalog.materials : []).find((m: any) => m?.key === key)?.rateDefaults?.[rate])
   const missingRates = [
     !pos(p.subWalkGate) && 'walk gate', !pos(p.subDblGate) && 'double gate',
     !pos(p.subTearOutSection) && 'tear out per section', !pos(p.subTearOutGate) && 'tear out per gate',
-    !(pos(p.subRateByCategory?.Chainlink) || styleRate('Chainlink')) && 'chain link',
-    !(pos(p.subRateByCategory?.Aluminum) || styleRate('Aluminum')) && 'aluminum',
+    !(pos(p.subRateByCategory?.Chainlink) || styleRate('Chainlink') || materialRate('chain')) && 'chain link',
+    !(pos(p.subRateByCategory?.Aluminum) || styleRate('Aluminum') || materialRate('alum')) && 'aluminum',
   ].filter(Boolean) as string[]
   const items = (Array.isArray(inv?.items) ? inv!.items : []) as any[]
   const activeItems = items.filter(i => i?.status !== 'inactive' && i?.status !== 'discontinued')
