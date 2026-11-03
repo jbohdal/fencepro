@@ -12,12 +12,13 @@
  *   subDblGate        the sub's pay per double gate
  *
  * A fence uses, nearest first:
- *   1. its own number (a Target Profit marked ownProfit; a sub rate typed on it);
+ *   1. its own number (ownProfitPct; a sub rate typed on it);
  *   2. its color's (a color's Target Profit lives on the color, as before);
  *   3. its other choices', the last chosen first (Vinyl: Panel width, then
  *      Install, Height, Style);
  *   4. its material's;
- *   5. then, as before: Target Profit the number saved on the fence; sub rates
+ *   5. then, as before: Target Profit the number saved on the fence (targetProfitPct,
+ *      never rewritten here, so clearing a number above gives it back); sub rates
  *      the category rate and the default in Settings → Pricing.
  *
  * Worked out on every read (resolveFenceStyles puts it on the fence as
@@ -102,13 +103,13 @@ export function followedWithout(m: MaterialDef | undefined, choices: Record<stri
 }
 
 /** Is the fence's Target Profit its own (an override), not the one above it? */
-export function ownsProfit(s: Pick<FenceStyle, 'ownProfit' | 'targetProfitPct'>): boolean {
-  return s.ownProfit === true && validRate('targetProfitPct', s.targetProfitPct)
+export function ownsProfit(s: Pick<FenceStyle, 'ownProfitPct'>): boolean {
+  return validRate('targetProfitPct', s.ownProfitPct)
 }
 
 /** The fence's own number for a key, or undefined when it follows. */
-export function ownRate(s: Pick<FenceStyle, 'ownProfit' | 'targetProfitPct' | 'subRate' | 'subWalkGate' | 'subDblGate'>, key: RateKey): number | undefined {
-  if (key === 'targetProfitPct') return ownsProfit(s) ? s.targetProfitPct : undefined
+export function ownRate(s: Pick<FenceStyle, 'ownProfitPct' | 'subRate' | 'subWalkGate' | 'subDblGate'>, key: RateKey): number | undefined {
+  if (key === 'targetProfitPct') return ownsProfit(s) ? s.ownProfitPct : undefined
   const v = s[key]
   return validRate(key, v) ? v : undefined
 }

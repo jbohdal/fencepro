@@ -6,10 +6,12 @@
 import { useEffect, useState } from 'react'
 import { parsePercent } from './configStore'
 
-export default function PercentField({ value, onChange, min = 0, max = 99, placeholder, className = '', ...rest }: {
+export default function PercentField({ value, onChange, onBad, min = 0, max = 99, placeholder, className = '', ...rest }: {
   /** The percent (44 for 44%), or undefined when blank. */
   value: number | undefined
   onChange: (pct: number | undefined) => void
+  /** Told whether the text typed was refused (outside min to max), to say so beside it. */
+  onBad?: (bad: boolean) => void
   min?: number
   max?: number
   placeholder?: string
@@ -20,10 +22,11 @@ export default function PercentField({ value, onChange, min = 0, max = 99, place
   const [bad, setBad] = useState(false)
   useEffect(() => { setText(show(value)) }, [value])
   function commit() {
-    if (!text.trim()) { setBad(false); onChange(undefined); return }
+    // Blank: whatever the number becomes is shown (a fence back to the number it follows), never an empty box.
+    if (!text.trim()) { setBad(false); onBad?.(false); onChange(undefined); setText(show(value)); return }
     const n = parsePercent(text)
-    if (n == null || n < min || n > max) { setBad(true); return }
-    setBad(false)
+    if (n == null || n < min || n > max) { setBad(true); onBad?.(true); return }
+    setBad(false); onBad?.(false)
     onChange(n)
     setText(show(n))
   }

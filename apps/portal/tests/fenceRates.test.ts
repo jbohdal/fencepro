@@ -8,10 +8,11 @@
 
 import { describe, test, expect } from 'vitest'
 import { estimateConfig, followedRatesByStyle } from '../../web/src/estimate'
-import { DEFAULT_CATALOG, type FenceCatalog } from '../../web/src/fenceCatalog'
+import { DEFAULT_CATALOG, stripDerived, type FenceCatalog } from '../../web/src/fenceCatalog'
+import { earnedProfitPct, MAX_TARGET_MARGIN_PCT } from '../../web/src/targetMargin'
 import { followedRates, ownRate, withRate, catalogHasRates } from '../../web/src/fenceRates'
 import { calculatePrice, resolveSubRate, resolveSubGateRate, type PricingSettings } from '../../web/src/pricingEngine'
-import { groupSwitch, fenceStatus, dimHeading, fenceName, archivedBy, categoryChoices, FENCE_CATEGORIES } from '../../web/src/fenceSettingsView'
+import { groupSwitch, fenceStatus, dimHeading, fenceName, archivedBy, categoryChoices, FENCE_CATEGORIES, example100ft } from '../../web/src/fenceSettingsView'
 import { DEFAULT_CONFIG } from '../../web/src/configDefaults'
 import { subRateFor, subGateRateFor } from '../src/server/lib/jobCostingMath'
 import { redactCosts } from '../src/server/lib/costRedact'
@@ -52,9 +53,11 @@ describe('set on the material: every fence under it follows', () => {
   const c = catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 15, subRate: 6, subWalkGate: 12 } })
   test('Target Profit 15% on Vinyl: both vinyl fences, the dig set one too; chain link untouched', () => {
     const out = read(styles(), c)
-    expect(by(out, ND).targetProfitPct).toBe(15)
-    expect(by(out, DS).targetProfitPct).toBe(15)
     expect(by(out, ND).margin).toBe((100 - 30 - 15) / 100)
+    expect(by(out, DS).margin).toBe((100 - 30 - 15) / 100)
+    expect(earnedProfitPct(by(out, DS))).toBe(15)
+    // What is saved on each fence is left as it is.
+    expect([by(out, ND).targetProfitPct, by(out, DS).targetProfitPct]).toEqual([14, 10])
     expect(by(out, CL).margin).toBe((100 - 30 - 12) / 100)
     expect(by(out, ND).followed?.targetProfitPct).toEqual({ value: 15, from: 'Vinyl' })
   })
@@ -79,7 +82,7 @@ describe('nearest wins: a choice beats the material, the color beats the other c
   test('Dig set 10% under Vinyl 15%', () => {
     const c = catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 15 }; opt(x, 'install', 'ds').rateDefaults = { targetProfitPct: 10, subRate: 5.5 } })
     const out = read(styles(), c)
-    expect([by(out, ND).targetProfitPct, by(out, DS).targetProfitPct]).toEqual([15, 10])
+    expect([earnedProfitPct(by(out, ND)), earnedProfitPct(by(out, DS))]).toEqual([15, 10])
     expect(by(out, DS).followed?.targetProfitPct?.from).toBe('Dig set')
     expect(resolveSubRate(by(out, DS), pricing as PricingSettings)).toBe(5.5)
   })
@@ -89,21 +92,29 @@ describe('nearest wins: a choice beats the material, the color beats the other c
   })
   test('a color’s Target Profit beats the material and its choices; the fence’s own beats the color', () => {
     const c = catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 15 }; opt(x, 'color', 'tan').color!.targetProfitPct = 18 })
-    const out = read([...styles().slice(0, 2), st(TAN_ND), st("TV-ND 6'x8' Privacy", { ownProfit: true, targetProfitPct: 16 })], c)
+    const out = read([...styles().slice(0, 2), st(TAN_ND), st("TV-ND 6'x8' Privacy", { ownProfitPct: 16 })], c)
     expect(by(out, TAN_ND).margin).toBe((100 - 30 - 18) / 100)
     expect(by(out, "TV-ND 6'x8' Privacy").margin).toBe((100 - 30 - 16) / 100)
     expect(by(out, ND).margin).toBe((100 - 30 - 15) / 100)
   })
   test('a fence’s own Target Profit stays when Vinyl changes; its sub rate typed on it too', () => {
     const c = catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 15, subRate: 6 } })
-    const out = read([st(ND, { ownProfit: true, targetProfitPct: 20, subRate: 7 }), st(DS)], c)
-    expect(by(out, ND).targetProfitPct).toBe(20)
+    const out = read([st(ND, { ownProfitPct: 20, subRate: 7 }), st(DS)], c)
+    expect(by(out, ND).margin).toBe((100 - 30 - 20) / 100)
     expect(resolveSubRate(by(out, ND), pricing as PricingSettings)).toBe(7)
     expect(ownRate(by(out, ND), 'targetProfitPct')).toBe(20)
     expect(ownRate(by(out, DS), 'targetProfitPct')).toBeUndefined()
   })
-  test('a fence with no own flag keeps its saved number when nothing is set above it (it was never an override)', () => {
-    expect(by(read([st(DS, { targetProfitPct: 9 })]), DS).targetProfitPct).toBe(9)
+  test('a fence with no own number keeps its saved number when nothing is set above it', () => {
+    expect(by(read([st(DS, { targetProfitPct: 9 })]), DS).margin).toBe((100 - 30 - 9) / 100)
+  })
+  test('Vinyl 15%, then blank: every fence back to what it had, 14% no dig and 10% dig set (review Nov 2 2026)', () => {
+    const set = catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 15 } })
+    // Read, then saved as the Settings page saves it (what is worked out left off), then the number cleared.
+    const savedBack = stripDerived(read(styles(), set))
+    const cleared = read(savedBack, catalog())
+    expect([earnedProfitPct(by(cleared, ND)), earnedProfitPct(by(cleared, DS))]).toEqual([14, 10])
+    expect([by(cleared, ND).margin, by(cleared, DS).margin]).toEqual([(100 - 30 - 14) / 100, (100 - 30 - 10) / 100])
   })
 })
 
@@ -115,7 +126,6 @@ describe('what is saved', () => {
     expect(withRate(undefined, 'targetProfitPct', 81)).toBeUndefined()
   })
   test('what a fence follows is worked out on every read, never saved', async () => {
-    const { stripDerived } = await import('../../web/src/fenceCatalog')
     const c = catalog(x => { vinyl(x).rateDefaults = { subRate: 6 } })
     expect(stripDerived(read(styles(), c)).some(s => 'followed' in s)).toBe(false)
   })
@@ -135,12 +145,12 @@ describe('the server’s job costing reads the same rates', () => {
 })
 
 describe('the Installer never receives them', () => {
-  test('rateDefaults, followed and ownProfit are left out of a limited login’s answers', () => {
-    const body = { config: { fenceCatalog: { materials: [{ key: 'vinyl', rateDefaults: { targetProfitPct: 15 } }] }, fenceStyles: [{ name: ND, ownProfit: true, followed: { subRate: { value: 6, from: 'Vinyl' } } }] } }
+  test('rateDefaults, followed and ownProfitPct are left out of a limited login’s answers', () => {
+    const body = { config: { fenceCatalog: { materials: [{ key: 'vinyl', rateDefaults: { targetProfitPct: 15 } }] }, fenceStyles: [{ name: ND, ownProfitPct: 18, followed: { subRate: { value: 6, from: 'Vinyl' } } }] } }
     const out = redactCosts(body, { prices: true }) as any
     expect(out.config.fenceCatalog.materials[0].rateDefaults).toBeUndefined()
     expect(out.config.fenceStyles[0].followed).toBeUndefined()
-    expect(out.config.fenceStyles[0].ownProfit).toBeUndefined()
+    expect(out.config.fenceStyles[0].ownProfitPct).toBeUndefined()
   })
 })
 
@@ -193,5 +203,33 @@ describe('the Category list shows and saves every fence as itself (audit Nov 2 2
     for (const s of DEFAULT_CONFIG.fenceStyles) expect(categoryChoices(s.category)).toContain(s.category)
     expect(categoryChoices('Gates')).toContain('Gates')
     expect(categoryChoices('Wood')[0]).toBe('Vinyl')
+  })
+})
+
+describe('Target Margin can never reach 100% (review Nov 2 2026)', () => {
+  test('a fence over the most allowed is held back from quoting, with the reason', () => {
+    const c = catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 60 } })   // 30 + 60 = 90% > 80%
+    const out = read(styles(), c)
+    expect(MAX_TARGET_MARGIN_PCT).toBe(80)
+    expect(by(out, ND).held).toContain('its Target Margin 90% is over 80%')
+    expect(by(out, CL).held).toBeUndefined()
+  })
+  test('the engine never prices a factor of 0 or less with the 0.64 fallback: no price, and it says why', () => {
+    const p = calculatePrice({ sections: 10, footage: 60, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, materialCost: 1000, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
+      style: { margin: (100 - 30 - 80) / 100, sectionsPerMH: 1 }, pricing: { ...pricing, manHourRate: 25, commissionSalesman: 0, commissionNonSalesman: 0, tearOutFence: 0, tearOutGate: 0 } as any })
+    expect(p.price).toBe(0)
+    expect(p.notes.join(' ')).toContain('cannot be priced')
+  })
+  test('the server finds a Settings save that adds one', async () => {
+    const { overMaxTargetMargin } = await import('../../web/src/estimate')
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: catalog(), pricing } as any)).toEqual([])
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: 60 } }), pricing } as any).length).toBe(3)
+  })
+})
+
+describe('the 100 ft example', () => {
+  test('a fence that cannot be quoted says why, never a price', () => {
+    expect(example100ft(st(ND, { held: '8 ft tall needs our section and post costs' }), { pricing } as any)).toEqual({ cannot: '8 ft tall needs our section and post costs' })
+    expect(example100ft(st(ND, { quotable: false }), { pricing } as any)).toEqual({ cannot: 'it is switched off' })
   })
 })

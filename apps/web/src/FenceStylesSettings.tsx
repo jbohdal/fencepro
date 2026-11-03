@@ -50,10 +50,11 @@ import {
   PIECE_LABEL, type AddColorRequest, type CatalogState, type ChoiceDim, type ChoiceOption, type FenceCatalog, type JobLotQuote,
   type MaterialDef, type PiecePrices, type PieceKey, type QtyOverride, type InvItem,
 } from './fenceCatalog'
-import { RATE_KEYS, ownsProfit, withRate, materialRate, optionRate, type RateKey } from './fenceRates'
+import { RATE_KEYS, withRate, materialRate, optionRate, type RateKey } from './fenceRates'
+import { MAX_TARGET_MARGIN_PCT, maxProfitPct } from './targetMargin'
 import {
-  draftView, categoryChoices, groupSwitch, fenceStatus, archivedBy, dimHeading, fenceName, profitShown, subShown, subUnitWords, example100ft,
-  type GroupSwitch, type RateShown,
+  draftView, categoryChoices, groupSwitch, fenceStatus, archivedBy, dimHeading, fenceName, profitShown, subShown, subUnitWords, example100ft, EXAMPLE_WORDS,
+  type Example, type GroupSwitch, type RateShown,
 } from './fenceSettingsView'
 
 const money = (cents: number | null | undefined) => (typeof cents === 'number' ? (cents / 100).toFixed(2) : '')
@@ -68,11 +69,11 @@ const pct = (v: number) => `${Math.round(v * 100) / 100}%`
 type SubKey = Exclude<RateKey, 'targetProfitPct'>
 const SUB_KEYS: SubKey[] = ['subRate', 'subWalkGate', 'subDblGate']
 
-function Switch({ on, onClick, label, ...rest }: { on: boolean; onClick: () => void; label: string } & Record<`data-${string}`, string>) {
-  // A 44 px tall tap target around a small track.
+function Switch({ on, onClick, label, disabled, ...rest }: { on: boolean; onClick: () => void; label: string; disabled?: boolean } & Record<`data-${string}`, string>) {
+  // A 44 px tall tap target around a small track. Disabled: it cannot be turned on from here (its reason is beside it).
   return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick} {...rest}
-      className="shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[52px] bg-transparent">
+    <button type="button" role="switch" aria-checked={on} aria-label={label} title={disabled ? label : undefined} onClick={onClick} disabled={disabled} {...rest}
+      className={`shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[52px] bg-transparent ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
       <span className={`relative inline-block w-11 h-6 rounded-full transition-colors ${on ? 'bg-orange-500' : 'bg-gray-300'}`}>
         <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${on ? 'left-[22px]' : 'left-0.5'}`} />
       </span>
@@ -94,10 +95,9 @@ function inUse(): Set<string> {
 interface Views {
   view: AppConfig; saved: AppConfig; byId: Map<string, FenceStyle>; savedById: Map<string, FenceStyle>
   /** 100 ft of a fence now (this draft), and as saved; worked out once per draft. */
-  ex: (id: string) => Example
-  wasEx: (id: string) => Example
+  ex: (id: string) => Example | null
+  wasEx: (id: string) => Example | null
 }
-type Example = ReturnType<typeof example100ft>
 
 function makeViews(config: AppConfig): Views {
   const view = draftView(config, overheadPctOf(config))
@@ -105,7 +105,7 @@ function makeViews(config: AppConfig): Views {
   const byId = new Map(view.fenceStyles.map(s => [s.id, s]))
   const savedById = new Map(saved.fenceStyles.map(s => [s.id, s]))
   const memo = (cfg: AppConfig, of: Map<string, FenceStyle>) => {
-    const cache = new Map<string, Example>()
+    const cache = new Map<string, Example | null>()
     return (id: string) => { if (!cache.has(id)) cache.set(id, example100ft(of.get(id), cfg)); return cache.get(id)! }
   }
   return { view, saved, byId, savedById, ex: memo(view, byId), wasEx: memo(saved, savedById) }
@@ -136,8 +136,8 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
   const updateStyle = (id: string, patch: Partial<FenceStyle>) => onChange({ ...config, fenceStyles: config.fenceStyles.map(s => (s.id === id ? { ...s, ...patch } : s)) })
   /**
    * A Target Profit % or sub rate set (or cleared) on a material or a choice.
-   * The fences that follow it get its Target Profit saved on them too, so
-   * what is saved is what they price with (their own numbers stay).
+   * Only that number is saved: every fence follows it by the order in
+   * fenceRates.ts, and clearing it gives each fence back what it had.
    */
   function setLevelRate(material: string, dim: string | null, optKey: string | null, key: RateKey, v: number | undefined) {
     const materials = catalog.materials.map(m => {
@@ -158,10 +158,7 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
         })),
       }
     })
-    const next = { ...config, fenceCatalog: { ...catalog, materials } }
-    if (key !== 'targetProfitPct') { onChange(next); return }
-    const after = new Map(draftView(next, overheadPctOf(next)).fenceStyles.map(s => [s.id, s.targetProfitPct]))
-    onChange({ ...next, fenceStyles: next.fenceStyles.map(s => (ownsProfit(s) || typeof after.get(s.id) !== 'number' ? s : { ...s, targetProfitPct: after.get(s.id) })) })
+    onChange({ ...config, fenceCatalog: { ...catalog, materials } })
   }
   const unmapped = views.view.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !sc || !materialOf(catalog, sc.material) })
 
@@ -358,12 +355,26 @@ function OptionRow({ m, d, o, config, views, fences, onToggle, onEdit, onRate, a
 
 // ── Target Profit % and sub rates for every fence under a material or a choice ──
 
+/** The most Target Profit allowed at this overhead, in words, and when a typed one is over it. */
+function profitLimitWords(overhead: number): string {
+  return `Up to ${pct(maxProfitPct(overhead))}: Overhead ${pct(overhead)} + Target Profit can be at most ${MAX_TARGET_MARGIN_PCT}%.`
+}
+
+/** The 100 ft example in words (or why the fence cannot be quoted). */
+function exampleText(ex: Example | null, was: Example | null): ReactNode {
+  if (!ex) return null
+  if ('cannot' in ex) return <>Can’t be quoted: {ex.cannot}</>
+  const wasPrice = was && !('cannot' in was) && was.priceCents !== ex.priceCents ? was.priceCents : null
+  return <>{EXAMPLE_WORDS}: cost {dollars(ex.costCents)}, price {dollars(ex.priceCents)}{wasPrice !== null ? <span className="font-semibold text-orange-800"> (was {dollars(wasPrice)}; new quotes only)</span> : null}</>
+}
+
 function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
   m: MaterialDef; dim: ChoiceDim | null; opt?: ChoiceOption; config: AppConfig; views: Views; fences: FenceStyle[]
   onSet: (rate: RateKey, v: number | undefined) => void
 }) {
   const overhead = overheadPctOf(config)
   const unit = subUnitWords(config.pricing)
+  const [tooHigh, setTooHigh] = useState(false)
   const name = opt ? opt.label : m.label
   const where = opt ? `${m.key}:${dim!.key}:${opt.key}` : m.key
   const own = (k: RateKey) => (opt ? optionRate(opt, k) : materialRate(m, k))
@@ -378,22 +389,22 @@ function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
     return v > 0 ? `Settings: ${rateText(v)}` : 'Not set'
   }
   // The fences whose Target Margin or 100 ft price this draft changes (not saved yet).
-  const changed = fences.filter(s => { const was = views.savedById.get(s.id); return !!was && (was.margin !== s.margin || views.wasEx(s.id)?.priceCents !== views.ex(s.id)?.priceCents) })
-  const sample = fences.find(isQuotable) ?? fences[0]
-  const ex = sample ? views.ex(sample.id) : null
-  const wasEx = sample ? views.wasEx(sample.id) : null
+  const priceOf = (e: Example | null) => (e && !('cannot' in e) ? e.priceCents : null)
+  const changed = fences.filter(s => { const was = views.savedById.get(s.id); return !!was && (was.margin !== s.margin || priceOf(views.wasEx(s.id)) !== priceOf(views.ex(s.id))) })
+  const sample = fences.find(isQuotable)
   const isWood = m.key === 'wood'
   return (
     <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 space-y-2" data-level-rates={where}>
       <p className="text-xs font-semibold text-gray-700">{opt ? `Pricing for every fence with ${name}` : `Pricing for every ${name} fence`}</p>
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
         <label className="block text-xs text-gray-600">Target Profit
-          <PercentField value={profit} min={0} max={80} placeholder={blankProfit} data-level-profit={where}
+          <PercentField value={profit} min={0} max={maxProfitPct(overhead)} placeholder={blankProfit} data-level-profit={where} onBad={setTooHigh}
             className="mt-1 block w-44 border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
             onChange={v => onSet('targetProfitPct', v)} />
         </label>
         {profit !== undefined && <p className="text-xs text-gray-700 pb-3" data-level-margin={where}>+ Overhead {pct(overhead)} = Target Margin {pct(overhead + profit)}</p>}
       </div>
+      {tooHigh && <p className="text-xs font-semibold text-red-700" role="alert" data-level-profit-too-high={where}>{profitLimitWords(overhead)} Not changed.</p>}
       {!isWood && (
         <div className="flex flex-wrap gap-x-3 gap-y-2">
           {SUB_KEYS.map(k => (
@@ -402,12 +413,9 @@ function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
           ))}
         </div>
       )}
-      {isWood && <p className={small}>Wood sub labor is its White Vinyl fence’s labor × the Wood factor (Settings → Moves and Repairs).</p>}
-      <p className={small}>Blank: {opt ? `follows ${m.label}` : 'each fence keeps its own Target Profit, and sub rates come from Settings → Pricing'}. A fence with its own number keeps it.</p>
-      {ex && sample && (
-        <p className="text-xs text-gray-700" data-level-example={where}>
-          Example, {fenceName(sample)}: 100 ft costs {dollars(ex.costCents)}, priced {dollars(ex.priceCents)}{wasEx && wasEx.priceCents !== ex.priceCents ? ` (was ${dollars(wasEx.priceCents)})` : ''}.
-        </p>
+      <p className={small}>Blank: {opt ? `follows ${m.label}` : isWood ? 'each fence keeps its own Target Profit' : 'each fence keeps its own Target Profit, and sub rates come from Settings → Pricing'}. A fence with its own number keeps it.{isWood ? ' Wood sub labor is its White Vinyl fence’s labor × the Wood factor (Settings → Moves and Repairs).' : ''}</p>
+      {sample && (
+        <p className="text-xs text-gray-700" data-level-example={where}>Example, {fenceName(sample)}: {exampleText(views.ex(sample.id), views.wasEx(sample.id))}.</p>
       )}
       {changed.length > 0 && (
         <p className="text-xs font-semibold text-orange-800" data-level-changed={where}>Not saved yet: {changed.length} fence{changed.length === 1 ? '' : 's'} change price for new quotes. Each shows its new price below.</p>
@@ -416,24 +424,25 @@ function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
   )
 }
 
-/** A dollar rate typed as people say it ("5", "$5.25"); blank clears it. */
-function MoneyRate({ label, value, placeholder, attr, onSet, marked }: { label: string; value: number | undefined; placeholder?: string; attr: string; onSet: (v: number | undefined) => void; marked?: boolean }) {
+/** A dollar rate typed as people say it ("5", "$5.25"); blank clears it. Anything else (1e3, 0.004) is refused, and says so. */
+function MoneyRate({ label, value, placeholder, attr, onSet, marked, muted }: { label: string; value: number | undefined; placeholder?: string; attr: string; onSet: (v: number | undefined) => void; marked?: boolean; muted?: boolean }) {
   const [bad, setBad] = useState(false)
   return (
     <label className="block text-xs text-gray-600">{label}
       <span className="mt-1 flex items-center gap-1"><span className="text-gray-500">$</span>
         <input key={value ?? 'blank'} inputMode="decimal" defaultValue={value === undefined ? '' : String(value)} placeholder={placeholder} data-rate={attr}
           aria-invalid={bad || undefined}
-          className={`w-28 border rounded-lg px-2 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 ${marked ? 'border-orange-400' : 'border-gray-300'} ${bad ? 'ring-2 ring-red-200 border-red-400' : ''}`}
+          className={`w-28 border rounded-lg px-2 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 ${muted ? 'text-gray-500' : 'text-gray-900'} ${marked ? 'border-orange-400' : 'border-gray-300'} ${bad ? 'ring-2 ring-red-200 border-red-400' : ''}`}
           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
           onBlur={e => {
             const t = e.target.value.replace(/[$,\s]/g, '')
             if (!t) { setBad(false); onSet(undefined); return }
-            const n = Number(t)
-            if (!Number.isFinite(n) || n <= 0 || n > 10000) { setBad(true); return }
-            setBad(false); onSet(Math.round(n * 100) / 100)
+            const n = /^\d+(\.\d{1,2})?$|^\.\d{1,2}$/.test(t) ? Number(t) : NaN
+            if (!(n >= 0.01 && n <= 10000)) { setBad(true); return }
+            setBad(false); onSet(n)
           }} />
       </span>
+      {bad && <span className="block mt-0.5 text-[11px] font-semibold text-red-700" role="alert" data-rate-bad={attr}>Type dollars and cents, like 5 or 5.25 (at least $0.01). Not changed.</span>}
     </label>
   )
 }
@@ -443,6 +452,8 @@ function MoneyRate({ label, value, placeholder, attr, onSet, marked }: { label: 
 function FenceRow({ s, m, config, views, updateStyle }: { s: FenceStyle; m: MaterialDef | undefined; config: AppConfig; views: Views; updateStyle: (id: string, patch: Partial<FenceStyle>) => void }) {
   const overhead = overheadPctOf(config)
   const unit = subUnitWords(config.pricing)
+  const [open, setOpen] = useState(false)
+  const [tooHigh, setTooHigh] = useState(false)
   const status = fenceStatus(s)
   const profit = profitShown(s, m)
   const was = views.savedById.get(s.id)
@@ -451,57 +462,64 @@ function FenceRow({ s, m, config, views, updateStyle }: { s: FenceStyle; m: Mate
   const wasEx = views.wasEx(s.id)
   const wood = s.woodBase
   const raw = config.fenceStyles.find(x => x.id === s.id) ?? s
-  /** A Target Profit typed on the fence: its own number, unless it is the one above it. */
+  const tm = Math.round((1 - s.margin) * 10000) / 100
+  const subs = SUB_KEYS.map(k => ({ k, shown: subShown(s, m, config.pricing, k) }))
+  // Held back by something else (prices not in, a choice off): its own switch cannot make it quotable, so it is not offered.
+  const blocked = !!s.held && raw.quotable !== false && raw.isActive !== false
+  /** A Target Profit typed on the fence: its own number, unless it is the one it would have anyway. */
   function setProfit(v: number | undefined) {
-    if (v === undefined || (profit.reset && v === profit.reset.value)) { updateStyle(s.id, { ownProfit: undefined, targetProfitPct: profit.reset?.value ?? raw.targetProfitPct }); return }
-    updateStyle(s.id, { ownProfit: true, targetProfitPct: v })
+    if (v === undefined || (profit.reset && v === profit.reset.value) || (!profit.own && v === profit.value)) { updateStyle(s.id, { ownProfitPct: undefined }); return }
+    updateStyle(s.id, { ownProfitPct: v })
   }
   function setSub(k: SubKey, shown: RateShown, v: number | undefined) {
     updateStyle(s.id, { [k]: v === undefined || (shown.reset && v === shown.reset.value) ? undefined : v })
   }
+  const exText = exampleText(ex, wasEx)
   return (
     <div className={`rounded-xl border px-3 py-2 ${isQuotable(s) ? 'border-gray-200' : 'border-gray-200 bg-gray-50'}`} data-fence-row={s.name}>
       <div className="flex items-start gap-2">
-        <span className="flex-1 min-w-0">
+        <button type="button" className="flex-1 min-w-0 text-left md:cursor-default" onClick={() => setOpen(o => !o)} aria-expanded={open} data-fence-row-toggle={s.name}>
           <span className={`block text-sm font-semibold ${isQuotable(s) ? 'text-gray-900' : 'text-gray-500'}`}>{fenceName(s)}</span>
-          {status && <span className="block text-xs text-amber-700" data-fence-row-status={s.name}>{status}</span>}
-          {s.needsCostReview && <CostReviewBadge name={s.name} note={s.costReviewNote} />}
-        </span>
-        <Switch on={isQuotable(s)} onClick={() => updateStyle(s.id, { quotable: raw.quotable === false })} label={`${fenceName(s)} available for quoting`} data-style-quotable={s.name} />
+          {status && <span className="block text-xs text-amber-700" data-fence-row-status={s.name}>{status}{blocked ? ' Its switch turns on by itself once that is fixed.' : ''}</span>}
+          {/* A phone: one line of numbers; tap to edit. */}
+          <span className="md:hidden block text-xs text-gray-600" data-fence-row-summary={s.name}>
+            {pct(profit.value)} profit · {pct(tm)} margin{wood ? '' : ` · sub ${rateText(subs[0].shown.value)}/${unit.short}`}{ex && !('cannot' in ex) ? ` · 100 ft ${dollars(ex.priceCents)}` : ''}
+            {profit.own || subs.some(x => x.shown.own) ? ' · own numbers' : ''} <span className="underline text-gray-800">{open ? 'Close' : 'Edit'}</span>
+          </span>
+        </button>
+        {s.needsCostReview && <CostReviewBadge name={s.name} note={s.costReviewNote} />}
+        <Switch on={isQuotable(s)} disabled={blocked} onClick={() => updateStyle(s.id, { quotable: raw.quotable === false })}
+          label={blocked ? `${fenceName(s)} cannot be quoted: ${s.held}` : `${fenceName(s)} available for quoting`} data-style-quotable={s.name} />
       </div>
-      <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-2">
-        <div className="text-xs text-gray-600">
-          <span className="block">Target Profit</span>
-          <PercentField value={profit.value} min={0} max={80} data-style-profit={s.name}
-            className={`mt-1 block w-24 border rounded-lg px-2 min-h-[44px] text-sm font-mono bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 ${profit.own ? 'border-orange-400' : 'border-gray-300'}`}
-            onChange={setProfit} />
+      <div className={`${open ? '' : 'hidden'} md:block`} data-fence-row-edit={s.name}>
+        <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-2">
+          <div className="text-xs text-gray-600">
+            <span className="block">Target Profit</span>
+            <PercentField key={`${profit.value}|${profit.own}`} value={profit.value} min={0} max={maxProfitPct(overhead)} data-style-profit={s.name} onBad={setTooHigh}
+              className={`mt-1 block w-24 border rounded-lg px-2 min-h-[44px] text-sm font-mono bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 ${profit.own ? 'border-orange-400 text-gray-900' : 'border-gray-300 text-gray-500'}`}
+              onChange={setProfit} />
+          </div>
+          <p className="text-xs text-gray-700 pb-3">+ Overhead {pct(overhead)} = <span className="font-semibold" data-style-target-margin={s.name}>{pct(tm)}</span> Target Margin</p>
+          <RateSource shown={profit} name={s.name} attr="profit" fmt={pct} onReset={() => setProfit(undefined)} wasText={wasProfit && wasProfit.value !== profit.value ? `was ${pct(wasProfit.value)}` : null} />
         </div>
-        <p className="text-xs text-gray-700 pb-3">+ Overhead {pct(overhead)} = <span className="font-semibold" data-style-target-margin={s.name}>{pct(Math.round((1 - s.margin) * 10000) / 100)}</span> Target Margin</p>
-        <RateSource shown={profit} name={s.name} attr="profit" fmt={pct} onReset={() => setProfit(undefined)} wasText={wasProfit && wasProfit.value !== profit.value ? `was ${pct(wasProfit.value)}` : null} />
-      </div>
-      {wood ? (
-        <p className="mt-1 text-xs text-gray-600" data-fence-sub={s.name}>
-          Sub labor: {fenceName(wood)}’s labor × {Math.round((s.woodFactor ?? 1.15) * 1000) / 10}% (sub {rateText(subShown(wood, materialOf(catalogOf(config), styleChoicesOf(wood)?.material), config.pricing, 'subRate').value)}/{unit.short} there).
-        </p>
-      ) : (
-        <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
-          {SUB_KEYS.map(k => {
-            const shown = subShown(s, m, config.pricing, k)
-            return (
+        {tooHigh && <p className="text-xs font-semibold text-red-700" role="alert" data-fence-profit-too-high={s.name}>{profitLimitWords(overhead)} Not changed.</p>}
+        {wood ? (
+          <p className="mt-1 text-xs text-gray-600" data-fence-sub={s.name}>
+            Sub labor: {fenceName(wood)}’s labor × {Math.round((s.woodFactor ?? 1.15) * 1000) / 10}% (sub {rateText(subShown(wood, materialOf(catalogOf(config), styleChoicesOf(wood)?.material), config.pricing, 'subRate').value)}/{unit.short} there).
+          </p>
+        ) : (
+          <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+            {subs.map(({ k, shown }) => (
               <div key={k} className="space-y-0.5">
                 <MoneyRate label={k === 'subRate' ? `Sub, ${unit.long}` : k === 'subWalkGate' ? 'Per walk gate' : 'Per double gate'}
-                  value={shown.value > 0 ? shown.value : undefined} placeholder="Not set" attr={`${s.name}:${k}`} marked={shown.own} onSet={v => setSub(k, shown, v)} />
+                  value={shown.value > 0 ? shown.value : undefined} placeholder="Not set" attr={`${s.name}:${k}`} marked={shown.own} muted={!shown.own} onSet={v => setSub(k, shown, v)} />
                 <RateSource shown={shown} name={s.name} attr={k} fmt={rateText} onReset={() => setSub(k, shown, undefined)} />
               </div>
-            )
-          })}
-        </div>
-      )}
-      <p className="mt-1 text-xs text-gray-700" data-fence-example={s.name}>
-        {ex
-          ? <>100 ft (one run, 2 end posts): cost {dollars(ex.costCents)}, price {dollars(ex.priceCents)}{wasEx && wasEx.priceCents !== ex.priceCents ? <span className="font-semibold text-orange-800"> (was {dollars(wasEx.priceCents)}; new quotes only)</span> : null}</>
-          : 'No example: it cannot be priced yet.'}
-      </p>
+            ))}
+          </div>
+        )}
+        <p className="mt-1 text-xs text-gray-700" data-fence-example={s.name}>{exText}</p>
+      </div>
     </div>
   )
 }
@@ -515,11 +533,12 @@ function RateSource({ shown, name, attr, fmt, onReset, wasText }: { shown: RateS
             <span className="inline-block font-semibold text-orange-800 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">Own number</span>
             {shown.reset && <button type="button" className="ml-1 underline text-gray-700 min-h-[32px]" onClick={onReset} data-rate-reset={`${name}:${attr}`}>Reset to {fmt(shown.reset.value)} ({shown.reset.from})</button>}
           </>
-        : <span className="text-gray-500">{shown.from === 'Set on this fence' ? shown.from : `From ${shown.from}`}</span>}
+        : <span className="text-gray-500">{shown.from === 'Saved on this fence' ? shown.from : `From ${shown.from}`}</span>}
       {wasText && <span className="ml-1 font-semibold text-orange-800">({wasText})</span>}
     </span>
   )
 }
+
 
 // ── Labor numbers per fence ──────────────────────────────────────────────────
 

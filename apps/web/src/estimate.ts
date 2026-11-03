@@ -7,7 +7,7 @@
  */
 
 import { mergeSavedConfig } from './configDefaults'
-import { withTargetMargins, typedOverheadPct } from './targetMargin'
+import { withTargetMargins, typedOverheadPct, MAX_TARGET_MARGIN_PCT } from './targetMargin'
 import { calculateQuote, type QuoteCalc } from './quoteCalc'
 import { subUnitRateMissing, type QuotePricingOverrides } from './pricingEngine'
 import { setMaterialPriceSource, inventoryPriceSource, type LineItem, type GateWidths } from './materialCalculator'
@@ -176,6 +176,15 @@ export function followedRatesByStyle(saved: Partial<AppConfig> | null): Record<s
     if (Object.keys(f).length) out[s.name] = f
   }
   return out
+}
+
+/**
+ * The fences whose Target Margin (Overhead % + Target Profit %) is over the
+ * most allowed (MAX_TARGET_MARGIN_PCT), by plain name. The server refuses a
+ * Settings save that adds one (routes/business-state.ts).
+ */
+export function overMaxTargetMargin(saved: Partial<AppConfig> | null): string[] {
+  return estimateConfig(saved).fenceStyles.filter(s => (1 - s.margin) * 100 > MAX_TARGET_MARGIN_PCT + 1e-9).map(s => s.label || s.name)
 }
 
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */

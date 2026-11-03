@@ -76,6 +76,8 @@ interface EstimateModule {
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
   /** web/src/estimate.ts: the sub rates and Target Profit % each fence follows from its material and choices (fenceRates.ts). */
   followedRatesByStyle(config: unknown): Record<string, any>
+  /** web/src/estimate.ts: fences whose Target Margin is over the most allowed, by plain name. */
+  overMaxTargetMargin(config: unknown): string[]
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
   planWood(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean }

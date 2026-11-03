@@ -444,7 +444,10 @@ export function calculatePrice(input: PriceInputs): PriceResult {
 
   // ── Base price ──
   const requestedMethod: PriceMethod = o.priceMethod ?? pricing.priceMethod ?? 'cost_factor'
-  const costFactor = pos(o.costFactor) ?? pos(style?.margin) ?? DEFAULT_COST_FACTOR
+  // A fence whose Target Margin is 100% or more (Overhead % + Target Profit %) is never priced with the
+  // 0.64 fallback: it is not priced at all, and says so (review Nov 2 2026; Settings refuses it too).
+  const styleFactorBad = pos(o.costFactor) === undefined && typeof style?.margin === 'number' && !(style.margin > 0 && style.margin < 1)
+  const costFactor = pos(o.costFactor) ?? (styleFactorBad ? 0 : pos(style?.margin)) ?? DEFAULT_COST_FACTOR
   const perFoot = pos(o.pricePerFoot) ?? pos(style?.pricePerFoot) ?? 0
   let priceMethod: PriceResult['priceMethod'] = requestedMethod
   let basePrice: number
@@ -456,7 +459,8 @@ export function calculatePrice(input: PriceInputs): PriceResult {
       notes.push('No per foot price is set for this style, so the price was built from cost instead.')
       priceMethod = 'cost_factor'
     }
-    basePrice = totalCOGS / costFactor
+    basePrice = styleFactorBad ? 0 : totalCOGS / costFactor
+    if (styleFactorBad) notes.push(`This fence's Target Margin is ${Math.round((1 - style!.margin) * 1000) / 10}%, 100% or more, so it cannot be priced. Lower its Target Profit in Settings → Fence styles.`)
   }
 
   // ── Commission ──
