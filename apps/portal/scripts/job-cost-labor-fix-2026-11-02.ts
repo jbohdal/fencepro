@@ -3,9 +3,13 @@
  *
  *   pnpm exec tsx scripts/job-cost-labor-fix-2026-11-02.ts                 dry run (default): reads only
  *   pnpm exec tsx scripts/job-cost-labor-fix-2026-11-02.ts --apply         does it (dev)
- *   EZBIZ_LIVE_WRITE_OK=1 pnpm exec tsx scripts/job-cost-labor-fix-2026-11-02.ts --apply --live
+ *   EZBIZ_LIVE_WRITE_OK=1 pnpm exec tsx scripts/job-cost-labor-fix-2026-11-02.ts --only 7e051109 --cents 76900 --apply --live
  *                                                    on live: from ~/ezbiz/apps/portal, after a backup
  *                                                    (bash ~/ezbiz/deploy/mac/backup.sh, under 30 minutes old)
+ *   --only <first 8 of the quote id> --cents <labor>  this one entry at this amount and nothing else; live refuses
+ *                                                    to run without them. It stops with nothing changed unless
+ *                                                    exactly one entry matches, or if the job has a takeoff
+ *                                                    or a sub bill that says another amount.
  *
  * Jonathan, Nov 2 2026: "Fix any job costs already saved wrong because labor
  * came from hours (list them, old vs new, don't change without my OK)."
@@ -35,6 +39,10 @@ const SCRIPT = 'scripts/job-cost-labor-fix-2026-11-02.ts'
 const KEY = 'fencepro_jobcosting'
 const args = process.argv.slice(2)
 const APPLY = args.includes('--apply')
+const onlyAt = args.indexOf('--only')
+const ONLY = onlyAt >= 0 ? (args[onlyAt + 1] ?? '').trim() : ''
+const centsAt = args.indexOf('--cents')
+const CENTS = centsAt >= 0 ? Number(args[centsAt + 1]) : null
 const dbUrl = process.env.DATABASE_URL || ''
 const dbName = databaseNameOf(dbUrl)
 
@@ -44,7 +52,9 @@ if (APPLY) {
   if (misuse) { console.error(misuse); process.exit(2) }
   assertLiveWriteAllowed('job-cost-labor-fix-2026-11-02.ts')
   if (dbName === LIVE_DATABASE_NAME && !args.includes('--live')) { console.error(`DATABASE_URL names the live database "${LIVE_DATABASE_NAME}". With a fresh backup and Jonathan's OK, add --live.`); process.exit(2) }
+  if (dbName === LIVE_DATABASE_NAME && (ONLY.length !== 8 || !Number.isInteger(CENTS) || (CENTS as number) <= 0)) { console.error('On live, name the one entry and its amount: --only <8 characters> --cents <whole cents>. Nothing was changed.'); process.exit(2) }
 }
+if ((onlyAt >= 0 || centsAt >= 0) && (ONLY.length !== 8 || !Number.isInteger(CENTS) || (CENTS as number) <= 0)) { console.error('--only and --cents go together: --only <8 characters> --cents <whole cents>. Nothing was changed.'); process.exit(2) }
 
 const say = (...a: unknown[]) => console.log(...a)
 type Json = any
@@ -58,12 +68,17 @@ async function main() {
   const { crewTotalCents, laborBasis, oldHoursCents } = await import('../../web/src/jobCostLabor.js')
   say(`Database: ${dbName}${APPLY ? '' : ' (dry run, reads only)'}`)
   const rows = await prisma.accountKeyValue.findMany({ where: { key: KEY } })
+  if (ONLY) {
+    const found = rows.flatMap((r: Json) => (Array.isArray(r.value) ? r.value : []) as Json[]).filter((e: Json) => String(e.quoteId).startsWith(ONLY))
+    if (found.length !== 1) { console.error(`STOPPED, nothing changed: ${found.length} entries for quote ${ONLY}, not one.`); process.exit(3) }
+  }
   let would = 0, done = 0, saved = 0, crew = 0, gone = 0, noCost = 0
   for (const row of rows) {
     const entries = (Array.isArray(row.value) ? row.value : []) as Json[]
     const fixes: Array<{ entry: Json; oldCents: number; newCents: number; sub: boolean; why: string }> = []
     const seen = new Set<string>()
     for (const e of entries) {
+      if (ONLY && !String(e.quoteId).startsWith(ONLY)) continue
       if (seen.has(e.quoteId)) say(`\n  TWICE  quote ${String(e.quoteId).slice(0, 8)} has a second entry (${e.id}): the P&L counts the newest; ask Jonathan which to delete`)
       seen.add(e.quoteId)
       const basis = laborBasis({ actualLaborCostCents: e.actualLaborCostCents, crew: e.crew, frozenOldLaborCents: e.frozenOldLaborCents })
@@ -82,10 +97,11 @@ async function main() {
       }
       const oldCents = oldHoursCents({ actualLaborHrs: e.actualLaborHrs, frozenOldLaborCents: e.frozenOldLaborCents }, { laborCost: q.laborCost, adjLaborHrs: q.adjLaborHrs })
       const p = q.deletedAt ? null : await prefillFor(row.accountId, q.id)
-      const newCents = p?.labor.cents ?? toCents(q.laborCost)
+      if (ONLY && p && p.labor.source !== 'quote' && p.labor.cents !== CENTS) { console.error(`STOPPED, nothing changed: ${p.labor.words} says ${usd(p.labor.cents)}, not ${usd(CENTS as number)}.`); process.exit(3) }
+      const newCents = ONLY ? (CENTS as number) : p?.labor.cents ?? toCents(q.laborCost)
       if (p?.labor.source === 'takeoff' && p.labor.words.includes('not approved yet')) { say(`\n  LEFT  ${name}, job ${job?.id ?? 'none'}: the takeoff is not approved yet, so it is no actual cost; stays ${usd(oldCents)} until it is`); continue }
       if (newCents <= 0) { noCost++; say(`\n  LEFT  ${name}, job ${job?.id ?? 'none'}: the quote has no labor on file and nothing is recorded for this job; stays ${usd(oldCents)} until someone enters it`); continue }
-      const why = `labor was ${Number(e.actualLaborHrs) || 0} hours x a rate; ${p?.labor.words ?? "from the quote's labor $"}`
+      const why = `labor was ${Number(e.actualLaborHrs) || 0} hours x a rate; ${ONLY && newCents !== p?.labor.cents ? 'the amount Jonathan gave' : p?.labor.words ?? "from the quote's labor $"}`
       if (oldCents === newCents) {
         say(`\n  SAME  ${name}, job ${job?.id ?? 'none'}: ${usd(oldCents)} both ways; ${APPLY ? 'saved as the labor cost' : 'would be saved as the labor cost'}`)
       } else {
