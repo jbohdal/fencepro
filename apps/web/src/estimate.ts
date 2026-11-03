@@ -14,7 +14,8 @@ import { setMaterialPriceSource, inventoryPriceSource, type LineItem, type GateW
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
-import { isTallVinyl, styleChoicesOf } from './fenceCatalog'
+import { isTallVinyl, styleChoicesOf, catalogOf, materialOf } from './fenceCatalog'
+import { followedRates, type FollowedRates } from './fenceRates'
 import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequest } from './quoteJob'
 import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
 import type { YardLayout } from './yardLayout'
@@ -159,6 +160,22 @@ export function heldStyleReason(data: EstimateData, name: string): string | null
   useData(data)
   const s = estimateConfig(data.config).fenceStyles.find(x => x.name === name)
   return s?.held ? s.held : null
+}
+
+/**
+ * The sub rates and Target Profit % each fence follows from its material and
+ * choices (fenceRates.ts), by internal name: for the server's job costing,
+ * which reads the saved fence styles as they are. A fence that follows none is left out.
+ */
+export function followedRatesByStyle(saved: Partial<AppConfig> | null): Record<string, FollowedRates> {
+  const catalog = catalogOf(saved as AppConfig)
+  const out: Record<string, FollowedRates> = {}
+  for (const s of (saved?.fenceStyles ?? []) as FenceStyle[]) {
+    const sc = styleChoicesOf(s)
+    const f = sc ? followedRates(materialOf(catalog, sc.material), sc.choices, false) : {}
+    if (Object.keys(f).length) out[s.name] = f
+  }
+  return out
 }
 
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */

@@ -6,6 +6,7 @@
 
 import type { AppConfig, FenceStyle } from './configStore'
 import { woodFactorOf } from './wood'
+import { ownsProfit } from './fenceRates'
 
 export const DEFAULT_OVERHEAD_PCT = 30
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -24,11 +25,15 @@ export function typedOverheadPct(cfg: Pick<AppConfig, 'pricing'>): number {
 export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceStyles'> & { moveRepair?: AppConfig['moveRepair'] }>(cfg: C, overhead = typedOverheadPct(cfg)): C {
   const typed = typedOverheadPct(cfg)
   const styles = (cfg.fenceStyles ?? []).map((s: FenceStyle) => {
-    const profit = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct)
+    const saved = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct)
       ? s.targetProfitPct
       : round2((1 - (s.margin || 0.64)) * 100 - typed)
-    // A color with its own Target Profit % (Settings → Fence styles) earns that instead.
-    const earn = typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
+    // Its own number (set on the fence) wins; else the one its choices or material set (fenceRates.ts), else the one saved on it.
+    const own = ownsProfit(s)
+    const above = s.followed?.targetProfitPct?.value
+    const profit = own ? saved : typeof above === 'number' && Number.isFinite(above) ? above : saved
+    // A color with its own Target Profit % (Settings → Fence styles) earns that instead, unless the fence has its own.
+    const earn = !own && typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
     return { ...s, targetProfitPct: profit, margin: (100 - overhead - earn) / 100 }
   })
   // Wood's install labor (and its moves and repairs) come from its white vinyl style × the Wood factor (wood.ts): that style as read, and the factor.

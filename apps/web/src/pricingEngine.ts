@@ -79,6 +79,11 @@ export interface StylePricing {
   mhPerDblGate?: number
   /** Subcontractor pay per unit for this style (overrides category + default). */
   subRate?: number
+  /** Subcontractor pay per walk gate and per double gate for this style (overrides Settings → Pricing). */
+  subWalkGate?: number
+  subDblGate?: number
+  /** Sub rates set on its material or a choice (fenceRates.ts): after its own, before the category's. */
+  followed?: { subRate?: { value: number }; subWalkGate?: { value: number }; subDblGate?: { value: number } }
   /** Customer price per foot for this style (used by the per_foot method). */
   pricePerFoot?: number
 }
@@ -292,7 +297,14 @@ export function keepsCents(q: { pricing?: QuotePricingOverrides | null; status?:
   return q.status === 'SENT' || q.status === 'SOLD' || !!q.shareToken || !!q.acceptedAt || !!q.soldAt
 }
 
-/** Subcontractor rate for a style: quote override → style → category → default. */
+/** Subcontractor pay per walk gate or double gate: the style's own → its choices' or material's (fenceRates.ts) → Settings → Pricing. */
+export function resolveSubGateRate(style: StylePricing | undefined, pricing: Pick<PricingSettings, 'subWalkGate' | 'subDblGate'>, gate: 'walk' | 'dbl'): number {
+  return gate === 'walk'
+    ? pos(style?.subWalkGate) ?? pos(style?.followed?.subWalkGate?.value) ?? num(pricing.subWalkGate)
+    : pos(style?.subDblGate) ?? pos(style?.followed?.subDblGate?.value) ?? num(pricing.subDblGate)
+}
+
+/** Subcontractor rate for a style: quote override → style → its choices or material → category → default. */
 export function resolveSubRate(
   style: StylePricing | undefined,
   pricing: PricingSettings,
@@ -300,6 +312,7 @@ export function resolveSubRate(
 ): number {
   return pos(override)
     ?? pos(style?.subRate)
+    ?? pos(style?.followed?.subRate?.value)
     ?? pos(style?.category ? pricing.subRateByCategory?.[style.category] : undefined)
     ?? pos(pricing.subRateDefault)
     ?? 0
@@ -405,8 +418,10 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     }
     // Any piece of the job with no sub rate is called out, never charged $0 quietly.
     const missing: string[] = []
-    if (walkGates > 0 && !(num(pricing.subWalkGate) > 0)) missing.push('walk gate')
-    if (dblGates > 0 && !(num(pricing.subDblGate) > 0)) missing.push('double gate')
+    const walkRate = resolveSubGateRate(style, pricing, 'walk')
+    const dblRate = resolveSubGateRate(style, pricing, 'dbl')
+    if (walkGates > 0 && !(walkRate > 0)) missing.push('walk gate')
+    if (dblGates > 0 && !(dblRate > 0)) missing.push('double gate')
     if (tearOutSections > 0 && !(num(pricing.subTearOutSection) > 0)) missing.push('tear out section')
     if (tearOutGates > 0 && !(num(pricing.subTearOutGate) > 0)) missing.push('tear out gate')
     if (missing.length > 0) {
@@ -414,8 +429,8 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     }
     const units = subUnit === 'section' ? sections : footage
     laborCost = units * subRate
-      + walkGates * num(pricing.subWalkGate)
-      + dblGates * num(pricing.subDblGate)
+      + walkGates * walkRate
+      + dblGates * dblRate
       + tearOutSections * num(pricing.subTearOutSection)
       + tearOutGates * num(pricing.subTearOutGate)
       + extraLaborHrs * manHourRate

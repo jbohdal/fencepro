@@ -34,6 +34,7 @@ import type { FenceStyle } from './configStore'
 import { inventoryCost, isVinylPostPart, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { WOOD_MATERIAL } from './wood'
+import { followedRates, type RateDefaults } from './fenceRates'
 
 // ── The tree ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,8 @@ export interface ChoiceOption {
    * (chain link Dig set, whose post parts start with no price).
    */
   waitForPrices?: boolean
+  /** Target Profit % and sub rates for every fence with this choice (fenceRates.ts); a color's Target Profit is color.targetProfitPct. */
+  rateDefaults?: RateDefaults
 }
 
 export interface ChoiceDim {
@@ -152,6 +155,8 @@ export interface MaterialDef {
   /** The plain name: {dimension key} is replaced by the option's name text. */
   nameTemplate: string
   quotable?: boolean
+  /** Target Profit % and sub rates for every fence of this material (fenceRates.ts). */
+  rateDefaults?: RateDefaults
   /** In the order they are chosen. */
   dims: ChoiceDim[]
 }
@@ -551,13 +556,16 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
   const statusCache = new Map<string, ColorStatus>()
   const out = styles.map(raw => {
     const s: FenceStyle = { ...raw }
-    delete s.label; delete s.held; delete s.jobLot; delete s.colorTargetProfitPct; delete s.woodBase; delete s.woodFactor
+    delete s.label; delete s.held; delete s.jobLot; delete s.colorTargetProfitPct; delete s.woodBase; delete s.woodFactor; delete s.followed
     const sc = styleChoicesOf(s)
     const m = sc ? materialOf(catalog, sc.material) : undefined
     if (!sc || !m) { next.set(s.name, s.name); return s }
     if (!s.material) { s.material = sc.material; s.choices = { ...sc.choices } }
     s.label = plainName(catalog, sc) || s.name
     next.set(s.name, s.label)
+    // Target Profit % and sub rates set on its material or a choice (fenceRates.ts); a color's Target Profit is colorTargetProfitPct below.
+    const followed = followedRates(m, sc.choices, false)
+    if (Object.keys(followed).length) s.followed = followed
     const why: string[] = []
     if (m.quotable === false) why.push(`${m.label} is turned off`)
     // An option that waits for prices (chain link Dig set): every part of the
@@ -618,7 +626,7 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
 
 /** Fields worked out on every read; not saved. */
 export function stripDerived(styles: FenceStyle[]): FenceStyle[] {
-  return styles.map(s => { const c: FenceStyle = { ...s }; delete c.label; delete c.held; delete c.jobLot; delete c.colorTargetProfitPct; delete c.woodBase; delete c.woodFactor; return c })
+  return styles.map(s => { const c: FenceStyle = { ...s }; delete c.label; delete c.held; delete c.jobLot; delete c.colorTargetProfitPct; delete c.woodBase; delete c.woodFactor; delete c.followed; return c })
 }
 
 // ── The quote builder's picker ───────────────────────────────────────────────

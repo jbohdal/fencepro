@@ -1,36 +1,46 @@
 /**
- * Settings → Fence Styles: the fences as a tree, Material > choices, with an
- * "Available for quoting" switch at every level, instead of a table of codes.
+ * Settings → Fence Styles (owner only): the fences as a tree, Material >
+ * choices, with an "Available for quoting" switch at every level, instead of
+ * a table of codes.
  *
  *   Vinyl                                Available
+ *     Pricing for every Vinyl fence: Target Profit %, sub rates
  *     Style: Privacy [Add color] · Bell
  *     Height: 4 ft · 6 ft · 8 ft · + Add height
  *     Color: White (by part) · Tan (by part) · Clay (job lot, waiting for prices)
  *     ...
- *     Fences (15): each by its plain name, with its own switch and its labor
- *     and profit numbers.
+ *     Fences (15): each by its plain name, with its own switch, its Target
+ *     Profit % (Overhead % next to it, and the Target Margin), its sub rates
+ *     and the cost and price of 100 ft. Archived ones in their own part.
+ *
+ * A switch shows ON only when something under it can be quoted
+ * (fenceSettingsView.ts groupSwitch). Target Profit % and sub rates are set
+ * on a material or a choice for every fence under it, and on a fence or a
+ * color as its own number, marked, with Reset (fenceRates.ts). A change
+ * reaches new quotes: a saved quote keeps the cost factor it was priced with,
+ * and a sent or signed one is never priced again.
  *
  * Add color walks through: the color's name, which color it copies its parts
  * from, priced by part or by piece (job lot: section, post and gate prices
  * and what each includes), quantity overrides and an optional Target Profit
- * %. Adding a height, a vinyl style (Semi privacy), a panel width, a finish
+ * %. Adding a height, a vinyl style (Semi privacy), a section width, a finish
  * or a product works the same way. Nothing here needs a code change.
  *
- * Switches and the numbers in the tables are part of the Settings page and
- * save with Save Changes. Adding, editing, archiving or removing a color or a
- * choice saves at once (it also makes or removes Inventory parts and kits).
+ * Switches and the numbers here are part of the Settings page and save with
+ * Save Changes. Adding, editing, archiving or removing a color or a choice
+ * saves at once (it also makes or removes Inventory parts and kits).
  */
 
 import { useMemo, useState, type ReactNode } from 'react'
 import type { AppConfig, FenceStyle } from './configStore'
-import { overheadPctOf } from './configStore'
+import { getConfig, overheadPctOf } from './configStore'
 import PercentField from './PercentField'
 import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import { getInventory, getKitSets, saveInventory, saveKitSets, type InventoryItem } from './inventoryStore'
 import { getQuotes } from './quoteStore'
 import { getJobs } from './jobStore'
 import { isQuotable } from './styleAvailability'
-import { colorStatusWords, fenceRowWords, waitForPricesWords, type StatusLine } from './optionStatusWords'
+import { colorStatusWords, waitForPricesWords, type StatusLine } from './optionStatusWords'
 import { toast } from './toast'
 import { navigate } from './nav'
 import { KIT_LABEL } from './materialKits'
@@ -40,12 +50,23 @@ import {
   PIECE_LABEL, type AddColorRequest, type CatalogState, type ChoiceDim, type ChoiceOption, type FenceCatalog, type JobLotQuote,
   type MaterialDef, type PiecePrices, type PieceKey, type QtyOverride, type InvItem,
 } from './fenceCatalog'
+import { RATE_KEYS, ownsProfit, withRate, materialRate, optionRate, type RateKey } from './fenceRates'
+import {
+  draftView, categoryChoices, groupSwitch, fenceStatus, archivedBy, dimHeading, fenceName, profitShown, subShown, subUnitWords, example100ft,
+  type GroupSwitch, type RateShown,
+} from './fenceSettingsView'
 
-const STYLE_CATEGORIES = ['Vinyl', 'Chainlink', 'Commercial', 'Aluminum', 'Other'] as const
 const money = (cents: number | null | undefined) => (typeof cents === 'number' ? (cents / 100).toFixed(2) : '')
 const toCents = (text: string): number | null => { const v = parseFloat(text.replace(/[$,\s]/g, '')); return Number.isFinite(v) && v > 0 ? Math.round(v * 100) : null }
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
 const small = 'text-xs text-gray-500'
+/** Whole dollars with commas: "$3,880". */
+const dollars = (cents: number) => `$${Math.round(cents / 100).toLocaleString('en-US')}`
+/** A sub rate: "$5" or "$5.25". */
+const rateText = (v: number) => `$${Number.isInteger(v) ? v : v.toFixed(2)}`
+const pct = (v: number) => `${Math.round(v * 100) / 100}%`
+type SubKey = Exclude<RateKey, 'targetProfitPct'>
+const SUB_KEYS: SubKey[] = ['subRate', 'subWalkGate', 'subDblGate']
 
 function Switch({ on, onClick, label, ...rest }: { on: boolean; onClick: () => void; label: string } & Record<`data-${string}`, string>) {
   // A 44 px tall tap target around a small track.
@@ -69,6 +90,27 @@ function inUse(): Set<string> {
   return new Set([...getQuotes().map(q => q.fenceStyle), ...getJobs().map(j => j.fenceStyle)].filter(Boolean) as string[])
 }
 
+/** What the screen reads: the draft as the quote builder would price it, and the saved Settings (for "was"). */
+interface Views {
+  view: AppConfig; saved: AppConfig; byId: Map<string, FenceStyle>; savedById: Map<string, FenceStyle>
+  /** 100 ft of a fence now (this draft), and as saved; worked out once per draft. */
+  ex: (id: string) => Example
+  wasEx: (id: string) => Example
+}
+type Example = ReturnType<typeof example100ft>
+
+function makeViews(config: AppConfig): Views {
+  const view = draftView(config, overheadPctOf(config))
+  const saved = getConfig()
+  const byId = new Map(view.fenceStyles.map(s => [s.id, s]))
+  const savedById = new Map(saved.fenceStyles.map(s => [s.id, s]))
+  const memo = (cfg: AppConfig, of: Map<string, FenceStyle>) => {
+    const cache = new Map<string, Example>()
+    return (id: string) => { if (!cache.has(id)) cache.set(id, example100ft(of.get(id), cfg)); return cache.get(id)! }
+  }
+  return { view, saved, byId, savedById, ex: memo(view, byId), wasEx: memo(saved, savedById) }
+}
+
 export default function FenceStylesSettings({ config, onChange, onCommit }: {
   config: AppConfig
   /** A change to the page's draft (saved with Save Changes). */
@@ -79,7 +121,8 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
   const catalog = catalogOf(config)
   const [wizard, setWizard] = useState<null | { material: string; under?: { dim: string; key: string }; edit?: string }>(null)
   const [choiceDlg, setChoiceDlg] = useState<null | { material: string; dim: string; edit?: string }>(null)
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
+  const views = useMemo(() => makeViews(config), [config, tick])  // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Save the result of a plan: Settings (with the page's other changes), Inventory items and kits. */
   function commit(st: CatalogState, message?: string) {
@@ -91,13 +134,42 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
   }
   const setCatalog = (c: FenceCatalog) => onChange({ ...config, fenceCatalog: c })
   const updateStyle = (id: string, patch: Partial<FenceStyle>) => onChange({ ...config, fenceStyles: config.fenceStyles.map(s => (s.id === id ? { ...s, ...patch } : s)) })
-  const unmapped = config.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !sc || !materialOf(catalog, sc.material) })
+  /**
+   * A Target Profit % or sub rate set (or cleared) on a material or a choice.
+   * The fences that follow it get its Target Profit saved on them too, so
+   * what is saved is what they price with (their own numbers stay).
+   */
+  function setLevelRate(material: string, dim: string | null, optKey: string | null, key: RateKey, v: number | undefined) {
+    const materials = catalog.materials.map(m => {
+      if (m.key !== material) return m
+      if (!dim) return { ...m, rateDefaults: withRate(m.rateDefaults, key, v) }
+      return {
+        ...m, dims: m.dims.map(d => (d.key !== dim ? d : {
+          ...d, options: d.options.map(o => {
+            if (o.key !== optKey) return o
+            // A color's Target Profit is the one on the color (the Add color steps and Vinyl Colors read it there).
+            if (key === 'targetProfitPct' && o.color) {
+              const color = { ...o.color }
+              if (typeof v === 'number') color.targetProfitPct = v; else delete color.targetProfitPct
+              return { ...o, color }
+            }
+            return { ...o, rateDefaults: withRate(o.rateDefaults, key, v) }
+          }),
+        })),
+      }
+    })
+    const next = { ...config, fenceCatalog: { ...catalog, materials } }
+    if (key !== 'targetProfitPct') { onChange(next); return }
+    const after = new Map(draftView(next, overheadPctOf(next)).fenceStyles.map(s => [s.id, s.targetProfitPct]))
+    onChange({ ...next, fenceStyles: next.fenceStyles.map(s => (ownsProfit(s) || typeof after.get(s.id) !== 'number' ? s : { ...s, targetProfitPct: after.get(s.id) })) })
+  }
+  const unmapped = views.view.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !sc || !materialOf(catalog, sc.material) })
 
   return (
     <div className="space-y-5" data-styles-tree>
-      <p className="text-sm text-gray-600">Fences are built from choices. Each switch says whether that choice can be quoted; a fence is offered only when every choice above it is on. The old codes stay as hidden internal names, so saved quotes, kits and tiers keep working. Switches and numbers save with Save changes (the bar at the bottom); adding or changing a color or a choice saves at once.</p>
+      <p className="text-sm text-gray-600">Fences are built from choices. A switch is on only when something under it can be quoted; a fence is offered only when every choice above it is on. Target Profit % and sub rates set on a material or a choice apply to every fence under it; a fence can have its own number, marked, with Reset. A change applies to new quotes; a saved quote keeps the Target Margin it was priced with, and a sent or signed quote never changes. Switches and numbers save with Save changes (the bar at the bottom); adding or changing a color or a choice saves at once.</p>
       {catalog.materials.map(m => (
-        <MaterialCard key={m.key} m={m} config={config} catalog={catalog}
+        <MaterialCard key={m.key} m={m} config={config} views={views}
           onToggleMaterial={() => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key === m.key ? { ...x, quotable: x.quotable === false ? undefined : false } : x)) })}
           onToggleOption={(dim, key) => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key !== m.key ? x : { ...x, dims: x.dims.map(d => (d.key !== dim ? d : { ...d, options: d.options.map(o => (o.key !== key ? o : { ...o, quotable: o.quotable === false ? undefined : false })) })) })) })}
           // Vinyl colors are added and edited in Settings → Price List → Vinyl Colors (one form, VinylColorsSettings.tsx).
@@ -105,6 +177,7 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
           onEditColor={key => (m.key === 'vinyl' && optionOf(m, 'color', key)?.color?.form ? navigate(`/settings?tab=price_list&color=${encodeURIComponent(key)}`) : setWizard({ material: m.key, edit: key }))}
           onAddChoice={dim => setChoiceDlg({ material: m.key, dim })}
           onEditChoice={(dim, key) => setChoiceDlg({ material: m.key, dim, edit: key })}
+          onLevelRate={(dim, key, rate, v) => setLevelRate(m.key, dim, key, rate, v)}
           updateStyle={updateStyle}
         />
       ))}
@@ -112,7 +185,10 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
         <section className="rounded-2xl border border-gray-200 p-4">
           <h3 className="text-base font-bold text-gray-900">Other styles</h3>
           <p className={small}>Styles not built from choices.</p>
-          <StyleTable styles={unmapped} config={config} updateStyle={updateStyle} />
+          <div className="mt-2 space-y-2">
+            {unmapped.map(s => <FenceRow key={s.id} s={s} m={undefined} config={config} views={views} updateStyle={updateStyle} />)}
+          </div>
+          <LaborTable styles={unmapped} views={views} updateStyle={updateStyle} />
         </section>
       )}
       {wizard && <ColorWizard config={config} catalog={catalog} material={wizard.material} under={wizard.under} edit={wizard.edit}
@@ -125,130 +201,327 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
 
 // ── One material ─────────────────────────────────────────────────────────────
 
-function MaterialCard({ m, config, catalog, onToggleMaterial, onToggleOption, onAddColor, onEditColor, onAddChoice, onEditChoice, updateStyle }: {
-  m: MaterialDef; config: AppConfig; catalog: FenceCatalog
+function MaterialCard({ m, config, views, onToggleMaterial, onToggleOption, onAddColor, onEditColor, onAddChoice, onEditChoice, onLevelRate, updateStyle }: {
+  m: MaterialDef; config: AppConfig; views: Views
   onToggleMaterial: () => void
   onToggleOption: (dim: string, key: string) => void
   onAddColor: (under?: { dim: string; key: string }) => void
   onEditColor: (key: string) => void
   onAddChoice: (dim: string) => void
   onEditChoice: (dim: string, key: string) => void
+  onLevelRate: (dim: string | null, key: string | null, rate: RateKey, v: number | undefined) => void
   updateStyle: (id: string, patch: Partial<FenceStyle>) => void
 }) {
-  const styles = config.fenceStyles.filter(s => styleChoicesOf(s)?.material === m.key)
+  const styles = views.view.fenceStyles.filter(s => styleChoicesOf(s)?.material === m.key)
   const colorDim = colorDimOf(m)
   const byStyle = !!colorDim && m.dims.some(x => x.key === 'style')
-  const [open, setOpen] = useState(false)
-  const count = (dim: string, key: string) => styles.filter(s => styleChoicesOf(s)!.choices[dim] === key).length
-  const on = m.quotable !== false
+  const [laborOpen, setLaborOpen] = useState(false)
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const under = (dim: string, key: string) => styles.filter(s => styleChoicesOf(s)!.choices[dim] === key)
+  const sw = groupSwitch(m.quotable !== false, styles, m.label)
+  const archived = styles.filter(s => archivedBy(s).length > 0)
+  const live = styles.filter(s => archivedBy(s).length === 0)
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4" data-tree-material={m.key}>
-      <div className="flex items-center gap-3">
-        <h3 className="flex-1 text-lg font-bold text-gray-900">{m.label}</h3>
-        <span className={small}>Available for quoting</span>
-        <Switch on={on} onClick={onToggleMaterial} label={`${m.label} available for quoting`} data-tree-switch={`material:${m.key}`} />
+      <div>
+        <div className="flex items-center gap-3">
+          <h3 className="flex-1 text-lg font-bold text-gray-900">{m.label}</h3>
+          <span className={small}>Available for quoting</span>
+          <Switch on={sw.on} onClick={onToggleMaterial} label={`${m.label} available for quoting`} data-tree-switch={`material:${m.key}`} />
+        </div>
+        <SwitchWords sw={sw} name={`material:${m.key}`} offText={`Switched off: no ${m.label.toLowerCase()} fence is quoted.`} />
       </div>
+      <LevelRates m={m} dim={null} config={config} views={views} fences={live} onSet={(rate, v) => onLevelRate(null, null, rate, v)} />
       {m.dims.map(d => (
         <div key={d.key} className="space-y-2" data-tree-dim={`${m.key}:${d.key}`}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{d.label}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{dimHeading(d)}</p>
           <div className="space-y-2">
             {d.options.filter(o => !o.archived).map(o => (
-              <OptionRow key={o.key} m={m} d={d} o={o} config={config} count={count(d.key, o.key)}
+              <OptionRow key={o.key} m={m} d={d} o={o} config={config} views={views} fences={under(d.key, o.key)}
                 onToggle={() => onToggleOption(d.key, o.key)}
                 onEdit={() => (d.isColor ? onEditColor(o.key) : onEditChoice(d.key, o.key))}
-                addColor={byStyle && d.key === 'style' && count(d.key, o.key) > 0 ? () => onAddColor({ dim: d.key, key: o.key }) : undefined} />
+                onRate={(rate, v) => onLevelRate(d.key, o.key, rate, v)}
+                addColor={byStyle && d.key === 'style' && under(d.key, o.key).length > 0 ? () => onAddColor({ dim: d.key, key: o.key }) : undefined} />
             ))}
             {d.options.some(o => o.archived) && (
               <p className={small} data-tree-archived={`${m.key}:${d.key}`}>Archived: {d.options.filter(o => o.archived).map(o => (
-                <button key={o.key} type="button" className="underline mr-2" onClick={() => (d.isColor ? onEditColor(o.key) : onEditChoice(d.key, o.key))}>{o.label}</button>))}</p>
+                <button key={o.key} type="button" className="underline mr-2 min-h-[44px]" onClick={() => (d.isColor ? onEditColor(o.key) : onEditChoice(d.key, o.key))}>{o.label}</button>))}</p>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
             {d.isColor
               // Vinyl: a color is added to one style (Privacy > Add color); elsewhere to the whole material.
               ? (byStyle ? <p className={small}>Add a color from its style above (Privacy → + Add color), or in Settings → Price List → Vinyl Colors.</p>
-                : <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => onAddColor(undefined)} data-add-color={m.key}>+ Add {d.label.toLowerCase()}</button>)
-              : <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => onAddChoice(d.key)} data-add-choice={`${m.key}:${d.key}`}>+ Add {d.label.toLowerCase()}</button>}
+                : <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" onClick={() => onAddColor(undefined)} data-add-color={m.key}>+ Add {dimHeading(d).toLowerCase()}</button>)
+              : <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => onAddChoice(d.key)} data-add-choice={`${m.key}:${d.key}`}>+ Add {dimHeading(d).toLowerCase()}</button>}
           </div>
         </div>
       ))}
-      <div className="border-t border-gray-100 pt-3">
-        <button type="button" className="w-full flex items-center justify-between min-h-[44px] text-sm font-semibold text-gray-800" onClick={() => setOpen(o => !o)} aria-expanded={open} data-tree-fences={m.key}>
-          <span>Fences ({styles.length}): switches, labor and profit</span><span aria-hidden>{open ? '▴' : '▾'}</span>
-        </button>
-        <div className={open ? 'mt-2 space-y-2' : 'hidden'}>
-          <StyleTable styles={styles} config={config} updateStyle={updateStyle} />
-        </div>
-        {!open && (
-          <ul className="mt-1 space-y-1">
-            {styles.map(s => (
-              <li key={s.id} className="flex items-center gap-3 min-h-[44px]" data-fence-row={s.name}>
-                <span className="flex-1 min-w-0">
-                  <span className={`block text-sm ${isQuotable(s) ? 'text-gray-900' : 'text-gray-400'}`}>{s.label || s.name}</span>
-                  {!isQuotable(s) && <span className="block text-xs text-amber-700" data-fence-row-status={s.name}>{fenceRowWords(s.quotable, s.held) ?? 'Not available for quoting'}</span>}
-                  {s.needsCostReview && <CostReviewBadge name={s.name} note={s.costReviewNote} />}
-                </span>
-                <Switch on={s.quotable !== false} onClick={() => updateStyle(s.id, { quotable: s.quotable === false })} label={`${s.label || s.name} available for quoting`} data-style-quotable={s.name} />
-              </li>
-            ))}
-          </ul>
+      <div className="border-t border-gray-100 pt-3 space-y-2" data-tree-fences={m.key}>
+        <p className="text-sm font-semibold text-gray-800">Fences ({live.length}): switch, Target Profit, sub rates</p>
+        {live.map(s => <FenceRow key={s.id} s={s} m={m} config={config} views={views} updateStyle={updateStyle} />)}
+        {archived.length > 0 && (
+          <div className="rounded-xl border border-gray-200" data-fences-archived={m.key}>
+            <button type="button" className="w-full flex items-center justify-between min-h-[44px] px-3 text-sm font-semibold text-gray-700" onClick={() => setArchivedOpen(o => !o)} aria-expanded={archivedOpen} data-fences-archived-toggle={m.key}>
+              <span>Archived ({archived.length})</span><span aria-hidden>{archivedOpen ? '▴' : '▾'}</span>
+            </button>
+            {archivedOpen && (
+              <div className="px-2 pb-2 space-y-2">
+                <p className={small}>Not offered for quoting: a choice they are made with is archived. Saved quotes on them keep working.</p>
+                {archived.map(s => <FenceRow key={s.id} s={s} m={m} config={config} views={views} updateStyle={updateStyle} />)}
+              </div>
+            )}
+          </div>
         )}
+        <button type="button" className="w-full flex items-center justify-between min-h-[44px] text-sm font-semibold text-gray-700" onClick={() => setLaborOpen(o => !o)} aria-expanded={laborOpen} data-tree-labor={m.key}>
+          <span>Labor numbers: sections per man hour, gates, $ per foot</span><span aria-hidden>{laborOpen ? '▴' : '▾'}</span>
+        </button>
+        {laborOpen && <LaborTable styles={styles} views={views} updateStyle={updateStyle} />}
       </div>
     </section>
   )
 }
 
-function OptionRow({ m, d, o, config, count, onToggle, onEdit, addColor }: {
-  m: MaterialDef; d: ChoiceDim; o: ChoiceOption; config: AppConfig; count: number
-  onToggle: () => void; onEdit: () => void; addColor?: () => void
+/** The words under a material's or a choice's switch: switched off, or on but nothing under it can be quoted. */
+function SwitchWords({ sw, name, offText }: { sw: GroupSwitch; name: string; offText: string | null }) {
+  const text = sw.offWhy ?? (!sw.ownOn ? offText : null)
+  if (!text) return null
+  return <span className="block text-xs text-amber-700" data-option-status={name} data-tone="off" {...(sw.offWhy ? { 'data-switch-off-why': name } : {})}>{text}</span>
+}
+
+function OptionRow({ m, d, o, config, views, fences, onToggle, onEdit, onRate, addColor }: {
+  m: MaterialDef; d: ChoiceDim; o: ChoiceOption; config: AppConfig; views: Views; fences: FenceStyle[]
+  onToggle: () => void; onEdit: () => void; onRate: (rate: RateKey, v: number | undefined) => void; addColor?: () => void
 }) {
+  const [pricingOpen, setPricingOpen] = useState(false)
   const status = d.isColor && o.color && o.copiedFrom ? colorStatus(config.fenceStyles, m, o) : null
-  const on = o.quotable !== false
+  const ownOn = o.quotable !== false
+  const sw = groupSwitch(ownOn && m.quotable !== false, fences, o.label)
+  const shownSw: GroupSwitch = { ...sw, ownOn, offWhy: sw.offWhy ?? (ownOn && m.quotable === false ? `Off: ${m.label} is switched off.` : null) }
   // A choice that waits for prices (chain link Dig set): fence by fence, which wait and which are quotable now.
   const waitFences = o.waitForPrices
-    ? config.fenceStyles.filter(s => { const sc = styleChoicesOf(s); return !!s.madeFrom && sc?.material === m.key && sc.choices[d.key] === o.key }).map(s => {
+    ? fences.filter(s => !!s.madeFrom).map(s => {
       const reasons = (s.held ?? '').split('; ').filter(r => r && !r.startsWith(`${o.label} is waiting for prices`))
       return {
-        label: (s.label || s.name).split(', ').filter(x => x !== o.label).join(', '),
+        label: fenceName(s).split(', ').filter(x => x !== o.label).join(', '),
         unpriced: partsWaitingForPrice(s.name).length,
         switchedOff: s.isActive === false || s.quotable === false || reasons.some(r => / is (turned off|archived)$/.test(r)),
       }
     })
     : null
   const lines: StatusLine[] = waitFences
-    ? waitForPricesWords(on, waitFences)
+    ? waitForPricesWords(ownOn, waitFences)
     : status
-      ? colorStatusWords(on, status.ready ? null : o.color!.pricing === 'piece'
+      ? colorStatusWords(ownOn, status.ready ? null : o.color!.pricing === 'piece'
         ? `${status.missingPieces.length} piece price${status.missingPieces.length === 1 ? '' : 's'}`
         : `prices on ${status.unpricedParts.length} part${status.unpricedParts.length === 1 ? '' : 's'} in Inventory`)
-      : on ? [] : [{ tone: 'off', text: `Switched off: no fence with ${o.label} is quoted.` }]
-  let note = `${count} fence${count === 1 ? '' : 's'}`
+      : []
+  // "Fully priced: available for quoting" is only said when a fence under it can be quoted.
+  const shownLines = lines.filter(l => !(l.tone === 'ok' && !sw.on))
+  const live = fences.filter(s => archivedBy(s).length === 0)
+  let note = `${live.length} fence${live.length === 1 ? '' : 's'}`
   if (d.isColor && o.color) note += o.color.form ? ` · ${o.color.form.mode === 'section' ? 'per section (kit)' : 'per piece'}, made in Price List → Vinyl Colors` : o.color.pricing === 'piece' ? ` · job lot${o.color.jobLot?.supplier ? ` (${o.color.jobLot.supplier})` : ''}` : ' · priced by part'
-  if (d.isColor && typeof o.color?.targetProfitPct === 'number') note += ` · ${o.color.targetProfitPct}% profit`
+  const set = RATE_KEYS.filter(k => optionRate(o, k) !== undefined)
+  const unit = subUnitWords(config.pricing)
+  const summary = set.map(k => (k === 'targetProfitPct' ? `${pct(optionRate(o, k)!)} profit` : `${k === 'subRate' ? 'sub' : k === 'subWalkGate' ? 'walk gate' : 'double gate'} ${rateText(optionRate(o, k)!)}${k === 'subRate' ? `/${unit.short}` : ''}`)).join(', ')
   return (
-    <div className="flex items-center gap-1 rounded-xl border border-gray-200 pl-3 pr-1 py-1" data-tree-option={`${m.key}:${d.key}:${o.key}`}>
-      <span className="flex-1 min-w-0 py-1">
-        <span className={`block text-sm font-semibold ${on ? 'text-gray-900' : 'text-gray-400'}`}>{o.label}</span>
-        <span className="block text-xs text-gray-500">{note}</span>
-        {lines.map((l, i) => (
-          <span key={i} className={`block text-xs ${l.tone === 'ok' ? 'text-green-700' : 'text-amber-700'}`}
-            data-option-status={`${m.key}:${d.key}:${o.key}`} data-tone={l.tone}
-            {...(status && l.tone !== 'ok' ? { 'data-color-waiting': o.key } : {})}
-            {...(status && l.tone === 'ok' ? { 'data-color-ready': o.key } : {})}
-            {...(waitFences && l.tone === 'wait' ? { 'data-option-waiting': `${m.key}:${d.key}:${o.key}` } : {})}
-            {...(waitFences && l.tone === 'ok' && on && waitFences.every(f => f.unpriced === 0) ? { 'data-option-ready': `${m.key}:${d.key}:${o.key}` } : {})}>
-            {l.text}
-          </span>
-        ))}
-        {addColor && <button type="button" className="btn btn-secondary btn-sm min-h-[44px] mt-1" onClick={addColor} data-add-color-under={`${m.key}:${d.key}:${o.key}`}>+ Add color</button>}
-      </span>
-      <button type="button" className="btn btn-quiet btn-sm min-h-[44px] shrink-0" onClick={onEdit} data-edit-option={`${m.key}:${d.key}:${o.key}`}>Edit</button>
-      <Switch on={on} onClick={onToggle} label={`${o.label} available for quoting`} data-tree-switch={`${m.key}:${d.key}:${o.key}`} />
+    <div className="rounded-xl border border-gray-200" data-tree-option={`${m.key}:${d.key}:${o.key}`}>
+      <div className="flex items-center gap-1 pl-3 pr-1 py-1">
+        <span className="flex-1 min-w-0 py-1">
+          <span className={`block text-sm font-semibold ${sw.on ? 'text-gray-900' : 'text-gray-400'}`}>{o.label}</span>
+          <span className="block text-xs text-gray-500">{note}{summary ? ` · ${summary}` : ''}</span>
+          <SwitchWords sw={shownSw} name={`${m.key}:${d.key}:${o.key}`} offText={`Switched off: no fence with ${o.label} is quoted.`} />
+          {shownLines.map((l, i) => (
+            <span key={i} className={`block text-xs ${l.tone === 'ok' ? 'text-green-700' : 'text-amber-700'}`}
+              data-option-status={`${m.key}:${d.key}:${o.key}`} data-tone={l.tone}
+              {...(status && l.tone !== 'ok' ? { 'data-color-waiting': o.key } : {})}
+              {...(status && l.tone === 'ok' ? { 'data-color-ready': o.key } : {})}
+              {...(waitFences && l.tone === 'wait' ? { 'data-option-waiting': `${m.key}:${d.key}:${o.key}` } : {})}
+              {...(waitFences && l.tone === 'ok' && ownOn && waitFences.every(f => f.unpriced === 0) ? { 'data-option-ready': `${m.key}:${d.key}:${o.key}` } : {})}>
+              {l.text}
+            </span>
+          ))}
+          {addColor && <button type="button" className="btn btn-secondary btn-sm min-h-[44px] mt-1" onClick={addColor} data-add-color-under={`${m.key}:${d.key}:${o.key}`}>+ Add color</button>}
+        </span>
+        <button type="button" className="btn btn-quiet btn-sm min-h-[44px] shrink-0" onClick={() => setPricingOpen(p => !p)} aria-expanded={pricingOpen} data-option-pricing={`${m.key}:${d.key}:${o.key}`}>Pricing</button>
+        <button type="button" className="btn btn-quiet btn-sm min-h-[44px] shrink-0" onClick={onEdit} data-edit-option={`${m.key}:${d.key}:${o.key}`}>Edit</button>
+        <Switch on={sw.on} onClick={onToggle} label={`${o.label} available for quoting`} data-tree-switch={`${m.key}:${d.key}:${o.key}`} />
+      </div>
+      {pricingOpen && (
+        <div className="border-t border-gray-100 px-3 py-2">
+          <LevelRates m={m} dim={d} opt={o} config={config} views={views} fences={live} onSet={onRate} />
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Labor and profit per fence ───────────────────────────────────────────────
+// ── Target Profit % and sub rates for every fence under a material or a choice ──
+
+function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
+  m: MaterialDef; dim: ChoiceDim | null; opt?: ChoiceOption; config: AppConfig; views: Views; fences: FenceStyle[]
+  onSet: (rate: RateKey, v: number | undefined) => void
+}) {
+  const overhead = overheadPctOf(config)
+  const unit = subUnitWords(config.pricing)
+  const name = opt ? opt.label : m.label
+  const where = opt ? `${m.key}:${dim!.key}:${opt.key}` : m.key
+  const own = (k: RateKey) => (opt ? optionRate(opt, k) : materialRate(m, k))
+  const profit = own('targetProfitPct')
+  // What blank means here: the material's number (for a choice), else each fence's own, else Settings → Pricing.
+  const blankProfit = opt && materialRate(m, 'targetProfitPct') !== undefined ? `${m.label}: ${pct(materialRate(m, 'targetProfitPct')!)}` : 'Each fence keeps its own'
+  const blankSub = (k: SubKey) => {
+    const mat = opt ? materialRate(m, k) : undefined
+    if (mat !== undefined) return `${m.label}: ${rateText(mat)}`
+    const p = config.pricing
+    const v = k === 'subRate' ? (p.subRateByCategory?.[m.category] || p.subRateDefault) : k === 'subWalkGate' ? p.subWalkGate : p.subDblGate
+    return v > 0 ? `Settings: ${rateText(v)}` : 'Not set'
+  }
+  // The fences whose Target Margin or 100 ft price this draft changes (not saved yet).
+  const changed = fences.filter(s => { const was = views.savedById.get(s.id); return !!was && (was.margin !== s.margin || views.wasEx(s.id)?.priceCents !== views.ex(s.id)?.priceCents) })
+  const sample = fences.find(isQuotable) ?? fences[0]
+  const ex = sample ? views.ex(sample.id) : null
+  const wasEx = sample ? views.wasEx(sample.id) : null
+  const isWood = m.key === 'wood'
+  return (
+    <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 space-y-2" data-level-rates={where}>
+      <p className="text-xs font-semibold text-gray-700">{opt ? `Pricing for every fence with ${name}` : `Pricing for every ${name} fence`}</p>
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <label className="block text-xs text-gray-600">Target Profit
+          <PercentField value={profit} min={0} max={80} placeholder={blankProfit} data-level-profit={where}
+            className="mt-1 block w-44 border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400"
+            onChange={v => onSet('targetProfitPct', v)} />
+        </label>
+        {profit !== undefined && <p className="text-xs text-gray-700 pb-3" data-level-margin={where}>+ Overhead {pct(overhead)} = Target Margin {pct(overhead + profit)}</p>}
+      </div>
+      {!isWood && (
+        <div className="flex flex-wrap gap-x-3 gap-y-2">
+          {SUB_KEYS.map(k => (
+            <MoneyRate key={k} label={k === 'subRate' ? `Sub, ${unit.long}` : k === 'subWalkGate' ? 'Sub, per walk gate' : 'Sub, per double gate'}
+              value={own(k)} placeholder={blankSub(k)} attr={`${where}:${k}`} onSet={v => onSet(k, v)} />
+          ))}
+        </div>
+      )}
+      {isWood && <p className={small}>Wood sub labor is its White Vinyl fence’s labor × the Wood factor (Settings → Moves and Repairs).</p>}
+      <p className={small}>Blank: {opt ? `follows ${m.label}` : 'each fence keeps its own Target Profit, and sub rates come from Settings → Pricing'}. A fence with its own number keeps it.</p>
+      {ex && sample && (
+        <p className="text-xs text-gray-700" data-level-example={where}>
+          Example, {fenceName(sample)}: 100 ft costs {dollars(ex.costCents)}, priced {dollars(ex.priceCents)}{wasEx && wasEx.priceCents !== ex.priceCents ? ` (was ${dollars(wasEx.priceCents)})` : ''}.
+        </p>
+      )}
+      {changed.length > 0 && (
+        <p className="text-xs font-semibold text-orange-800" data-level-changed={where}>Not saved yet: {changed.length} fence{changed.length === 1 ? '' : 's'} change price for new quotes. Each shows its new price below.</p>
+      )}
+    </div>
+  )
+}
+
+/** A dollar rate typed as people say it ("5", "$5.25"); blank clears it. */
+function MoneyRate({ label, value, placeholder, attr, onSet, marked }: { label: string; value: number | undefined; placeholder?: string; attr: string; onSet: (v: number | undefined) => void; marked?: boolean }) {
+  const [bad, setBad] = useState(false)
+  return (
+    <label className="block text-xs text-gray-600">{label}
+      <span className="mt-1 flex items-center gap-1"><span className="text-gray-500">$</span>
+        <input key={value ?? 'blank'} inputMode="decimal" defaultValue={value === undefined ? '' : String(value)} placeholder={placeholder} data-rate={attr}
+          aria-invalid={bad || undefined}
+          className={`w-28 border rounded-lg px-2 min-h-[44px] text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 ${marked ? 'border-orange-400' : 'border-gray-300'} ${bad ? 'ring-2 ring-red-200 border-red-400' : ''}`}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          onBlur={e => {
+            const t = e.target.value.replace(/[$,\s]/g, '')
+            if (!t) { setBad(false); onSet(undefined); return }
+            const n = Number(t)
+            if (!Number.isFinite(n) || n <= 0 || n > 10000) { setBad(true); return }
+            setBad(false); onSet(Math.round(n * 100) / 100)
+          }} />
+      </span>
+    </label>
+  )
+}
+
+// ── One fence: switch, Target Profit, sub rates, the 100 ft example ──────────
+
+function FenceRow({ s, m, config, views, updateStyle }: { s: FenceStyle; m: MaterialDef | undefined; config: AppConfig; views: Views; updateStyle: (id: string, patch: Partial<FenceStyle>) => void }) {
+  const overhead = overheadPctOf(config)
+  const unit = subUnitWords(config.pricing)
+  const status = fenceStatus(s)
+  const profit = profitShown(s, m)
+  const was = views.savedById.get(s.id)
+  const wasProfit = was ? profitShown(was, materialOf(catalogOf(views.saved), m?.key)) : null
+  const ex = views.ex(s.id)
+  const wasEx = views.wasEx(s.id)
+  const wood = s.woodBase
+  const raw = config.fenceStyles.find(x => x.id === s.id) ?? s
+  /** A Target Profit typed on the fence: its own number, unless it is the one above it. */
+  function setProfit(v: number | undefined) {
+    if (v === undefined || (profit.reset && v === profit.reset.value)) { updateStyle(s.id, { ownProfit: undefined, targetProfitPct: profit.reset?.value ?? raw.targetProfitPct }); return }
+    updateStyle(s.id, { ownProfit: true, targetProfitPct: v })
+  }
+  function setSub(k: SubKey, shown: RateShown, v: number | undefined) {
+    updateStyle(s.id, { [k]: v === undefined || (shown.reset && v === shown.reset.value) ? undefined : v })
+  }
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${isQuotable(s) ? 'border-gray-200' : 'border-gray-200 bg-gray-50'}`} data-fence-row={s.name}>
+      <div className="flex items-start gap-2">
+        <span className="flex-1 min-w-0">
+          <span className={`block text-sm font-semibold ${isQuotable(s) ? 'text-gray-900' : 'text-gray-500'}`}>{fenceName(s)}</span>
+          {status && <span className="block text-xs text-amber-700" data-fence-row-status={s.name}>{status}</span>}
+          {s.needsCostReview && <CostReviewBadge name={s.name} note={s.costReviewNote} />}
+        </span>
+        <Switch on={isQuotable(s)} onClick={() => updateStyle(s.id, { quotable: raw.quotable === false })} label={`${fenceName(s)} available for quoting`} data-style-quotable={s.name} />
+      </div>
+      <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className="text-xs text-gray-600">
+          <span className="block">Target Profit</span>
+          <PercentField value={profit.value} min={0} max={80} data-style-profit={s.name}
+            className={`mt-1 block w-24 border rounded-lg px-2 min-h-[44px] text-sm font-mono bg-white focus:outline-none focus:ring-2 focus:ring-orange-400 ${profit.own ? 'border-orange-400' : 'border-gray-300'}`}
+            onChange={setProfit} />
+        </div>
+        <p className="text-xs text-gray-700 pb-3">+ Overhead {pct(overhead)} = <span className="font-semibold" data-style-target-margin={s.name}>{pct(Math.round((1 - s.margin) * 10000) / 100)}</span> Target Margin</p>
+        <RateSource shown={profit} name={s.name} attr="profit" fmt={pct} onReset={() => setProfit(undefined)} wasText={wasProfit && wasProfit.value !== profit.value ? `was ${pct(wasProfit.value)}` : null} />
+      </div>
+      {wood ? (
+        <p className="mt-1 text-xs text-gray-600" data-fence-sub={s.name}>
+          Sub labor: {fenceName(wood)}’s labor × {Math.round((s.woodFactor ?? 1.15) * 1000) / 10}% (sub {rateText(subShown(wood, materialOf(catalogOf(config), styleChoicesOf(wood)?.material), config.pricing, 'subRate').value)}/{unit.short} there).
+        </p>
+      ) : (
+        <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+          {SUB_KEYS.map(k => {
+            const shown = subShown(s, m, config.pricing, k)
+            return (
+              <div key={k} className="space-y-0.5">
+                <MoneyRate label={k === 'subRate' ? `Sub, ${unit.long}` : k === 'subWalkGate' ? 'Per walk gate' : 'Per double gate'}
+                  value={shown.value > 0 ? shown.value : undefined} placeholder="Not set" attr={`${s.name}:${k}`} marked={shown.own} onSet={v => setSub(k, shown, v)} />
+                <RateSource shown={shown} name={s.name} attr={k} fmt={rateText} onReset={() => setSub(k, shown, undefined)} />
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <p className="mt-1 text-xs text-gray-700" data-fence-example={s.name}>
+        {ex
+          ? <>100 ft (one run, 2 end posts): cost {dollars(ex.costCents)}, price {dollars(ex.priceCents)}{wasEx && wasEx.priceCents !== ex.priceCents ? <span className="font-semibold text-orange-800"> (was {dollars(wasEx.priceCents)}; new quotes only)</span> : null}</>
+          : 'No example: it cannot be priced yet.'}
+      </p>
+    </div>
+  )
+}
+
+/** Where a fence's number comes from, or "Own number" with Reset. */
+function RateSource({ shown, name, attr, fmt, onReset, wasText }: { shown: RateShown; name: string; attr: string; fmt: (v: number) => string; onReset: () => void; wasText?: string | null }) {
+  return (
+    <span className="block text-[11px] leading-tight pb-1" data-rate-source={`${name}:${attr}`} data-own={shown.own ? 'yes' : 'no'}>
+      {shown.own
+        ? <>
+            <span className="inline-block font-semibold text-orange-800 bg-orange-50 border border-orange-200 rounded-full px-2 py-0.5">Own number</span>
+            {shown.reset && <button type="button" className="ml-1 underline text-gray-700 min-h-[32px]" onClick={onReset} data-rate-reset={`${name}:${attr}`}>Reset to {fmt(shown.reset.value)} ({shown.reset.from})</button>}
+          </>
+        : <span className="text-gray-500">{shown.from === 'Set on this fence' ? shown.from : `From ${shown.from}`}</span>}
+      {wasText && <span className="ml-1 font-semibold text-orange-800">({wasText})</span>}
+    </span>
+  )
+}
+
+// ── Labor numbers per fence ──────────────────────────────────────────────────
 
 /** A style priced with stand-in parts until the real supplier cost is entered (the Bell); clears when its kits are saved. */
 function CostReviewBadge({ name, note }: { name: string; note?: string }) {
@@ -261,51 +534,76 @@ function CostReviewBadge({ name, note }: { name: string; note?: string }) {
   )
 }
 
-function StyleTable({ styles, config, updateStyle }: { styles: FenceStyle[]; config: AppConfig; updateStyle: (id: string, patch: Partial<FenceStyle>) => void }) {
-  const num = 'w-16 text-right border border-gray-200 rounded px-1 min-h-[36px] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400'
+/** A fence's labor numbers as a card, for a phone (the table needs a computer's width). */
+function LaborCard({ style, updateStyle }: { style: FenceStyle; updateStyle: (id: string, patch: Partial<FenceStyle>) => void }) {
+  const field = 'mt-1 block w-24 border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm font-mono bg-white focus:outline-none focus:ring-2 focus:ring-orange-400'
+  const dec = (v: string, min: number) => { const n = parseFloat(v); return !isNaN(n) && n >= min ? Math.round(n * 10) / 10 : null }
   return (
-    <div className="border border-gray-200 rounded-xl overflow-x-auto">
-      <table className="w-full text-sm min-w-[980px]">
+    <div className={`rounded-xl border border-gray-200 px-3 py-2 ${!style.isActive ? 'opacity-60' : ''}`} data-labor-card={style.name}>
+      <div className="flex items-start gap-2">
+        <span className="flex-1 min-w-0 text-sm font-semibold text-gray-900">{fenceName(style)}</span>
+        <Switch on={style.isActive !== false} onClick={() => updateStyle(style.id, { isActive: style.isActive === false })} label={`${fenceName(style)} turned on`} data-style-active={style.name} />
+      </div>
+      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-2">
+        <label className="block text-xs text-gray-600">Category
+          <select className={field.replace('w-24', 'w-full')} value={style.category} onChange={e => updateStyle(style.id, { category: e.target.value as FenceStyle['category'] })} data-style-category={style.name}>
+            {categoryChoices(style.category).map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label className="block text-xs text-gray-600">Sections per man hour
+          <input type="number" inputMode="decimal" step="0.1" min="0.1" max="20" className={field} value={style.sectionsPerMH} onChange={e => { const v = dec(e.target.value, 0.1); if (v) updateStyle(style.id, { sectionsPerMH: v }) }} />
+        </label>
+        <label className="block text-xs text-gray-600">Walk gate man hours
+          <input type="number" inputMode="decimal" step="0.1" min="0" max="20" className={field} value={style.mhPerWalkGate} onChange={e => { const v = dec(e.target.value, 0); if (v !== null) updateStyle(style.id, { mhPerWalkGate: v }) }} />
+        </label>
+        <label className="block text-xs text-gray-600">Double gate man hours
+          <input type="number" inputMode="decimal" step="0.1" min="0" max="20" className={field} value={style.mhPerDblGate} onChange={e => { const v = dec(e.target.value, 0); if (v !== null) updateStyle(style.id, { mhPerDblGate: v }) }} />
+        </label>
+        <div className="text-xs text-gray-600">Section width
+          <span className="mt-1 block">{style.autoRailMix ? '6 or 8 ft (chosen per run)' : styleHasPartsList(style.name) || style.madeFrom ? `${sectionWidthForStyle(style.name, style.panelWidth)} ft (set by its parts)` : (
+            <input type="number" inputMode="numeric" step="1" min="1" className={field} value={style.panelWidth} onChange={e => updateStyle(style.id, { panelWidth: parseInt(e.target.value) || 6 })} />)}</span>
+        </div>
+        <label className="block text-xs text-gray-600">$ per foot (per foot pricing)
+          <input type="number" inputMode="decimal" step="0.25" min="0" placeholder="Not set" className={field} value={style.pricePerFoot ?? ''} onChange={e => { const v = parseFloat(e.target.value); updateStyle(style.id, { pricePerFoot: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+function LaborTable({ styles, views, updateStyle }: { styles: FenceStyle[]; views: Views; updateStyle: (id: string, patch: Partial<FenceStyle>) => void }) {
+  const num = 'w-16 text-right border border-gray-200 rounded px-1 min-h-[36px] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400'
+  return (<>
+    <div className="md:hidden space-y-2" data-labor-cards>
+      {styles.map(shown => { const style = views.byId.get(shown.id) ?? shown; return <LaborCard key={style.id} style={style} updateStyle={updateStyle} /> })}
+    </div>
+    <div className="hidden md:block border border-gray-200 rounded-xl overflow-x-auto" data-labor-table>
+      <table className="w-full text-sm min-w-[760px]">
         <thead className="bg-gray-50 border-b border-gray-200">
           <tr>
             <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500">Fence</th>
             <th className="text-left px-2 py-3 text-xs font-semibold text-gray-500 w-28">Category</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-24" title="Target Margin = Overhead % + this">Target Profit</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-24" title="Overhead % + Target Profit %">Target Margin</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20">Sec/MH</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-16">Panel</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20">Walk Gate</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20">Dbl Gate</th>
-            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20" title="Subcontractor pay per foot or section for this fence">Sub Rate</th>
+            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20" title="Sections one person installs in an hour">Sections per man hour</th>
+            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20">Section width</th>
+            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20">Walk gate man hours</th>
+            <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20">Double gate man hours</th>
             <th className="text-right px-2 py-3 text-xs font-semibold text-gray-500 w-20" title="Customer price per foot, used when a quote is priced per foot">$ / Ft</th>
-            <th className="text-center px-2 py-3 text-xs font-semibold text-gray-500 w-14">Active</th>
-            <th className="text-center px-2 py-3 text-xs font-semibold text-gray-500 w-24">Available for quoting</th>
+            <th className="text-center px-2 py-3 text-xs font-semibold text-gray-500 w-14">Turned on</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {styles.map(style => {
-            const profit = typeof style.colorTargetProfitPct === 'number' ? style.colorTargetProfitPct : style.targetProfitPct
+          {styles.map(shown => {
+            const style = views.byId.get(shown.id) ?? shown
             return (
               <tr key={style.id} className={!style.isActive ? 'opacity-50' : ''}>
                 <td className="px-3 py-2.5">
-                  <span className="block font-medium text-gray-900">{style.label || style.name}</span>
+                  <span className="block font-medium text-gray-900">{fenceName(style)}</span>
                   <span className="block text-[11px] text-gray-400" title="Internal name: what saved quotes, kits and tiers use">{style.name}</span>
-                  {!isQuotable(style) && <span className="block text-xs text-amber-700" data-style-on-hold>Not available for quoting{style.held ? `: ${style.held}` : ''}</span>}
-                  {style.needsCostReview && <CostReviewBadge name={style.name} note={style.costReviewNote} />}
                 </td>
                 <td className="px-2 py-2.5">
                   <select className="border border-gray-200 rounded px-1 min-h-[36px] text-xs" value={style.category} onChange={e => updateStyle(style.id, { category: e.target.value as FenceStyle['category'] })}>
-                    {STYLE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {categoryChoices(style.category).map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                </td>
-                <td className="px-2 py-2.5 text-right">
-                  <PercentField value={style.targetProfitPct} min={0} max={80} data-style-profit={style.name}
-                    className="w-20 text-right border border-gray-200 rounded px-1 min-h-[36px] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-400"
-                    onChange={v => { if (v != null) updateStyle(style.id, { targetProfitPct: v }) }} />
-                  {typeof style.colorTargetProfitPct === 'number' && <span className="block text-[11px] text-gray-500">Color: {style.colorTargetProfitPct}%</span>}
-                </td>
-                <td className="px-2 py-2.5 text-right text-xs font-mono text-gray-700" data-style-target-margin={style.name}>
-                  {Math.round((overheadPctOf(config) + (profit ?? 0)) * 100) / 100}%
                 </td>
                 <td className="px-2 py-2.5 text-right">
                   <input type="number" step="0.1" min="0.1" max="20" className={num} value={style.sectionsPerMH} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0) updateStyle(style.id, { sectionsPerMH: Math.round(v * 10) / 10 }) }} />
@@ -322,16 +620,10 @@ function StyleTable({ styles, config, updateStyle }: { styles: FenceStyle[]; con
                   <input type="number" step="0.1" min="0" max="20" className={num} value={style.mhPerDblGate} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) updateStyle(style.id, { mhPerDblGate: Math.round(v * 10) / 10 }) }} />
                 </td>
                 <td className="px-2 py-2.5 text-right">
-                  <input type="number" step="0.25" min="0" placeholder="—" className={num} value={style.subRate ?? ''} onChange={e => { const v = parseFloat(e.target.value); updateStyle(style.id, { subRate: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
-                </td>
-                <td className="px-2 py-2.5 text-right">
                   <input type="number" step="0.25" min="0" placeholder="—" className={num} value={style.pricePerFoot ?? ''} onChange={e => { const v = parseFloat(e.target.value); updateStyle(style.id, { pricePerFoot: e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100 }) }} />
                 </td>
                 <td className="px-2 py-2.5 text-center">
-                  <Switch on={style.isActive !== false} onClick={() => updateStyle(style.id, { isActive: style.isActive === false })} label={`${style.label || style.name} turned on`} data-style-active={style.name} />
-                </td>
-                <td className="px-2 py-2.5 text-center">
-                  <Switch on={style.quotable !== false} onClick={() => updateStyle(style.id, { quotable: style.quotable === false })} label={`${style.label || style.name} available for quoting`} data-style-quotable-table={style.name} />
+                  <Switch on={style.isActive !== false} onClick={() => updateStyle(style.id, { isActive: style.isActive === false })} label={`${fenceName(style)} turned on`} data-style-active={style.name} />
                 </td>
               </tr>
             )
@@ -339,8 +631,9 @@ function StyleTable({ styles, config, updateStyle }: { styles: FenceStyle[]; con
         </tbody>
       </table>
     </div>
-  )
+  </>)
 }
+
 
 // ── A full screen sheet (phone) / dialog (computer) ──────────────────────────
 
@@ -472,7 +765,7 @@ function ColorWizard({ config, catalog, material, under, edit, onClose, onDone }
           <label className="block text-sm font-semibold text-gray-900">{dim.label} name
             <input className={inputCls + ' mt-1'} value={label} onChange={e => setLabel(e.target.value)} placeholder={dim.key === 'finish' ? 'Green' : 'Clay'} autoFocus data-color-name />
           </label>
-          <p className={small}>Plain names come from it, like “{label.trim() || 'Clay'} {m.label === 'Chain link' ? 'Chain Link, 4 ft, Residential' : `${m.label} ${underLabel ?? ''}, 6 ft tall, 8 ft panels, No dig`.replace(/\s+,/, ',')}”.</p>
+          <p className={small}>Plain names come from it, like “{label.trim() || 'Clay'} {m.label === 'Chain link' ? 'Chain Link, 4 ft, Residential' : `${m.label} ${underLabel ?? ''}, 6 ft tall, 8 ft sections, No dig`.replace(/\s+,/, ',')}”.</p>
           {edit && (
             <div className="rounded-xl border border-gray-200 p-3 space-y-2">
               <p className="text-sm font-semibold text-gray-900">{existing!.quotable === false ? 'Paused: not available for quoting' : existing!.archived ? 'Archived' : 'In use'}</p>
@@ -585,7 +878,7 @@ function ColorWizard({ config, catalog, material, under, edit, onClose, onDone }
         </>)}
 
         {step === 'overrides' && (<>
-          <p className="text-sm text-gray-700">{label.trim()}’s color parts with the quantities copied from {optionOf(m, dim.key, edit ? existing?.copiedFrom : copyFrom)?.label ?? 'its source'}. Change one only where {label.trim()} is built differently (Tan uses 16 pickets per 8 ft panel where White uses 15).</p>
+          <p className="text-sm text-gray-700">{label.trim()}’s color parts with the quantities copied from {optionOf(m, dim.key, edit ? existing?.copiedFrom : copyFrom)?.label ?? 'its source'}. Change one only where {label.trim()} is built differently (Tan uses 16 pickets per 8 ft section where White uses 15).</p>
           {rows.length === 0 && <p className={small}>No color parts to set.</p>}
           {rows.map(r => {
             const ov = overrides.find(o => o.height === r.height && o.width === r.width && o.kit === r.kit && o.part === r.part)
@@ -623,7 +916,7 @@ function ChoiceDialog({ config, catalog, material, dim: dimKey, edit, onClose, o
   const m = materialOf(catalog, material)!
   const d = m.dims.find(x => x.key === dimKey)!
   const existing = edit ? optionOf(m, d.key, edit) : undefined
-  const word = d.label.toLowerCase()
+  const word = dimHeading(d).toLowerCase()
   const [label, setLabel] = useState(existing?.label ?? '')
   const [nameText, setNameText] = useState(existing?.nameText ?? '')
   const withFences = d.options.filter(o => !o.archived && stylesOfOption(config.fenceStyles, m.key, d.key, o.key).length > 0)
@@ -660,7 +953,7 @@ function ChoiceDialog({ config, catalog, material, dim: dimKey, edit, onClose, o
     <Sheet title={edit ? `Edit ${existing?.label}` : `Add ${word} to ${m.label}`} onClose={onClose}
       footer={<button type="button" className="btn btn-primary min-h-[44px]" onClick={save} data-choice-save>{edit ? 'Save' : `Add ${word}`}</button>}>
       <div className="space-y-4" data-choice-dialog={`${m.key}:${d.key}`}>
-        <label className="block text-sm font-semibold text-gray-900">{d.label}
+        <label className="block text-sm font-semibold text-gray-900">{dimHeading(d)}
           <input className={inputCls + ' mt-1'} value={label} onChange={e => setLabel(e.target.value)} placeholder={d.key === 'height' ? '7 ft' : d.key === 'style' ? 'Semi privacy' : d.key === 'width' ? '10 ft' : ''} autoFocus data-choice-label />
         </label>
         <label className="block text-xs text-gray-600">How it reads in the fence’s name (optional)

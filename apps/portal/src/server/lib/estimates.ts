@@ -74,6 +74,8 @@ interface EstimateModule {
   proposalStamp(p: unknown): string
   addsPastLimit(after: unknown, before: unknown, quote: unknown, styleOf?: unknown): number | null
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
+  /** web/src/estimate.ts: the sub rates and Target Profit % each fence follows from its material and choices (fenceRates.ts). */
+  followedRatesByStyle(config: unknown): Record<string, any>
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
   planWood(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean }

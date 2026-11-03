@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG, mergeSavedConfig } from './configDefaults'
 import { stripDerived, type FenceCatalog } from './fenceCatalog'
 import type { StyleJobLot } from './materialCalculator'
 import type { MoveRepairSettings } from './moveRepair'
+import type { FollowedRates } from './fenceRates'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,9 +34,15 @@ export interface FenceStyle {
   /** Color family for the mixed-rail calculator. Used to pick the right
    *  picket / rail / u-trim SKUs (white vs tan). */
   colorFamily?: 'white' | 'tan'
-  /** Subcontractor pay per foot or per section for this style. Blank falls
-   *  back to the category rate, then the default rate in Settings → Pricing. */
+  /** Subcontractor pay per foot or per section for this style. Blank follows
+   *  its choices and material (fenceRates.ts), then the category rate, then
+   *  the default rate in Settings → Pricing. */
   subRate?: number
+  /** Subcontractor pay per walk gate and per double gate for this style. Blank follows, as subRate. */
+  subWalkGate?: number
+  subDblGate?: number
+  /** Its Target Profit % is its own (set on this fence), not the one its choices or material set. */
+  ownProfit?: boolean
   /** Customer price per foot for this style, used when a quote is priced
    *  per foot instead of from cost. */
   pricePerFoot?: number
@@ -78,6 +85,8 @@ export interface FenceStyle {
   jobLot?: StyleJobLot
   /** The color's own Target Profit %, when set (wins over the style's). */
   colorTargetProfitPct?: number
+  /** Target Profit % and sub rates set on its material or a choice, and where (fenceRates.ts). */
+  followed?: FollowedRates
   /** Wood: the vinyl style its labor comes from, as read (with its Target Margin), and the Wood factor (1.15). */
   woodBase?: FenceStyle
   woodFactor?: number
