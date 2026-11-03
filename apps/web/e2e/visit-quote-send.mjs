@@ -19,7 +19,7 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, devices } from 'playwright'
-import { signInByCookie, STAFF_COOKIE, ACCESS_TOKEN, makeTestLogin, removeTestLogin } from './lib.mjs'
+import { signInByCookie, STAFF_COOKIE, ACCESS_TOKEN, makeTestLogin, removeTestLogin, pickFence } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -83,7 +83,7 @@ async function phone(browser) {
   await page.waitForSelector(`[data-card-window="${made.card}"]`, { timeout: 30000 })
   await shot(page, '1-card')
   await page.locator(`[data-card-window="${made.card}"] [data-card-new-quote]`).tap()
-  // One straight 180 ft side, the first style, then Save.
+  // One straight 180 ft side, Vinyl, then Save.
   const go = async loc => { await loc.tap(); await sleep(350) }
   await page.waitForSelector('[data-step="yard"]', { timeout: 20000 })
   await go(page.locator('[data-step="yard"]'))
@@ -92,8 +92,8 @@ async function phone(browser) {
   for (const k of ['1', '8', '0']) await go(page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
   await go(page.locator('[data-ftin-pad] [data-pad-done]'))
   await go(page.locator('[data-step="style"]'))
-  await page.locator('[data-step-panel="style"] select').first().selectOption({ index: 1 })
-  await sleep(400)
+  // Her picker (Nov 2 2026): Vinyl, its first choices kept; no style list for a Salesman.
+  await pickFence(page, 'vinyl')
   for (let i = 0; i < 6 && !(await page.locator('[data-quote-bar] [data-save-open]').count()); i++) { await go(page.locator('[data-quote-bar] [data-bar-next]')) }
   await shot(page, '2-price')
   await go(page.locator('[data-quote-bar] [data-save-open]'))
