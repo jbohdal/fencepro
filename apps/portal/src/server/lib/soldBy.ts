@@ -7,15 +7,21 @@
  *   - Who is working it now: the rep on the quote and job (salesRep). A move
  *     changes it (lib/salesmanMove.ts); the Salesman's lists, the job page, the
  *     board, the bell and the automations read it.
- *   - Who sold it: the seller. The commission, Sales by rep and job costing's
- *     By salesman credit the seller. The sale and its commission stay together:
- *     revenue, close rate and commission all go to the same one name.
+ *   - Who sold it: the seller of record. Sales by rep (revenue, close rate,
+ *     sales), job costing's By salesman and the Salesman's own totals credit
+ *     the seller, always.
+ *   - Who gets the commission: the seller, unless the owner hands it to
+ *     someone else by hand. Commission is pay only (Jonathan, Nov 3 2026: "No.
+ *     Revenue and close rate stay with the seller of record. Commission is pay
+ *     only."): handing it on moves the commission figure and nothing else.
  *
  * The record: the quote's pricing JSON, written only when a signed quote is
  * moved or edited by hand (no schema change, nothing to fill in on old rows):
  *   pricing.soldBy              the seller's name. Unsold quotes never have it.
  *                               '' (present, blank): sold with no Salesman and
  *                               no maker on file, credited to no one.
+ *   pricing.commissionTo        who the owner handed the commission to, when
+ *                               that is not the seller. Absent: the seller.
  *   pricing.commissionHandCents the commission the owner typed, integer cents.
  *                               A Salesman's phone never gets it (lib/costRedact.ts
  *                               withoutHandCommission): only "set by hand".
@@ -30,8 +36,8 @@
  * no pricing to hold it), else the rep.
  *
  * The hand edit: the owner (super_admin) only, on a signed quote, from the
- * quote window or the Operations job window. It changes the name above, the
- * commission figure, the margin saved after it (quote and job) and a move's or
+ * quote window or the Operations job window. It changes who gets the
+ * commission (never the seller), the commission figure, the margin saved after it (quote and job) and a move's or
  * repair's saved commission and margin. Nothing else: no price, cost, status, contract or
  * payment schedule. hasSalesman and pricing.commissionPct stay: a change order
  * is priced from them, so they would reach what the customer pays. The
@@ -65,6 +71,12 @@ export function soldByOn(pricing: unknown): string {
   return typeof s === 'string' ? s.trim() : ''
 }
 
+/** Who the owner handed the commission to, when not the seller; '' with none. */
+export function commissionToOn(pricing: unknown): string {
+  const s = (pricing as Json)?.commissionTo
+  return typeof s === 'string' ? s.trim() : ''
+}
+
 /** Has the quote a record (a blank name included)? */
 export const hasSaleRecord = (pricing: unknown): boolean => typeof (pricing as Json)?.soldBy === 'string'
 
@@ -84,7 +96,7 @@ export const pricingWithSeller = (pricing: unknown, soldBy: string): Json => ({ 
 /** A quote's pricing with no record: what a new or unsold quote saves, so a copy of a signed quote never carries one. */
 export function withoutSaleRecord<T>(pricing: T): T {
   if (!pricing || typeof pricing !== 'object') return pricing
-  const { soldBy: _by, commissionHandCents: _hand, commissionByHand: _mark, ...rest } = pricing as Json
+  const { soldBy: _by, commissionTo: _to, commissionHandCents: _hand, commissionByHand: _mark, ...rest } = pricing as Json
   return rest as T
 }
 
@@ -134,6 +146,11 @@ export function sellerOf(q: { id: string; salesRep?: string | null; pricing?: un
   return moves.get(q.id) || String(q.salesRep ?? '').trim()
 }
 
+/** Who gets this quote's commission: who the owner handed it to, else the seller. Pay only, never the sale. */
+export function commissionRecipient(q: { id: string; salesRep?: string | null; pricing?: unknown }, moves: ReadonlyMap<string, string>): string {
+  return commissionToOn(q.pricing) || sellerOf(q, moves)
+}
+
 /** Quotes as they go to the app: `soldBy` on each one sold by someone other than its rep (a name, no money; '' for no one). */
 export async function withSoldBy<T extends { id: string; salesRep?: string | null; pricing?: unknown }>(quotes: T[]): Promise<Array<T & { soldBy?: string }>> {
   const moves = await movedSellers()
@@ -148,12 +165,17 @@ export async function withSoldBy<T extends { id: string; salesRep?: string | nul
 
 type HandQuote = { finalPrice: number; totalCOGS: number; pricing?: unknown; work?: unknown }
 
-/** The saved figures with the commission set to `cents`: the margin after it, a move's or repair's copy, and the record. */
-export function handCommission(q: HandQuote, cents: number, soldBy: string): { gmPct: number; pricing: Json; work?: Json } {
+/**
+ * The saved figures with the commission set to `cents`: the margin after it, a move's or repair's copy, and the record.
+ * The seller stays the seller; `to` is who gets the commission (the seller when it is the same person: no hand-off).
+ */
+export function handCommission(q: HandQuote, cents: number, soldBy: string, to: string = soldBy): { gmPct: number; pricing: Json; work?: Json } {
   const price = Math.round(q.finalPrice * 100)
+  const { commissionTo: _to, ...rest } = pricingWithSeller(q.pricing, soldBy)
+  const handed = to.trim() && !samePerson(to, soldBy) ? { commissionTo: to.trim() } : {}
   const out: { gmPct: number; pricing: Json; work?: Json } = {
     gmPct: price > 0 ? (price - Math.round(q.totalCOGS * 100) - cents) / price : 0,
-    pricing: { ...pricingWithSeller(q.pricing, soldBy), commissionHandCents: cents },
+    pricing: { ...rest, ...handed, commissionHandCents: cents },
   }
   const work = q.work as Json
   const p = work?.priced
@@ -188,13 +210,14 @@ async function commissionNow(q: NonNullable<Awaited<ReturnType<typeof quoteToEdi
   const beforeCents = priced && typeof priced === 'object'
     ? (Number(priced.grossMarginCents) || 0) + (Number(priced.commissionCents) || 0)
     : Math.round(q.finalPrice * 100) - Math.round(q.totalCOGS * 100)
+  const moves = await movedSellers()
   return {
-    soldBy: sellerOf(q, await movedSellers()), rep: q.salesRep, commissionCents, priceCents: Math.round(q.finalPrice * 100), beforeCents,
+    soldBy: sellerOf(q, moves), commissionTo: commissionRecipient(q, moves), rep: q.salesRep, commissionCents, priceCents: Math.round(q.finalPrice * 100), beforeCents,
     byHand: typeof (q.pricing as Json)?.commissionHandCents === 'number',
   }
 }
 
-/** GET /api/saved-quotes/:id/commission: who gets the commission and how much. The owner only. */
+/** GET /api/saved-quotes/:id/commission: who sold it, who gets the commission and how much. The owner only. */
 export async function commissionRead(req: any, res: any) {
   try {
     if (!isSuperAdmin(req)) { refuseNotOwner(res); return }
@@ -209,7 +232,8 @@ export async function commissionRead(req: any, res: any) {
 
 /**
  * POST /api/saved-quotes/:id/commission, { to?: <login id>, commissionCents?: <whole cents> }: the owner changes who gets
- * a signed job's commission and how much. Anyone else gets a 403 and nothing changes. Only saved internal figures change.
+ * a signed job's commission and how much. Anyone else gets a 403 and nothing changes. Only saved internal figures change;
+ * the seller of record never does (the sale, its revenue and close rate stay theirs).
  */
 export async function commissionEdit(req: any, res: any) {
   try {
@@ -223,16 +247,17 @@ export async function commissionEdit(req: any, res: any) {
     const cents = req.body?.commissionCents === undefined ? was.commissionCents : req.body.commissionCents
     if (!Number.isInteger(cents) || cents < 0) { res.status(400).json({ success: false, error: 'The commission is an amount of $0 or more.' }); return }
     if (cents > was.priceCents) { res.status(400).json({ success: false, error: 'The commission cannot be more than the price.' }); return }
-    let soldBy = was.soldBy
+    let to = was.commissionTo
     if (req.body?.to !== undefined) {
       const person = (await assignees(accountId)).find(p => p.id === req.body.to && takesCommission(p.role))
       if (!person) { res.status(400).json({ success: false, code: 'NOT_ASSIGNABLE', error: 'The commission goes to the owner or a Salesman with an active login.' }); return }
-      soldBy = person.name
+      to = person.name
     }
-    if (!soldBy) { res.status(400).json({ success: false, error: 'Choose who gets the commission.' }); return }
+    if (!to) { res.status(400).json({ success: false, error: 'Choose who gets the commission.' }); return }
     // Saved with nothing changed: nothing is written, nothing is logged, and it is not "set by hand".
-    if (cents === was.commissionCents && soldBy === was.soldBy) { res.json({ success: true, data: { signed: true, ...was, unchanged: true } }); return }
-    const fields = handCommission(q, cents, soldBy)
+    if (cents === was.commissionCents && samePerson(to, was.commissionTo)) { res.json({ success: true, data: { signed: true, ...was, unchanged: true } }); return }
+    const fields = handCommission(q, cents, was.soldBy, to)
+    const commissionTo = commissionToOn(fields.pricing) || was.soldBy
     const changed = await prisma.$transaction(async tx => {
       // Only if nobody saved it since it was read here.
       const r = await tx.savedQuote.updateMany({ where: { id: q.id, accountId, deletedAt: null, updatedAt: q.updatedAt }, data: fields })
@@ -241,8 +266,8 @@ export async function commissionEdit(req: any, res: any) {
       return true
     })
     if (!changed) { res.status(409).json({ success: false, code: 'CHANGED', error: 'This quote was changed a moment ago. Nothing was changed. Look at it again.' }); return }
-    const now = { soldBy, commissionCents: cents, gmPct: fields.gmPct }
-    await audit(req, 'update', 'SavedQuote', q.id, { oldValues: { soldBy: was.soldBy, commissionCents: was.commissionCents, gmPct: q.gmPct }, newValues: { ...now, commissionHandEdit: true } })
+    const now = { soldBy: was.soldBy, commissionTo, commissionCents: cents, gmPct: fields.gmPct }
+    await audit(req, 'update', 'SavedQuote', q.id, { oldValues: { soldBy: was.soldBy, commissionTo: was.commissionTo, commissionCents: was.commissionCents, gmPct: q.gmPct }, newValues: { ...now, commissionHandEdit: true } })
     res.json({ success: true, data: { signed: true, rep: q.salesRep, priceCents: was.priceCents, beforeCents: was.beforeCents, byHand: true, ...now } })
   } catch (err) {
     console.error('[commission] edit error:', err)

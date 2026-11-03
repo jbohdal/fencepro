@@ -10,6 +10,8 @@
  *   - An unsigned quote: unchanged, no record.
  *   - The hand edit: the owner only, nothing the customer reads changes, it
  *     holds through later saves and moves, and it is in the audit log.
+ *   - Handed to someone else: commission is pay only (Nov 3 2026). The sale,
+ *     its revenue and close rate stay with the seller of record.
  *   - What the Salesman and the Installer get.
  */
 
@@ -159,8 +161,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('commission stays with whoever so
     expect((await call('GET', `/api/saved-quotes/${q}/commission`, tok.owner)).json.data).toMatchObject({ signed: true, soldBy: SALLY, commissionCents: 90000, byHand: false })
     const r = await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 120050, to: id.sam })
     expect(r.status).toBe(200)
-    expect(r.json.data).toMatchObject({ soldBy: SAM, commissionCents: 120050 })
-    expect((await call('GET', `/api/saved-quotes/${q}/commission`, tok.owner)).json.data).toMatchObject({ soldBy: SAM, commissionCents: 120050, byHand: true })
+    expect(r.json.data).toMatchObject({ soldBy: SALLY, commissionTo: SAM, commissionCents: 120050 })
+    expect((await call('GET', `/api/saved-quotes/${q}/commission`, tok.owner)).json.data).toMatchObject({ soldBy: SALLY, commissionTo: SAM, commissionCents: 120050, byHand: true })
     const q1 = await quoteOf(q), j1 = await jobOf(j)
     expect(q1.gmPct).toBeCloseTo((1000000 - 600000 - 120050) / 1000000, 10)
     expect(j1.gmPct).toBeCloseTo(q1.gmPct, 10)
@@ -171,12 +173,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('commission stays with whoever so
     expect(q1.hasSalesman).toBe(true)
     expect(q1.pricing.commissionPct).toBe(0.09)
     expect(await prisma.paymentSchedule.findUnique({ where: { id: schedule.id } })).toEqual(schedule)
-    // Credited to the new name, sale and commission together.
-    expect((await inReport(j)).salesRep).toBe(SAM)
+    // The sale stays the seller's; only the commission is Sam's (Nov 3 2026: "Commission is pay only.").
+    expect((await inReport(j)).salesRep).toBe(SALLY)
     // In the audit log with old and new.
     const log = await prisma.crmAuditLog.findFirst({ where: { entityType: 'SavedQuote', entityId: q, userId: id.owner }, orderBy: { createdAt: 'desc' } }) as any
-    expect(log.oldValues).toMatchObject({ soldBy: SALLY, commissionCents: 90000 })
-    expect(log.newValues).toMatchObject({ soldBy: SAM, commissionCents: 120050, commissionHandEdit: true })
+    expect(log.oldValues).toMatchObject({ soldBy: SALLY, commissionTo: SALLY, commissionCents: 90000 })
+    expect(log.newValues).toMatchObject({ soldBy: SALLY, commissionTo: SAM, commissionCents: 120050, commissionHandEdit: true })
   })
 
   test('the hand edit survives a later save (an older copy too), and later moves', async () => {
@@ -299,7 +301,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('commission stays with whoever so
     for (const who of ['admin', 'office', 'manager', 'installer']) expect((await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { to: id[who] })).json.code).toBe('NOT_ASSIGNABLE')
     expect((await call('GET', `/api/saved-quotes/${q}/commission`, tok.owner)).json.data.beforeCents).toBe(400000)
     // Above it: allowed for the owner (the screen warns first).
-    expect((await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 500000, to: id.owner })).json.data).toMatchObject({ soldBy: OLIVE, commissionCents: 500000 })
+    expect((await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 500000, to: id.owner })).json.data).toMatchObject({ soldBy: SALLY, commissionTo: OLIVE, commissionCents: 500000 })
     expect((await quoteOf(q)).gmPct).toBeCloseTo(-0.1, 10)
   })
 
@@ -319,13 +321,70 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('commission stays with whoever so
       expect(JSON.stringify(r.json)).not.toMatch(/commissionHandCents|123456/)
     }
     const mine = (replies[0].json.data as any[]).find(x => x.id === q)
-    expect(mine.pricing).toMatchObject({ commissionByHand: true, soldBy: SALLY })
-    expect(mine.soldBy).toBe(SALLY)
-    // Her save back with that copy keeps the owner's figure.
+    // Sam sold it and it stays his sale; who the owner handed the commission to is not on his phone.
+    expect(mine.pricing).toMatchObject({ commissionByHand: true, soldBy: SAM })
+    expect(mine.pricing.commissionTo).toBeUndefined()
+    expect(JSON.stringify(replies.map(r => r.json))).not.toContain('commissionTo')
+    expect(mine.soldBy).toBeUndefined()
+    // His save back with that copy keeps the owner's figure and the hand-off.
     expect((await call('PATCH', `/api/saved-quotes/${q}`, tok.sam, { notes: 'again', pricing: mine.pricing, gmPct: mine.gmPct })).status).toBe(200)
-    expect((await quoteOf(q)).pricing).toMatchObject({ commissionHandCents: 123456, soldBy: SALLY })
+    expect((await quoteOf(q)).pricing).toMatchObject({ commissionHandCents: 123456, soldBy: SAM, commissionTo: SALLY })
     expect((await quoteOf(q)).pricing.commissionByHand).toBeUndefined()
     // The owner still gets the figure.
     expect(JSON.stringify((await call('GET', `/api/saved-quotes/${q}`, tok.owner)).json)).toMatch(/commissionHandCents/)
+  })
+
+  test('commission handed to someone else: revenue and close rate stay with the seller; the commission pay goes to them', async () => {
+    const { salesByRep, savedCommission } = await import('../../web/src/salesmanCommission')
+    const { q, j } = await signedJob()
+    // Sally also has one quote she lost: her close rate is 1 of 2 before and after.
+    const lost = await newQuote({ status: 'LOST', finalPrice: 5000, totalCOGS: 3000, gmPct: 0.4 })
+    const repsOf = async () => {
+      const list = (await call('GET', '/api/saved-quotes', tok.owner)).json.data.filter((x: any) => x.id === q || x.id === lost)
+      return salesByRep(list, (x: any) => savedCommission(x)?.cents ?? 0)
+    }
+    const before = await repsOf()
+    expect(before[SALLY]).toMatchObject({ total: 2, sold: 1, revenue: 10000, commissionCents: 90000 })
+    expect(before[SAM]).toBeUndefined()
+
+    const r = await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { to: id.sam })
+    expect(r.json.data).toMatchObject({ soldBy: SALLY, commissionTo: SAM, commissionCents: 90000 })
+    expect((await quoteOf(q)).pricing).toMatchObject({ soldBy: SALLY, commissionTo: SAM, commissionHandCents: 90000 })
+    // The quote list and job costing's By salesman: still Sally's sale. The rep is untouched.
+    expect((await inList(q)).salesRep).toBe(SALLY)
+    expect((await inList(q)).soldBy).toBeUndefined()
+    expect((await inReport(j)).salesRep).toBe(SALLY)
+    const after = await repsOf()
+    expect(after[SALLY]).toMatchObject({ total: 2, sold: 1, revenue: 10000, commissionCents: 0 })
+    expect(after[SALLY].sold / after[SALLY].total).toBe(0.5)
+    expect(after[SAM]).toMatchObject({ total: 0, sold: 0, revenue: 0, commissionCents: 90000 })
+    // Sally's own totals on her phone still count it; Sam does not see it at all (not his to work).
+    expect((await inList(q, tok.sally)).id).toBe(q)
+    expect(await inList(q, tok.sam)).toBeUndefined()
+
+    // A later move: the sale stays Sally's, the commission stays Sam's, and the words say so.
+    const ask = await call('POST', `/api/saved-quotes/${q}/salesman`, tok.owner, { to: id.owner })
+    expect(ask.json.confirm.question).toBe(`This job is signed. Move it from ${SALLY} to ${OLIVE}? Its $900.00 commission stays with ${SAM}.`)
+    await moveTo(q, id.owner)
+    expect((await quoteOf(q)).pricing).toMatchObject({ soldBy: SALLY, commissionTo: SAM })
+    expect((await inReport(j)).salesRep).toBe(SALLY)
+    expect((await inList(q)).soldBy).toBe(SALLY)
+
+    // Handed back to the seller: no hand-off left, all of it Sally's again.
+    const back = await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { to: id.sally })
+    expect(back.json.data).toMatchObject({ soldBy: SALLY, commissionTo: SALLY })
+    expect((await quoteOf(q)).pricing.commissionTo).toBeUndefined()
+    expect((await repsOf())[SALLY]).toMatchObject({ total: 2, sold: 1, revenue: 10000, commissionCents: 90000 })
+  })
+
+  test('sold with no Salesman, commission handed to the owner: the sale stays credited to no one', async () => {
+    const orphan = await signedJob({ salesRep: '', ownerId: null })
+    await prisma.savedJob.update({ where: { id: orphan.j }, data: { salesRep: '' } })
+    const r = await call('POST', `/api/saved-quotes/${orphan.q}/commission`, tok.owner, { to: id.owner })
+    expect(r.status).toBe(200)
+    expect(r.json.data).toMatchObject({ soldBy: '', commissionTo: OLIVE })
+    expect((await inReport(orphan.j)).salesRep).toBe('')
+    expect((await quoteOf(orphan.q)).pricing).toMatchObject({ soldBy: '', commissionTo: OLIVE })
+    expect((await inList(orphan.q)).salesRep).toBe('')
   })
 })

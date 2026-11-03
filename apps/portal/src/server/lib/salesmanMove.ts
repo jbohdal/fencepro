@@ -14,7 +14,8 @@
  *   - Commission (lib/commissionRule.ts commissionOnMove): a signed quote or
  *     sold job does not change, and it stays with whoever sold it (Jonathan,
  *     Nov 2 2026; lib/soldBy.ts): the first move writes the seller on the
- *     quote, later moves keep it, and every word names the seller. An unsigned
+ *     quote, later moves keep it, and every word names who gets the commission
+ *     (the seller, or who the owner handed it to by hand). An unsigned
  *     quote's follows the rep both ways: off moving to someone positively not
  *     a Salesman, back on moving to a Salesman. Commission added on top of the
  *     price is left alone, with a warning.
@@ -45,7 +46,7 @@ import { enteringName, OWNER_ONLY_SALESMAN, requestIsOwner } from './salesmanCho
 
 import { SALESMAN_MOVED_NOTE_PREFIX } from './salesRep.js'
 import { commissionOnMove, commissionSettings, ruleLogins, type MoveCommission } from './commissionRule.js'
-import { forgetMovedSellers, hasSaleRecord, makerName, movedSellers, pricingWithSeller, sellerOf } from './soldBy.js'
+import { commissionToOn, forgetMovedSellers, hasSaleRecord, makerName, movedSellers, pricingWithSeller, sellerOf } from './soldBy.js'
 export { SALESMAN_MOVED_NOTE_PREFIX }
 
 export interface SalesmanMoved {
@@ -129,7 +130,9 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   // reads a blank rep (lib/soldBy.ts); with no maker on file, by no one. Never the new Salesman.
   let soldBy = signed ? sellerOf({ id: quote?.id ?? job!.id, salesRep: from, pricing: quote?.pricing }, await movedSellers()) : ''
   if (signed && !soldBy && !hasSaleRecord(quote?.pricing)) soldBy = await makerName(quote?.ownerId)
-  const words = commissionWords(commission, commissionCents, soldBy)
+  // Who gets the commission: who the owner handed it to by hand, else the seller (lib/soldBy.ts). The words name them.
+  const paidTo = signed ? commissionToOn(quote?.pricing) || soldBy : soldBy
+  const words = commissionWords(commission, commissionCents, paidTo)
   const after = quote && commission.fields ? quoteCommissionCents({ ...quote, ...commission.fields }) : commissionCents
   const moved: SalesmanMoved = { quoteId: quote?.id ?? null, jobIds: jobs.map(j => j.id), from, to: target.name, signed, soldBy, priceCents, commissionCents: after, commissionWas: commissionCents, commissionChange: commission.change, commissionWords: words }
 
@@ -137,7 +140,7 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   if (samePerson(from, target.name) && jobs.every(j => samePerson(j.salesRep, target.name))) return { ok: true, already: true, moved }
 
   if (signed && !input.confirm) {
-    return { ok: false, status: 409, code: 'CONFIRM_SIGNED', error: confirmQuestion(from, target.name, commissionCents, soldBy), confirm: { from, to: target.name, signed: true, commissionCents, question: confirmQuestion(from, target.name, commissionCents, soldBy) } }
+    return { ok: false, status: 409, code: 'CONFIRM_SIGNED', error: confirmQuestion(from, target.name, commissionCents, paidTo), confirm: { from, to: target.name, signed: true, commissionCents, question: confirmQuestion(from, target.name, commissionCents, paidTo) } }
   }
 
   const contactId = quote?.crmContactId ?? job?.crmContactId ?? null
