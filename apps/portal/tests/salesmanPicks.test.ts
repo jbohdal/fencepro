@@ -11,7 +11,7 @@ import { simplePicker, widthChoices, betterInstall, picksOf, widthSiblings, oneW
 import { DEFAULT_CATALOG, resolveFenceStyles, styleLabel, sectionWords, type FenceCatalog } from '../../web/src/fenceCatalog'
 import { DEFAULT_FENCE_STYLES } from '../../web/src/configDefaults'
 import { isQuotable } from '../../web/src/styleAvailability'
-import { resolveTiers, cheapestStyle, type TierSet } from '../../web/src/tiers'
+import { resolveTiers, cheapestStyle, ownCardAsSent, type TierSet } from '../../web/src/tiers'
 import { priceOption } from '../../web/src/proposal'
 import { WOOD_REAL_STYLES } from '../../web/src/wood'
 import { planTanAutoNd } from '../../web/src/tanAutoNd'
@@ -212,6 +212,27 @@ describe('the main price is the Better option: the same fence at the same price'
       }
     })
   }
+
+  // Review Nov 3 2026: a proposal sent before this rule, with the quote's own fence as a card of its own, swapped
+  // Good to Aluminum on a Salesman's phone, came back with Better as the own fence and a warranty on every old card.
+  test('a proposal sent with its own card: Better takes a fixed width as it went out, the own fence on no tier', () => {
+    const list = resolveFenceStyles(clone(ALL), DEFAULT_CATALOG, () => 1, () => null)
+    const own = list.find(s => s.name === 'WV-Auto ND Privacy')!
+    const y = { runs: [6], walk: 0, dbl: 0 }
+    expect(resolveTiers(input(own, y), list, VINYL).find(t => t.spec.key === 'better')!.style!.name, 'a new quote: Better is the main fence').toBe(own.name)
+    const sent = resolveTiers(input(own, y), list, VINYL, { off: [], swap: {} }, { ownCardAsSent: true })
+    for (const t of sent) expect(t.style?.name, t.spec.key).not.toBe(own.name)
+    expect(sent.find(t => t.spec.key === 'better')!.style!.autoRailMix).toBeFalsy()
+    // Most popular stays on the tier set's pick, as it went out.
+    expect(sent.find(t => t.popular)?.spec.key).toBe('better')
+  })
+  test('which proposals went out with the own card', () => {
+    const own = 'WV-Auto ND Privacy'
+    expect(ownCardAsSent({ options: [{ fenceStyle: "WV-ND 6'x6' Privacy", tier: { key: 'better' } }, { fenceStyle: own }] }, own)).toBe(true)
+    expect(ownCardAsSent({ options: [{ fenceStyle: own, tier: { key: 'better' } }] }, own), 'own on Better: sent under the new rule').toBe(false)
+    expect(ownCardAsSent({ options: [{ fenceStyle: own }] }, "TV-ND 6'x6' Privacy"), 'the fence changed').toBe(false)
+    expect(ownCardAsSent(null, own)).toBe(false)
+  })
 })
 
 describe('one word: sections', () => {

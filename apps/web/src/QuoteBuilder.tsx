@@ -40,7 +40,7 @@ import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
 import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks, withoutAdjustment } from './proposal'
-import { resolveTiers, tierOptions, tierSetFor, cheapestStyle, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
+import { resolveTiers, tierOptions, tierSetFor, cheapestStyle, ownCardAsSent, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
 import { sentTierCards, sentTiersNote } from './sentTiers'
@@ -829,6 +829,9 @@ export default function QuoteBuilder({
   const sentMixed = (init?.proposal?.options ?? []).some(o => o.tier?.swapped)
   const usingSentTiers = (keepSentTiers || heldSaved) && !!sentTierSet && !!style && (sentMixed || sentTierSet.category.trim().toLowerCase() === String(tierCat).trim().toLowerCase())
   const tierSet = usingSentTiers ? sentTierSet! : liveTierSet
+  // A sent proposal with the quote's own fence as a card of its own (sent before Better took the main fence): its tiers
+  // resolve as it went out, here and on the server, so a save keeps the old cards as sent (tiers.ts ownCardAsSent).
+  const ownCardSent = usingSentTiers && ownCardAsSent(init?.proposal as Parameters<typeof ownCardAsSent>[0], style?.name)
   // What prices the tiers: the fence, its gates, its pricing choices and the tier choices. Changed since the quote
   // opened, the Price step prices them anew; unchanged, a sent proposal's tiers show as the customer reads them.
   const fenceKey = JSON.stringify([style?.name ?? '', effRuns, effCorners, effEnds, effWalk, effDbl, effGateWidths, effTeeLines, tearOutSec, tearOutGates,
@@ -861,7 +864,7 @@ export default function QuoteBuilder({
     tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
     overrides: pricingOverrides, jobType,
     move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
-    tierSet: tierSet ?? null, tierPrefs, compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
+    tierSet: tierSet ?? null, tierPrefs, ...(ownCardSent ? { ownCardAsSent: true } : {}), compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
     keepCents,
     ...(changeBase && !internal ? { changeBase } : {}),
     // The Salesman's picker: the server says which width of her fence prices lowest, and lists each fence once.
@@ -1036,8 +1039,8 @@ export default function QuoteBuilder({
   const pastQuotes = useMemo(() => getQuotes(), [])
   const tiersLocal = useMemo(() => (internal && tierSet && style && sections > 0
     // Every style: tiers take only those available for quoting, and say why a held one (a dig set waiting for prices) is not offered.
-    ? resolveTiers(calcInput, cfg.fenceStyles, tierSet, tierPrefs)
-    : []), [tierSet, style, sections, JSON.stringify(calcInput), tierPrefs, invTick, internal])  // eslint-disable-line react-hooks/exhaustive-deps
+    ? resolveTiers(calcInput, cfg.fenceStyles, tierSet, tierPrefs, { ownCardAsSent: ownCardSent })
+    : []), [tierSet, style, sections, JSON.stringify(calcInput), tierPrefs, invTick, internal, ownCardSent])  // eslint-disable-line react-hooks/exhaustive-deps
   const tiers = internal ? tiersLocal : viewTiers(sv, FENCE_STYLES)
   // The Salesman's fence in its cheapest section width for this yard (tiers.ts cheapestStyle, the same pick as the
   // Better option's "whichever prices lower"), so the main price and Better are the same fence at the same price.

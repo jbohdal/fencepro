@@ -144,8 +144,24 @@ export interface ResolvedTier {
 
 type Active<S> = S & { isActive?: boolean; quotable?: boolean }
 
+/**
+ * How the tiers resolve. `ownCardAsSent`: a sent proposal that went out with the quote's own fence as a card of its
+ * own (ownCardAsSent below): "whichever prices lower" takes a fixed width as it did then, the quote's own fence is not
+ * put on a tier card and Most popular stays where it was, so a save keeps the cards as sent ("Sent quotes must never
+ * reprice"; review Nov 3 2026: a Salesman's Good swapped to Aluminum put a warranty on every old card).
+ */
+export interface ResolveOptions { ownCardAsSent?: boolean }
+
+/**
+ * Did this proposal go out with the quote's own fence as a card of its own (no tier on it)? Proposals saved before
+ * "make the main quote price equal Better" (Nov 2 2026) did; their tiers keep resolving as they went out.
+ */
+export function ownCardAsSent(p: { options?: Array<{ fenceStyle?: string | null; tier?: unknown } | null> | null } | null | undefined, ownName: string | null | undefined): boolean {
+  return !!ownName && Array.isArray(p?.options) && p!.options!.some(o => !!o && o.fenceStyle === ownName && !o.tier)
+}
+
 /** The style a tier stands for on a quote of `own`, or why there is none. */
-export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(spec: TierSpec, own: QuoteStyle, styles: Active<S>[]):
+export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(spec: TierSpec, own: QuoteStyle, styles: Active<S>[], opts: ResolveOptions = {}):
   { styles: S[]; pickCheaper: boolean; heldWidths?: Array<{ widthFt: number; held: string }> } | { reason: string } {
   // Only styles that are turned on and available for quoting (commercial and industrial are on hold).
   const active = styles.filter(isQuotable)
@@ -171,7 +187,8 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     if (q.color !== color || q.install !== install) return false
     // Whichever prices lower: the best price mix (6 or 8 ft per run) is one of the widths, so Better on a best price
     // quote is the quote's own fence at the quote's price (Jonathan, Nov 2 2026: "make the main quote price equal Better").
-    if (width === 'any') return true
+    // A proposal sent with the quote's own card keeps the fixed widths it went out with (ResolveOptions).
+    if (width === 'any') return !opts.ownCardAsSent || q.width !== 'auto'
     if (width === null) return true
     return widthOf(s, q) === width
   }
@@ -217,6 +234,7 @@ export function cheapestStyle<S extends QuoteStyle>(input: QuoteCalcInput, style
 export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(
   input: QuoteCalcInput, styles: Active<S>[], set: Pick<TierSet, 'category' | 'tiers' | 'popular'> | null | undefined,
   prefs: TierPrefs = { off: [], swap: {} },
+  opts: ResolveOptions = {},
 ): ResolvedTier[] {
   const own = input.style
   if (!set || !own) return []
@@ -236,12 +254,12 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
     const swapStyle = swapName ? styles.find(s => s.name === swapName && isQuotable(s)) : undefined
     if (swapStyle) {
       // The style the tier would have picked anyway keeps the tier's own name and words.
-      const auto = isAdded ? null : tierStyles(spec, own, styles)
+      const auto = isAdded ? null : tierStyles(spec, own, styles, opts)
       const same = !!auto && 'styles' in auto && auto.styles.some(s => s.name === swapStyle.name)
       out.push({ ...base, swapped: true, ownWords: !same, style: swapStyle, option: priceOption(tierInput, swapStyle) })
       continue
     }
-    const r = tierStyles(spec, own, styles)
+    const r = tierStyles(spec, own, styles, opts)
     const swapOff = swapName && !isAdded ? { swapOff: swapName } : {}
     if ('reason' in r) { out.push({ ...base, ...swapOff, swapped: false, reason: r.reason }); continue }
     const priced = pricedCheapestFirst(tierInput, r.styles)
@@ -260,7 +278,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   // the first tier that picks a width among fences of the quote's own install and color is the quote's own fence at
   // the quote's price, never a card of its own (Jonathan, Nov 2 2026: "make the main quote price equal Better";
   // review Nov 3 2026: all 8 ft forced made a fourth card). A tier naming the quote's fence itself (Best, all 6 ft) keeps it.
-  if (!out.some(t => !t.off && t.style?.name === own.name)) {
+  if (!opts.ownCardAsSent && !out.some(t => !t.off && t.style?.name === own.name)) {
     for (const [i, mine] of widthTiers) {
       if (!mine || out[i].off) continue
       out[i] = { ...out[i], style: mine.s, option: mine.o, widthFt: null, otherWidth: null, otherWidthHeld: undefined }
@@ -273,7 +291,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   }
   // Most popular is never on a card cheaper than the quote's own unless picked by hand on this quote (review Nov 3
   // 2026): the tier set's pick moves to the quote's own card, or none when no card is the quote's own.
-  if (prefs.popular === undefined) {
+  if (prefs.popular === undefined && !opts.ownCardAsSent) {
     const pop = out.find(t => t.popular)
     if (pop?.option && pop.style?.name !== own.name) {
       const ownCents = Math.round(priceOption(input, own).finalPrice * 100)

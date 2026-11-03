@@ -109,6 +109,8 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
       ...(Array.isArray(b.tierPrefs.added) && b.tierPrefs.added.length ? { added: addedIn(b.tierPrefs.added) } : {}),
       ...(b.tierPrefs.popular === null || typeof b.tierPrefs.popular === 'string' ? { popular: b.tierPrefs.popular } : {}),
     } : { off: [], swap: {} },
+    // The tier set a sent proposal went out with, its own fence a card of its own: its cards resolve as sent.
+    ...(b.ownCardAsSent === true ? { ownCardAsSent: true } : {}),
     compare: !!b.compare,
     offer: Array.isArray(b.offer) ? b.offer.filter((x: unknown) => typeof x === 'string') : [],
     offerNewFence: !!b.offerNewFence,

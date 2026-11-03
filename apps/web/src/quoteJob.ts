@@ -52,6 +52,8 @@ export interface QuoteJobRequest {
   /** The tier set used (the live one, or the one the proposal was sent with). */
   tierSet?: Pick<TierSet, 'category' | 'tiers' | 'popular'> | null
   tierPrefs?: TierPrefs
+  /** The tier set is the one a sent proposal went out with, the quote's own fence as a card of its own: tiers resolve as sent (tiers.ts ownCardAsSent). */
+  ownCardAsSent?: boolean
   /** Price Compare options too. */
   compare?: boolean
   /** Styles ticked for the proposal besides the quote's own. */
@@ -219,7 +221,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     gmPct: work ? work.gmPct : newMin ? (price > 0 ? grossMargin / price : 0) : priced.gmPct,
   }
 
-  const tiers = req.tierSet && style && sections > 0 ? resolveTiers(calcInput, cfg.fenceStyles, req.tierSet, req.tierPrefs ?? { off: [], swap: {} }) : []
+  const tiers = req.tierSet && style && sections > 0 ? resolveTiers(calcInput, cfg.fenceStyles, req.tierSet, req.tierPrefs ?? { off: [], swap: {} }, { ownCardAsSent: req.ownCardAsSent === true }) : []
   // The Salesman's picks: the cheapest width of her fence, and each other fence once in its best price width.
   const ways = (req.widthWays ?? []).filter(n => typeof n === 'string')
   const cheapest = ways.length > 1 && sections > 0 ? cheapestStyle(calcInput, cfg.fenceStyles.filter(s => ways.includes(s.name) && isQuotable(s)))?.name ?? null : null
