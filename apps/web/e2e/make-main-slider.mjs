@@ -1,9 +1,11 @@
 // Make main on a SENT quote with a Price adjust (slider), owner on a phone (review Nov 3 2026): every option keeps the
 // price it went out at, the save asks nothing, and the note "On this option only" shows only when no option but the
 // main one carries the slider. Two quotes: one sent with this build (only the main option took the slider), and one
-// as sent before it (every option took the slider, nothing on its snapshots).
+// as sent before it (every option took the slider, nothing on its snapshots). With SALES_COOKIE, a quote the Salesman
+// makes at +10%: her best price fence is the Better card (main), she sends it, and she, then the owner on another of
+// hers, Make main on it.
 //
-//   APP_URL=http://localhost:4150 E2E_STAFF_COOKIE=<owner cookie> node e2e/make-main-slider.mjs
+//   APP_URL=http://localhost:4150 E2E_STAFF_COOKIE=<owner cookie> [SALES_COOKIE=<Salesman cookie>] node e2e/make-main-slider.mjs
 //
 // Removes every quote it made (hard deletes on ezbiz_dev only, by id).
 
@@ -15,6 +17,7 @@ import { signInByCookie, pickStyle } from './lib.mjs'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
 const OWNER = process.env.E2E_STAFF_COOKIE || ''
+const SALES = process.env.SALES_COOKIE || ''
 const SHOTS = process.env.SHOTS || ''
 if (!OWNER) { console.error('Set E2E_STAFF_COOKIE.'); process.exit(2) }
 
@@ -62,6 +65,8 @@ async function makeMainAndSave(p, who, id, b) {
   const after = await cards(b)
   check(`${who}: Make main on ${pick}: the bar is its sent card price`, (await barPrice(p.page)) === open[pick].price, `card $${open[pick].price}, bar $${await barPrice(p.page)}`)
   check(`${who}: every card keeps the price it went out at`, Object.keys(open).every(k => after[k]?.price === open[k].price), `${JSON.stringify(open)} then, ${JSON.stringify(after)} now`)
+  const words = ((await b.locator('[data-tiers-as-sent]').textContent().catch(() => '')) || '').trim()
+  check(`${who}: the words over the cards say they are as sent`, /^As sent: the prices on the customer's proposal\./.test(words), words.slice(0, 160))
   await shot(p.page, `${who}-made-main`)
   await p.page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(600)
   await p.page.locator('[data-save-submit]').tap().catch(() => {}); await sleep(3000)
@@ -78,15 +83,20 @@ async function makeMainAndSave(p, who, id, b) {
 
 const browser = await chromium.launch()
 try {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
-  await signInByCookie(ctx, { cookie: OWNER, api: API })
-  const p = { ctx, page: await ctx.newPage(), errors: [] }
-  p.page.on('pageerror', e => p.errors.push(String(e).slice(0, 300)))
-  p.page.on('dialog', d => d.accept().catch(() => {}))
+  const phone = async cookie => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
+    await signInByCookie(ctx, { cookie, api: API })
+    const s = { ctx, page: await ctx.newPage(), errors: [] }
+    s.page.on('pageerror', e => s.errors.push(String(e).slice(0, 300)))
+    s.page.on('dialog', d => d.accept().catch(() => {}))
+    return s
+  }
+  const p = await phone(OWNER)
+  const ctx = p.ctx
 
   /** A new 150 ft white vinyl quote at `pct`% on the slider, saved and marked sent (with a link). Returns its id. */
-  async function sentQuote(name, pct) {
-    const page = p.page, b = page.locator('[data-quote-builder]'), bar = page.locator('[data-quote-bar]')
+  async function sentQuote(name, pct, who = p) {
+    const page = who.page, b = page.locator('[data-quote-builder]'), bar = page.locator('[data-quote-bar]')
     await page.goto(`${APP}/quotes`); await page.waitForSelector('[data-tabbar]', { timeout: 30000 }); await sleep(1500)
     await page.locator('button:has-text("New quote"):visible').first().tap(); await sleep(800)
     await b.locator('input[placeholder^="Customer name"]').fill(name)
@@ -101,18 +111,22 @@ try {
     await b.locator('[data-tiers]').waitFor({ timeout: 15000 }); await sleep(1500)
     if (pct) {
       await setSlider(b, pct)
+      if (who !== p) await sleep(2500) // her prices come from the server
       check(`${name}: the note shows on a draft with +${pct}% and three options`, await note(b))
+      const c = await cards(b)
+      check(`${name}: at +${pct}% the Better card is the main option, at the main price`, c.better?.main && c.better.price === await barPrice(page), JSON.stringify(c))
     }
     await page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(500)
     await page.locator('[data-save-mode="new"]').tap().catch(() => {}); await sleep(300)
     await page.locator('[data-save-submit]').tap(); await sleep(3500)
-    const list = (await (await ctx.request.get(`${API}/api/saved-quotes?full=1`)).json()).data ?? []
+    const list = (await (await who.ctx.request.get(`${API}/api/saved-quotes?full=1`)).json()).data ?? []
     const q = list.find(x => x.customerName === name)
     if (!q) throw new Error(`${name} was not saved`)
     made.push(q.id)
     console.log(`made ${q.id}`)
-    await ctx.request.post(`${API}/api/saved-quotes/${q.id}/share-token`, { headers: h })
-    await ctx.request.patch(`${API}/api/saved-quotes/${q.id}`, { headers: { ...h, 'Content-Type': 'application/json' }, data: { status: 'SENT' } })
+    // Copy link, as she does it: a link, and the quote marked sent.
+    await who.ctx.request.post(`${API}/api/saved-quotes/${q.id}/share-token`, { headers: h })
+    await who.ctx.request.patch(`${API}/api/saved-quotes/${q.id}`, { headers: { ...h, 'Content-Type': 'application/json' }, data: { status: 'SENT' } })
     return q.id
   }
 
@@ -141,6 +155,20 @@ try {
   await shot(p.page, 'sent-old-open')
   b2 = await makeMainAndSave(p, 'sent before this build', id2, b2)
   check('sent before this build, made main: still no note', !(await note(b2)))
+  // 3. The Salesman's quote at +10%: she makes main on hers; the owner on another of hers.
+  if (SALES) {
+    const c = await phone(SALES)
+    const id3 = await sentQuote(`Slider e2e Christa ${run}`, 10, c)
+    let b3 = await reopen(c, id3)
+    check('Christa\'s sent quote: the note shows', await note(b3))
+    await shot(c.page, 'christa-sent-open')
+    b3 = await makeMainAndSave(c, 'Christa on her sent quote', id3, b3)
+    const id4 = await sentQuote(`Slider e2e Christa two ${run}`, 10, c)
+    const b4 = await reopen(p, id4)
+    await makeMainAndSave(p, 'owner on Christa\'s sent quote', id4, b4)
+    check('Christa: no page errors', c.errors.length === 0, c.errors.join(' | '))
+    await c.ctx.close()
+  }
   check('no page errors', p.errors.length === 0, p.errors.join(' | '))
 } finally {
   await browser.close()

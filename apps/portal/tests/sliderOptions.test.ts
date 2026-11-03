@@ -12,7 +12,8 @@ import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from '../../web/
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { buildProposal, priceOption, sentSliderStyles, sliderNoteShown } from '../../web/src/proposal'
-import { resolveTiers, type TierSet } from '../../web/src/tiers'
+import { resolveTiers, cheapestStyle, type TierSet } from '../../web/src/tiers'
+import { sentTiersNote, cardsAsSent } from '../../web/src/sentTiers'
 import { quoteJobFor } from '../../web/src/estimate'
 import { VINYL_STARTER } from '../src/server/lib/tierStarters'
 import { signedPricing } from '../src/server/routes/proposal.js'
@@ -223,5 +224,44 @@ describe('a sent proposal: Make main keeps every option at its sent price (revie
     expect(sliderNoteShown(0.1, 2, [own.name], other.name)).toBe(false)
     expect(sliderNoteShown(0, 2, undefined, own.name)).toBe(false)
     expect(sliderNoteShown(0.1, 1, undefined, own.name)).toBe(false)
+  })
+})
+
+describe('the Salesman\'s best price fence with a slider (review Nov 3 2026)', () => {
+  const AUTO = { ...st('WV-Auto ND Privacy', 0.56, 1.2), autoRailMix: true }
+  const WIDTHS = [AUTO, byName("WV-ND 6'x6' Privacy"), byName("WV-ND 6'x8' Privacy")]
+  const all = [...STYLES, AUTO]
+  const yard = (pct: number, style: QuoteStyle = AUTO) => input(style, pct, { runs: [{ ft: 150 }], corners: 0, ends: 2, walkGates: 0 })
+
+  test('the width that prices lower is the same at any slider: her quote stays the best price fence', () => {
+    // Her quote on the width that prices lower at 0%: with the slider on it (and not on the other widths), still that one.
+    const win = cheapestStyle(yard(0), WIDTHS)!
+    for (const pct of [0.1, 0.18]) expect(cheapestStyle(yard(pct, win), WIDTHS)!.name, String(pct)).toBe(win.name)
+    for (const s of WIDTHS) expect(cheapestStyle(yard(0.1, s), WIDTHS)!.name, s.name).toBe(win.name)
+  })
+
+  test('so Better is her main option at +10% as at 0%, at the main price', () => {
+    for (const pct of [0, 0.1]) {
+      const t = resolveTiers(yard(pct), all, VINYL)
+      const better = t.find(x => x.spec.key === 'better')!
+      expect(better.style!.name, String(pct)).toBe(AUTO.name)
+      expect(better.option!.finalPrice).toBe(calculateQuote(yard(pct)).priced.price)
+    }
+  })
+})
+
+describe('the words over the cards after Make main on a sent quote (review Nov 3 2026)', () => {
+  const sent = { good: { price: 4050 }, better: { price: 5341 }, best: { price: 4911 } }
+  test('every card at its sent price: "As sent", plainly', () => {
+    expect(cardsAsSent(sent, [{ key: 'good', price: 4050 }, { key: 'better', price: 5341 }, { key: 'best', price: 4911 }])).toBe(true)
+    expect(sentTiersNote({ asSent: false, fenceChanged: true, signed: false, sentPricesChanged: false, pricesAsSent: true })).toEqual({ kind: 'sent', text: "As sent: the prices on the customer's proposal." })
+  })
+  test('a card at another price, or a card more or fewer: new prices, as before', () => {
+    expect(cardsAsSent(sent, [{ key: 'good', price: 4050 }, { key: 'better', price: 4855 }, { key: 'best', price: 4911 }])).toBe(false)
+    expect(cardsAsSent(sent, [{ key: 'good', price: 4050 }, { key: 'better', price: 5341 }])).toBe(false)
+    expect(cardsAsSent(null, [])).toBe(false)
+    expect(sentTiersNote({ asSent: false, fenceChanged: true, signed: false, sentPricesChanged: false, pricesAsSent: false }).kind).toBe('changed')
+    // A signed quote changed is a change order, whatever the prices.
+    expect(sentTiersNote({ asSent: false, fenceChanged: true, signed: true, sentPricesChanged: false, pricesAsSent: true }).kind).toBe('changed')
   })
 })

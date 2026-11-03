@@ -220,8 +220,16 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
  */
 export function pricedCheapestFirst<S extends QuoteStyle>(input: QuoteCalcInput, styles: S[]): Array<{ s: S; o: ProposalOption; w: number | 'auto' | null | undefined }> {
   const priced = styles.map(s => ({ s, o: priceOption(input, s), w: styleParts(s.name, s as Parameters<typeof styleParts>[1])?.width }))
+  // Like with like: the slider is the main option's only, so with one on the quote, the quote's own fence would rank
+  // dearer than its other widths and lose "whichever prices lower" (review Nov 3 2026: the Salesman's +10% quote
+  // became the 8 ft fence, no longer the Better card). Ranked as if every width took it, as before Nov 3 2026.
+  const slider = !!input.priceAdjust || !!input.sliderOn
+  const cents = slider
+    ? new Map(styles.map(s => [s.name, Math.round(priceOption({ ...input, sliderOn: styles.map(x => x.name), sliderTier: undefined }, s).finalPrice * 100)]))
+    : null
+  const at = (x: { s: S; o: ProposalOption }) => cents ? cents.get(x.s.name)! : Math.round(x.o.finalPrice * 100)
   const rank = (w: unknown) => (w === 'auto' ? 100 : typeof w === 'number' ? w : 0)
-  priced.sort((a, b) => Math.round(a.o.finalPrice * 100) - Math.round(b.o.finalPrice * 100) || rank(b.w) - rank(a.w))
+  priced.sort((a, b) => at(a) - at(b) || rank(b.w) - rank(a.w))
   return priced
 }
 

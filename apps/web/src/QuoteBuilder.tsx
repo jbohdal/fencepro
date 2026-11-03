@@ -43,7 +43,7 @@ import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, o
 import { resolveTiers, tierOptions, tierSetFor, cheapestStyle, ownCardAsSent, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
-import { sentTierCards, sentTiersNote } from './sentTiers'
+import { sentTierCards, sentTiersNote, cardsAsSent } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
 import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
 import { useTierSets } from './tierSetsApi'
@@ -1111,6 +1111,9 @@ export default function QuoteBuilder({
   // How many options the proposal has: the slider's and the ± dollars' note says they are on the main one only.
   const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size - (foldedTier ? 1 : 0)
     : work ? 1 + (jobType === 'move' && moveAsIs && offerMoveAsIs ? 1 : 0) + (jobType === 'repair' && offerNewFence && repairCheck?.nf ? 1 : 0) : 0
+  // After Make main on a sent quote: every card the customer reads still at its sent price (sentTiers.ts cardsAsSent).
+  const liveAsSent = fenceChanged && !showSentCards && !!sentCards && cardsAsSent(sentCards,
+    tiers.filter(t => !t.off && t.style && t.option).map(t => ({ key: t.spec.key, price: t.spec.key === mainCard ? adjPrice : t.option!.finalPrice })))
   const offeredNow = offeredCount(tiers, style?.name, !!foldedTier || !!twinTier, offer)
   // Every style on for quoting, by material, for "Change style" and "Add option".
   // A style already on another card is shown, and cannot be picked: the same fence twice is one card to the customer.
@@ -2188,7 +2191,7 @@ export default function QuoteBuilder({
                   )}
                   {usingSentTiers && !heldSaved && (() => {
                     // Said as it is (review Oct 27 2026): the prices the customer has, or new prices once the fence is changed.
-                    const note = sentTiersNote({ asSent: showSentCards, fenceChanged, signed: signedQuote, sentPricesChanged: !!sentPricesChanged })
+                    const note = sentTiersNote({ asSent: showSentCards, fenceChanged, signed: signedQuote, sentPricesChanged: !!sentPricesChanged, pricesAsSent: liveAsSent })
                     return (
                       <p className={`text-xs rounded-lg px-2 py-1.5 border ${note.kind === 'changed' ? 'text-amber-900 bg-amber-50 border-amber-300' : 'text-gray-700 bg-blue-50 border-blue-200'}`} data-tiers-as-sent={note.kind}>
                         {note.text}{' '}
