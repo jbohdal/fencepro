@@ -91,6 +91,8 @@ export interface SavedQuote {
   proposalBase?: string
   /** Back to Draft picked on a sent quote (sent with that save only): without it the server keeps a sent quote Sent. */
   backToDraft?: boolean
+  /** The owner chose to go under the minimum job price (sent with that save only; portal lib/discountMinimum.ts). */
+  minimumOverride?: boolean
 }
 
 const fmt = (n: number) =>

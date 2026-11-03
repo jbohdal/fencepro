@@ -137,6 +137,8 @@ function toApiPayload(q: Partial<SavedQuote>): SavedQuotePayload {
     ...(q.proposalBase !== undefined ? { proposalBase: q.proposalBase } : {}),
     // Back to Draft picked on a sent quote: the server moves a sent quote back to Draft only when this says so.
     ...(q.backToDraft && q.status === 'DRAFT' ? { backToDraft: true } : {}),
+    // The owner ticked the box to go under the minimum job price (portal lib/discountMinimum.ts).
+    ...(q.minimumOverride ? { minimumOverride: true } : {}),
   }
 }
 
@@ -299,6 +301,7 @@ export function upsertQuote(partial: Partial<SavedQuote> & { fenceStyle?: string
     work: partial.work,
     ...(partial.priceRequest ? { priceRequest: partial.priceRequest } : {}),
     ...(partial.pricingStamp ? { pricingStamp: partial.pricingStamp } : {}),
+    ...(partial.minimumOverride ? { minimumOverride: true } : {}),
   }
   cache = [fresh, ...cache]
   emit()

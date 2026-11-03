@@ -65,6 +65,7 @@ import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepa
 import { workOption, buildWorkProposal } from './proposal'
 import { signedInRole, can } from './permissions'
 import { sendJson } from './syncHttp'
+import { jobMinimumCents, newlyUnderMinimum, underMinimumWarning, type MinimumOption } from './discountMinimum'
 import { salesmanSwitchDefault, seesCommission, clearedCommission } from './salesmanCommission'
 import { marginTone, pricedTarget } from './moneyTruth'
 import { getBookingTeam } from './bookingTeamStore'
@@ -1126,7 +1127,18 @@ export default function QuoteBuilder({
   // Paid per a unit Settings has no rate for, and no rate typed (Oct 30 2026): never priced at the other unit's rate.
   // A quote whose prices stand (sent, shared, signed, held) keeps them and is not priced here.
   const subRateMissing = !pricesStand && !heldSaved ? subUnitRateMissing(pricingOverrides, cfg.pricing, style) : null
-  const canSave = !subRateMissing && !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
+  // A discount or a price typed by hand that would put a price under the minimum job price (Jonathan, Nov 2 2026): every login
+  // but the owner is stopped here, and the owner saves it only with the box ticked (the server holds to the same: portal
+  // lib/discountMinimum.ts). Asked only when the quote takes something off; a signed or held quote keeps its saved prices.
+  const minimumCents = jobMinimumCents(cfg, jobType !== 'new')
+  const takesOff = adjWantedCents < 0 || numOrUndef(finalPriceStr) !== undefined
+  const underMinimum = takesOff && !signedQuote && !heldSaved && !!style ? newlyUnderMinimum({ fenceStyle: style.name, finalPrice: adjPrice, proposal: { options: optionsNow() } }, init?.id ? init : null, minimumCents) : []
+  const mayGoUnder = can('quotes.underMinimum')
+  const underKey = JSON.stringify(underMinimum)
+  const [overrideFor, setOverrideFor] = useState<string | null>(null)
+  const minimumOverride = underMinimum.length > 0 && mayGoUnder && overrideFor === underKey
+  const minimumHeld = underMinimum.length > 0 && !minimumOverride
+  const canSave = !minimumHeld && !subRateMissing && !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
     : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
     : REPAIR_ITEMS.some(k => (chargedRepairItems(repairIn)[k] ?? 0) > 0))
 
@@ -1163,6 +1175,20 @@ export default function QuoteBuilder({
   // pull sheet; on locked 6 ft tall vinyl it is shown for information.
   const showOptimizer = optSettings.enabled && optSettings.showDetailsInBuilder && !!calc.optimizer
   const optimizerResult = calc.optimizer
+
+  /** The proposal's prices as a save would write them, the quote's own included. */
+  function proposalNow() {
+    return buildProposal({
+      input: calcInput, styles: internal ? [style!, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style!.name)] : [], ownPrice: adjPrice,
+      company: { name: '', phone: '', email: '' }, customer: { name: '', address: '' }, warranty: '', settings: {}, photoIds: {},
+      tiers: internal ? tierOptions(tiers, {}, tierSets) : viewProposalOptions(sv),
+    })
+  }
+  /** The options a save would write: a move as is beside the move, or every option of a new fence. */
+  function optionsNow(): MinimumOption[] {
+    if (jobType === 'new') return proposalNow().options
+    return moveAsIs && offerMoveAsIs ? [{ fenceStyle: style!.name, label: `Move as is: ${Math.round(moveIn.oldFt)} ft of your fence on the new line`, finalPrice: moveAsIs.priceCents / 100 }] : []
+  }
 
   async function handleSave(data: {
     customerId: string
@@ -1290,6 +1316,7 @@ export default function QuoteBuilder({
       ...(pricingStampNow ? { pricingStamp: pricingStampNow } : {}),
       // Draft picked on a sent or lost quote: said, or the server keeps it as it is.
       ...(data.status === 'DRAFT' && init?.status && init.status !== 'DRAFT' ? { backToDraft: true } : {}),
+      ...(minimumOverride ? { minimumOverride: true } : {}),
       proposal: workProposal ?? (style ? buildProposal({
         input: calcInput,
         // A Salesman or Installer: every option comes priced from the server.
@@ -1407,11 +1434,7 @@ export default function QuoteBuilder({
       if (opened !== null && saved?.proposal && proposalStamp(saved.proposal) !== opened) { toast.error('Not saved', 'This quote was changed on another phone or computer while you had it open. Close it and open it again to see the changes.'); return true }
     }
     if (jobType !== 'new' || signedQuote || !style) return false
-    const after = buildProposal({
-      input: calcInput, styles: internal ? [style, ...FENCE_STYLES.filter(s => offer.includes(s.name) && s.name !== style.name)] : [], ownPrice: adjPrice,
-      company: { name: '', phone: '', email: '' }, customer: { name: '', address: '' }, warranty: '', settings: {}, photoIds: {},
-      tiers: internal ? tierOptions(tiers, {}, tierSets) : viewProposalOptions(sv),
-    })
+    const after = proposalNow()
     const was = saved ?? init
     const shown = addsPastLimit(after, was?.proposal ?? null, { ...(was ?? {}), fenceStyle: style.name }, n => cfg.fenceStyles.find(s => s.name === n))
     if (shown !== null) { toast.error('Not saved', `A proposal has ${MAX_TIERS} options at most, and this one would have ${shown}. Take one off, then save again.`); return true }
@@ -1569,7 +1592,7 @@ export default function QuoteBuilder({
 
         {/* One step at a time; the others stay mounted (hidden) so nothing typed is lost. */}
         <div className="md:flex-1 md:min-h-0 md:overflow-y-auto" data-quote-scroll>
-        <div className={`px-4 md:px-8 py-5 md:py-6 ${signedQuote ? 'pb-60' : 'pb-44'} md:pb-8 mx-auto w-full ${step === 'yard' && entry === 'layout' && yard ? 'max-w-3xl lg:max-w-none' : 'max-w-3xl'}`}>
+        <div className={`px-4 md:px-8 py-5 md:py-6 ${signedQuote || underMinimum.length ? 'pb-60' : 'pb-44'} md:pb-8 mx-auto w-full ${step === 'yard' && entry === 'layout' && yard ? 'max-w-3xl lg:max-w-none' : 'max-w-3xl'}`}>
           <div className={step === 'customer' ? 'space-y-6' : 'hidden'} data-step-panel="customer">
             <VoicePanel
               ref={voiceRef}
@@ -2542,7 +2565,8 @@ export default function QuoteBuilder({
               </button>
               {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>{heldNotSaved(style!.label || style!.name, style!.held!, canPrice)}</p>}
               {subRateMissing && <p className="text-xs text-red-700 text-center" data-sub-rate-missing-save>{subRateMissing}</p>}
-              {!canSave && !heldChanged && !subRateMissing && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
+              {minimumHeld && <p className="text-xs text-red-700 text-center" data-below-minimum-save>{underMinimumWarning(underMinimum, minimumCents, mayGoUnder)}</p>}
+              {!canSave && !heldChanged && !subRateMissing && !minimumHeld && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && shownItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4" data-pull-sheet>
                 <div className="flex items-center justify-between mb-3">
@@ -2604,6 +2628,17 @@ export default function QuoteBuilder({
               )}
             </div>
             {heldChanged && <p className="text-xs font-semibold text-amber-800 mt-1 leading-snug" data-held-bar-reason>{heldBarReason(canPrice)}</p>}
+            {underMinimum.length > 0 && (
+              <div className="mt-1" data-below-minimum>
+                <p className="text-xs font-semibold text-red-700 leading-snug" data-below-minimum-text>{underMinimumWarning(underMinimum, minimumCents, mayGoUnder)}</p>
+                {mayGoUnder && (
+                  <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
+                    <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={minimumOverride} onChange={e => setOverrideFor(e.target.checked ? underKey : null)} data-below-minimum-override />
+                    Save under the minimum (owner override)
+                  </label>
+                )}
+              </div>
+            )}
             </div>
           </div>
         </div>

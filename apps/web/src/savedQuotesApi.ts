@@ -69,6 +69,8 @@ export interface SavedQuotePayload {
   proposalBase?: string
   /** Back to Draft picked on a sent quote: without it the server keeps a sent quote Sent. */
   backToDraft?: boolean
+  /** The owner chose to go under the minimum job price (portal lib/discountMinimum.ts). */
+  minimumOverride?: boolean
 }
 
 export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp' | 'proposalBase' | 'backToDraft'>> {

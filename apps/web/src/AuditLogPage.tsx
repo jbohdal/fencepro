@@ -29,7 +29,7 @@ interface AuditRow {
 }
 
 const ENTITY_TYPES = ['', 'CrmContact', 'CrmUser', 'PortalAccount', 'Customer', 'Invoice', 'Quote', 'Job', 'Settings']
-const ACTIONS = ['', 'create', 'update', 'delete', 'soft_delete', 'restore', 'login', 'logout', 'invite_sent', 'invite_resent', 'invite_accepted', 'role_changed', 'settings_changed', 'file_uploaded', 'file_deleted', 'stage_changed']
+const ACTIONS = ['', 'create', 'update', 'delete', 'soft_delete', 'restore', 'login', 'logout', 'invite_sent', 'invite_resent', 'invite_accepted', 'role_changed', 'settings_changed', 'file_uploaded', 'file_deleted', 'stage_changed', 'discount_override']
 
 export default function AuditLogPage() {
   const [rows, setRows] = useState<AuditRow[]>([])
