@@ -1,7 +1,8 @@
 /**
  * Unsent drafts and today's Target Profit, on the dev database (read only;
  * DEV_DB=1 and ezbiz_dev only). With Settings as saved, no draft takes a
- * different cost factor when opened. With one number changed in memory (Dig
+ * different Target Profit when opened (one saved at another Overhead % takes
+ * today's). With one number changed in memory (Dig
  * set's Target Profit +1 on vinyl, DRAFT_MARGIN_TRY to change another), it
  * lists every draft whose price would change on open: its id, fence, old and
  * new price; and, for drafts saved before the rule (no Target Profit saved
@@ -77,11 +78,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('unsent drafts take today’s Tar
         if (!d) continue
         rows.push(`${q.id} | ${q.status} | ${cfgTry.fenceStyles.find(s => s.name === q.fenceStyle)?.label ?? q.fenceStyle} | Target Profit ${d.wasProfitPct}% → ${d.profitPct}% | $${priceOf(cfgNow, q).toFixed(2)} → $${priceOf(cfgTry, q, d.costFactor).toFixed(2)}`)
       }
-      console.log(`[draft margin] ${quotes.length} saved quotes, ${drafts.length} drafts. Settings as saved: ${today.length} would take another factor on open.`)
+      console.log(`[draft margin] ${quotes.length} saved quotes, ${drafts.length} drafts. Settings as saved: ${today.length} would take another factor on open (today's Overhead %).`)
       console.log(`[draft margin] Dig set Target Profit ${dsNow}% → ${tryPct}% (in memory): ${rows.length} drafts would price differently on open:\n${rows.join('\n')}`)
       console.log(`[draft margin] ${unsent.length} unsent drafts: ${stampable.length} saved before the rule at today's Settings margin (they would follow once saved again, or stamped); ${keep.length} keep their own (typed, another price method, a move or repair, or a margin Settings no longer gives).`)
       console.log(`[draft margin] if those ${stampable.length} were stamped, Dig set ${dsNow}% → ${tryPct}% would change ${stampRows.length}:\n${stampRows.join('\n')}`)
-      expect(today.map((q: any) => q.id)).toEqual([])
+      // Settings as saved: only an overhead change since a draft was saved moves it (overhead follows, Nov 3 2026).
+      expect(today.filter((q: any) => { const d = draftMarginFor(business.config, q)!; return d.profitPct !== d.wasProfitPct }).map((q: any) => q.id)).toEqual([])
       expect(rows.every(r => r.split(' | ')[1] === 'DRAFT')).toBe(true)
     } finally {
       setMaterialPriceSource(null)
