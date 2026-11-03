@@ -143,3 +143,6 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 ## Parked Nov 2 2026
 
 - Request gateway: parked by Jonathan ("PARK GATEWAY"). The work stays on branches feat/request-gateway and feat/request-gateway-finish, never deployed. It failed security review twice with the worker on (case-insensitive path bypass, trustd fetch, Postgres IPC, .git/logs symlink, survivors); with the worker off it passes. Live has no requests table. Do not pick it up without his say so. Any future version: owner login only, a password or code on every deploy, Tailscale only.
+- Discount minimum, from its review: the server's check skips a $0 or non-numeric option price (apps/web/src/discountMinimum.ts pricesUnderMinimum, `c > 0`). Only a hand-crafted save by office, admin or manager reaches it; the screen cannot. Counting $0 risks blocking quotes with an unpriced option, so it needs its own look. Also: the audit log's type filter has no "SavedQuote" (AuditLogPage.tsx:31), and an override row shows the quote id, not the customer.
+- WebKit page crash, seen by three reviewers on Nov 2: the second reload of /quotes in the same page crashes Playwright WebKit, on main as well (dbcde4c). Going to the address again never crashes. May belong with iPhone #17.
+
