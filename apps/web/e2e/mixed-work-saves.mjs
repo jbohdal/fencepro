@@ -7,9 +7,11 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
 import { signInByCookie } from './lib.mjs'
+import { devSignIn, DEV_SALES_EMAIL } from './devSignIn.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || APP
-const SALES = process.env.SALES_COOKIE || ''
+// Not given (the nightly gives the owner's sign in only): the Salesman's made here.
+const SALES = process.env.SALES_COOKIE || devSignIn(DEV_SALES_EMAIL, { cookie: true })
 if (!SALES) { console.error('Set SALES_COOKIE.'); process.exit(2) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const results = []
