@@ -30,10 +30,10 @@ const sentProposal = (good: number) => ({
   tierSet: { category: 'Vinyl', popular: 'better', tiers: [{ key: 'good', name: 'Good', width: 'cheapest' }, { key: 'better', name: 'Better', width: 'cheapest' }, { key: 'best', name: 'Best', width: '6' }] },
   tierPrefs: { off: [], swap: {} },
   options: [
-    opt('good', 'White Vinyl Privacy, 6 ft tall, 8 ft panels, Dig set', "WV-DS 6'x8' Privacy", good),
-    opt('better', 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig', "WV-ND 6'x8' Privacy", 10549),
-    opt('best', 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig', "WV-ND 6'x6' Privacy", 11343),
-    opt(null, 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', STYLE, 10457),
+    opt('good', 'White Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set', "WV-DS 6'x8' Privacy", good),
+    opt('better', 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig', "WV-ND 6'x8' Privacy", 10549),
+    opt('best', 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig', "WV-ND 6'x6' Privacy", 11343),
+    opt(null, 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig', STYLE, 10457),
   ],
 })
 

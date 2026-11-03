@@ -232,8 +232,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
   const bestPriceProposal = (name: string, extra: Record<string, unknown> = {}) => ({
     version: 1, company: { name: 'Getter Done Fence', phone: '3528442677' }, customer: { name }, depositPct: 50, recommended: 1, terms: [],
     tierSet: { category: 'Vinyl', popular: 'better', tiers: [{ key: 'good', width: 'cheapest' }, { key: 'better', width: 'cheapest' }, { key: 'best', width: '6' }] },
-    options: [tier(options[0], 'good', 'Good'), tier(options[1], 'better', 'Better', 'Most popular'), tier(opt('6 ft panels, No dig', "WV-ND 6'x6' Privacy", 7924), 'best', 'Best'),
-      { ...opt('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', 'WV-Auto ND Privacy', 7179), snapshot: { pullSheet: [{ item: 'mix', qty: 1 }], runRails: ['6ft', '8ft'] } }],
+    options: [tier(options[0], 'good', 'Good'), tier(options[1], 'better', 'Better', 'Most popular'), tier(opt('6 ft sections, No dig', "WV-ND 6'x6' Privacy", 7924), 'best', 'Best'),
+      { ...opt('White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig', 'WV-Auto ND Privacy', 7179), snapshot: { pullSheet: [{ item: 'mix', qty: 1 }], runRails: ['6ft', '8ft'] } }],
     ...extra,
   })
 
@@ -246,7 +246,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
     const card = html.slice(html.indexOf('data-option="3"'), html.indexOf('data-option="2"'))
     expect(card).toContain('Most popular')
     expect(card).toContain('<span class="tier">Better</span>')
-    expect(card).toContain('6 ft and 8 ft panels') // its runs took both widths (runRails 6ft, 8ft)
+    expect(card).toContain('6 ft and 8 ft sections') // its runs took both widths (runRails 6ft, 8ft)
     expect(card).not.toContain('(best price)')
     expect(card).toContain('$7,179')
     expect(html).not.toContain('$7,363')
