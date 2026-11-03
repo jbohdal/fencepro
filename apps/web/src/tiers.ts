@@ -183,13 +183,6 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     if (held) return { reason: `${cap(want)} is not available for quoting yet: ${(held as { held?: string }).held}.` }
     return { reason: `No ${want} style is turned on in Settings → Fence Styles.` }
   }
-  // The quote's own fence is one of them (its install's tier): that tier is the quote's own fence at the quote's
-  // price, whatever width was forced or picked, so the main price is that card's and never a card of its own
-  // (Jonathan, Nov 2 2026: "make the main quote price equal Better"; review Nov 3 2026: all 8 ft forced made a fourth card).
-  if (width === 'any') {
-    const mine = found.find(s => s.name === own.name)
-    if (mine) return { styles: [mine], pickCheaper: false }
-  }
   // The cheaper width: a width that exists but is held back is said, not compared.
   const heldWidths: Array<{ widthFt: number; held: string }> = []
   if (width === 'any') {
@@ -228,6 +221,8 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   const own = input.style
   if (!set || !own) return []
   const out: ResolvedTier[] = []
+  // Tiers that picked "whichever width prices lower", by place: the quote's own fence among their choices, priced.
+  const widthTiers = new Map<number, { s: S; o: ProposalOption } | null>()
   const added = (prefs.added ?? []).filter(a => a?.key && a.style && !set.tiers.some(t => t.key === a.key)).slice(0, MAX_TIERS)
   const specs: TierSpec[] = [...set.tiers, ...added.map(a => ({ key: a.key, name: 'Option', install: 'same' as const, width: 'same' as const, color: 'same', style: a.style, text: '' }))]
   // The Most popular pick on this quote (null: none), else the tier set's; one at most.
@@ -252,6 +247,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
     const priced = pricedCheapestFirst(tierInput, r.styles)
     const pick = priced[0]
     const res: ResolvedTier = { ...base, ...swapOff, swapped: false, style: pick.s, option: pick.o }
+    if (r.pickCheaper) widthTiers.set(out.length, priced.find(x => x.s.name === own.name) ?? null)
     if (r.pickCheaper && typeof pick.w === 'number') {
       res.widthFt = pick.w
       const other = priced.find(x => typeof x.w === 'number' && x.w !== pick.w)
@@ -259,6 +255,17 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
       else if (r.heldWidths?.length) res.otherWidthHeld = r.heldWidths[0]
     }
     out.push(res)
+  }
+  // The quote's own fence when no card is it (a width forced or picked by hand, or a best price mix a fixed width beat):
+  // the first tier that picks a width among fences of the quote's own install and color is the quote's own fence at
+  // the quote's price, never a card of its own (Jonathan, Nov 2 2026: "make the main quote price equal Better";
+  // review Nov 3 2026: all 8 ft forced made a fourth card). A tier naming the quote's fence itself (Best, all 6 ft) keeps it.
+  if (!out.some(t => !t.off && t.style?.name === own.name)) {
+    for (const [i, mine] of widthTiers) {
+      if (!mine || out[i].off) continue
+      out[i] = { ...out[i], style: mine.s, option: mine.o, widthFt: null, otherWidth: null, otherWidthHeld: undefined }
+      break
+    }
   }
   for (let i = 0; i < out.length; i++) {
     const earlier = out.slice(0, i).find(t => t.style && out[i].style && t.style.name === out[i].style!.name)

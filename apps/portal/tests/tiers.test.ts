@@ -61,9 +61,15 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
     expect(good.style!.name).toContain(`x${good.widthFt}'`)
     // The quote is no dig 8 ft wide: Better (no dig, whichever width) is that fence, never a card of its own (Nov 3 2026).
     expect(tiers[1].style!.name).toBe("WV-ND 6'x8' Privacy")
-    expect(tiers[1].widthFt).toBeNull()
-    // A no dig 6 ft quote: Better is the 6 ft fence too.
-    expect(resolveTiers(input(byName("WV-ND 6'x6' Privacy")), STYLES, VINYL)[1].style!.name).toBe("WV-ND 6'x6' Privacy")
+    // A no dig 6 ft quote: Best (all 6 ft) is its card, and Better stays the width that prices lower.
+    const six = resolveTiers(input(byName("WV-ND 6'x6' Privacy")), STYLES, VINYL)
+    expect(six.map(t => t.style!.name)).toEqual(["WV-DS 6'x8' Privacy", "WV-ND 6'x8' Privacy", "WV-ND 6'x6' Privacy"])
+    // A no dig 6 ft quote with no tier naming it (Good and Better only): Better (no dig, whichever width) is the quote's own fence, never a fourth card.
+    const VINYL2: TierSet = { ...VINYL, tiers: VINYL_STARTER.slice(0, 2) }
+    const own = resolveTiers(input(byName("WV-ND 6'x6' Privacy")), STYLES, VINYL2)
+    expect(own[1].style!.name).toBe("WV-ND 6'x6' Privacy")
+    expect(own[1].widthFt).toBeNull()
+    expect(own[1].option!.finalPrice).toBe(priceOption(input(byName("WV-ND 6'x6' Privacy")), byName("WV-ND 6'x6' Privacy")).finalPrice)
   })
 
   test('every price is the quote math for that style', () => {
