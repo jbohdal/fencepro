@@ -39,7 +39,7 @@ import { saveGate, gatedOnce } from './movedGate'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
-import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks, withoutAdjustment } from './proposal'
+import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks, withoutAdjustment, notMainInput, sliderTaken, asNotMain } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, cheapestStyle, ownCardAsSent, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
@@ -927,7 +927,7 @@ export default function QuoteBuilder({
     if (!(total > moveIn.oldFt + 0.01)) return null
     const k = moveIn.oldFt / total
     // Another option than the main one: the ± dollar adjustment is not on it (proposal.ts optionOverrides).
-    return priceMove({ ...workCommon, overrides: withoutAdjustment(workCommon.overrides) }, moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
+    return priceMove(notMainInput(workCommon), moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
   }, [work])  // eslint-disable-line react-hooks/exhaustive-deps
   const moveAsIs: WorkResult | null = internal ? moveAsIsLocal : viewWork(sv?.moveAsIs ?? null)
   // Repair: "A new fence may be the better deal" (damaged sections over half a run, or price over 60% of a new fence there).
@@ -940,7 +940,7 @@ export default function QuoteBuilder({
       ? damagedRuns.map(r => ({ damaged: tapped.filter(k => Number(k.split(':')[0]) === r).length, sections: runs[r] ?? 0 }))
       : runs.some(n => n > 0) ? [{ damaged: (repairIn.items.repairSection ?? 0) + (repairIn.items.replaceSection ?? 0), sections: runs.reduce((t, n) => t + n, 0) }] : []
     const runsFt = effRuns.map((r, i) => (damagedRuns.includes(i) ? r.ft : 0))
-    const nf = runsFt.some(f => f > 0) ? calcNewFence({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...withoutAdjustment(pricingOverrides), finalPrice: undefined } }) : null
+    const nf = runsFt.some(f => f > 0) ? calcNewFence({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...withoutAdjustment(pricingOverrides), finalPrice: undefined }, priceAdjust: 0 }) : null
     const newFenceCents = nf ? Math.round(nf.priced.price * 100) : null
     return { ...newFenceBetter({ repairCents: work.priceCents, newFenceCents, damagedByRun }), newFenceCents, nf, runsFt }
   }, [work, JSON.stringify(calc.perRunSections)])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -1101,6 +1101,9 @@ export default function QuoteBuilder({
     // The Most popular pick goes with it: no option stands in for it (null: none).
     return { ...rest, swap, ...(added.length ? { added } : {}), ...(p.popular === key ? { popular: null } : {}) }
   })
+  // How many options the proposal has: the slider's and the ± dollars' note says they are on the main one only.
+  const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size - (foldedTier ? 1 : 0)
+    : work ? 1 + (jobType === 'move' && moveAsIs && offerMoveAsIs ? 1 : 0) + (jobType === 'repair' && offerNewFence && repairCheck?.nf ? 1 : 0) : 0
   const offeredNow = offeredCount(tiers, style?.name, !!foldedTier || !!twinTier, offer)
   // Every style on for quoting, by material, for "Change style" and "Add option".
   // A style already on another card is shown, and cannot be picked: the same fence twice is one card to the customer.
@@ -1289,14 +1292,14 @@ export default function QuoteBuilder({
       if (!internal) options.push(...viewProposalOptions(sv))
       else if (jobType === 'move') {
         if (moveAsIs && offerMoveAsIs) {
-          options.push(workOption(`Move as is: ${Math.round(moveIn.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, toSavedWork(moveAsIs, { move: moveIn }), runSecs))
+          options.push(asNotMain(workOption(`Move as is: ${Math.round(moveIn.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, toSavedWork(moveAsIs, { move: moveIn }), runSecs), priceAdjust))
           options.push({ ...workOption('Move plus new fence for the extra length', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
         } else options.push({ ...workOption('Move your fence to the new line', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
       } else {
         options.push({ ...workOption('Repair', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
         if (offerNewFence && repairCheck?.nf) {
-          const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: withoutAdjustment(calcInput.overrides) }, style)
-          options.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null } })
+          const o = priceOption(notMainInput({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0 }), style)
+          options.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null, ...sliderTaken(calcInput.priceAdjust, 0) } })
         }
       }
       return buildWorkProposal({
@@ -2505,6 +2508,10 @@ export default function QuoteBuilder({
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>-20%</span><span>0%</span><span>+20%</span>
                 </div>
+                {priceAdjust !== 0 && optionCount > 1 && (
+                  // The slider is the main option's only, as the ± dollars are ("Yes", Jonathan, Nov 3 2026).
+                  <p className="text-xs text-gray-700 mt-2" data-slider-options>On this option only. The other options keep their own prices.</p>
+                )}
               </div>
 
               {/* ± dollars after the slider (Jonathan, Oct 22 2026): out of profit, never overhead or commission; frozen with the quote. */}
@@ -2553,7 +2560,6 @@ export default function QuoteBuilder({
                     const profitOf = (price: number, rounding: number, adj: number) => splitDollars({ price, materials: materialCost, labor: laborCost + tearOutCost, commission: showCommission ? commAmt : 0, overheadPct: overheadNow, roundingCents: rounding, adjustmentCents: adj }).find(x => x.part === 'profit')!.dollars
                     const netAfter = profitOf(adjPrice, roundingCents, adjApplied)
                     const netBefore = profitOf(listPrice, roundingCents, 0)
-                    const optionCount = jobType === 'new' ? new Set([style?.name, ...offer, ...tiers.filter(t => !t.off && t.style).map(t => t.style!.name)].filter(Boolean)).size - (foldedTier ? 1 : 0) : (work ? 1 : 0)
                     return (
                       <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 space-y-1 text-sm" data-adjust-summary>
                         <div className="flex justify-between"><span className="text-gray-600">Price before adjustment</span><span className="tabular-nums" data-adjust-list>{fmt(listPrice)}</span></div>

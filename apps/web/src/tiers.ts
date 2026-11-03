@@ -248,8 +248,8 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   for (const spec of specs) {
     const isAdded = added.some(a => a.key === spec.key)
     const base = { spec, category: set.category, popular: spec.key === popular && !prefs.off.includes(spec.key), off: prefs.off.includes(spec.key), widthFt: null as number | null, otherWidth: null as ResolvedTier['otherWidth'], ...(isAdded ? { added: true } : {}) }
-    // The price this tier adds on, through the quote's own Price adjust.
-    const tierInput: QuoteCalcInput = { ...input, priceAdjust: (input.priceAdjust || 0) + (Number(spec.priceAdjustPct) || 0) / 100 }
+    // The price this tier adds on, with the quote's own Price adjust on the main option only (proposal.ts priceOption).
+    const tierInput: QuoteCalcInput = { ...input, tierAdjust: (Number(spec.priceAdjustPct) || 0) / 100 }
     const swapName = prefs.swap[spec.key] ?? (isAdded ? spec.style ?? undefined : undefined)
     const swapStyle = swapName ? styles.find(s => s.name === swapName && isQuotable(s)) : undefined
     if (swapStyle) {

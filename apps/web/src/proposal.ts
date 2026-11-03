@@ -77,6 +77,8 @@ export interface ProposalOption {
     otherMaterial?: true
     /** An option of a style that posts a tee differently: its own post counts, which go on the quote with it when signed. */
     posts?: { corners: number; ends: number; teeLinePosts: number }
+    /** An option that is not the main one, on a quote with a Price adjust: the Price adjust it took instead (sliderTaken), which goes on the quote with it when signed. */
+    priceAdjust?: number
   }
 }
 
@@ -199,6 +201,25 @@ export const noAdjustment = { priceAdjustmentCents: undefined, showDiscountOnPro
 /** Pricing choices with the ± dollar adjustment left off. */
 export function withoutAdjustment<O extends QuoteCalcInput['overrides']>(o: O): O {
   return (o ? { ...o, ...noAdjustment } : o) as O
+}
+
+/**
+ * An option that is not the quote's main one, of the main one's own style: a move's "Move as is", a repair's "New
+ * fence instead". Neither the ± dollars nor the percent slider (Price adjust) is on it ("Yes" to "Should the slider
+ * also move only the main option?", Jonathan, Nov 3 2026).
+ */
+export function notMainInput<I extends { priceAdjust: number; overrides?: QuoteCalcInput['overrides'] }>(input: I): I {
+  return { ...input, priceAdjust: 0, overrides: withoutAdjustment(input.overrides) }
+}
+
+/** On a non-main option's snapshot: the Price adjust it took when the quote has one, so signing it puts that on the quote (portal signedPricing). */
+export function sliderTaken(quotePriceAdjust: number | undefined, took: number): { priceAdjust?: number } {
+  return (quotePriceAdjust || 0) !== took ? { priceAdjust: took } : {}
+}
+
+/** A move's "Move as is" option, priced with notMainInput: its snapshot says it took no Price adjust. */
+export function asNotMain(o: ProposalOption, quotePriceAdjust: number | undefined): ProposalOption {
+  return { ...o, snapshot: { ...o.snapshot, ...sliderTaken(quotePriceAdjust, 0) } }
 }
 
 /** Another material than the quote's own (Settings category): Vinyl, Chainlink, Aluminum, Wood. */
@@ -331,9 +352,12 @@ function minimumFor(input: QuoteCalcInput, q: ReturnType<typeof calculateQuote>,
 export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalOption {
   const posts = teePosts(input, style)
   const overrides = optionOverrides(input, style)
-  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides })
-  const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const other = !!input.style && input.style.name !== style.name
+  // The percent slider is the main option's only, as the ± dollars are ("Yes", Jonathan, Nov 3 2026); a tier's own
+  // Price adjust (Settings) is on its option either way.
+  const priceAdjust = (other ? 0 : input.priceAdjust || 0) + (input.tierAdjust || 0)
+  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides, priceAdjust })
+  const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const problems = other ? optionProblems(q) : null
   // The minimum job price, on every option ("The minimum job price applies to every option", Jonathan, Nov 2 2026).
   const min = minimumFor(input, q, overrides)
@@ -360,6 +384,7 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
       ...(other && q.priced.costFactor > 0 ? { costFactor: q.priced.costFactor } : {}),
       ...(otherMaterial(input.style, style) ? { otherMaterial: true as const } : {}),
       ...(posts ? { posts: { corners: posts.corners, ends: posts.ends, teeLinePosts: posts.extraLinePosts } } : {}),
+      ...(other ? sliderTaken(input.priceAdjust, priceAdjust) : {}),
     },
   }
 }

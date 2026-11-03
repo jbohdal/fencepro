@@ -81,6 +81,11 @@ export interface QuoteCalcInput {
   extraLaborHrs: number
   hasSalesman: boolean
   priceAdjust: number
+  /**
+   * A Good, Better, Best tier's own Price adjust (Settings, as a fraction), on top of what the option takes of the
+   * quote's priceAdjust (proposal.ts priceOption: the main option only). calculateQuote does not read it.
+   */
+  tierAdjust?: number
   pricing: PricingSettings
   overrides?: QuotePricingOverrides
   optimizer: RailOptimizerSettings
