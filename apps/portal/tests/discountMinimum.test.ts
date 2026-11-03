@@ -130,7 +130,7 @@ describe('on the real quote math', () => {
   const style: QuoteStyle = { name: 'Small', category: 'Vinyl', margin: 0.58, sectionsPerMH: 1.2, mhPerWalkGate: 2.4, mhPerDblGate: 4.8 } as QuoteStyle
   const input = (overrides = {}): QuoteCalcInput => ({
     style, runs: [{ ft: 1 }], corners: 0, ends: 0, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
-    pricing: { manHourRate: 25, commissionSalesman: 0.1, commissionNonSalesman: 0, tearOutFence: 9.5, tearOutGate: 27 } as QuoteCalcInput['pricing'], optimizer: DEFAULT_RAIL_OPTIMIZER_SETTINGS, minimumCents: MIN, overrides,
+    pricing: { laborMode: 'hourly', manHourRate: 25, commissionSalesman: 0.1, commissionNonSalesman: 0, tearOutFence: 9.5, tearOutGate: 27 } as QuoteCalcInput['pricing'], optimizer: DEFAULT_RAIL_OPTIMIZER_SETTINGS, minimumCents: MIN, overrides,
   })
 
   test('lifted to the minimum with no discount: at the minimum, so not under it, and left alone', () => {

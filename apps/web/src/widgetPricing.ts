@@ -118,7 +118,7 @@ export function widgetCatalog(cfg: Pick<AppConfig, 'fenceStyles'> & Partial<Pick
 
 /** A new quote's pricing choices in the quote builder: Settings → Pricing, nothing typed. */
 export function newQuoteOverrides(cfg: Pick<AppConfig, 'pricing'>): QuotePricingOverrides {
-  const laborMode = cfg.pricing.laborMode ?? 'hourly'
+  const laborMode = cfg.pricing.laborMode ?? 'subcontractor'
   return {
     laborMode,
     subUnit: laborMode === 'subcontractor' ? (cfg.pricing.subUnit ?? 'foot') : undefined,
