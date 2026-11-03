@@ -511,3 +511,15 @@ P&L (decided for Jonathan by the coordinator, Nov 2 2026): "for each job, labor 
 
 Second review, Nov 2 2026: "nothing vanishes, the typed number is the one used, screen and P&L agree." A job's entry is its labor; an approved crew takeoff is used only for a job with no entry (or an old entry with no labor in it; a typed $0 stands). A new entry fills in the takeoff's crew pay when there is no sub pay recorded, and crew hours on a takeoff make it a crew job even on a quote priced with sub labor. A $0 Sales Order is ignored. No completion date, no save. On a quote with no cost, a margin needs both labor and material. One job, one entry: the form says so at pick and at save, with the entry to open, and the server refuses a second one; an old double stays visible, marked, and only the newest counts.
 
+
+## 10 ft double gates and both section widths for a color (Jonathan, Nov 3 2026)
+
+Asked: "A 10 ft double gate is priced and pulled as an 8 ft one for vinyl (White, Tan, Chai Gray, Dark Gray) and aluminum, because there's no 10 ft gate kit for them. Chain link and wood have one. Should I build vinyl and aluminum 10 ft gate kits?" Answer: "A 10 ft double gate is two 5 ft leaves: build it from the 5 ft gate parts in Inventory at each fence's height."
+
+In the app (materialCalculator.ts; the built in kits follow): Aluminum Emily, no dig and dig set (4 ft tall): two "Alum, 3-Rail, Emily, Gate, 4' x 5', 48"" leaves in place of two 4' x 4'. 8 ft tall White and Tan vinyl (8'x6', 8'x8', no dig and dig set): two "V , W / V , T, Privacy, Gate 8 x 5" leaves in place of two 8 x 4. These are the takeoff sheet's own rows (TAKEOFF_RULES: 2*addOnQty("Dbl Gate - 10'")). Everything else a double gate takes is as on the 8 ft gate (hinge pairs one per leaf, latch, handles, caps, hex bolts, blank post); labor is unchanged.
+
+Left as they were, because Inventory has no 5 ft gate part for them: 6 ft tall vinyl in every color (White, Tan, Chai Gray, Dark Gray, best price included; each leaf is built from section parts), the 4 ft Bell, and Industrial Abigail (no gate parts at all). There a 10 ft double gate is still priced and pulled as an 8 ft one, with the staff note. Walk gates 5 and 6 ft and 12 ft double gates were not asked and are unchanged.
+
+Asked: "Chai Gray comes only in 8 ft sections and Dark Gray only in 6 ft. Do you sell the other width in those colors? (If yes, each gets a best price mix too.)" Answer: "Yes, add the other width".
+
+In the app (vinylColorForm.ts): a 6 ft tall color with both 6x6 and 6x8 ticked in Settings → Price List → Vinyl Colors also gets the best price fence for each set method, copied from White's (labor, profit, kits; each run priced at 6 or 8 ft, its sections from the color's 6x6 and 6x8 section kits). No price was made up: Chai Gray 6x6 and Dark Gray 6x8 have no section cost in Inventory, so the other width is added when Jonathan ticks it and types that section's cost and contents. Adding 6x6 to Chai Gray also makes its gate leaves 6x6 section kits (the form's rule since Oct 21: a leaf takes a 6 ft wide section kit when the color has one).
