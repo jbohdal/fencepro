@@ -293,10 +293,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(chain.tierCards.better.gates).toEqual([])
   })
 
-  test('each option says what the dollar adjustment did; the signed record says what the option took', () => {
+  test('the dollar adjustment is the main option\'s only: another option is priced as with none; the signed record says so', () => {
     const r = request(ALUM, setOf('Aluminum'), { off: [], swap: { good: CHAIN } }, { overrides: { priceAdjustmentCents: -500000 } })
     const o = cardOf(job(r), 'good')
-    expect(o.adjustmentRefused).toBe(true)
+    expect(o).toEqual(cardOf(job(request(ALUM, setOf('Aluminum'), { off: [], swap: { good: CHAIN } })), 'good'))
+    expect(o.adjustmentRefused).toBeUndefined()
     expect(o.adjustmentCents).toBeUndefined()
     expect(o.snapshot.gmPct).toBeGreaterThan(0.2)
     const out = signedPricing({ fenceStyle: ALUM, pricing: { priceAdjustmentCents: -500000, showDiscountOnProposal: true } }, {}, o)

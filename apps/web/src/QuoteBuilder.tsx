@@ -39,7 +39,7 @@ import { saveGate, gatedOnce } from './movedGate'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
-import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks } from './proposal'
+import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks, withoutAdjustment } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
@@ -909,7 +909,8 @@ export default function QuoteBuilder({
     const total = newLine.runs.reduce((t, n) => t + (n > 0 ? n : 0), 0)
     if (!(total > moveIn.oldFt + 0.01)) return null
     const k = moveIn.oldFt / total
-    return priceMove(workCommon, moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
+    // Another option than the main one: the ± dollar adjustment is not on it (proposal.ts optionOverrides).
+    return priceMove({ ...workCommon, overrides: withoutAdjustment(workCommon.overrides) }, moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
   }, [work])  // eslint-disable-line react-hooks/exhaustive-deps
   const moveAsIs: WorkResult | null = internal ? moveAsIsLocal : viewWork(sv?.moveAsIs ?? null)
   // Repair: "A new fence may be the better deal" (damaged sections over half a run, or price over 60% of a new fence there).
@@ -922,7 +923,7 @@ export default function QuoteBuilder({
       ? damagedRuns.map(r => ({ damaged: tapped.filter(k => Number(k.split(':')[0]) === r).length, sections: runs[r] ?? 0 }))
       : runs.some(n => n > 0) ? [{ damaged: (repairIn.items.repairSection ?? 0) + (repairIn.items.replaceSection ?? 0), sections: runs.reduce((t, n) => t + n, 0) }] : []
     const runsFt = effRuns.map((r, i) => (damagedRuns.includes(i) ? r.ft : 0))
-    const nf = runsFt.some(f => f > 0) ? calcNewFence({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...pricingOverrides, finalPrice: undefined } }) : null
+    const nf = runsFt.some(f => f > 0) ? calcNewFence({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...withoutAdjustment(pricingOverrides), finalPrice: undefined } }) : null
     const newFenceCents = nf ? Math.round(nf.priced.price * 100) : null
     return { ...newFenceBetter({ repairCents: work.priceCents, newFenceCents, damagedByRun }), newFenceCents, nf, runsFt }
   }, [work, JSON.stringify(calc.perRunSections)])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -1251,7 +1252,7 @@ export default function QuoteBuilder({
       } else {
         options.push({ ...workOption('Repair', style.name, work, savedWork, runSecs), finalPrice: adjPrice, adjustmentCents: adjApplied || undefined })
         if (offerNewFence && repairCheck?.nf) {
-          const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0 }, style)
+          const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: withoutAdjustment(calcInput.overrides) }, style)
           options.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null } })
         }
       }
@@ -2500,16 +2501,11 @@ export default function QuoteBuilder({
                           <div className="flex justify-between"><span className="text-gray-600">Net profit after</span><span className={`tabular-nums font-semibold ${netAfter < 0 ? 'text-red-700' : 'text-gray-900'}`} data-adjust-profit>{fmt(netAfter)}</span></div>
                           <p className="text-xs text-gray-500" data-adjust-gave>{adjApplied < 0 ? `You give up ${fmt(netBefore - netAfter)} of profit.` : `${fmt(netAfter - netBefore)} more profit.`} {showCommission ? 'Overhead and commission stay' : 'Overhead stays'} on {fmt(listPrice)}.</p>
                         </>}
-                        {optionCount > 1 && tiers.some(t => !t.off && t.option && t.style?.name !== style?.name) && (
-                          // Each option as it came out (review Nov 2 2026: "on every option" over a chain link option at full price, or at 9.7%).
-                          <div className="text-xs text-gray-700 border-t border-gray-200 pt-1 mt-1" data-adjust-options>
-                            <p className="font-semibold text-gray-600">The other options</p>
-                            {tiers.filter(t => !t.off && t.option && t.style?.name !== style?.name).map(t => (
-                              <p key={t.spec.key} className={t.option!.adjustmentRefused ? 'text-amber-800 font-semibold' : ''} data-adjust-option={t.spec.key}>
-                                {tierCards[t.spec.key]?.name || t.spec.name}: {t.option!.adjustmentRefused ? 'not applied, it would go under cost' : t.option!.adjustmentCents ? `${t.option!.adjustmentCents < 0 ? '−' : '+'}${fmt(Math.abs(t.option!.adjustmentCents) / 100)}` : 'no change'}{internal ? `, margin ${(t.option!.snapshot.gmPct * 100).toFixed(1)}%` : ''}
-                              </p>
-                            ))}
-                          </div>
+                        {optionCount > 1 && (
+                          // The ± dollars are the main option's only (Jonathan, Nov 2 2026: "A discount on one option must never change the price of the other options").
+                          <p className="text-xs text-gray-700 border-t border-gray-200 pt-1 mt-1" data-adjust-options>
+                            {adjApplied < 0 ? 'The discount is' : 'The adjustment is'} on this option only. The other options keep their own prices.
+                          </p>
                         )}
                         <p className="text-xs text-gray-500" data-adjust-customer-sees>{showDiscount && adjApplied < 0 ? 'The customer sees the list price, the discount and the final price.' : 'The customer sees the final price only.'}</p>
                       </div>

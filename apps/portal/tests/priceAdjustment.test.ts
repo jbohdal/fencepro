@@ -8,8 +8,10 @@
  *
  * After the slider, before the whole dollar rounding (so a typed final price
  * comes out exact); commission and overhead stay on the price before it; never
- * under cost; the same amount on every option of the proposal; the customer
- * sees list, Discount and final only when the quote says so.
+ * under cost; on the main option only, never on the proposal's other options
+ * (Jonathan, Nov 2 2026: "A discount on one option must never change the price
+ * of the other options"); the customer sees list, Discount and final only when
+ * the quote says so.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
@@ -23,7 +25,7 @@ import { quoteJobFor } from '../../web/src/estimate'
 import { quoteView } from '../../web/src/quoteJob'
 import { splitDollars } from '../../web/src/DollarPickets'
 import { requestFrom } from '../src/server/lib/quotePricing'
-import { optionPriceHtml, depositDollars } from '../src/server/routes/proposal.js'
+import { optionPriceHtml, depositDollars, signedPricing } from '../src/server/routes/proposal.js'
 
 const prices = JSON.parse(fs.readFileSync(new URL('./fixtures/inventory-prices-2026-10-14.json', import.meta.url), 'utf8'))
 beforeAll(() => setMaterialPriceSource(priceSourceFromMap(prices)))
@@ -135,25 +137,43 @@ describe('where every dollar goes: overhead stays on the price before the adjust
   })
 })
 
-describe('every option on the proposal gets the same adjustment', () => {
+describe('the adjustment is on the main option only', () => {
   const own = st("WV-ND 6'x8' Privacy")
   const other = st("WV-ND 6'x6' Privacy", { margin: 0.6 })
-  test('each option $30 lower, each with its own list price; the box decides the Discount line', () => {
+  test('the main option $30 lower; the other option at its own price, no Discount line; the box decides the Discount line', () => {
     const i = input(own, { overrides: { priceAdjustmentCents: -3000, showDiscountOnProposal: true } })
     const plain = input(own)
     const q = calculateQuote(i)
     const base = { company: { name: '', phone: '', email: '' }, customer: { name: '', address: '' }, warranty: '', settings: {}, photoIds: {} }
     const p = buildProposal({ ...base, input: i, styles: [own, other], ownPrice: q.priced.price, ownRoundingCents: q.priced.roundingCents, ownAdjustmentCents: q.priced.adjustmentCents, showDiscount: true })
     expect(p.showDiscount).toBe(true)
-    for (const o of p.options) {
-      expect(o.adjustmentCents, o.label).toBe(-3000)
-      const without = priceOption(plain, o.fenceStyle === own.name ? own : other)
-      expect(o.finalPrice).toBe(without.finalPrice - 30)
-      expect(listPriceOf(o)).toBe(without.finalPrice)
-    }
+    const main = p.options.find(o => o.fenceStyle === own.name)!
+    const rest = p.options.find(o => o.fenceStyle === other.name)!
+    expect(main.adjustmentCents).toBe(-3000)
+    expect(main.finalPrice).toBe(priceOption(plain, own).finalPrice - 30)
+    expect(listPriceOf(main)).toBe(priceOption(plain, own).finalPrice)
+    // The other option: exactly as with no adjustment on the quote.
+    expect(rest).not.toHaveProperty('adjustmentCents')
+    expect(rest.finalPrice).toBe(priceOption(plain, other).finalPrice)
+    expect(listPriceOf(rest)).toBe(rest.finalPrice)
+    expect(priceOption(i, other)).toEqual(priceOption(plain, other))
     // Unchecked: the proposal says final only.
     const off = buildProposal({ ...base, input: i, styles: [own, other], ownPrice: q.priced.price, ownAdjustmentCents: q.priced.adjustmentCents, showDiscount: false })
     expect(off.showDiscount).toBeUndefined()
+  })
+
+  test('an increase stays on the main option too', () => {
+    const i = input(own, { overrides: { priceAdjustmentCents: 50000 } })
+    expect(priceOption(i, other)).toEqual(priceOption(input(own), other))
+  })
+
+  test('an option lifted to the minimum job price takes no adjustment unless it is the main one', () => {
+    const tiny = (o: QuoteCalcInput['overrides']) => input(own, { runs: [{ ft: 6 }], walkGates: 0, minimumCents: 150_000, overrides: o })
+    const rest = priceOption(tiny({ priceAdjustmentCents: -3000 }), other)
+    expect(rest.minimumLifted).toBe(true)
+    expect([rest.finalPrice, rest.adjustmentCents]).toEqual([1500, undefined])
+    const main = priceOption(tiny({ priceAdjustmentCents: -3000 }), own)
+    expect([main.finalPrice, main.adjustmentCents]).toEqual([1470, -3000])
   })
 })
 
@@ -183,17 +203,20 @@ describe('the quote builder\'s job (owner, office and the server for a salesman)
     tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: true, priceAdjust: 0.03, overrides: {}, jobType: 'new' as const,
     compare: true, offer: ["WV-ND 6'x6' Privacy"],
   }
-  test('frozen with the quote: the amount applied and the box; every option lower by the same amount', () => {
+  test('frozen with the quote: the amount applied and the box; only the main option is lower', () => {
     const j0 = quoteJobFor(data, req, 30)
     const j = quoteJobFor(data, { ...req, overrides: { priceAdjustmentCents: -3000, showDiscountOnProposal: true } }, 30)
     expect(j.totals.price).toBe(j0.totals.price - 30)
     expect([j.totals.listPrice, j.totals.adjustmentCents]).toEqual([j0.totals.price, -3000])
     expect(j.totals.commission).toBe(j0.totals.commission)
     expect(j.pricing).toMatchObject({ priceAdjustmentCents: -3000, showDiscountOnProposal: true, wholeDollar: true })
+    expect(j.proposalOptions.length).toBe(2)
     for (const o of j.proposalOptions) {
       const was = j0.proposalOptions.find(x => x.fenceStyle === o.fenceStyle)!
-      expect(o.finalPrice, o.label).toBe(was.finalPrice - 30)
-      expect(o.adjustmentCents).toBe(-3000)
+      if (o.fenceStyle === req.fenceStyle) {
+        expect(o.finalPrice, o.label).toBe(was.finalPrice - 30)
+        expect(o.adjustmentCents).toBe(-3000)
+      } else expect(o, o.label).toEqual(was)
     }
     // A salesman's phone: prices and the adjustment, never a cost.
     const v = quoteView(j) as any
@@ -238,5 +261,49 @@ describe('a move or repair', () => {
     expect(refused.adjustmentRefused).toBe(true)
     expect(refused.priceCents).toBe(r0.priceCents)
     expect(refused.warnings.some(w => /under cost/.test(w))).toBe(true)
+  })
+})
+
+describe('a move or repair: the other option takes no adjustment', () => {
+  const data = { config: null, inventory: [], kits: [] }
+  const base = {
+    fenceStyle: "WV-ND 6'x6' Privacy", runs: [{ ft: 120, rail: 'auto' as const }], corners: 0, ends: 2, walkGates: 0, dblGates: 0,
+    tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, compare: false, offer: [],
+  }
+  test('"Move as is" keeps its price; the move on the new line takes the $300 off', () => {
+    const req = { ...base, jobType: 'move' as const, offerMoveAsIs: true, move: { oldFt: 80, oldWalkGates: 0, oldDblGates: 0, oldPostType: 'nd' as const, newPostCaps: false } }
+    const j0 = quoteJobFor(data, { ...req, overrides: {} }, 30)
+    const j = quoteJobFor(data, { ...req, overrides: { priceAdjustmentCents: -30000, showDiscountOnProposal: true } }, 30)
+    expect(j0.proposalOptions.map(o => o.label)).toEqual([expect.stringMatching(/^Move as is/), 'Move plus new fence for the extra length'])
+    const [asIs0, main0] = j0.proposalOptions, [asIs, main] = j.proposalOptions
+    expect(asIs).toEqual(asIs0)
+    expect(asIs.adjustmentCents).toBeUndefined()
+    expect([main.finalPrice, main.adjustmentCents]).toEqual([main0.finalPrice - 300, -30000])
+    expect(j.moveAsIs!.priceCents).toBe(j0.moveAsIs!.priceCents)
+  })
+
+  test('a repair\'s "New fence instead" keeps its price; the repair takes the $100 off', () => {
+    const req = { ...base, jobType: 'repair' as const, offerNewFence: true, repair: { what: 'other' as const, items: { replaceSection: 12 }, postType: 'nd' as const, newPostCaps: false, gateKind: 'walk' as const, debrisCleared: true } }
+    const j0 = quoteJobFor(data, { ...req, overrides: {} }, 30)
+    const j = quoteJobFor(data, { ...req, overrides: { priceAdjustmentCents: -10000 } }, 30)
+    expect(j0.proposalOptions.map(o => o.label)).toEqual(['Repair', expect.stringMatching(/^New fence instead/)])
+    const [rep0, nf0] = j0.proposalOptions, [rep, nf] = j.proposalOptions
+    expect(nf).toEqual(nf0)
+    expect(nf.adjustmentCents).toBeUndefined()
+    expect([rep.finalPrice, rep.adjustmentCents]).toEqual([rep0.finalPrice - 100, -10000])
+    // "A new fence may be the better deal" reads the new fence at the price offered.
+    expect(j.repairCheck!.newFenceCents).toBe(Math.round(nf.finalPrice * 100))
+  })
+})
+
+describe('signing another option than the main one', () => {
+  const q = { fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: 13301, proposal: { wholeDollar: true }, pricing: { priceAdjustmentCents: -500000, showDiscountOnProposal: true, overheadPct: 30 } }
+  test('the main option keeps its adjustment on the quote', () => {
+    expect(signedPricing(q, {}, { fenceStyle: q.fenceStyle, finalPrice: 13301, adjustmentCents: -500000 })).toEqual({})
+  })
+  test('another style, or the same style at another price ("Move as is", "New fence instead"): no adjustment on the quote', () => {
+    for (const opt of [{ fenceStyle: "WV-ND 6'x6' Privacy", finalPrice: 14211 }, { fenceStyle: q.fenceStyle, finalPrice: 9000 }]) {
+      expect(signedPricing(q, {}, opt), opt.fenceStyle).toEqual({ pricing: { overheadPct: 30 } })
+    }
   })
 })

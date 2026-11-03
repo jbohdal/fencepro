@@ -553,12 +553,15 @@ async function refused(q: any, why: 'signed' | 'accepted'): Promise<{ status: nu
  * the contract); an option of another style, its own cost factor, so a change order on the signed job follows its margin;
  * an option of another material, not the labor or per foot price typed for the quote's own (web/src/proposal.ts optionOverrides).
  */
-export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceStyle?: string }, s: any, opt?: { fenceStyle?: string; adjustmentCents?: number }): { pricing?: any } {
+export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceStyle?: string; finalPrice?: number | null }, s: any, opt?: { fenceStyle?: string; adjustmentCents?: number; finalPrice?: number }): { pricing?: any } {
   const rounded = typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true
   const factor = typeof s.costFactor === 'number' && s.costFactor > 0
-  // Another option than the quote's own: the record says the adjustment that option really took (a -$5,000 it could not take is not on it).
+  // Another option than the quote's own: the record says the adjustment that option really took. The ± dollar
+  // adjustment is the main option's only (Nov 2 2026), so another option signed carries none. Of the same style at
+  // another price: a move's "Move as is", a repair's "New fence instead".
   const had = Number((q.pricing as any)?.priceAdjustmentCents) || 0
-  const other = !!opt && !!q.fenceStyle && opt.fenceStyle !== q.fenceStyle
+  const samePrice = typeof q.finalPrice === 'number' && Math.round(Number(opt?.finalPrice) * 100) === Math.round(q.finalPrice * 100)
+  const other = !!opt && !!q.fenceStyle && (opt.fenceStyle !== q.fenceStyle || !samePrice)
   const fixAdjustment = other && had !== (Number(opt!.adjustmentCents) || 0)
   if (!rounded && !factor && !s.otherMaterial && !fixAdjustment) return {}
   const pricing: any = { ...((q.pricing as any) ?? {}) }

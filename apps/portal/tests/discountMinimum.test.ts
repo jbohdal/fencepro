@@ -140,4 +140,13 @@ describe('on the real quote math', () => {
     expect(pricesUnderMinimum({ fenceStyle: 'Small', finalPrice: o.finalPrice, proposal: { options: [o] } }, MIN).map(u => u.priceCents)).toEqual([30000])
     expect(JSON.stringify(o)).toBe(before)
   })
+
+  test('$50 off the main option: only the main option is under it; another option stays at the minimum, not blocked', () => {
+    const other = { ...style, name: 'Small Other' } as QuoteStyle
+    const main = priceOption(input({ priceAdjustmentCents: -5000 }), style)
+    const rest = priceOption(input({ priceAdjustmentCents: -5000 }), other)
+    expect([rest.finalPrice, rest.adjustmentCents, rest.minimumLifted]).toEqual([350, undefined, true])
+    const under = pricesUnderMinimum({ fenceStyle: 'Small', finalPrice: main.finalPrice, proposal: { options: [main, rest] } }, MIN)
+    expect(under.map(u => [u.name, u.priceCents, u.own])).toEqual([[main.label, 30000, true]])
+  })
 })

@@ -170,7 +170,6 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
   return r > 0 ? (price * r) / (1 - Math.pow(1 + r, -months)) : price / months
 }
 
-/** The same job priced as another style. A price typed by hand is left out. */
 /**
  * The quote's pricing choices as another style's option takes them: never
  * the quote's typed final price, and never the cost factor the quote's own
@@ -180,14 +179,26 @@ export function monthlyPayment(price: number, aprPct: number, months: number): n
  * website draft's Good (dig set, its own factor) read $668 more than the
  * website showed the customer (review, Oct 25, 2026). Each other style is
  * priced at its own factor, as on a new quote and on the website.
+ *
+ * The ± dollar adjustment is the main option's only ("A discount on one
+ * option must never change the price of the other options", Jonathan, Nov 2
+ * 2026): $5,000 off the main option had come off Good and Best too.
  */
 export function optionOverrides(input: Pick<QuoteCalcInput, 'overrides' | 'style'>, style: Pick<QuoteStyle, 'name' | 'category'>): QuoteCalcInput['overrides'] {
   const same = !!input.style && input.style.name === style.name
   return {
-    ...(input.overrides ?? {}), finalPrice: undefined, ...(same ? {} : { costFactor: undefined }),
+    ...(input.overrides ?? {}), finalPrice: undefined, ...(same ? {} : { costFactor: undefined, ...noAdjustment }),
     // Labor or a per foot price typed for the quote's own material is not this material's (Nov 2 2026: "priced with its own kit, labor and margin").
     ...(otherMaterial(input.style, style) ? { laborCost: undefined, subRate: undefined, pricePerFoot: undefined } : {}),
   }
+}
+
+/** No ± dollar adjustment: an option that is not the quote's main one (optionOverrides, a repair's "New fence instead", "Move as is"). */
+export const noAdjustment = { priceAdjustmentCents: undefined, showDiscountOnProposal: undefined } as const
+
+/** Pricing choices with the ± dollar adjustment left off. */
+export function withoutAdjustment<O extends QuoteCalcInput['overrides']>(o: O): O {
+  return (o ? { ...o, ...noAdjustment } : o) as O
 }
 
 /** Another material than the quote's own (Settings category): Vinyl, Chainlink, Aluminum, Wood. */
@@ -266,12 +277,13 @@ export function optionBlocks(p: { options?: Array<Partial<ProposalOption> & { wa
 }
 
 /** An option lifted to the minimum job price (input.minimumCents, a new fence only), or null: over it, or typed by hand. */
-function minimumFor(input: QuoteCalcInput, q: ReturnType<typeof calculateQuote>) {
+function minimumFor(input: QuoteCalcInput, q: ReturnType<typeof calculateQuote>, overrides: QuoteCalcInput['overrides']) {
   const cents = input.minimumCents ?? 0
   const p = q.priced
   if (!(cents > 0) || p.priceMethod === 'manual' || !(p.price > 0) || Math.round(p.priceBeforeAdjustment * 100) >= cents) return null
   const commissionCents = Math.round(cents * p.commissionPct)
-  const r = adjustedPrice(cents, input.overrides, Math.round(p.totalCOGS * 100) + commissionCents)
+  // The option's own pricing choices: another option than the main one takes no ± dollar adjustment.
+  const r = adjustedPrice(cents, overrides, Math.round(p.totalCOGS * 100) + commissionCents)
   const price = r.priceCents / 100
   const margin = Math.round((price - p.totalCOGS - commissionCents / 100) * 100) / 100
   return { price, roundingCents: r.roundingCents, adjustmentCents: r.adjustmentCents, adjustmentRefused: r.refused, gmPct: price > 0 ? margin / price : 0 }
@@ -279,12 +291,13 @@ function minimumFor(input: QuoteCalcInput, q: ReturnType<typeof calculateQuote>)
 
 export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalOption {
   const posts = teePosts(input, style)
-  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides: optionOverrides(input, style) })
+  const overrides = optionOverrides(input, style)
+  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides })
   const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const other = !!input.style && input.style.name !== style.name
   const problems = other ? optionProblems(q) : null
   // The minimum job price, on every option ("The minimum job price applies to every option", Jonathan, Nov 2 2026).
-  const min = minimumFor(input, q)
+  const min = minimumFor(input, q, overrides)
   const price = min ? min.price : q.priced.price
   const adjustment = min ? min.adjustmentCents : q.priced.adjustmentCents
   const refused = min ? min.adjustmentRefused : q.priced.adjustmentRefused
