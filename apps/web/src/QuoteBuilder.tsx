@@ -33,7 +33,7 @@ import VoicePanel, { type VoiceHandle } from './VoicePanel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { fetchCurrentUser, currentUser } from './crmAuth'
 import { saveConfig } from './configStore'
-import { tapeChecks, tapeFlags, gateChecks, marginCheck, perFootCheck, type NamedRun } from './quoteChecks'
+import { tapeChecks, tapeFlags, gateChecks, marginCheck, fenceTargetMargin, perFootCheck, type NamedRun } from './quoteChecks'
 import { getQuotes, quoteStillMine, QUOTE_REPRICE_EVENT, serverSavedPrice } from './quoteStore'
 import { saveGate, gatedOnce } from './movedGate'
 import { pendingFor } from './outbox'
@@ -1149,14 +1149,14 @@ export default function QuoteBuilder({
     ...work.warnings,
     ...(matchWarning ? [matchWarning] : []),
     ...(work.needs811 ? ['New posts go in the ground: an 811 locate ticket is needed before digging. It goes on the crew packet.'] : []),
-    ...[seesMargin && work.costCents > 0 && !work.minimumApplied ? marginCheck(viewGmPct, cfg.margins?.good ?? 0.34, adjPrice) : null].filter((x): x is string => !!x),
+    ...[seesMargin && work.costCents > 0 && !work.minimumApplied && style ? marginCheck(viewGmPct, fenceTargetMargin(style, overheadNow, mr), adjPrice, mr.repairProfitPct !== null ? 'Overhead + Repair Profit' : undefined) : null].filter((x): x is string => !!x),
   ] : [
     ...(style ? tapeChecks(namedRuns, runWidths) : []),
     ...(fromLayout ? gateChecks(yard) : []),
     // Pricing notes only once a style is picked (before that there is nothing to price).
     ...(style ? materials.warnings : []),
     ...(style ? priced.notes : []),
-    ...[seesMargin && style && sections > 0 ? marginCheck(viewGmPct, cfg.margins?.good ?? 0.34, adjPrice) : null,
+    ...[seesMargin && style && sections > 0 ? marginCheck(viewGmPct, fenceTargetMargin(style, overheadNow), adjPrice) : null,
         style && sections > 0 ? perFootCheck(priced.pricePerFoot, style.name, pastQuotes, quoteIdRef.current) : null].filter((x): x is string => !!x),
   ])]
 

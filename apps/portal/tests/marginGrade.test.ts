@@ -6,7 +6,7 @@ import { describe, test, expect } from 'vitest'
 import { marginOnPrice, pricedTarget, quoteGrade, weightedTarget, withChangeOrders } from '../../web/src/moneyTruth'
 import { afterCommission } from '../../web/src/salesmanCommission'
 import { heldSavedNumbers } from '../../web/src/heldQuote'
-import { marginCheck } from '../../web/src/quoteChecks'
+import { marginCheck, fenceTargetMargin } from '../../web/src/quoteChecks'
 
 // Today's Settings: overhead 36.9 + Target Profit 14 = 50.9.
 const STYLES = [{ name: 'WV', margin: 0.491, targetProfitPct: 14 }, { name: 'Alum', margin: 0.511, targetProfitPct: 12 }, { name: 'Tan', margin: 0.491, targetProfitPct: 14, colorTargetProfitPct: 16 }]
@@ -61,12 +61,55 @@ describe('a quote is graded on price less cost against what it was priced with',
   })
 })
 
-describe('the builder warning', () => {
-  const GOOD = 0.396
-  test('a low quote warns, in words, at the Settings number', () => {
-    expect(marginCheck(0.35, GOOD, 5000)).toBe('Margin is 35.0% (price less cost), under your 39.6% good margin in Settings.')
+describe('the builder warning: under the quote\'s own fence\'s Target Margin (Jonathan, Nov 3 2026)', () => {
+  // No dig: overhead 25.6 + Target Profit 14 = 39.6, the number the old fixed "good margin" sat at.
+  const ND = { name: 'WV-ND', margin: 0.604, targetProfitPct: 14 }
+  // Dig set with its own Target Profit on the fence (18): 25.6 + 18 = 43.6.
+  const DS = { name: 'WV-DS', margin: 0.564, targetProfitPct: 14, ownProfitPct: 18 }
+  // Tan follows its color's 16: 25.6 + 16 = 41.6.
+  const TAN = { name: 'TV-ND', margin: 0.584, targetProfitPct: 14, colorTargetProfitPct: 16 }
+
+  test('a quote priced right at its target does not warn, whole dollar rounding included', () => {
+    expect(fenceTargetMargin(ND, 25.6)).toBeCloseTo(0.396, 9)
+    expect(marginCheck(0.396, fenceTargetMargin(ND, 25.6), 9000)).toBeNull()
+    for (const cogs of [1234.56, 5432.1, 7061.44, 333.33, 99.99]) {
+      // Rounded down to the whole dollar: up to 99 cents under the exact target.
+      const price = Math.floor(cogs / (1 - 0.396))
+      expect(marginCheck((price - cogs) / price, fenceTargetMargin(ND, 25.6), price), String(cogs)).toBeNull()
+    }
   })
+
+  test('below its target warns, in words, at that fence\'s number', () => {
+    expect(marginCheck(0.35, fenceTargetMargin(ND, 25.6), 5000)).toBe('Margin is 35.0% (price less cost), under this fence\'s 39.6% Target Margin (Overhead + Target Profit in Settings).')
+    // $5 under the target price on a $6,622 quote: under, not rounding.
+    const price = Math.floor(4000 / (1 - 0.396)) - 5
+    expect(marginCheck((price - 4000) / price, 0.396, price)).toMatch(/^Margin is 39\.\d% \(price less cost\), under this fence's 39\.6% Target Margin/)
+  })
+
+  test('a fence with its own Target Profit is held to its own number', () => {
+    const t = fenceTargetMargin(DS, 25.6)
+    expect(t).toBeCloseTo(0.436, 9)
+    // 41% is over the No dig 39.6 but under this fence's 43.6.
+    expect(marginCheck(0.41, t, 8000)).toBe('Margin is 41.0% (price less cost), under this fence\'s 43.6% Target Margin (Overhead + Target Profit in Settings).')
+    expect(marginCheck(0.436, t, 8000)).toBeNull()
+  })
+
+  test('a different fence\'s target: the same margin warns on one and not on the other', () => {
+    expect(fenceTargetMargin(TAN, 25.6)).toBeCloseTo(0.416, 9)
+    expect(marginCheck(0.40, fenceTargetMargin(ND, 25.6), 7000)).toBeNull()
+    expect(marginCheck(0.40, fenceTargetMargin(TAN, 25.6), 7000)).toMatch(/under this fence's 41\.6% Target Margin/)
+  })
+
+  test('at the overhead the quote is priced at; a move or repair at Overhead + Repair Profit', () => {
+    expect(fenceTargetMargin(ND, 30)).toBeCloseTo(0.44, 9)
+    expect(fenceTargetMargin(ND, 25.6, { repairProfitPct: 20 })).toBeCloseTo(0.456, 9)
+    expect(fenceTargetMargin(ND, 25.6, { repairProfitPct: null })).toBeCloseTo(0.396, 9)
+    expect(marginCheck(0.44, 0.456, 3000, 'Overhead + Repair Profit')).toMatch(/45\.6% Target Margin \(Overhead \+ Repair Profit in Settings\)/)
+    // A style with no Target Profit on record: its Target Margin as Settings resolved it.
+    expect(fenceTargetMargin({ margin: 0.6 }, 25.6)).toBeCloseTo(0.4, 9)
+  })
+
   test('a Salesman quote at target does not: price less cost 44, 35 after commission', () => {
-    expect(marginCheck(0.44, GOOD, 5000)).toBeNull()
+    expect(marginCheck(0.44, fenceTargetMargin(ND, 30), 5000)).toBeNull()
   })
 })

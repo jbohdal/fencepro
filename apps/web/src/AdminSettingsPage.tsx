@@ -422,10 +422,8 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
             <label className={`${LABEL} flex items-center gap-2`}>
               Good <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
             </label>
-            <div className="flex items-center">
-              <input type="number" step="0.5" min="0" max="100" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-400" value={Math.round(m.good * 1000) / 10} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setM('good', Math.round(v * 10) / 1000) }} />
-              <span className="text-gray-400 text-sm ml-2">%+</span>
-            </div>
+            {/* Each fence's own Target Margin, never one number for all (Jonathan, Nov 3 2026: "Warn only when a quote is under that fence's own target margin"). */}
+            <p className="text-sm text-gray-600" data-margin-good>At or over the fence's own Target Margin (Overhead + Target Profit, in Fence styles). A quote under it shows a warning.</p>
           </div>
           <div>
             <label className={`${LABEL} flex items-center gap-2`}>

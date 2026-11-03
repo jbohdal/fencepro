@@ -5,6 +5,8 @@
 
 import { styleLabel } from './fenceCatalog'
 import { formatFtIn, type YardLayout } from './yardLayout'
+import { earnedProfitPct } from './targetMargin'
+import type { FenceStyle } from './configStore'
 
 /** "Back (150' 0")" for a layout run, "Run 2 (81' 0")" for a typed one. */
 export interface NamedRun { ft: number; label: string }
@@ -51,10 +53,28 @@ export function gateChecks(layout: YardLayout | null): string[] {
 
 const pctWords = (n: number) => `${Math.round(n * 1000) / 10}%`
 
-/** Price less cost (before commission: a Salesman's quote at target never warns for her commission) under the "good" margin in Settings. */
-export function marginCheck(margin: number, target: number, price: number): string | null {
-  if (!(price > 0) || !(target > 0) || margin >= target) return null
-  return `Margin is ${(margin * 100).toFixed(1)}% (price less cost), under your ${pctWords(target)} good margin in Settings.`
+/**
+ * The Target Margin a quote's fence is priced to reach (a fraction): the Overhead % the quote is priced at + the
+ * fence's Target Profit as Settings resolve it (its own, its color's, the one it follows; targetMargin.ts). A move or
+ * repair with a Repair Profit % in Settings: Overhead + Repair Profit, as moveRepair.ts prices it.
+ */
+export function fenceTargetMargin(style: TargetStyle, overheadPct: number, work: { repairProfitPct: number | null } | null = null): number {
+  if (work && work.repairProfitPct !== null && overheadPct + work.repairProfitPct < 100) return (overheadPct + work.repairProfitPct) / 100
+  const profit = earnedProfitPct(style)
+  if (typeof profit === 'number' && Number.isFinite(profit) && Number.isFinite(overheadPct)) return (overheadPct + profit) / 100
+  return 1 - (Number(style.margin) || 0)
+}
+type TargetStyle = Pick<FenceStyle, 'margin' | 'ownProfitPct' | 'colorTargetProfitPct' | 'followed' | 'targetProfitPct'>
+
+/**
+ * Price less cost (before commission: a Salesman's quote at target never warns for her commission) under the quote's
+ * own fence's Target Margin (Jonathan, Nov 3 2026: "Warn only when a quote is under that fence's own target margin").
+ * A quote priced at its target is rounded down to the whole dollar, so up to a dollar under it never warns.
+ */
+export function marginCheck(margin: number, target: number, price: number, from = 'Overhead + Target Profit'): string | null {
+  if (!(price > 0) || !(target > 0)) return null
+  if ((margin - target) * price > -1 - 1e-9) return null
+  return `Margin is ${(margin * 100).toFixed(1)}% (price less cost), under this fence's ${pctWords(target)} Target Margin (${from} in Settings).`
 }
 
 export interface PastQuote { id?: string; fenceStyle: string; finalPrice: number; runs?: number[]; status?: string }
