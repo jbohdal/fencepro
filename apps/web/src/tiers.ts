@@ -76,7 +76,7 @@ export function tierChoicesFor(styles: Array<Parameters<typeof styleParts>[1] & 
   }
 }
 
-export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Whichever width prices lower (6 or 8 ft)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
+export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Best price (6 or 8 ft sections, whichever prices lower)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
 /** Wood's picket grades are its tier "colors" (wood.ts WOOD_GRADES); they are a choice, not a color in Settings. */
 export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', pine: 'PT Pine pickets', premium: 'Alta Premium pickets' }
 
@@ -169,7 +169,9 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     const q = styleParts(s.name, s as Parameters<typeof styleParts>[1])
     if (!q || q.family !== p.family || q.height !== p.height || (q.model ?? '') !== (p.model ?? '')) return false
     if (q.color !== color || q.install !== install) return false
-    if (width === 'any') return q.width !== 'auto'
+    // Whichever prices lower: the best price mix (6 or 8 ft per run) is one of the widths, so Better on a best price
+    // quote is the quote's own fence at the quote's price (Jonathan, Nov 2 2026: "make the main quote price equal Better").
+    if (width === 'any') return true
     if (width === null) return true
     return widthOf(s, q) === width
   }
@@ -192,6 +194,24 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     }
   }
   return { styles: found, pickCheaper: width === 'any', ...(heldWidths.length ? { heldWidths } : {}) }
+}
+
+/**
+ * Styles priced for one yard, the cheapest first; on a tie the best price mix, then the wider width (fewer posts to
+ * set). The tiers' "whichever width prices lower" and the Salesman's quote (salesmanPicks.ts) pick with this, so the
+ * two land on the same fence.
+ */
+export function pricedCheapestFirst<S extends QuoteStyle>(input: QuoteCalcInput, styles: S[]): Array<{ s: S; o: ProposalOption; w: number | 'auto' | null | undefined }> {
+  const priced = styles.map(s => ({ s, o: priceOption(input, s), w: styleParts(s.name, s as Parameters<typeof styleParts>[1])?.width }))
+  const rank = (w: unknown) => (w === 'auto' ? 100 : typeof w === 'number' ? w : 0)
+  priced.sort((a, b) => Math.round(a.o.finalPrice * 100) - Math.round(b.o.finalPrice * 100) || rank(b.w) - rank(a.w))
+  return priced
+}
+
+/** The cheapest of `styles` for this yard (pricedCheapestFirst); undefined when there are none. */
+export function cheapestStyle<S extends QuoteStyle>(input: QuoteCalcInput, styles: S[]): S | undefined {
+  if (styles.length <= 1) return styles[0]
+  return pricedCheapestFirst(input, styles)[0]?.s
 }
 
 export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotable?: boolean }>(
@@ -222,9 +242,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
     const r = tierStyles(spec, own, styles)
     const swapOff = swapName && !isAdded ? { swapOff: swapName } : {}
     if ('reason' in r) { out.push({ ...base, ...swapOff, swapped: false, reason: r.reason }); continue }
-    const priced = r.styles.map(s => ({ s, o: priceOption(tierInput, s), w: styleParts(s.name, s as Parameters<typeof styleParts>[1])?.width }))
-    // The cheaper width; on a tie the wider one (fewer posts to set).
-    priced.sort((a, b) => a.o.finalPrice - b.o.finalPrice || (typeof b.w === 'number' && typeof a.w === 'number' ? b.w - a.w : 0))
+    const priced = pricedCheapestFirst(tierInput, r.styles)
     const pick = priced[0]
     const res: ResolvedTier = { ...base, ...swapOff, swapped: false, style: pick.s, option: pick.o }
     if (r.pickCheaper && typeof pick.w === 'number') {
