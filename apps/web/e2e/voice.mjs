@@ -113,7 +113,7 @@ try {
     await go(b, 'yard')
     await b.locator('[data-shape="backyard"]').click()
     await go(b, 'style')
-    await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" })
+    await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
     await go(b, 'customer')
     await voiceOn(b)
     await b.locator('[data-voice-walk]').click()
@@ -166,7 +166,7 @@ try {
     await go(b, 'yard')
     await b.locator('[data-shape="backyard"]').click()
     await go(b, 'style')
-    await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" })
+    await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
     await go(b, 'yard')
     // A quick mic on a side tries live voice, gets "network", and offers recording.
     await b.locator('[data-side="Left return"] [data-side-mic]').click(); await sleep(1500)

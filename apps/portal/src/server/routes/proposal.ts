@@ -764,7 +764,7 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
       <input type="radio" name="option" value="${i}"${i === chosen ? ' checked' : ''}${accepted || !canSign ? ' disabled' : ''}>
       ${photo}
       <span class="optbody">
-        ${accepted ? '' : sold !== null ? (p.kind ? '<span class="badge" data-sold-option>Your fence</span>' : '') : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 && !p.noRecommendedLabel ? '<span class="badge">Recommended</span>' : ''}
+        ${accepted ? '' : sold !== null ? (p.kind ? '<span class="badge" data-sold-option>Your fence</span>' : '') : o.badge ? `<span class="badge">${esc(o.badge)}</span>` : i === rec && shownCount > 1 && !p.noRecommendedLabel ? '<span class="badge">Most popular</span>' : ''}
         ${o.tier?.label ? `<span class="tier">${esc(o.tier.label)}</span>` : ''}
         <span class="optlabel">${esc(o.label)}</span>
         ${o.tier?.blurb ? `<span class="blurb">${esc(o.tier.blurb)}</span>` : ''}

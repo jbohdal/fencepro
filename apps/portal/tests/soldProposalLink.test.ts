@@ -55,9 +55,9 @@ describe('the proposal link of a quote already sold in the app', () => {
   })
 
   test('sold for a fence no longer on the proposal: no options, nothing to sign, the fence as signed and call us', () => {
-    const html = renderProposal(q, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [], sold: -1, soldLabel: 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig' })
+    const html = renderProposal(q, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [], sold: -1, soldLabel: 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig' })
     expect(html).toContain('data-already-signed')
-    expect(html).toContain('Your fence was already agreed with us for <b>White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig</b> at <b>$7,363</b>. To make a change, please call us at')
+    expect(html).toContain('Your fence was already agreed with us for <b>White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig</b> at <b>$7,363</b>. To make a change, please call us at')
     expect(html).not.toContain('id="accept"')
     expect(html).not.toContain('id="sig"')
     expect(html).not.toContain("getElementById('go')")

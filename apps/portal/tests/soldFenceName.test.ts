@@ -11,7 +11,7 @@ import { newestWalkthroughPhotos } from '../src/server/routes/installPacket'
 import { styleLabel } from '../../web/src/fenceCatalog'
 import { soldStyleLabel } from '../../web/src/soldStyleLabel'
 
-const NAME = 'Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), Dig set'
+const NAME = 'Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), Dig set'
 const opt = (fenceStyle: string, runRails?: string[]) => ({ label: fenceStyle, fenceStyle, finalPrice: 5000, snapshot: { pullSheet: [], ...(runRails ? { runRails } : {}) } })
 
 describe('a sold best price fence on staff screens', () => {
@@ -27,7 +27,7 @@ describe('a sold best price fence on staff screens', () => {
   test('the runs\' picks: the option of that style that saved them, else the quote\'s own', () => {
     const q = { fenceStyle: NAME, runRails: ['auto', 'auto'], proposal: { options: [opt('Other'), opt(NAME), opt(NAME, ['8ft', '8ft'])] } }
     expect(soldRailsOf(q)).toEqual(['8ft', '8ft'])
-    expect(customerFenceName(NAME, soldRailsOf(q))).toBe('Tan Vinyl Privacy, 6 ft tall, 8 ft panels, Dig set')
+    expect(customerFenceName(NAME, soldRailsOf(q))).toBe('Tan Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set')
     // No option saved them: the quote's own picks.
     expect(soldRailsOf({ fenceStyle: NAME, runRails: ['6ft', '8ft'], proposal: { options: [opt(NAME)] } })).toEqual(['6ft', '8ft'])
     // Another style's quote: its picks are not this fence's.
@@ -35,15 +35,15 @@ describe('a sold best price fence on staff screens', () => {
     expect(soldRailsOf(null)).toBeUndefined()
   })
 
-  test('the web name: the panels used; both widths; without picks "6 ft or 8 ft panels"; never "(best price)"', () => {
+  test('the web name: the panels used; both widths; without picks "6 ft or 8 ft sections"; never "(best price)"', () => {
     expect(styleLabel(NAME)).toBe(NAME) // a plain name not in Settings stays as written
-    expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['8ft'] })).toBe('Tan Vinyl Privacy, 6 ft tall, 8 ft panels, Dig set')
-    expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['6ft'] })).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft panels, Dig set')
-    expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['8ft', '6ft'] })).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft and 8 ft panels, Dig set')
-    expect(soldStyleLabel(NAME, null)).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, Dig set')
+    expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['8ft'] })).toBe('Tan Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set')
+    expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['6ft'] })).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft sections, Dig set')
+    expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['8ft', '6ft'] })).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft and 8 ft sections, Dig set')
+    expect(soldStyleLabel(NAME, null)).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, Dig set')
     expect(soldStyleLabel(NAME, { fenceStyle: NAME, runRails: ['auto'] })).not.toContain('best price')
     // Any other fence: as written; a saved label is never changed, only the words shown.
-    expect(soldStyleLabel('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig', null)).toBe('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+    expect(soldStyleLabel('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig', null)).toBe('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
     expect(soldStyleLabel('', null)).toBe('')
   })
 })

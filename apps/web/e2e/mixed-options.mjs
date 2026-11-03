@@ -130,7 +130,7 @@ try {
   const clPrice = await priceOf(b, 'good')
   check('chain link option: its own name and a lower price', (await card(b, 'good').locator('[data-tier-name]').textContent()) === 'Chain link' && clPrice < alumPrice, `chain link $${clPrice}, aluminum $${alumPrice}`)
   check('chain link option: its own warranty and the words of its own material', /Warranty:/.test(await card(b, 'good').locator('[data-tier-warranty]').textContent()) && /Schedule 40/.test(await card(b, 'good').locator('[data-tier-text]').textContent()), await card(b, 'good').textContent())
-  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*6 ft panels.*No dig')
+  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*6 ft sections.*No dig')
   const added = card(b, 'added1')
   check('Add option: a third option of any material', (await b.locator('[data-tier]').count()) === 3 && /Vinyl/.test(await added.locator('[data-tier-name]').textContent()), `$${await priceOf(b, 'added1')}`)
   check('three on the proposal: no more can be added', (await b.locator('[data-option-add]').count()) === 0)
@@ -412,7 +412,7 @@ try {
 
   // Compare options stop at the limit.
   const fx7 = await phone(browser, SALES)
-  b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall, 6 ft panels.*No dig')
+  b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall, 6 ft sections.*No dig')
   await b.locator('[data-compare-toggle]').tap(); await sleep(1500)
   const free = await b.locator('[data-compare-row] input:not(:disabled):not(:checked)').count()
   check('Compare options: with 3 on, no more can be ticked', free === 0, `${free} open, ${await b.locator('[data-compare-row]').count()} rows`)

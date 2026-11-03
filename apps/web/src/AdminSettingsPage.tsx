@@ -465,14 +465,14 @@ function OptimizerTab({ config, onChange }: { config: AppConfig; onChange: (c: A
       <div>
         <h3 className={TITLE}>Smart Rail Optimization</h3>
         <p className={HELP}>
-          Picks 6 ft or 8 ft panels for each side to give the lowest price. The pull sheet follows the same choice.
+          Picks 6 ft or 8 ft sections for each side to give the lowest price. The pull sheet follows the same choice.
         </p>
 
         <div className="space-y-5">
           <label className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 cursor-pointer hover:bg-gray-100">
             <div>
               <p className="text-sm font-medium text-gray-900">Enable smart rail optimization</p>
-              <p className="text-sm text-gray-500 mt-0.5">When off, every side uses 6 ft panels.</p>
+              <p className="text-sm text-gray-500 mt-0.5">When off, every side uses 6 ft sections.</p>
             </div>
             <input type="checkbox" checked={opt.enabled} onChange={e => set('enabled', e.target.checked)} className="w-5 h-5 accent-orange-500" />
           </label>

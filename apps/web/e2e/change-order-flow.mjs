@@ -159,7 +159,7 @@ try {
 
   // ── 0. Jonathan, job B: 6 ft more on a side, every tap and key press counted ──
   {
-    // A side where 6 ft more is still the same 8 ft panels (per run rounding) when there is one: the $0 case.
+    // A side where 6 ft more is still the same 8 ft sections (per run rounding) when there is one: the $0 case.
     const side = templateB.layout.yard.sides.find(x => plain(x) && x.lengthIn % 12 === 0 && [1, 2].includes((x.lengthIn / 12) % 8)) ?? templateB.layout.yard.sides.find(plain)
     const ftWasB = Math.floor(side.lengthIn / 12)
     await open(`${APP}/operations?job=${B.jobId}`)

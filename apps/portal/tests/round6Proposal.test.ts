@@ -3,7 +3,7 @@
  *   3. a repair proposal says repair (one option: no "Choose an option above"; the warranty runs from the
  *      repair date; Property and Access says the day of the repair);
  *   4. sold in the app but never signed by the customer: "agreed with us", not "signed";
- *   5. a best price fence is "6 ft or 8 ft panels", never the office's "(best price)" tag, on the
+ *   5. a best price fence is "6 ft or 8 ft sections", never the office's "(best price)" tag, on the
  *      proposal, the signed page and the contract, and the sold link names it as the signed page does.
  */
 
@@ -82,20 +82,20 @@ describe('sold in the app, never signed by the customer', () => {
 })
 
 describe('a best price fence by its plain name', () => {
-  const AUTO = 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig'
-  const EIGHT = 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig'
+  const AUTO = 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig'
+  const EIGHT = 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig'
 
   test('the customer name drops the office tag; anything else is as written', () => {
-    expect(customerFenceName(AUTO)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig')
+    expect(customerFenceName(AUTO)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig')
     expect(customerFenceName(EIGHT)).toBe(EIGHT)
     expect(customerFenceName('Fence repair')).toBe('Fence repair')
   })
 
-  test('the proposal, the sold link and the signed page all say "6 ft or 8 ft panels"; the price is the saved one', () => {
+  test('the proposal, the sold link and the signed page all say "6 ft or 8 ft sections"; the price is the saved one', () => {
     // The best price option is the same fence as the 8 ft tier (sold through its twin card).
     const P = { version: 1, company, customer: { name: 'Pat Test' }, depositPct: 50, recommended: 0, terms: [], options: [opt(EIGHT, 'WV8', 7363, { tier: { key: 'better', label: 'Better' } }), opt(AUTO, 'WVAUTO', 7363)] }
     const open = renderProposal({ ...q, fenceStyle: 'WVAUTO', finalPrice: 7363 }, P as any, 'tok', 'n', [], null, '', { start: 1, hidden: [] })
-    expect(open).toContain('6 ft or 8 ft panels')
+    expect(open).toContain('6 ft or 8 ft sections')
     expect(open).not.toContain('best price')
 
     // proposalPage puts the standing fence's name on the twin card it is shown by.
@@ -103,12 +103,12 @@ describe('a best price fence by its plain name', () => {
     expect(standingOptionOf(P.options, { fenceStyle: 'WV8', finalPrice: 7363 }, 0)).toBe(0)
     const relabeled = { ...P, options: [{ ...P.options[0], label: AUTO }, P.options[1]] }
     const soldLink = renderProposal({ ...q, fenceStyle: 'WVAUTO', finalPrice: 7363 }, relabeled as any, 'tok', 'n', [], null, '', { start: 0, hidden: [1], sold: 0 })
-    expect(soldLink).toContain('agreed with us for <b>White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig</b> at <b>$7,363</b>')
+    expect(soldLink).toContain('agreed with us for <b>White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig</b> at <b>$7,363</b>')
 
     const signed = { ...q, fenceStyle: 'WVAUTO', finalPrice: 7363, acceptedAt: new Date('2026-10-27T15:00:00Z'), acceptedBy: 'Pat Test', chosenOption: 0, status: 'SOLD' }
     const page = renderProposal(signed, relabeled as any, 'tok', 'n', [], null, '', { start: 0, hidden: [] })
-    expect(page).toContain('Pat Test on October 27, 2026: White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig at $7,363.')
+    expect(page).toContain('Pat Test on October 27, 2026: White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig at $7,363.')
     // The contract's signed record names it the same (signed through the 8 ft twin card).
-    expect(acceptedOptionText({ proposal: P, chosenOption: 0, fenceStyle: 'WVAUTO', finalPrice: 7363, acceptedAt: signed.acceptedAt } as any)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig at $7,363.00')
+    expect(acceptedOptionText({ proposal: P, chosenOption: 0, fenceStyle: 'WVAUTO', finalPrice: 7363, acceptedAt: signed.acceptedAt } as any)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig at $7,363.00')
   })
 })

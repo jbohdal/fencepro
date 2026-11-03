@@ -859,7 +859,7 @@ try {
       await b.waitFor({ timeout: 20000 })
       await tap(O, b.locator('[data-step="style"]'))
       await tap(O, b.locator('[data-job-type-option="repair"]'))
-      await pickStyle(b, /White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig/i)
+      await pickStyle(b, /White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig/i)
       await tap(O, b.locator('[data-what="leaning"]'))
       if (await b.locator('[data-repair-starter-add]').count()) await tap(O, b.locator('[data-repair-starter-add]'))
       await tap(O, b.locator('[data-repair-item="resetPost"] button[aria-label^="One more"]'))

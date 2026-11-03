@@ -305,14 +305,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(out.pricing.showDiscountOnProposal).toBeUndefined()
   })
 
-  test('no Most popular: no Recommended label; a proposal saved before keeps its label', async () => {
+  test('no Most popular: no badge; a proposal saved before keeps its badge, read "Most popular" (one word since Nov 2 2026)', async () => {
     const r = request(CHAIN, setOf('Chainlink'), { off: [], swap: {}, popular: null })
     const j = job(r)
     const p = await proposalOf(j, r)
     const q: any = { accountId, acceptedAt: null, fenceStyle: CHAIN, finalPrice: j.totals.price, status: 'SENT', customerName: 'x', proposal: p }
     const html = (x: any) => renderProposal(q, x, 't', 'n', [], null, '', { start: 0 })
-    expect(html({ ...p, noRecommendedLabel: true })).not.toContain('>Recommended<')
-    expect(html(p)).toContain('>Recommended<')
+    expect(html({ ...p, noRecommendedLabel: true })).not.toContain('>Most popular<')
+    expect(html(p)).toContain('>Most popular<')
+    expect(html(p)).not.toContain('Recommended')
     expect(html({ ...p, options: [{ ...p.options[0], sections: 1, perFoot: 5 }, p.options[1]] })).toContain('1 section<')
   })
 

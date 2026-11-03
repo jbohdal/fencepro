@@ -245,7 +245,7 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
       <div className="space-y-5" data-vc-form>
         <label className="block text-sm font-semibold text-gray-900">Color name
           <input className={inputCls + ' mt-1'} value={name} onChange={e => setName(e.target.value)} placeholder="Chai Gray" disabled={!!editKey} autoFocus={!editKey} data-vc-name />
-          {name.trim() && <span className="block mt-1 text-xs font-normal text-gray-500">Fences will read like “{name.trim()} Vinyl Privacy, 6 ft tall, 8 ft panels, No dig”.</span>}
+          {name.trim() && <span className="block mt-1 text-xs font-normal text-gray-500">Fences will read like “{name.trim()} Vinyl Privacy, 6 ft tall, 8 ft sections, No dig”.</span>}
         </label>
 
         <fieldset className="space-y-2">

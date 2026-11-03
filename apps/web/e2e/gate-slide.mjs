@@ -10,7 +10,7 @@
 //
 // A backyard (20, 60, 48, 60, 20 ft) with a 5 ft walk gate in the middle of
 // the 48 ft Back. Drag the gate toward the Left side corner: the live label
-// "12 ft ← [5 ft gate] → 31 ft" and both pieces' sections (8 ft panels, each
+// "12 ft ← [5 ft gate] → 31 ft" and both pieces' sections (8 ft sections, each
 // piece rounded up), whole feet; the price is the price of that layout priced
 // fresh (the gate typed at that spot on a second quote), the footage never
 // changes. Tap a distance and type it; a 6 ft gate keeps its middle. Save,
@@ -54,7 +54,7 @@ const call = async (method, p, body) => {
 const cents = text => { const m = String(text).match(/\$\s?([\d,]+(?:\.\d{2})?)/); return m ? Math.round(parseFloat(m[1].replace(/,/g, '')) * 100) : NaN }
 const shot = async (page, name, loc) => { if (SHOTS) await (loc ?? page).screenshot({ path: path.join(SHOTS, name) }).catch(() => {}) }
 
-const STYLE = "WV-ND 6'x8' Privacy"   // 8 ft panels
+const STYLE = "WV-ND 6'x8' Privacy"   // 8 ft sections
 const PANEL_FT = 8
 const secs = inches => (inches > 0 ? Math.ceil(inches / 12 / PANEL_FT - 1e-9) : 0)
 const stamp = Date.now().toString(36).slice(-5)

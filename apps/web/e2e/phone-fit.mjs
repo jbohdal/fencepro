@@ -656,7 +656,7 @@ async function ownerScreens(s) {
     await s.page.waitForSelector('[data-quote-builder]', { timeout: 20000 })
     for (const step of ['customer', 'yard', 'style', 'price']) {
       await tapOn(s, s.page.locator(`[data-quote-builder] [data-step="${step}"]`))
-      if (step === 'style') await s.page.locator('[data-step-panel="style"] select').first().selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }).catch(() => {})
+      if (step === 'style') await s.page.locator('[data-step-panel="style"] select').first().selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig' }).catch(() => {})
       await s.page.evaluate(() => document.querySelector('[data-quote-builder]')?.scrollTo({ top: 0 }))
       await shot(s, `quote-${step}`); await judge(s, `quote step ${step}`, { scope: '[data-quote-builder]' }); await popups(s, `quote step ${step}`, { scope: '[data-quote-builder]' })
     }

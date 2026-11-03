@@ -48,7 +48,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         keywords: ['Good', 'Better', 'Best', 'Tiers', 'Tier set', 'Price adjustment', 'Why it\'s better', 'Sample yard', 'Popular'] },
       { key: 'moves', label: 'Moves and Repairs', description: 'Moving, repair and wood pricing.',
         keywords: ['Moves', 'Repairs', 'Minimum job price', 'Repair Profit', 'Wood factor', 'Careful removal multiplier', 'Gate removal multiplier', 'Pull labor per post', 'Disposal per post', 'Damage allowance', 'Photos needed'] },
-      { key: 'optimizer', label: 'Quote Optimizer', description: '6 ft or 8 ft panels for the lowest price.',
+      { key: 'optimizer', label: 'Quote Optimizer', description: '6 ft or 8 ft sections for the lowest price.',
         keywords: ['Smart rail optimization', 'Short-run cutoff', 'Cost preference threshold', 'Optimization details', 'Estimator overrides', '6 ft', '8 ft'] },
     ],
   },

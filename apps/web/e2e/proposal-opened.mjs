@@ -164,7 +164,7 @@ try {
   const options = [
     { label: "White Vinyl 6' Privacy, posts in concrete", fenceStyle: "WV-DS 6'x8' Privacy", finalPrice: 7400, perFoot: 49.33, sections: 19, tier: { label: 'Good', blurb: 'Posts set in concrete.' } },
     { label: "White Vinyl 6' Privacy, no dig", fenceStyle: "WV-ND 6'x8' Privacy", finalPrice: 8200, perFoot: 54.67, sections: 19, tier: { label: 'Better', blurb: 'Steel pipe driven deep.' }, badge: 'Most popular' },
-    { label: "White Vinyl 6' Privacy, 6 ft panels", fenceStyle: "WV-ND 6'x6' Privacy", finalPrice: 9100, perFoot: 60.67, sections: 25, tier: { label: 'Best', blurb: 'More posts per foot.' } },
+    { label: "White Vinyl 6' Privacy, 6 ft sections", fenceStyle: "WV-ND 6'x6' Privacy", finalPrice: 9100, perFoot: 60.67, sections: 25, tier: { label: 'Best', blurb: 'More posts per foot.' } },
   ]
   const q = await call('POST', '/api/saved-quotes', { crmContactId: card.contactId, customerName: card.name, customerPhone: '', customerAddress: '5708 SW 90th Ln, Ocala, FL 34476', fenceStyle: "WV-ND 6'x8' Privacy", runs: [150], corners: 0, ends: 2, sections: 19, status: 'SENT', finalPrice: 8200, date: floridaDay(), salesRep: myName, proposal: { version: 1, company: { name: 'Getter Done Fence' }, customer: { name: card.name, address: '5708 SW 90th Ln, Ocala, FL 34476' }, footageFt: 150, recommended: 1, options } })
   quoteId = q.json.data?.id

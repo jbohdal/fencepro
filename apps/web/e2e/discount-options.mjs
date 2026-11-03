@@ -104,7 +104,7 @@ const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `$
 async function threeOptions(who, page, name) {
   const b = await quoteUpToPrice(page, name, 'Aluminum.*No dig')
   await swap(b, 'good', 'Galvanized.*4 ft.*No dig|4 ft.*Galvanized.*No dig')
-  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*6 ft panels.*No dig')
+  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*6 ft sections.*No dig')
   check(`${who}: three options, mixed styles`, (await b.locator('[data-tier]').count()) === 3)
   const p0 = await prices(b)
   const bar0 = await barPrice(page)

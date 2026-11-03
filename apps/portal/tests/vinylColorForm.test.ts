@@ -132,7 +132,7 @@ describe('creating a color: the same takeoff rules (kit lines) as the White temp
       '*Vinyl, Chai Gray, Cap, 5"x5"', '*Vinyl, Chai Gray, Cap, Gate', '*Vinyl, Chai Gray, Upright',
     ]))
     expect(plan.created.styles.map(s => s.label)).toEqual([
-      'Chai Gray Vinyl Privacy, 6 ft tall, 8 ft panels, No dig', 'Chai Gray Vinyl Privacy, 6 ft tall, 8 ft panels, Dig set',
+      'Chai Gray Vinyl Privacy, 6 ft tall, 8 ft sections, No dig', 'Chai Gray Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set',
     ])
     // Labor and profit from the White fence of the same size and method.
     for (const m of ['nd', 'ds'] as const) {

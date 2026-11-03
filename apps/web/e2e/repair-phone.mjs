@@ -48,7 +48,7 @@ try {
   { const nq = page.locator('button:has-text("New quote"):visible').first(); await (CDP ? nq.click() : nq.tap()); await sleep(800) }
   await tap(b.locator('[data-step="style"]'), 'Style tab')
   await tap(b.locator('[data-job-type-option="repair"]'), 'Repair')
-  await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }); await sleep(300)
+  await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig' }); await sleep(300)
   await shot(`dev-repair-phone-${NAME}-1-job-type`)
   await tap(b.locator('[data-what="leaning"]'), 'Leaning fence')
   // Round 3: the answer offers its item (nothing added until tapped).

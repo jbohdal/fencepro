@@ -242,7 +242,15 @@ export function plainName(catalog: FenceCatalog, sc: StyleChoices): string {
   const m = materialOf(catalog, sc.material)
   if (!m) return ''
   const text = (dim: string) => { const opt = optionOf(m, dim, sc.choices[dim]); return opt ? (opt.nameText || opt.label) : (sc.choices[dim] ?? '') }
-  return m.nameTemplate.replace(/\{(\w+)\}/g, (_, d: string) => text(d)).replace(/\s+/g, ' ').replace(/\s+,/g, ',').trim()
+  return sectionWords(m.nameTemplate.replace(/\{(\w+)\}/g, (_, d: string) => text(d)).replace(/\s+/g, ' ').replace(/\s+,/g, ',').trim())
+}
+
+/**
+ * One word for one panel between two posts: "section" (Jonathan, Nov 2 2026: "sections not panels"). The saved
+ * choice tree keeps its own name text ("8 ft panels"); only what a person reads changes.
+ */
+export function sectionWords(text: string): string {
+  return text.replace(/(\d+ ft) panels\b/g, '$1 sections')
 }
 
 /** The internal name a combination made in Settings gets: material and choice keys. */
