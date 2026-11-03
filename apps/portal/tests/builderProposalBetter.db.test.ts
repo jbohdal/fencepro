@@ -87,6 +87,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('builder Better = proposal Better
     for (const key of ['good', 'best']) {
       const t = job.tiers.find((x: any) => x.spec.key === key)
       if (!t?.option) continue
+      // Since per foot sub labor, Better's cheapest width can be Best's 6 ft: the same fence at the same price shows once.
+      if (t.option.fenceStyle === better.option.fenceStyle && t.option.finalPrice === better.option.finalPrice) continue
       const c = await customerCard(m, p, { finalPrice: job.totals.price, status: 'DRAFT', runRails: job.calc.perRunRail }, key)
       expect(c.cents, key).toBe(Math.round(t.option.finalPrice * 100))
     }
