@@ -17,7 +17,7 @@ import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { inventoryChangeRefusal, refuse, roleOf } from '../lib/permissions.js'
-import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
+import { hidesCosts, hidesPrices, hidesMargin, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { clearCostReviewOnKitSave } from '../lib/costReview.js'
 import { followBorrowed } from '../lib/followBorrowed.js'
 import { inventoryPart } from '../lib/pricingStamp.js'
@@ -92,7 +92,7 @@ router.put('/', async (req: any, res) => {
     // Prices and kits are for the owner, admin and manager; the office may change stock; a sale may set stock aside.
     const saved = await prisma.inventoryState.findUnique({ where: { accountId } })
     // The Installer never had the costs or prices (lib/costRedact.ts): every one stays as saved.
-    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req))) {
+    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req)) || hidesMargin(roleOf(req))) {
       for (const k of Object.keys(fields) as Array<keyof typeof fields>) (fields as any)[k] = restoreCosts(fields[k], (saved as any)?.[k], hideFor(roleOf(req)))
     }
     const refused = inventoryChangeRefusal(roleOf(req), saved ?? {}, { ...fields, kits: data.kits === undefined ? undefined : fields.kits })

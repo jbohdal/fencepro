@@ -40,7 +40,7 @@ import { samePerson } from '../lib/quotesFollowCustomer.js'
 import { salesmanMoveRoute } from '../lib/salesmanMove.js'
 import { commissionEdit, commissionRead, keepSaleRecord, withSoldBy, withoutSaleRecord } from '../lib/soldBy.js'
 import { can, requireCan, roleOf } from '../lib/permissions.js'
-import { hidesCosts } from '../lib/costRedact.js'
+import { hidesCosts, hideFor } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { commissionSettings, hasCommissionFigures, ruleLogins, saveTakesCommissionOff, withCommission, withoutCommission } from '../lib/commissionRule.js'
 import { snapshotAfterSigning } from '../lib/jobCosting.js'
@@ -312,7 +312,7 @@ router.post('/commission-rule', requireUser, requireAccount, requireCan('quotes.
  */
 async function costsForLimited(req: any, existing: any | null): Promise<any> {
   if (!hidesCosts(roleOf(req)) && roleOf(req) !== 'sales_rep') return req.body
-  return req.body?.priceRequest ? withServerCosts(req.user.crmAccountId, req.body, existing) : keepSavedCosts(req.body, existing)
+  return req.body?.priceRequest ? withServerCosts(req.user.crmAccountId, req.body, existing) : keepSavedCosts(req.body, existing, hideFor(roleOf(req)))
 }
 
 router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async (req: any, res) => {

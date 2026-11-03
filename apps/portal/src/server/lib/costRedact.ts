@@ -159,9 +159,31 @@ export function withMoneyBack(text: string, saved: string): string {
   return text.split(MONEY_MARK).reduce((out, part, n) => (n === 0 ? part : out + (amounts[i++] ?? MONEY_MARK) + part), '')
 }
 
-/** What a login may not receive: costs, and for the Installer prices too. */
-export interface Hide { prices?: boolean }
-const hidden = (k: string, h: Hide) => isCostKey(k) || (!!h.prices && isPriceKey(k))
+/**
+ * The Salesman's replies (Jonathan, Nov 2 2026: "Salesman never sees margin"):
+ * no margin, Target Profit, overhead, cost factor, gross margin, sub rates or
+ * commission %, anywhere. She keeps material and labor costs (the Oct 25 rule)
+ * and every price. Her quote is priced on the server (QuoteBuilder `internal`
+ * is false for her since Nov 2; lib/quotePricing.ts), and her saves take the
+ * server's costs and margin (routes/saved-quotes.ts costsForLimited), so her
+ * phone needs none of these.
+ */
+export const MARGIN_KEYS: ReadonlySet<string> = new Set([
+  'costFactor', 'gmPct', 'rateDefaults', 'followed', 'ownProfitPct', 'liveOverhead', 'overheadHistory', 'liveOverheadPct',
+  'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate',
+  'commissionPct', 'commissionSalesman', 'commissionNonSalesman',
+])
+/** Any field whose name says it is a margin, a profit or the overhead (targetMarginPct, grossMargin, targetProfitPct, overheadPct, ...). */
+const MARGIN_NAME = /margin|profit|overhead/i
+
+/** Is this field a margin (for the Salesman, who sees costs but never margin)? */
+export function isMarginKey(k: string): boolean {
+  return MARGIN_KEYS.has(k) || MARGIN_NAME.test(k)
+}
+
+/** What a login may not receive: costs, and for the Installer prices too; for the Salesman (`margin`) margins only. */
+export interface Hide { prices?: boolean; margin?: boolean }
+const hidden = (k: string, h: Hide) => (h.margin ? isMarginKey(k) : isCostKey(k) || (!!h.prices && isPriceKey(k)))
 
 /** Account documents (/api/kv) that are costs through and through: job costing and supplier prices. */
 export const KV_COST_KEYS: ReadonlySet<string> = new Set(['fencepro_jobcosting', 'fencepro_inv_suppliers'])
@@ -200,8 +222,8 @@ function walk(v: unknown, h: Hide): unknown {
   const costLine = 'unitCost' in v || 'fallbackCost' in v || 'unitCostCents' in v
   for (const [k, x] of Object.entries(v)) {
     if (hidden(k, h)) continue
-    if (book && BOOKS_KEYS.has(k)) continue
-    if (costLine && k === 'total') continue
+    if (!h.margin && book && BOOKS_KEYS.has(k)) continue
+    if (!h.margin && costLine && k === 'total') continue
     // A note: a sentence about a price is dropped whole, as on the crew packet ("saw an estimate of $ (left out)" never shows; round 2b).
     out[k] = h.prices && typeof x === 'string' && isNoteKey(k) ? forCrew(x) : walk(x, h)
   }
@@ -220,8 +242,13 @@ export function hidesPrices(role: string | null | undefined): boolean {
   return !!role && CRM_ROLES.has(role) && !can(role, 'prices.view')
 }
 
+/** Does this login see costs but no margin (the Salesman)? */
+export function hidesMargin(role: string | null | undefined): boolean {
+  return role === 'sales_rep'
+}
+
 /** What to hold back from this login. */
-export const hideFor = (role: string | null | undefined): Hide => ({ prices: hidesPrices(role) })
+export const hideFor = (role: string | null | undefined): Hide => (hidesMargin(role) ? { margin: true } : { prices: hidesPrices(role) })
 
 /**
  * The role on a request's staff login, or null. Signed in by the ezbiz_staff
@@ -256,8 +283,9 @@ export function withoutHandCommission(v: unknown): unknown {
 export function hideCostsFromLimitedLogins(req: any, res: any, next: any): void {
   const role = staffRoleOf(req)
   if (role === 'sales_rep') {
+    // Her commission's hand edit only as "set by hand", and no margin anywhere (MARGIN_KEYS).
     const json = res.json.bind(res)
-    res.json = (body: any) => json(withoutHandCommission(body))
+    res.json = (body: any) => json(redactCosts(withoutHandCommission(body), { margin: true }))
   }
   if (!hidesCosts(role) && !hidesPrices(role)) { next(); return }
   const h = hideFor(role)
@@ -302,14 +330,14 @@ function restore(inc: unknown, sav: unknown, h: Hide): unknown {
   if (!isObj(inc)) return inc
   const s = isObj(sav) ? sav : {}
   const out: Record<string, unknown> = {}
-  const book = isBusinessRecord(inc)
+  const book = !h.margin && isBusinessRecord(inc)
   for (const [k, x] of Object.entries(inc)) out[k] = hidden(k, h) || (book && BOOKS_KEYS.has(k)) ? x
     : h.prices && typeof x === 'string' && typeof s[k] === 'string' && isNoteKey(k) ? crewTextBack(x, s[k] as string) : restore(x, s[k], h)
   for (const [k, x] of Object.entries(s)) {
     if ((hidden(k, h) || (book && BOOKS_KEYS.has(k))) && !(k in inc)) out[k] = x
   }
   // A parts line's total comes back with its unit cost.
-  if (('unitCost' in s || 'fallbackCost' in s || 'unitCostCents' in s) && 'total' in s && !('total' in inc)) out.total = s.total
+  if (!h.margin && ('unitCost' in s || 'fallbackCost' in s || 'unitCostCents' in s) && 'total' in s && !('total' in inc)) out.total = s.total
   return out
 }
 

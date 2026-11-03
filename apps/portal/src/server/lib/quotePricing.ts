@@ -19,7 +19,7 @@
 
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
-import { restoreCosts } from './costRedact.js'
+import { restoreCosts, type Hide } from './costRedact.js'
 import { withLiveOverhead } from './liveOverhead.js'
 
 type Json = any
@@ -208,9 +208,10 @@ export async function withServerCosts(accountId: string, body: Json, existing: J
  * them), the pull sheet is not theirs to send, and the costs inside pricing,
  * the move or repair and the proposal come back from the saved quote.
  */
-export function keepSavedCosts(body: Json, existing: Json | null): Json {
+export function keepSavedCosts(body: Json, existing: Json | null, h: Hide = {}): Json {
   const out: Json = { ...body }
   for (const k of ['materialCost', 'laborCost', 'tearOutCost', 'totalCOGS', 'gmPct', 'pullSheet', 'priceRequest']) delete out[k]
-  for (const k of ['pricing', 'work', 'proposal']) if (out[k] !== undefined && out[k] !== null) out[k] = restoreCosts(out[k], existing?.[k])
+  // The Salesman's copy left out only the margin (`h.margin`): each option's snapshot is walked and its margin put back.
+  for (const k of ['pricing', 'work', 'proposal']) if (out[k] !== undefined && out[k] !== null) out[k] = restoreCosts(out[k], existing?.[k], h.margin ? h : {})
   return out
 }

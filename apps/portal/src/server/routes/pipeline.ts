@@ -22,7 +22,7 @@ import { pipelineChangeRefusal, refuse, removedIds, roleOf, requireCan } from '.
 import { DeleteError, deleteRecord, logRemovedCards, removedIdsAmong, setArchived } from '../lib/deletion.js'
 import { loadPipelineStages } from '../lib/pipelineStages.js'
 import { stageById } from '../lib/pipelineStageModel.js'
-import { hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
+import { hidesPrices, hidesMargin, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { boardPages, columnPage, findCard, loadBoard, loadValueInputs, searchCards } from '../lib/pipelinePages.js'
 import { salesScopeOf, inSalesScope, type SalesScope } from '../lib/salesScope.js'
 
@@ -259,7 +259,7 @@ router.put('/', async (req: any, res) => {
 
 /** The Installer's cards came without prices (lib/costRedact.ts): each card's job value and prices are put back as saved. */
 function keepCardPrices(req: any, leads: any[], saved: any[]): any[] {
-  if (!hidesPrices(roleOf(req))) return leads
+  if (!hidesPrices(roleOf(req)) && !hidesMargin(roleOf(req))) return leads
   const byId = new Map((saved ?? []).map((l: any) => [l?.id, l]))
   return leads.map(l => (l && byId.has(l.id) ? restoreCosts(l, byId.get(l.id), hideFor(roleOf(req))) : l))
 }

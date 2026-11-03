@@ -30,7 +30,7 @@ import { recordNewPayments } from '../lib/automations/hooks.js'
 import { resolveSecret } from '../lib/secrets.js'
 import { plainZod } from '../lib/plainZod.js'
 import { businessPatchRefusal, refuse, roleOf } from '../lib/permissions.js'
-import { hidesCosts, hidesPrices, hideFor, restoreCosts } from '../lib/costRedact.js'
+import { hidesCosts, hidesPrices, hidesMargin, hideFor, restoreCosts } from '../lib/costRedact.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
 import { materialsFollowOrders } from '../lib/materialsFromOrders.js'
@@ -190,7 +190,7 @@ router.patch('/', async (req: any, res) => {
     }
     // A Salesman or Installer never had the costs (lib/costRedact.ts): the ones their
     // phone left out are put back as saved; a cost or the books sent is refused below.
-    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req))) {
+    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req)) || hidesMargin(roleOf(req))) {
       for (const k of Object.keys(updateData)) updateData[k] = restoreCosts(updateData[k], (saved as any)?.[k], hideFor(roleOf(req)))
     }
     const refused = businessPatchRefusal(roleOf(req), req.user.id ?? null, saved as any, updateData)

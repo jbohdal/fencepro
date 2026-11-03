@@ -38,7 +38,7 @@ import { roleOf, requireCan, can } from '../lib/permissions.js'
 import { repForJob } from '../lib/salesRep.js'
 import { samePerson } from '../lib/quotesFollowCustomer.js'
 import { salesmanMoveRoute } from '../lib/salesmanMove.js'
-import { hidesCosts, hidesPrices, isPriceKey, crewTextBack } from '../lib/costRedact.js'
+import { hidesCosts, hidesPrices, hidesMargin, isPriceKey, crewTextBack } from '../lib/costRedact.js'
 import { loadOpsStages } from '../lib/opsStages.js'
 import { reconcileOpsStage, stageById, stageOfJob, fieldsForStage, isDonePhase, phaseOf, sortedStages, MATERIALS_RANK, type OpsStageDef } from '../lib/opsStageModel.js'
 import { floridaDay } from '../lib/automations/context.js'
@@ -224,7 +224,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
     if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A Salesman's phone has no margin: the job takes its quote's, as saved (lib/costRedact.ts).
-    if (hidesCosts(roleOf(req))) {
+    if (hidesCosts(roleOf(req)) || hidesMargin(roleOf(req))) {
       const q = data.quoteId ? await prisma.savedQuote.findFirst({ where: { id: data.quoteId, accountId: req.user.crmAccountId }, select: { gmPct: true } }) : null
       ;(data as any).gmPct = q?.gmPct ?? 0
     }
@@ -311,7 +311,7 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
     // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
     if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A login that never had the margin, or the prices (the Installer), leaves them as saved.
-    if (hidesCosts(roleOf(req))) delete (data as any).gmPct
+    if (hidesCosts(roleOf(req)) || hidesMargin(roleOf(req))) delete (data as any).gmPct
     if (hidesPrices(roleOf(req))) for (const k of Object.keys(data)) if (isPriceKey(k)) delete (data as any)[k]
     // One record each: the locate (its own save) and the paid figures (the payment schedule).
     for (const k of LOCATE_KEYS) delete (data as any)[k]
