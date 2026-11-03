@@ -217,6 +217,33 @@ export function sliderTaken(quotePriceAdjust: number | undefined, took: number):
   return (quotePriceAdjust || 0) !== took ? { priceAdjust: took } : {}
 }
 
+/**
+ * A proposal that went out with a Price adjust: the fences whose options took it (a proposal priced before Nov 3 2026
+ * says nothing on its options, and every one of them took it). Make main and every save price each option as it was
+ * sent (QuoteCalcInput.sliderOn). Undefined: no slider, or no options.
+ */
+export function sentSliderStyles(p: { options?: Array<{ fenceStyle?: string; tier?: { key?: string } | null; snapshot?: { priceAdjust?: number } | null }> | null; ownTier?: { own: number; tier: number } | null } | null | undefined, quotePriceAdjust: number | null | undefined): string[] | undefined {
+  const slider = Number(quotePriceAdjust) || 0
+  const opts = Array.isArray(p?.options) ? p!.options! : []
+  if (!slider || !opts.length) return undefined
+  const tookIt = (o: (typeof opts)[number] | undefined) => !!o?.fenceStyle && !(typeof o.snapshot?.priceAdjust === 'number' && o.snapshot.priceAdjust !== slider)
+  const out = opts.filter(tookIt).flatMap(o => [o.fenceStyle!, ...(o.tier?.key ? [`tier:${o.tier.key}`] : [])])
+  // A best price quote shown as a tier's card (the fold): the customer read that card at the quote's own price, the
+  // slider in it, so the tier keeps it after Make main.
+  const fold = p?.ownTier
+  if (fold && tookIt(opts[fold.own]) && opts[fold.tier]?.tier?.key) out.push(`tier:${opts[fold.tier]!.tier!.key}`)
+  return [...new Set(out)]
+}
+
+/**
+ * "On this option only. The other options keep their own prices." under the slider: a Price adjust, more than one
+ * option, and no option but the main one carries it (a proposal sent before Nov 3 2026 had it on every option).
+ */
+export function sliderNoteShown(priceAdjust: number, optionCount: number, sliderOn: string[] | undefined, mainName: string | undefined): boolean {
+  if (!priceAdjust || optionCount <= 1) return false
+  return !(sliderOn && sliderOn.some(n => !n.startsWith('tier:') && n !== mainName))
+}
+
 /** A move's "Move as is" option, priced with notMainInput: its snapshot says it took no Price adjust. */
 export function asNotMain(o: ProposalOption, quotePriceAdjust: number | undefined): ProposalOption {
   return { ...o, snapshot: { ...o.snapshot, ...sliderTaken(quotePriceAdjust, 0) } }
@@ -355,8 +382,10 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
   const other = !!input.style && input.style.name !== style.name
   // The percent slider is the main option's only, as the ± dollars are ("Yes", Jonathan, Nov 3 2026); a tier's own
   // Price adjust (Settings) is on its option either way.
-  const priceAdjust = (other ? 0 : input.priceAdjust || 0) + (input.tierAdjust || 0)
-  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides, priceAdjust })
+  // A proposal that went out: each fence as it was sent, with the slider or without it (sliderOn).
+  const takes = input.sliderOn ? !!input.sliderTier || input.sliderOn.includes(style.name) : !other
+  const priceAdjust = (takes ? input.priceAdjust || 0 : 0) + (input.tierAdjust || 0)
+  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides, priceAdjust, sliderOn: undefined, sliderTier: undefined })
   const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const problems = other ? optionProblems(q) : null
   // The minimum job price, on every option ("The minimum job price applies to every option", Jonathan, Nov 2 2026).
@@ -384,7 +413,7 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
       ...(other && q.priced.costFactor > 0 ? { costFactor: q.priced.costFactor } : {}),
       ...(otherMaterial(input.style, style) ? { otherMaterial: true as const } : {}),
       ...(posts ? { posts: { corners: posts.corners, ends: posts.ends, teeLinePosts: posts.extraLinePosts } } : {}),
-      ...(other ? sliderTaken(input.priceAdjust, priceAdjust) : {}),
+      ...(other || input.sliderOn ? sliderTaken(input.priceAdjust, priceAdjust) : {}),
     },
   }
 }

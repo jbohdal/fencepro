@@ -39,7 +39,7 @@ import { saveGate, gatedOnce } from './movedGate'
 import { pendingFor } from './outbox'
 import { renderToStaticMarkup } from 'react-dom/server'
 import SitePlan from './SitePlan'
-import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks, withoutAdjustment, notMainInput, sliderTaken, asNotMain } from './proposal'
+import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, optionBlocks, withoutAdjustment, notMainInput, sliderTaken, asNotMain, sentSliderStyles, sliderNoteShown } from './proposal'
 import { resolveTiers, tierOptions, tierSetFor, cheapestStyle, ownCardAsSent, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
@@ -794,6 +794,11 @@ export default function QuoteBuilder({
   const keptTypedWidths = !fromLayout && !defaultGateWidths(typedWidths) ? typedWidths : null
   const effGateWidths = fromLayout ? layoutResult!.gateWidthsFt : keptTypedWidths
   const mr = moveRepairSettings(cfg)
+  // A proposal that went out with a Price adjust: each fence keeps the slider as it was sent, with it or without it, so
+  // Make main and a save keep every option at its sent price (review Nov 3 2026; proposal.ts sentSliderStyles). A
+  // proposal sent before Nov 3 2026 had it on every option.
+  const sentSlider = useMemo(() => (jobType === 'new' && init?.id && !signedQuote && (proposalSent(init as Parameters<typeof proposalSent>[0]) || !!init.shareToken)
+    ? sentSliderStyles(init.proposal as Parameters<typeof sentSliderStyles>[0], init.priceAdjust) : undefined), [jobType, init, signedQuote])
   const calcInput: QuoteCalcInput = {
     style,
     runs: effRuns,
@@ -807,6 +812,7 @@ export default function QuoteBuilder({
     extraLaborHrs: parseFloat(adjLaborHrs) || 0,
     hasSalesman,
     priceAdjust,
+    ...(sentSlider ? { sliderOn: sentSlider } : {}),
     pricing: cfg.pricing,
     overrides: pricingOverrides,
     optimizer: optSettings,
@@ -862,6 +868,7 @@ export default function QuoteBuilder({
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     ...(effTees ? { tees: effTees } : {}),
     tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
+    ...(sentSlider ? { sliderOn: sentSlider } : {}),
     overrides: pricingOverrides, jobType,
     move: jobType === 'move' ? moveIn : null, repair: jobType === 'repair' ? repairIn : null,
     tierSet: tierSet ?? null, tierPrefs, ...(ownCardSent ? { ownCardAsSent: true } : {}), compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
@@ -2508,7 +2515,7 @@ export default function QuoteBuilder({
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>-20%</span><span>0%</span><span>+20%</span>
                 </div>
-                {priceAdjust !== 0 && optionCount > 1 && (
+                {sliderNoteShown(priceAdjust, optionCount, sentSlider, style?.name) && (
                   // The slider is the main option's only, as the ± dollars are ("Yes", Jonathan, Nov 3 2026).
                   <p className="text-xs text-gray-700 mt-2" data-slider-options>On this option only. The other options keep their own prices.</p>
                 )}

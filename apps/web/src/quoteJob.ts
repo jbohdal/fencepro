@@ -45,6 +45,8 @@ export interface QuoteJobRequest {
   extraLaborHrs: number
   hasSalesman: boolean
   priceAdjust: number
+  /** A sent proposal: the fences whose options took the Price adjust when it went out (QuoteCalcInput.sliderOn). */
+  sliderOn?: string[]
   overrides: QuotePricingOverrides
   jobType: JobType
   move?: MoveInputs | null
@@ -157,6 +159,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...(req.tees ? { tees: req.tees } : {}),
     tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates, extraLaborHrs: req.extraLaborHrs,
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
+    ...(req.jobType === 'new' && Array.isArray(req.sliderOn) ? { sliderOn: req.sliderOn } : {}),
     optimizer: cfg.railOptimizer!,
   }
   const mr = moveRepairSettings(cfg)

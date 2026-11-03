@@ -249,7 +249,8 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
     const isAdded = added.some(a => a.key === spec.key)
     const base = { spec, category: set.category, popular: spec.key === popular && !prefs.off.includes(spec.key), off: prefs.off.includes(spec.key), widthFt: null as number | null, otherWidth: null as ResolvedTier['otherWidth'], ...(isAdded ? { added: true } : {}) }
     // The price this tier adds on, with the quote's own Price adjust on the main option only (proposal.ts priceOption).
-    const tierInput: QuoteCalcInput = { ...input, tierAdjust: (Number(spec.priceAdjustPct) || 0) / 100 }
+    // A sent proposal whose card for this tier went out with the slider keeps it (proposal.ts sentSliderStyles).
+    const tierInput: QuoteCalcInput = { ...input, tierAdjust: (Number(spec.priceAdjustPct) || 0) / 100, ...(input.sliderOn?.includes(`tier:${spec.key}`) ? { sliderTier: true } : {}) }
     const swapName = prefs.swap[spec.key] ?? (isAdded ? spec.style ?? undefined : undefined)
     const swapStyle = swapName ? styles.find(s => s.name === swapName && isQuotable(s)) : undefined
     if (swapStyle) {
