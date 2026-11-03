@@ -1126,10 +1126,11 @@ export default function QuoteBuilder({
   // Parts whose Inventory price is old or was never confirmed: a warning, never a block.
   const staleMonths = cfg.pricing.priceStaleMonths ?? DEFAULT_PRICE_STALE_MONTHS
   // Parts still priced from another part (a green part at Black's price, Oct 27 2026): their own warning, so they leave this list.
-  const fromBlackParts = useMemo(() => (internal && style
+  // The Salesman sees these too ("so the salesman knows it's low", Oct 27 2026): her lines are the server's, by part name.
+  const fromBlackParts = useMemo(() => (seesCostLines && style
     ? borrowedPartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), normalizeItemName)
     : []), [style, materialItems, invTick])  // eslint-disable-line react-hooks/exhaustive-deps
-  const staleParts = useMemo(() => (internal && style
+  const staleParts = useMemo(() => (seesCostLines && style
     // Parts a job lot piece price covers are not priced from Inventory, so their Inventory date does not matter.
     ? stalePartsOnQuote(materialItems.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), businessDate(new Date()), staleMonths, normalizeItemName)
       .filter(p => !fromBlackParts.some(b => b.item.id === p.item.id))
@@ -2264,7 +2265,7 @@ export default function QuoteBuilder({
                         {!sent && t.sameAs && <p className="text-xs text-amber-800" data-tier-same>Same fence as {t.sameAs} for this yard.</p>}
                         {(() => {
                           // An offered option with a green part still priced from Black: its price may be low too (the main one says so above).
-                          if (sent || main || t.off || !t.option || !internal) return null
+                          if (sent || main || t.off || !t.option || !seesCostLines) return null
                           const pull = ((t.option.snapshot?.pullSheet ?? []) as Array<{ item: string; qty: number; costSource?: string }>)
                           const fb = borrowedPartsOnQuote(pull.filter(i => i.qty > 0 && i.costSource !== 'jobLot' && i.costSource !== 'wood').map(i => i.item), getInventory(), normalizeItemName)
                           return fb.length ? (

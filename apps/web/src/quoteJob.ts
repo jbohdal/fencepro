@@ -331,8 +331,9 @@ export function quoteView(job: QuoteJob) {
       spec: t.spec, category: t.category, popular: t.popular, off: t.off, swapped: t.swapped, reason: t.reason ?? null,
       styleName: t.style?.name ?? null, option: t.option ? optionView(t.option) : null, widthFt: t.widthFt, otherWidth: t.otherWidth, sameAs: t.sameAs ?? null,
       ...(t.added ? { added: true } : {}), ...(t.ownWords ? { ownWords: true } : {}), ...(t.swapOff ? { swapOff: t.swapOff } : {}),
-      // Each option's own pull sheet, parts and counts only.
-      pullSheet: t.option && (t.swapped || t.added) ? ((t.option.snapshot?.pullSheet ?? []) as LineItem[]).map(lineView) : null,
+      // Each option's own pull sheet, parts and counts only: shown for a swapped or added one, and read on every one for
+      // "Price may be low" (a green part priced from Black), which the Salesman sees too.
+      pullSheet: t.option ? ((t.option.snapshot?.pullSheet ?? []) as LineItem[]).map(lineView) : null,
     })),
     tierCards: job.tierCards,
     gateWarnings: job.style ? gateWarnings(job.style, job.calcInput.gateWidths, job.calcInput.walkGates, job.calcInput.dblGates) : [],
