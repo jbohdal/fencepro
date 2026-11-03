@@ -9,7 +9,7 @@
 //
 //   DRIVER=safari (default) | webkit | chromium
 //   DEVICE='iPhone 16'  IOS=18.5       the simulator safaridriver opens (Safari only)
-//   AREAS=fit,quote,media,payments,portal,home   only these areas (all by default)
+//   AREAS=fit,quote,media,payments,portal,home,reload,style   only these areas (all by default)
 //   REAL_IPHONE=<device id> PHONE_URL=http://192.168.x.x:<dev port>   Safari on a real iPhone by cable (real-iphone.sh)
 //   SHOTS=<folder>   screenshots of each failure, iphone-<area>-<check>.png
 //                    (default ~/Downloads/ezbiz-screens-2026-10-17)
@@ -47,6 +47,13 @@
 //             size (files and API answers, the biggest answers) and the Simulator's
 //             Safari page process memory (WebContent, from `ps` on the Mac) before and
 //             after. Walkthrough round 2, item 2 (Oct 26, 2026).
+//   style     Change style, start to finish (Jonathan, Nov 2 2026). As a Salesman (a login it makes and removes): a new
+//             quote drawn by tapping, vinyl with Good changed to wood and Best to aluminum, saved, Copy link. As the
+//             customer, no sign in: the link, each option's name, price and warranty as it is tapped, the changed one
+//             picked, name, a signature, Accept, the contract link. As the owner: the contract PDFs read as text (the
+//             link's and the stored signed copy), the pull sheet and the Sales Order on their own screens, the job and
+//             its warranty and deposit: each must be the option the customer saw.
+//             iOS draws a select's list itself, out of WebDriver's reach: the select is touched, then its value set.
 //
 // Dev copy only (localhost:4001 or a worktree's own port, never 4000; database ezbiz_dev).
 // Everything it makes is removed.
@@ -57,6 +64,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import zlib from 'zlib'
 import { fileURLToPath } from 'url'
 
 // A real iPhone cannot reach localhost: its pages load from the same dev server through this Mac's home network address.
@@ -75,7 +83,7 @@ const IOS = process.env.IOS || '18.5'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PORTAL_DIR = path.resolve(HERE, '../../portal')
 const SHOTS = process.env.SHOTS || path.join(os.homedir(), 'Downloads/ezbiz-screens-2026-10-17')
-const AREAS = (process.env.AREAS || 'fit,quote,media,payments,portal,home,reload').split(',').map(s => s.trim())
+const AREAS = (process.env.AREAS || 'fit,quote,media,payments,portal,home,reload,style').split(',').map(s => s.trim())
 const RELOADS = Math.max(1, Number(process.env.RELOADS || 5))
 // The made up test photo and video in fixtures/ (no real job) unless others are named, as run-heavy.sh does.
 const PHOTO = process.env.MEDIA_PHOTO || path.join(HERE, 'fixtures', 'test-photo.jpg')
@@ -108,6 +116,12 @@ async function until(fn, ms = 20000, every = 400) { const end = Date.now() + ms;
 const ELEMENT = 'element-6066-11e4-a52e-4f735466cecf'
 const typedBySetter = new Set() // fields whose text safaridriver's keys did not insert
 const clickedNotTouched = new Set() // too far down the page for safaridriver's touch
+const pickedByValue = new Set() // selects: iOS draws the list itself, WebDriver cannot touch a line of it
+const drawnByScript = new Set() // a finger drawing safaridriver could not place on the screen
+
+// A select set the way a pick in its list leaves it (React reads the value through its own setter).
+const SET_SELECT = `const e = document.querySelector(arguments[0]); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(e, arguments[1]);
+  e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); e.blur()`
 
 async function safariDriver() {
   const port = 4444 + crypto.randomInt(500)
@@ -216,6 +230,30 @@ async function safariDriver() {
         Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e), 'value').set.call(e, arguments[1]); e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); return false`, args: [css, text] })
       if (!typed) typedBySetter.add(css)
     },
+    // A select: the finger opens it, then the value is set as the list leaves it (iOS draws the list itself, so
+    // WebDriver cannot touch a line of it), and the list is closed.
+    choose: async (css, value) => {
+      await must(css)
+      await fingerOn(css)
+      await sleep(400)
+      await wd('POST', '/execute/sync', { script: SET_SELECT, args: [css, value] })
+      pickedByValue.add(css)
+      await sleep(600)
+    },
+    // A finger drawn across an element: points are fractions of its width and height. False when the element is
+    // lower on the page than safaridriver can touch.
+    draw: async (css, points) => {
+      await wd('POST', '/execute/sync', { script: `document.querySelector(arguments[0]).scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' })`, args: [css] })
+      await sleep(500)
+      const r = await wd('POST', '/execute/sync', { script: `const r = document.querySelector(arguments[0]).getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }`, args: [css] })
+      const [sx, sy, w, h] = await where()
+      const pts = points.map(([fx, fy]) => ({ x: Math.round(r.x + r.w * fx + sx), y: Math.round(r.y + r.h * fy + sy) }))
+      if (pts.some(p => p.x >= w - 1 || p.y >= h - 1)) return false
+      const [first, ...rest] = pts
+      await wd('POST', '/actions', { actions: [{ type: 'pointer', id: 'finger', parameters: { pointerType: 'touch' }, actions: [{ type: 'pointerMove', duration: 0, origin: 'viewport', x: first.x, y: first.y }, { type: 'pointerDown', button: 0 }, ...rest.map(p => ({ type: 'pointerMove', duration: 30, origin: 'viewport', x: p.x, y: p.y })), { type: 'pointerUp', button: 0 }] }] })
+      await wd('DELETE', '/actions').catch(() => {})
+      return true
+    },
     // A finger on the screen at page (CSS pixel) coordinates.
     tapAt,
     // The file picker itself is iOS's own sheet: WebDriver hands the file to the input instead.
@@ -248,6 +286,8 @@ async function playwrightDriver(kind) {
     execAsync: (script, args = []) => page.evaluate(([s, a]) => new Promise(res => new Function(s).apply(null, [...a, res])), [script, args]),
     tap: async (css, ms = 15000) => { const l = page.locator(css).first(); await l.waitFor({ state: 'attached', timeout: ms }); await l.scrollIntoViewIfNeeded().catch(() => {}); await l.tap({ timeout: ms }); await sleep(500) },
     type: (css, text) => page.locator(css).first().fill(text),
+    choose: async (css, value) => { await page.locator(css).first().selectOption(value); await sleep(600) },
+    draw: async () => false,
     tapAt: (x, y) => page.touchscreen.tap(x, y),
     setFiles: (css, files) => page.locator(css).first().setInputFiles(files),
     addStaffCookie: value => ctx.addCookies([{ name: 'ezbiz_staff', value, domain: 'localhost', path: '/api', httpOnly: true, secure: false, sameSite: 'Strict' }]),
@@ -650,6 +690,16 @@ const LOAD_STATS = `const all = performance.getEntriesByType('resource'); const 
   const big = api.slice().sort((a, b) => (b.decodedBodySize || 0) - (a.decodedBodySize || 0)).slice(0, 4).map(e => kb(e.decodedBodySize || 0) + ' KB ' + e.name.replace(location.origin, '').split('?')[0]);
   return { files: all.length - api.length, filesKb: kb(sum(all.filter(e => !/\\/api\\//.test(e.name)), 'decodedBodySize') + (nav ? nav.decodedBodySize || 0 : 0)), apis: api.length, apiKb: kb(sum(api, 'decodedBodySize')), apiWireKb: kb(sum(api, 'encodedBodySize')), big, nodes: document.getElementsByTagName('*').length, heapMb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null }`
 
+// Signed out of whoever was on, then the Salesman signs in the way the app does (the HttpOnly cookie from the server).
+async function salesmanSignsIn(sales) {
+  await D.goto(`${APP}/`); await sleep(1000) // a page of the app first: safaridriver can hang clearing cookies on its blank start page
+  await D.clearCookies()
+  await D.goto(`${APP}/`); await sleep(1500)
+  const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: arguments[0], password: arguments[1], cookie: true }) }).then(r => done(r.status), e => done(String(e)))`, [sales?.email ?? '', sales?.password ?? ''])
+  await check('the Salesman signs in (a login of its own)', st === 200, `${st}${sales ? '' : ' (the login could not be made)'}`)
+  return st
+}
+
 async function reloads() {
   area = 'reload'
   const screens = who => [
@@ -673,12 +723,8 @@ async function reloads() {
   }
   for (const who of ['owner', 'christa']) {
     if (who === 'christa') {
-      // Signed out of the owner, then the Salesman signs in the way the app does (the HttpOnly cookie from the server).
       const sales = T.salesman ?? await makeSalesman()
-      await D.clearCookies()
-      await D.goto(`${APP}/`); await sleep(1500)
-      const st = await D.execAsync(`const done = arguments[arguments.length - 1]; fetch('/api/crm-auth/login', { method: 'POST', credentials: 'include', headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ email: arguments[0], password: arguments[1], cookie: true }) }).then(r => done(r.status), e => done(String(e)))`, [sales?.email ?? '', sales?.password ?? ''])
-      await check('the Salesman signs in (a login of its own)', st === 200, `${st}${sales ? '' : ' (the login could not be made)'}`)
+      const st = await salesmanSignsIn(sales)
       if (st !== 200) continue
       await salesmanOwn()
       await D.goto(`${APP}/customers/${T.contactId}`)
@@ -715,6 +761,299 @@ async function reloads() {
     await check(`${who}: no page crashed (${DRIVER})`, D.crashes() === crashesBefore, `${D.crashes() - crashesBefore} crashes`)
     if (after) console.log(`      Safari page process memory (Simulator, ${who}): before ${memText(before)}; after ${memText(after)}`)
   }
+}
+
+// ── 8. Change style, start to finish ──
+const STYLE_NAME = `E2E Style ${stamp}`
+const STYLE_ADDRESS = '16 Receipt Rd, Ocala, FL 34470'
+const S = { quoteId: null, contactId: null, jobId: null, token: null }
+const dollars = s => Number(String(s ?? '').replace(/[^0-9.]/g, ''))
+const squash = s => String(s ?? '').replace(/\s+/g, ' ').trim()
+const wordsOnly = s => String(s ?? '').replace(/\s+/g, '')
+const moneyText = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** The words of a pdfkit PDF, in drawing order, with nothing to install (its text is WinAnsi, in deflated page streams). */
+function pdfText(buf) {
+  const raw = buf.toString('latin1'), win = new TextDecoder('windows-1252')
+  const bytesOf = hex => Buffer.from(hex, 'hex')
+  let out = ''
+  for (const m of raw.matchAll(/stream\r?\n/g)) {
+    const start = m.index + m[0].length, end = raw.indexOf('endstream', start)
+    let page
+    try { page = zlib.inflateSync(buf.subarray(start, end)).toString('latin1') } catch { continue }
+    for (const op of page.matchAll(/\[([^\]]*)\]\s*TJ|<([0-9a-fA-F]+)>\s*Tj/g)) {
+      out += (op[1] !== undefined ? [...op[1].matchAll(/<([0-9a-fA-F]*)>/g)].map(h => win.decode(bytesOf(h[1]))).join('') : win.decode(bytesOf(op[2]))) + '\n'
+    }
+  }
+  return out
+}
+/** A file from the server as the owner, for reading what it says. */
+const ownerFile = async p => {
+  const r = await fetch(`${API}${p}`, { headers: { Authorization: `Bearer ${OWNER}`, 'X-Staff-Request': '1' } })
+  return { status: r.status, type: r.headers.get('content-type') || '', buf: Buffer.from(await r.arrayBuffer()) }
+}
+/** The button or link whose words match, marked so it can be tapped by selector (the finger needs one). */
+async function tapText(scope, re, ms = 15000) {
+  const found = await until(() => D.exec(`document.querySelectorAll('[data-e2e-tap]').forEach(e => e.removeAttribute('data-e2e-tap'));
+    const r = new RegExp(arguments[1], 'i'), e = [...document.querySelectorAll(arguments[0])].find(b => r.test(b.textContent) && b.getClientRects().length && !b.disabled);
+    if (!e) return false; e.setAttribute('data-e2e-tap', '1'); return true`, [scope, re.source]), ms)
+  if (!found) throw new Error(`nothing to tap like ${re} in ${scope}`)
+  await D.tap('[data-e2e-tap]')
+}
+const valueLike = (css, re) => D.exec(`const s = document.querySelector(arguments[0]); if (!s) return null; const r = new RegExp(arguments[1], 'i'); const o = [...s.options].find(x => r.test(x.textContent) && !x.disabled); return o ? o.value : null`, [css, re.source])
+const inked = css => D.exec(`const c = document.querySelector(arguments[0]), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n`, [css])
+
+/** One option as it reads on Christa's card. */
+const cardReads = async key => {
+  const c = `[data-tier="${key}"]`
+  return { name: await text(`${c} [data-tier-name]`), style: await text(`${c} [data-tier-style]`), words: await text(`${c} [data-tier-text]`), warranty: squash((await text(`${c} [data-tier-warranty]`) || '').replace(/^Warranty:\s*/, '')), price: dollars(await text(`${c} [data-tier-price]`)) }
+}
+
+async function drawYard() {
+  const bar = '[data-quote-bar] [data-bar-next]'
+  await go('/quotes')
+  await tapText('button', /New quote/)
+  await waitFor('input[placeholder^="Customer name"]', 15000)
+  await D.type('input[placeholder^="Customer name"]', STYLE_NAME)
+  await D.tap(bar)
+  await D.tap('[data-shape="backyard"]')
+  const sides = [['Left return', '20', 'Walk gate'], ['Left side', '95'], ['Back', '128', 'Double gate'], ['Right side', '95'], ['Right return', '20']]
+  for (const [i, [side, feet, gate]] of sides.entries()) {
+    const open = `[data-side-open="true"][data-side="${side}"]`
+    await D.tap(`${open} [data-side-length]`)
+    for (const d of feet) await D.tap(`[data-ftin-pad] [data-pad-key="${d}"]`)
+    await D.tap('[data-ftin-pad] [data-pad-done]')
+    if (gate) await tapText(`${open} [data-gate-choice] button`, new RegExp(gate))
+    if (i < sides.length - 1) await D.tap(bar)
+  }
+  await D.tap(bar)
+}
+
+async function changeStyle() {
+  // ── The Salesman: the quote, Change style, the link ──
+  const sales = T.salesman ?? await makeSalesman()
+  if (await salesmanSignsIn(sales) !== 200) return
+  await drawYard()
+  const list = '[data-step-panel="style"] [data-style-list]'
+  await waitFor(list, 15000)
+  await D.choose(list, await valueLike(list, /White Vinyl Privacy.*(6 or 8 ft|best price).*No dig/))
+  await D.tap('[data-quote-bar] [data-bar-next]')
+  await check('as the Salesman: yard drawn by tapping, Price shows Good, Better, Best', !!await waitFor('[data-quote-builder] [data-tiers]', 20000) && (await until(async () => await count('[data-tier]') === 3, 15000)), `${await count('[data-tier]')} options`)
+  await sleep(1500)
+  const better0 = await cardReads('better')
+  const goodSwap = '[data-tier="good"] [data-tier-swap]', bestSwap = '[data-tier="best"] [data-tier-swap]'
+  const groups = await D.exec('return [...document.querySelector(arguments[0]).querySelectorAll("optgroup")].map(g => g.label)', [goodSwap])
+  await check('Change style lists the other materials', groups.length >= 4 && groups.some(g => /wood/i.test(g)), groups.join(' / '))
+  await D.choose(goodSwap, await valueLike(goodSwap, /Wood.*Stockade.*(pine|PT)/))
+  await sleep(1500)
+  await D.choose(bestSwap, await valueLike(bestSwap, /Aluminum.*No dig/))
+  await sleep(1500)
+  const wood = await cardReads('good'), alum = await cardReads('best'), better = await cardReads('better')
+  await check('Change style to wood: the card reads wood, its own price and warranty', /wood|stockade/i.test(wood.style) && /pine/i.test(wood.words || wood.style) && wood.price > 0 && !!wood.warranty, JSON.stringify(wood))
+  await check('Change style to aluminum: the card reads aluminum, its own price and warranty', /aluminum/i.test(alum.style) && alum.price > 0 && !!alum.warranty, JSON.stringify(alum))
+  await check('the vinyl option did not move', better.price === better0.price && /vinyl/i.test(better.style), `${better0.price} then ${better.price}`)
+  await check('each option has its own price', new Set([wood.price, alum.price, better.price]).size === 3, `${wood.price} | ${better.price} | ${alum.price}`)
+  await D.tap('[data-quote-bar] [data-save-open]')
+  await D.tap('[data-save-mode="new"]')
+  await D.type('[data-new-field="phone"]', '3525550196')
+  await D.type('[data-new-field="email"]', `e2e-iphone-style-${stamp}@example.invalid`)
+  await D.type('input[placeholder="Address..."]', STYLE_ADDRESS)
+  await D.exec('document.activeElement?.blur()')
+  await sleep(500)
+  await D.tap('[data-save-submit]')
+  const row = await until(async () => sql(`SELECT id || '|' || coalesce("crmContactId", '') FROM "SavedQuote" WHERE "customerName" = ${lit(STYLE_NAME)}`) || null, 30000)
+  if (row) [S.quoteId, S.contactId] = row.split('|')
+  await check('saved: one quote on one customer', !!S.quoteId && !!S.contactId, row || 'no row')
+  if (!S.quoteId) return
+  await check('saved: the quote window opens with Copy link', !!await waitFor('[data-proposal-copy]', 30000))
+  await D.tap('[data-proposal-copy]')
+  const shown = await until(() => D.exec(`const m = document.body.innerText.match(/\\/p\\/([A-Za-z0-9_-]{16,})/); return m ? m[1] : null`), 20000)
+  S.token = shown
+  await check('Copy link: the link shows', !!S.token)
+  if (!S.token) return
+  const sent = await until(async () => { const q = (await call('GET', `/api/saved-quotes/${S.quoteId}`)).json.data; return q?.status === 'SENT' ? q : null }, 20000)
+  await check('Copy link: the quote is Sent', !!sent, sent?.status ?? 'not Sent')
+  const opts = sent?.proposal?.options ?? []
+  const iWood = opts.findIndex(o => /^wood/i.test(o.fenceStyle)), chosen = opts[iWood]
+  // A best price vinyl quote also stores its fixed width twin: the customer's page shows the quote's own in its place.
+  const vinyl = opts.find(o => Math.round(o.finalPrice) === Math.round(better.price)), alumOpt = opts.find(o => /^alum/i.test(o.fenceStyle))
+  await check('saved: the wood option at the price on the card, with the warranty on the card and its own pull sheet', !!chosen && Math.round(chosen.finalPrice) === Math.round(wood.price) && chosen.warranty?.name === wood.warranty && chosen.snapshot?.pullSheet?.length > 3, JSON.stringify(opts.map(o => [o.tier?.label, o.fenceStyle, o.finalPrice, o.warranty?.name])))
+  await check('saved: aluminum at the price and warranty on its card', !!alumOpt && Math.round(alumOpt.finalPrice) === Math.round(alum.price) && alumOpt.warranty?.name === alum.warranty)
+  await check('saved: the vinyl option at its card\'s price, with a warranty of its own, not the wood one', !!vinyl?.warranty?.name && vinyl.warranty.name !== chosen?.warranty?.name, `${vinyl?.fenceStyle}: ${vinyl?.warranty?.name}`)
+  if (!chosen) return
+  await D.screenshot(path.join(SHOTS, `${TAG}-style-salesman-sent.png`)).catch(() => {})
+
+  // ── The customer: the link in Safari, with no sign in ──
+  await D.clearCookies()
+  await D.goto(`${APP}/p/${S.token}`)
+  await waitFor('.opt[data-option]', 20000)
+  const cards = await D.exec(`return [...document.querySelectorAll('.opt[data-option]')].map(c => ({ i: +c.getAttribute('data-option'), text: c.innerText.replace(/\\s+/g, ' ') }))`)
+  const shownOpts = cards.map(c => opts[c.i])
+  const asCarded = [[iWood, wood], [opts.indexOf(vinyl), better], [opts.indexOf(alumOpt), alum]]
+  await check('customer: no sign in, the three options on Christa\'s cards at the same prices, each with its warranty', cards.length === 3 && !(await has('input[type="password"]')) && asCarded.every(([i, c]) => cards.some(x => x.i === i)) && cards.every(c => c.text.includes(opts[c.i].label.replace('6 or 8 ft panels (best price)', '6 ft and 8 ft panels')) && c.text.includes(opts[c.i].warranty.name) && c.text.includes(moneyText(Math.round(opts[c.i].finalPrice)).replace(/\.00$/, ''))), cards.map(c => c.text).join(' || '))
+  const over = await D.exec('return document.scrollingElement.scrollWidth - innerWidth')
+  await check('customer: the page fits the iPhone (no sideways scroll)', over <= 0, `${over}px`)
+  await D.screenshot(path.join(SHOTS, `${TAG}-style-customer-options.png`)).catch(() => {})
+  // Each option tapped: the warranty on the page is that option's, last of all the changed one.
+  for (const i of cards.map(c => c.i).filter(i => i !== iWood).concat(iWood)) {
+    await D.tap(`.opt[data-option="${i}"]`)
+    const on = await until(() => D.exec('return document.querySelector("input[name=option]:checked")?.value === String(arguments[0])', [i]), 5000)
+    await sleep(300)
+    const [wname, wtext, deposit] = [await text('#wname'), await text('#wtext'), await text('#deposit')]
+    await check(`customer: tapping ${opts[i].tier?.label ?? opts[i].label} shows its warranty`, !!on && wname === opts[i].warranty.name && wordsOnly(wtext) === wordsOnly(opts[i].warranty.text), `${wname}${deposit ? '; ' + deposit : ''}`)
+  }
+  const pageWarranty = { name: await text('#wname'), text: await text('#wtext') }
+  const pageDeposit = await text('#deposit')
+  await D.type('#name', 'Style Customer')
+  const zigzag = Array.from({ length: 13 }, (_, i) => [0.1 + i * 0.065, i % 2 ? 0.3 : 0.7])
+  const drew = await D.draw('#sig', zigzag)
+  let ink = drew ? await inked('#sig') : 0
+  if (!ink) {
+    // Below where safaridriver can touch: the same touch events, sent to the signature box (as mixed-options.mjs does).
+    drawnByScript.add('the signature on the customer page')
+    await D.exec(`const c = document.querySelector(arguments[0]), r = c.getBoundingClientRect(), ev = (t, p) => c.dispatchEvent(new PointerEvent(t, { clientX: r.left + r.width * p[0], clientY: r.top + r.height * p[1], pointerId: 7, pointerType: 'touch', bubbles: true, cancelable: true }));
+      const pts = arguments[1]; ev('pointerdown', pts[0]); pts.slice(1).forEach(p => ev('pointermove', p)); ev('pointerup', pts[pts.length - 1])`, ['#sig', zigzag])
+    ink = await inked('#sig')
+  }
+  await check('customer: signed in the box', ink > 0, `${ink} marks, ${drew && !drawnByScript.size ? 'by finger' : 'by touch events from script'}`)
+  await D.tap('#go')
+  const done = await waitFor('[data-accepted]', 30000)
+  const said = await text('[data-accepted]') || await text('#err') || ''
+  await check('customer: Accepted, for the option chosen at its price', !!done && said.includes(chosen.label) && said.includes(moneyText(Math.round(chosen.finalPrice)).replace(/\.00$/, '')) && /Style Customer/.test(said), squash(said))
+  await check('customer: only that fence shows now', await count('.opt[data-option]') === 1)
+  await D.screenshot(path.join(SHOTS, `${TAG}-style-customer-accepted.png`)).catch(() => {})
+  await D.tap('[data-contract-pdf]')
+  const onPdf = await until(() => D.exec('return location.pathname.endsWith("/contract.pdf") ? (document.contentType || "?") : null'), 20000)
+  await check('customer: the signed contract opens in Safari', !!onPdf, onPdf || 'did not open')
+
+  // ── The contract, read as text ──
+  const name = chosen.label
+  const contractSays = async (what, words) => {
+    if (process.env.PDF_TEXT_DIR) fs.writeFileSync(path.join(process.env.PDF_TEXT_DIR, `${what.replace(/\W+/g, '-')}.txt`), words)
+    const w = wordsOnly(words)
+    const others = shownOpts.filter(o => o !== chosen).map(o => o.label).filter(l => w.includes(wordsOnly(l)))
+    await check(`${what}: the fence and height as shown`, w.includes(wordsOnly(name)), name)
+    await check(`${what}: the price as shown`, w.includes(wordsOnly(moneyText(chosen.finalPrice))), moneyText(chosen.finalPrice))
+    const deposit = pageDeposit?.match(/\$[\d,]+/)?.[0] ?? ''
+    await check(`${what}: the deposit as shown`, !!deposit && w.includes(wordsOnly(`50% to schedule: ${deposit}`)), pageDeposit)
+    await check(`${what}: the warranty word for word`, w.includes(wordsOnly(pageWarranty.text)) && w.includes(wordsOnly(pageWarranty.name)), pageWarranty.name)
+    const size = `${Math.round(sent.proposal.footageFt)} ft`
+    await check(`${what}: the signer, the address, the size of the job, no other option`, /Style Customer/.test(words) && w.includes(wordsOnly(STYLE_ADDRESS)) && w.includes(wordsOnly(size)) && w.includes(wordsOnly(sent.proposal.gatesText)) && others.length === 0, `${size}, ${sent.proposal.gatesText}; ${others.join(', ')}`)
+  }
+  const pdfRes = await fetch(`${API}/p/${S.token}/contract.pdf`)
+  const pdf = Buffer.from(await pdfRes.arrayBuffer())
+  await check('the contract link gives a PDF', pdfRes.ok && pdf.subarray(0, 5).toString() === '%PDF-', `${pdfRes.status} ${pdf.length} bytes`)
+  await contractSays('the contract link', pdfText(pdf))
+  const stored = await until(async () => (await call('GET', `/api/signed-documents?quoteId=${S.quoteId}`)).json.data?.find(d => d.kind === 'contract') ?? null, 15000)
+  const copy = stored ? await ownerFile(stored.pdf) : null
+  await check('the stored signed copy opens', copy?.status === 200 && copy.buf.subarray(0, 5).toString() === '%PDF-', `${copy?.status} ${copy?.type}`)
+  if (copy?.status === 200) await contractSays('the stored signed copy', pdfText(copy.buf))
+
+  // ── The owner: the job, its warranty, the pull sheet, the Sales Order ──
+  const q = (await call('GET', `/api/saved-quotes/${S.quoteId}`)).json.data
+  await check('owner: the quote is now the option signed', q?.status === 'SOLD' && q.fenceStyle === chosen.fenceStyle && q.finalPrice === chosen.finalPrice && q.sections === chosen.sections && q.totalCOGS === chosen.snapshot.totalCOGS, `${q?.status} ${q?.fenceStyle} $${q?.finalPrice}, ${q?.sections} sections`)
+  await check('owner: the quote holds the option\'s pull sheet', JSON.stringify(q?.pullSheet) === JSON.stringify(chosen.snapshot.pullSheet))
+  const job = ((await call('GET', '/api/saved-jobs')).json.data ?? []).find(j => j.quoteId === S.quoteId)
+  S.jobId = job?.id ?? null
+  await check('owner: the job is the signed style and price', job?.fenceStyle === chosen.fenceStyle && job?.contractValue === chosen.finalPrice, `${job?.fenceStyle} $${job?.contractValue}`)
+  if (!job) return
+  const w = (await call('GET', `/api/warranties/job/${job.id}`)).json.data
+  await check('owner: the job\'s warranty is the words the customer read', squash(JSON.stringify(w)).includes(pageWarranty.name) && wordsOnly(w?.text ?? w?.warranty?.text ?? JSON.stringify(w)).includes(wordsOnly(pageWarranty.text).slice(0, 60)), JSON.stringify(w).slice(0, 200))
+  await D.clearCookies()
+  await D.goto(`${APP}/`); await sleep(1500)
+  await D.addStaffCookie(COOKIE)
+  await go(`/operations?job=${job.id}`, `[data-payment-schedule="${job.id}"]`)
+  const sched = await text(`[data-payment-schedule="${job.id}"]`) || ''
+  const depositShown = pageDeposit?.match(/\$[\d,]+(\.\d\d)?/)?.[0] ?? ''
+  await check('owner, job page: the deposit is the one the customer read', !!depositShown && sched.replace(/\.00/g, '').includes(depositShown.replace(/\.00$/, '')), `${pageDeposit} | ${squash(sched).slice(0, 120)}`)
+  await D.screenshot(path.join(SHOTS, `${TAG}-style-owner-job.png`)).catch(() => {})
+
+  const parts = chosen.snapshot.pullSheet.filter(l => !l.moneyOnly)
+  await go(`/customers/${S.contactId}`, '[data-customer-tab="pullsheets"]')
+  await D.tap('[data-customer-tab="pullsheets"]')
+  await waitFor('[data-pull-sheet]', 20000)
+  await tapText('[data-pull-sheet]', /./)
+  await waitFor('[data-pull-sheet-lines]', 20000)
+  const sheet = await text('[data-pull-sheet-lines]') || ''
+  const missing = parts.filter(l => !wordsOnly(sheet).toLowerCase().includes(wordsOnly(l.item).toLowerCase()))
+  await check('owner, Pull sheets: every part of the option signed, on the screen', parts.length > 3 && missing.length === 0, missing.map(l => l.item).join(', ') || `${parts.length} parts`)
+  await check('owner, Pull sheets: wood parts, no vinyl', /pine|wood|picket|stockade/i.test(sheet) && !/vinyl/i.test(sheet), squash(sheet))
+  // The posts the customer signed for are the posts on the sheet.
+  const posts = kind => parts.filter(l => new RegExp(`Post, ${kind}`).test(l.item)).reduce((n, l) => n + Number(l.qty), 0)
+  const signedPosts = pdfText(pdf).match(/(\d+) corner posts? and (\d+) end and gate posts?/)
+  await check('the posts on the contract are the posts on the pull sheet', !!signedPosts && Number(signedPosts[1]) === posts('Corner') && Number(signedPosts[2]) === posts('End') + posts('Gate'), `${signedPosts?.[0]}; sheet: ${posts('Corner')} corner, ${posts('End')} end, ${posts('Gate')} gate`)
+  await D.screenshot(path.join(SHOTS, `${TAG}-style-owner-pullsheet.png`)).catch(() => {})
+  const entry = (await call('GET', `/api/pull-sheets/customer/${S.contactId}`)).json.data?.entries?.[0]
+  const sheetPdf = entry ? await ownerFile(`/api/pull-sheets/customer/${S.contactId}/${entry.id}.pdf`) : null
+  const sheetWords = sheetPdf?.status === 200 ? wordsOnly(pdfText(sheetPdf.buf)).toLowerCase() : ''
+  const pdfMissing = parts.filter(l => !sheetWords.includes(wordsOnly(l.item).toLowerCase()))
+  await check('owner: the pull sheet PDF, read as text, is the same parts', !!sheetWords && pdfMissing.length === 0, pdfMissing.map(l => l.item).join(', ') || `${parts.length} parts`)
+
+  await go('/inventory', '[data-inventory-tab="sales_orders"]')
+  await D.tap('[data-inventory-tab="sales_orders"]')
+  await tapText('button', new RegExp(STYLE_NAME), 20000)
+  await sleep(1200)
+  const order = await text('main') || await text('body') || ''
+  const from = order.indexOf(STYLE_NAME)
+  const orderMissing = parts.filter(l => !wordsOnly(order).toLowerCase().includes(wordsOnly(l.item).toLowerCase()) && !/labor|tear|haul/i.test(l.item))
+  await check('owner, Sales Orders: the order is the option signed, not the quote\'s vinyl', orderMissing.length === 0, orderMissing.map(l => l.item).join(', ') || `${parts.length} parts; ${squash(order.slice(from, from + 200))}`)
+  await D.screenshot(path.join(SHOTS, `${TAG}-style-owner-sales-order.png`)).catch(() => {})
+}
+
+/** The quote, its customer, its job and all signing made with them: by exact id, then every table is searched for those ids. */
+async function removeStyleRows() {
+  if (!S.quoteId) {
+    const row = sql(`SELECT id || '|' || coalesce("crmContactId", '') FROM "SavedQuote" WHERE "customerName" = ${lit(STYLE_NAME)}`)
+    if (!row) return
+    ;[S.quoteId, S.contactId] = row.split('|')
+  }
+  if (!S.jobId) S.jobId = sql(`SELECT id FROM "SavedJob" WHERE "quoteId" = ${lit(S.quoteId)}`) || null
+  const mine = styleMarks()
+  const ours = alias => mine.map(m => `${alias}::text LIKE ${lit('%' + m + '%')}`).join(' OR ')
+  // The stored signed PDF, by its exact name.
+  for (const k of sql(`SELECT "fileKey" FROM "SignedDocument" WHERE "quoteId" = ${lit(S.quoteId)}`).split('\n').filter(Boolean)) fs.rmSync(path.resolve(process.env.UPLOAD_DIR || path.join(PORTAL_DIR, 'uploads'), k), { force: true })
+  // The card, by the owner's own write.
+  for (let i = 0; i < 3; i++) {
+    const pl = (await call('GET', '/api/pipeline')).json
+    const cards = (pl?.data?.leads ?? []).filter(l => l.customerId === S.contactId || l.quoteId === S.quoteId).map(l => l.id)
+    if (!cards.length) break
+    if ((await call('PATCH', '/api/pipeline', { upsert: [], remove: cards, baseVersion: pl.data.version })).status === 200) break
+  }
+  // The shared record: only this customer's entries come out of its lists (its pull sheet, its Sales Order).
+  for (const c of ['pullSheets', 'pendingOrders']) sql(`UPDATE "BusinessState" SET "${c}" = (SELECT coalesce(jsonb_agg(e), '[]'::jsonb) FROM jsonb_array_elements("${c}"::jsonb) e WHERE NOT (${ours('e')})), version = version + 1 WHERE ${ours(`"${c}"`)}`)
+  if (S.jobId) sql(`UPDATE "BusinessState" SET "jobChecklists" = "jobChecklists" - ${lit(S.jobId)}, version = version + 1 WHERE "jobChecklists" ? ${lit(S.jobId)}`)
+  const ID = [S.jobId, S.quoteId, S.contactId].filter(Boolean).map(lit).join(', ')
+  const job = S.jobId ? lit(S.jobId) : "'-'", quote = lit(S.quoteId), contact = lit(S.contactId)
+  sql(`BEGIN;
+    DELETE FROM "CrmAuditLog" t WHERE ${ours('t')} OR "entityId" IN (${ID});
+    DELETE FROM "AutomationEffect" t WHERE ${ours('t')};
+    DELETE FROM "AutomationEvent" t WHERE ${ours('t')};
+    DELETE FROM "Notification" t WHERE ${ours('t')};
+    DELETE FROM "DeletionLog" t WHERE ${ours('t')};
+    DELETE FROM "ProposalView" WHERE "quoteId" = ${quote};
+    DELETE FROM "SignedDocument" WHERE "quoteId" = ${quote};
+    DELETE FROM "PortalFile" WHERE "crmCustomerId" = ${contact};
+    DELETE FROM "PaymentApplication" WHERE "paymentId" IN (SELECT id FROM "ContractPayment" WHERE "jobId" = ${job});
+    DELETE FROM "ContractPayment" WHERE "jobId" = ${job};
+    DELETE FROM "ContractAdjustment" WHERE "jobId" = ${job};
+    DELETE FROM "ContractInvoice" WHERE "jobId" = ${job};
+    DELETE FROM "BillingLog" WHERE "jobId" = ${job};
+    DELETE FROM "PaymentSchedule" WHERE "jobId" = ${job};
+    DELETE FROM "JobQuotedCost" WHERE "quoteId" = ${quote};
+    DELETE FROM "JobChecklistItem" WHERE "jobId" = ${job};
+    DELETE FROM "SavedJob" WHERE id = ${job};
+    DELETE FROM "SavedQuote" WHERE id = ${quote};
+    DELETE FROM "CrmContactNote" WHERE "crmContactId" = ${contact};
+    DELETE FROM "CrmContact" WHERE id = ${contact};
+    COMMIT;`)
+}
+/** What only this quote's rows can hold: its ids, the customer's made up name and email. */
+const styleMarks = () => [S.quoteId, S.contactId, S.jobId, STYLE_NAME, `e2e-iphone-style-${stamp}@example.invalid`].filter(Boolean)
+/** Every table in the database searched for those: nothing the signing made can stay behind unseen. */
+function styleLeft() {
+  const tables = sql(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`).split('\n').filter(Boolean)
+  const test = styleMarks().map(i => `t::text LIKE ${lit('%' + i + '%')}`).join(' OR ')
+  return sql(tables.map(n => `SELECT ${lit(n)} || ':' || count(*) FROM "${n}" t WHERE ${test} HAVING count(*) > 0`).join(' UNION ALL ')).split('\n').filter(Boolean)
 }
 
 // ── Remove what this made (dev database only, named on every command) ──
@@ -757,6 +1096,7 @@ async function cleanup() {
       if ((await call('PATCH', '/api/pipeline', { upsert: [], remove: mine, baseVersion: pl.data.version })).status === 200) break
     }
   })
+  await step('the Change style quote', removeStyleRows)
   await step("the Salesman's customer and quote", async () => sql(`BEGIN;
     DELETE FROM "CrmAuditLog" WHERE "entityId" IN (${lit(T.salesQuoteId)}, ${lit(T.salesContactId)});
     DELETE FROM "AutomationEvent" WHERE "entityId" IN (${lit(T.salesQuoteId)}, ${lit(T.salesContactId)});
@@ -781,6 +1121,7 @@ async function cleanup() {
   const folder = fs.existsSync(path.join(PORTAL_DIR, 'uploads/portal', T.contactId))
   D = null // no screenshot for clean up
   await check('cleaned up (customer, card, quote, job, payments, receipt, media, portal login, documents, sign ins)', left === 0 && !folder, `${left} rows left, folder ${folder}`)
+  if (AREAS.includes('style')) { const rest = styleLeft(); await check('cleaned up the Change style quote: no table mentions it', rest.length === 0, rest.join(', ')) }
 }
 
 try {
@@ -800,8 +1141,9 @@ try {
   await run('portal', portal)
   await run('quote', quote)
   await run('home', home)
-  // Last: it signs the owner out and its Salesman in.
+  // Last: these sign the owner out and the Salesman in.
   await run('reload', reloads)
+  await run('style', changeStyle)
 } catch (e) {
   if (!results.some(r => !r.ok)) await check('ran', false, String(e?.message || e).split('\n')[0])
 } finally {
@@ -814,6 +1156,8 @@ try {
   const failed = results.filter(r => !r.ok).length
   if (clickedNotTouched.size) console.log(`\nnote: below the first screen of a scrolling page, or where the touch landed off the element, safaridriver could not touch; clicked instead: ${[...clickedNotTouched].join(', ')}`)
   if (typedBySetter.size) console.log(`\nnote: safaridriver's keys inserted no text in the Simulator; set as typed: ${[...typedBySetter].join(', ')}`)
+  if (pickedByValue.size) console.log(`\nnote: iOS draws a select's list itself, so each was touched and its value set: ${[...pickedByValue].join(', ')}`)
+  if (drawnByScript.size) console.log(`\nnote: safaridriver could not place a finger there, so the touch events were sent by script: ${[...drawnByScript].join(', ')}`)
   console.log(`\n${results.length - failed} of ${results.length} checks passed (${DRIVER})`)
   process.exit(failed ? 1 : 0)
 }
