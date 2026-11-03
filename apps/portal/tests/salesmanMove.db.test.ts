@@ -3,7 +3,7 @@
  * Jonathan, Oct 29 2026): "lets me (owner only) change the salesman from the
  * customer page AND from a single quote, including a signed one, to fix a
  * wrong pick. Changing a signed job's salesman asks first and moves its
- * commission too, with a History note. Christa can't change it." (Nov 2 2026: a signed job's commission does not change on a move.)
+ * commission too, with a History note. Christa can't change it." (Nov 2 2026: a signed job's commission does not change on a move, and stays with whoever sold it: lib/soldBy.ts, commissionSeller.db.test.ts.)
  *
  * Against the dev database (DEV_DB=1; refuses any other), on a throwaway
  * company, through the same middleware order as index.ts: who may change it
@@ -188,7 +188,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect(await prisma.crmContactNote.count({ where: { crmContactId: id.cara } })).toBe(1)
   })
 
-  test('the owner moves a signed quote: asked first with its commission; on yes the quote, its job and its quoted cost move; price, status, schedule and signed papers are untouched', async () => {
+  test('the owner moves a signed quote: asked first with its commission; on yes the quote and its job move; price, status, schedule, signed papers and the quoted cost saved at signing are untouched', async () => {
     const q0 = (await quoteOf(id.qSigned))!
     const job0 = (await prisma.savedJob.findUnique({ where: { id: id.job } }))!
     const sched0 = await prisma.paymentSchedule.findUnique({ where: { id: id.schedule } })
@@ -199,7 +199,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     expect(ask.status).toBe(409)
     expect(ask.json.code).toBe('CONFIRM_SIGNED')
     expect(ask.json.confirm).toMatchObject({ from: SALLY(), to: SAM(), signed: true, commissionCents: 85000 })
-    expect(ask.json.confirm.question).toBe(`This job is signed. Move it from ${SALLY()} to ${SAM()}? Its $850.00 commission stays on the job, unchanged.`)
+    expect(ask.json.confirm.question).toBe(`This job is signed. Move it from ${SALLY()} to ${SAM()}? Its $850.00 commission stays with ${SALLY()}.`)
     expect((await quoteOf(id.qSigned))!.salesRep).toBe(SALLY())
     // The job page asks the same; Yes there moves the quote and the job together.
     expect((await call('POST', `/api/saved-jobs/${id.job}/salesman`, tok.owner, { to: id.sam })).json.code).toBe('CONFIRM_SIGNED')
@@ -209,22 +209,26 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
 
     const q1 = (await quoteOf(id.qSigned))!
     const job1 = (await prisma.savedJob.findUnique({ where: { id: id.job } }))!
-    expect([q1.salesRep, job1.salesRep, (await prisma.jobQuotedCost.findFirst({ where: { accountId, quoteId: id.qSigned } }))!.salesRep]).toEqual([SAM(), SAM(), SAM()])
+    expect([q1.salesRep, job1.salesRep]).toEqual([SAM(), SAM()])
+    // Who sold it is written on the quote, and the rest of pricing is as it was.
+    expect((q1.pricing as any).soldBy).toBe(SALLY())
+    const { soldBy: _sold, ...pricing1 } = q1.pricing as any
+    expect(pricing1).toEqual(q0.pricing ?? {})
     // Only the Salesman changed: the quote, the job, the quoted cost, the payment schedule and the signed contract are otherwise as they were.
     const drop = (o: any, ...keys: string[]) => { const c = { ...o }; for (const k of ['salesRep', 'updatedAt', ...keys]) delete c[k]; return JSON.parse(JSON.stringify(c)) }
-    expect(drop(q1)).toEqual(drop(q0))
+    expect(drop(q1, 'pricing')).toEqual(drop(q0, 'pricing'))
     expect(drop(job1)).toEqual(drop(job0))
-    expect(drop(await prisma.jobQuotedCost.findFirst({ where: { accountId, quoteId: id.qSigned } }))).toEqual(drop(cost0))
+    expect(await prisma.jobQuotedCost.findFirst({ where: { accountId, quoteId: id.qSigned } })).toEqual(cost0)
     expect(await prisma.paymentSchedule.findUnique({ where: { id: id.schedule } })).toEqual(sched0)
     expect(await prisma.signedDocument.findUnique({ where: { id: id.doc } })).toEqual(doc0)
-    // The commission is the same amount, credited now to Sam (what Sales by rep, the board and the quote list group by).
+    // The commission is the same amount, and stays credited to who sold it.
     expect(quoteCommissionCents(q1)).toBe(85000)
     // The History says so, with no money; the audit log has the amounts in cents.
     const lines = await history(tok.owner, id.cara)
-    expect(lines.map(l => l.detail)).toContain(`Salesman on quote #${num(id.qSigned)} changed from ${SALLY()} to ${SAM()} by ${OLIVE()} (signed job; its commission stays on the job, unchanged). The customer's own Salesman is unchanged.`)
+    expect(lines.map(l => l.detail)).toContain(`Salesman on quote #${num(id.qSigned)} changed from ${SALLY()} to ${SAM()} by ${OLIVE()} (signed job; its commission stays with ${SALLY()}). The customer's own Salesman is unchanged.`)
     for (const l of lines) expect(l.detail).not.toMatch(/\$|\d+\.\d\d/)
     const log = await prisma.crmAuditLog.findFirst({ where: { userId: id.owner, entityId: id.qSigned }, orderBy: { createdAt: 'desc' } }) as any
-    expect(log.newValues.salesmanMoved).toMatchObject({ from: SALLY(), to: SAM(), signed: true, priceCents: 900000, commissionCents: 85000, jobIds: [id.job] })
+    expect(log.newValues.salesmanMoved).toMatchObject({ from: SALLY(), to: SAM(), signed: true, soldBy: SALLY(), priceCents: 900000, commissionCents: 85000, jobIds: [id.job] })
     const jobLog = await prisma.crmAuditLog.findFirst({ where: { userId: id.owner, entityId: id.job }, orderBy: { createdAt: 'desc' } }) as any
     expect(jobLog.newValues.salesmanMoved.commissionCents).toBe(85000)
     // The customer's own Salesman stays the owner.
@@ -372,16 +376,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the owner changes one quote\'s S
     const sj = (await prisma.savedJob.create({ data: { accountId, quoteId: sq, crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), quotePrice: 6500, contractValue: 6500, gmPct: 0.4661, hasSalesman: true } })).id
     const ask = await call('POST', `/api/saved-quotes/${sq}/salesman`, tok.owner, { to: id.owner })
     expect(ask.status).toBe(409)
-    expect(ask.json.confirm.question).toMatch(/Its \$538\.\d\d commission stays on the job, unchanged\.$/)
+    expect(ask.json.confirm.question).toMatch(new RegExp(`Its \\$538\\.\\d\\d commission stays with ${SAM()}\\.$`))
     const yes = await call('POST', `/api/saved-quotes/${sq}/salesman`, tok.owner, { to: id.owner, confirm: true })
-    expect(yes.json.data.commissionWords).toBe('Its commission stays on the job, unchanged.')
+    expect(yes.json.data.commissionWords).toBe(`Its commission stays with ${SAM()}.`)
     expect(await quoteOf(sq)).toMatchObject({ hasSalesman: true, gmPct: 0.4661, salesRep: OLIVE() })
     expect(await prisma.savedJob.findUnique({ where: { id: sj } })).toMatchObject({ hasSalesman: true, gmPct: 0.4661, salesRep: OLIVE() })
     const log = await prisma.crmAuditLog.findFirst({ where: { entityType: 'SavedQuote', entityId: sq }, orderBy: { createdAt: 'desc' } }) as any
     expect(log.newValues.salesmanMoved).toMatchObject({ commissionChange: 'none', commissionCents: log.newValues.salesmanMoved.commissionWas })
     expect(log.newValues.salesmanMoved.commissionCents).toBeGreaterThan(0)
     const note = await prisma.crmContactNote.findFirst({ where: { accountId, body: { contains: sq.slice(-6).toUpperCase() } }, orderBy: { createdAt: 'desc' } })
-    expect(note!.body).toContain('(signed job; its commission stays on the job, unchanged)')
+    expect(note!.body).toContain(`(signed job; its commission stays with ${SAM()})`)
     // Added on top of the price: left alone, and said.
     await prisma.businessState.update({ where: { accountId }, data: { config: { pricing: { commissionSalesman: 0.09, commissionMode: 'added' } } } as any })
     const add = (await prisma.savedQuote.create({ data: { accountId, runs: [150], pullSheet: [], fenceStyle: 'WV ND 6x8', crmContactId: id.cara, customerName: `Cara ${tag}`, salesRep: SAM(), status: 'SENT', finalPrice: 11000, totalCOGS: 5600, gmPct: 0.4, hasSalesman: true } })).id

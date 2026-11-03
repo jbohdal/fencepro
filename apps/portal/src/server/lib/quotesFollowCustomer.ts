@@ -20,8 +20,9 @@
  *     carries to the new one exactly the commission the app would work out
  *     for them. Commission follows the rep both ways (Nov 2 2026,
  *     lib/commissionRule.ts commissionOnMove): off to someone positively not
- *     a Salesman, on to a Salesman, added on top of the price left alone. What groups the commission by person (Sales by rep, the board,
- *     the quote list) reads the rep, so it follows.
+ *     a Salesman, on to a Salesman, added on top of the price left alone. An open quote has no seller yet, so
+ *     what credits a sale by person (Sales by rep, job costing) reads its rep and
+ *     it follows; a sold one stays with its seller (lib/soldBy.ts).
  *   - Written down: a "Quotes moved" line on the customer's History (who,
  *     how many, from whom; no money: the History is read by the Salesman,
  *     who never sees a commission), and the quotes, prices and commissions
@@ -61,9 +62,11 @@ export function samePerson(a: string | null | undefined, b: string | null | unde
  * A saved quote's commission in cents, as the app shows it ("Pricing
  * (Internal)", web salesmanCommission.ts savedCommission): a repair's or a
  * move's own saved commission, else what the saved figures leave for it,
- * price − cost − margin. 0 with no commission.
+ * price − cost − margin. 0 with no commission. The owner's hand edit (lib/soldBy.ts) is the figure when there is one.
  */
 export function quoteCommissionCents(q: { hasSalesman?: boolean | null; finalPrice: number; totalCOGS: number; gmPct: number; pricing?: unknown; work?: unknown }): number {
+  const hand = (q.pricing as { commissionHandCents?: unknown } | null | undefined)?.commissionHandCents
+  if (typeof hand === 'number' && Number.isFinite(hand)) return Math.max(0, Math.round(hand))
   const pricingPct = (q.pricing as { commissionPct?: unknown } | null | undefined)?.commissionPct
   const workCents = (q.work as { priced?: { commissionCents?: unknown } } | null | undefined)?.priced?.commissionCents
   const carries = !!q.hasSalesman || isPos(pricingPct) || isPos(workCents)

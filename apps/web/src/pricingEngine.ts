@@ -98,6 +98,9 @@ export interface QuotePricingOverrides {
   /** 1 − Target Margin for this quote (kept so the price never moves). */
   costFactor?: number
   commissionPct?: number
+  /** Who sold it, and the owner's hand edit of a signed job's commission in cents (portal lib/soldBy.ts): the server's, never priced from. */
+  soldBy?: string
+  commissionHandCents?: number
   commissionMode?: CommissionMode
   /** Final customer price typed by hand; replaces the calculated price. */
   finalPrice?: number

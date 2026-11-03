@@ -2,7 +2,8 @@
  * Who sold it: the sales rep on a quote and its job (walkthrough, Oct 24,
  * 2026). Christa's quotes showed "—" because a quote took its rep only from
  * the customer record, which is blank for most customers. The rep is the
- * name the reports, job costing and commission group by.
+ * name the reports, job costing and commission group by, until a signed job
+ * is moved: then it says who is working it, and lib/soldBy.ts who sold it.
  *
  *   - A quote a Salesman saves with no rep is hers: the server writes her
  *     name (first and last, as on her login), whichever phone sent it.

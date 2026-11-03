@@ -16,6 +16,8 @@
  *   DELETE /:id               — soft archive a quote
  *   POST   /sync              — bulk push from a localStorage payload
  *   POST   /:id/salesman      — the owner changes this quote's Salesman (and its job's), { to, confirm? }
+ *   GET    /:id/commission    — the owner reads who gets a signed quote's commission
+ *   POST   /:id/commission    — the owner edits it by hand, { to?, commissionCents? } (lib/soldBy.ts)
  *   POST   /:id/share-token   — issue (or reissue) a public share token
  *   GET    /share/:token      — PUBLIC: fetch a single quote by share token
  *                              (records the firstViewedAt the first time it is hit)
@@ -36,6 +38,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { repForSave, repName } from '../lib/salesRep.js'
 import { samePerson } from '../lib/quotesFollowCustomer.js'
 import { salesmanMoveRoute } from '../lib/salesmanMove.js'
+import { commissionEdit, commissionRead, keepSaleRecord, withSoldBy, withoutSaleRecord } from '../lib/soldBy.js'
 import { can, requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
@@ -216,7 +219,8 @@ router.get('/', requireUser, requireAccount, async (req: any, res) => {
     // Whole proposals, as before Oct 28. The phone load cut (lib/quoteSlim.ts, ?slim=1) is held back from the
     // app: several screens read a sent option's copies straight from the list (sentReprice.ts, change orders),
     // and sent and signed proposals must open exactly as before (Jonathan, Oct 28 2026).
-    const data = req.query.slim === '1' ? marked.map(slimQuote) : marked
+    const sold = await withSoldBy(marked)
+    const data = req.query.slim === '1' ? sold.map(slimQuote) : sold
     res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[saved-quotes] list error:', err)
@@ -232,7 +236,7 @@ router.get('/:id', requireUser, requireAccount, async (req: any, res) => {
       res.status(404).json({ success: false, error: 'Quote not found' })
       return
     }
-    res.json({ success: true, data: q })
+    res.json({ success: true, data: (await withSoldBy([q]))[0] })
   } catch (err) {
     console.error('[saved-quotes] read error:', err)
     res.status(500).json({ success: false, error: 'Failed to read quote' })
@@ -314,6 +318,8 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
   try {
     const sameId = typeof req.body?.id === 'string' ? await prisma.savedQuote.findFirst({ where: { id: req.body.id, accountId: req.user.crmAccountId } }) : null
     const data = quoteSchema.parse(await costsForLimited(req, sameId))
+    // Who sold a signed quote is that quote's: a copy of it starts with no seller (lib/soldBy.ts).
+    data.pricing = withoutSaleRecord(data.pricing)
     // A proposal sent back slim (the list's copy): its saved drawing and option copies go back on (lib/quoteSlim.ts).
     if (data.proposal) data.proposal = withHeavyParts(data.proposal, sameId?.proposal ?? null)
     // Lead source and tags by Settings > Lead Sources and Customer Tags: an id or linked word kept, a name in any capital letters becomes its id, anything else as typed.
@@ -425,9 +431,11 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     if (typeof data.leadSource === 'string') data.leadSource = (await canonicalWord(req.user.crmAccountId, 'leadSources', data.leadSource)) ?? ''
     // A signed quote keeps its price: a change to it goes on a change order (lib/quoteLock.ts).
     if (await signedNow(existing)) {
+      // Who sold it and the owner's hand edit stay as saved, whatever copy this save read (lib/soldBy.ts).
+      keepSaleRecord(existing, data)
       const fields = lockedChanges(existing, data)
       if (fields.length) { refuseLocked(res, fields, existing); return }
-    }
+    } else data.pricing = withoutSaleRecord(data.pricing)
     // A sent (or lost) quote goes back to Draft only when Draft was picked on it (backToDraft): a save from a copy
     // read before it was sent (the quote builder opened on the phone's older copy) keeps it as it is (#58 review).
     if (data.status === 'DRAFT' && (existing.status === 'SENT' || existing.status === 'LOST') && req.body?.backToDraft !== true) delete data.status
@@ -566,6 +574,10 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
 // ── The quote's Salesman: the owner only, a signed one after asking (lib/salesmanMove.ts) ──
 router.post('/:id/salesman', requireUser, requireAccount, salesmanMoveRoute('quote'))
 
+// ── Who gets a signed job's commission and how much: the owner only, by hand (lib/soldBy.ts) ──
+router.get('/:id/commission', requireUser, requireAccount, commissionRead)
+router.post('/:id/commission', requireUser, requireAccount, commissionEdit)
+
 // ── Delete (soft, owner and admin) ──
 // With everything that hangs off it, in one transaction, logged in Settings >
 // Deleted Records with a snapshot to restore from (lib/deletion.ts).
@@ -653,6 +665,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
 
       const minimum = await checkDiscountMinimum(req.user.crmAccountId, roleOf(req), minimumBody, q, null)
       if (minimum.kind === 'refuse') { underMinimum++; continue }
+      q.pricing = withoutSaleRecord(q.pricing)
       await holdCommissionRule(req.user.crmAccountId, q, q.salesRep, req.user.id, null)
       try {
         const made = await prisma.savedQuote.create({

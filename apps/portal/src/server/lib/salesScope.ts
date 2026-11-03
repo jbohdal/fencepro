@@ -21,7 +21,8 @@
  *   someone else is not, whoever wrote it and whoever the customer's
  *   Salesman is. A moved quote (lib/quotesFollowCustomer.ts, a customer's
  *   open quotes follow the customer; lib/salesmanMove.ts, the owner moves one
- *   quote or job, its commission with it) leaves her the moment it moves; a
+ *   quote or job, a signed one's commission staying with its seller,
+ *   lib/soldBy.ts) leaves her the moment it moves; a
  *   sold quote whose rep is still her stays hers, and brings its customer,
  *   after the customer moves. Only a quote with no rep falls back to who
  *   wrote it (ownerId) or a direct customer; a job with no rep to its quote

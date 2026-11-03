@@ -21,6 +21,11 @@
  * lib/commissionRule.ts is the one rule, and the quote builder asks it before a
  * save (POST /api/saved-quotes/commission-rule) and says so first.
  *
+ * Commission stays with whoever sold it (Jonathan, Nov 2 2026): a signed job
+ * moved to someone else keeps its seller, and the owner can edit who gets it
+ * and how much by hand (portal lib/soldBy.ts). creditedTo is who a sale counts
+ * for; the rep (salesRep) is who is working it now.
+ *
  * Pure: QuoteBuilder and QuoteDetailDrawer call it, tests call it directly.
  */
 
@@ -83,7 +88,7 @@ type SavedMargin = {
   finalPrice: number
   totalCOGS: number
   hasSalesman?: boolean
-  pricing?: { commissionPct?: number } | null
+  pricing?: { commissionPct?: number; commissionHandCents?: number } | null
   work?: { priced?: { commissionCents?: number } } | null
 }
 
@@ -91,7 +96,12 @@ const pos = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
 
 /** Does this saved quote carry a commission (the switch was on, the quote kept its own %, or a repair's commission)? */
 export function carriesCommission(q: SavedMargin): boolean {
-  return !!q.hasSalesman || pos(q.pricing?.commissionPct) || pos(q.work?.priced?.commissionCents)
+  return !!q.hasSalesman || pos(q.pricing?.commissionPct) || pos(q.work?.priced?.commissionCents) || pos(q.pricing?.commissionHandCents)
+}
+
+/** Who a sale and its commission count for: who sold it (the server says, when it is not the rep on it now), else the rep. */
+export function creditedTo(q: { soldBy?: string | null; salesRep?: string | null }): string {
+  return q.soldBy?.trim() || q.salesRep?.trim() || ''
 }
 
 /**
@@ -174,14 +184,23 @@ export function salesmanQuoteView<T extends { salesRep?: string | null }>(quotes
   return { listed: quotes, mine: quotes.filter(q => isRepsQuote(q.salesRep, me)) }
 }
 
+/** What the owner typed for a commission, in cents: "1,200", "$1200.50". Null if it is not an amount. */
+export function typedCents(typed: string): number | null {
+  const t = typed.replace(/[$,\s]/g, '')
+  return /^\d+(\.\d{1,2})?$/.test(t) ? Math.round(parseFloat(t) * 100) : null
+}
+
 /**
  * A saved quote's commission, for "Pricing (Internal)" (review Oct 27 2026: the office saw cost, price and
  * a 35% margin that did not add up, the commission being in the margin but nowhere on the screen).
  * The cents are what the saved figures leave for it, price − cost − margin (so the lines add up to the
  * margin shown); a repair's are its own saved commission. The % is the quote's own, else the cents over
- * the price. Null with no commission. Only for logins that see the commission (seesCommission).
+ * the price. The owner's hand edit (portal lib/soldBy.ts) is the figure when there is one. Null with no
+ * commission. Only for logins that see the commission (seesCommission).
  */
 export function savedCommission(q: SavedMargin): { pct: number; cents: number } | null {
+  const hand = q.pricing?.commissionHandCents
+  if (typeof hand === 'number' && Number.isFinite(hand)) return hand > 0 && q.finalPrice > 0 ? { pct: hand / (q.finalPrice * 100), cents: Math.round(hand) } : null
   if (!carriesCommission(q) || !(q.finalPrice > 0)) return null
   const cents = pos(q.work?.priced?.commissionCents)
     ? Math.round(q.work!.priced!.commissionCents!)

@@ -7,14 +7,16 @@
  *
  *   - Who: the owner only (lib/salesmanChoice.ts isOwnerLogin, by role as D4
  *     finds him). The routes refuse everyone else with a 403.
- *   - Which: the quote's Sales rep, the Sales rep of every job made from it,
- *     and the name on the quoted cost saved at signing (JobQuotedCost; job
- *     costing falls back to it). The price, the cost, the status, the signed
- *     documents and the payment schedule stay exactly as they were.
+ *   - Which: the quote's Sales rep and the Sales rep of every job made from
+ *     it: who is working it now. The price, the cost, the status, the signed
+ *     documents, the payment schedule and the quoted cost saved at signing
+ *     stay exactly as they were.
  *   - Commission (lib/commissionRule.ts commissionOnMove): a signed quote or
- *     sold job does not change, and every word says so. An unsigned quote's
- *     follows the rep both ways: off moving to someone positively not a
- *     Salesman, back on moving to a Salesman. Commission added on top of the
+ *     sold job does not change, and it stays with whoever sold it (Jonathan,
+ *     Nov 2 2026; lib/soldBy.ts): the first move writes the seller on the
+ *     quote, later moves keep it, and every word names the seller. An unsigned
+ *     quote's follows the rep both ways: off moving to someone positively not
+ *     a Salesman, back on moving to a Salesman. Commission added on top of the
  *     price is left alone, with a warning.
  *   - The customer's own Salesman does not change (that is the customer
  *     page's Change, lib/leadAssign.ts).
@@ -43,6 +45,7 @@ import { enteringName, OWNER_ONLY_SALESMAN, requestIsOwner } from './salesmanCho
 
 import { SALESMAN_MOVED_NOTE_PREFIX } from './salesRep.js'
 import { commissionOnMove, commissionSettings, ruleLogins, type MoveCommission } from './commissionRule.js'
+import { forgetMovedSellers, movedSellers, pricingWithSeller, sellerOf } from './soldBy.js'
 export { SALESMAN_MOVED_NOTE_PREFIX }
 
 export interface SalesmanMoved {
@@ -53,7 +56,8 @@ export interface SalesmanMoved {
   signed: boolean
   /** The customer's price, unchanged (integer cents). */
   priceCents: number
-  /** The commission the quote carries, credited now to `to` (integer cents). */
+  /** Who sold it: a signed one's commission stays credited to them. '' on an unsigned one, which has no seller yet. */
+  soldBy: string
   /** The commission it carries now (integer cents), and before the move. */
   commissionCents: number
   commissionWas: number
@@ -69,19 +73,19 @@ export type MoveAnswer =
 const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 /** The question the owner answers before a signed job's Salesman changes (the amount is for the owner only). */
-export function confirmQuestion(from: string, to: string, commissionCents: number): string {
+export function confirmQuestion(from: string, to: string, commissionCents: number, soldBy: string): string {
   const was = from.trim() || 'nobody'
   return commissionCents > 0
-    ? `This job is signed. Move it from ${was} to ${to}? Its ${dollars(commissionCents)} commission stays on the job, unchanged.`
+    ? `This job is signed. Move it from ${was} to ${to}? Its ${dollars(commissionCents)} commission stays with ${soldBy}.`
     : `This job is signed. Move it from ${was} to ${to}? It carries no commission.`
 }
 
 /** What the move did to the commission, in words for the owner. */
-export function commissionWords(c: MoveCommission, carriedCents: number): string {
+export function commissionWords(c: MoveCommission, carriedCents: number, soldBy = ''): string {
   if (c.change === 'off') return 'Its commission is off: this person is not a Salesman.'
   if (c.change === 'on') return 'Commission is on, with the Salesman.'
   if (c.why === 'added') return 'Commission is left as it was: it is added on top of the price, so change it on the quote.'
-  if (c.why === 'signed') return carriedCents > 0 ? 'Its commission stays on the job, unchanged.' : 'It carries no commission.'
+  if (c.why === 'signed') return carriedCents > 0 ? `Its commission stays with ${soldBy}.` : 'It carries no commission.'
   return carriedCents > 0 ? 'Its commission goes with it.' : 'It carries no commission.'
 }
 
@@ -121,15 +125,17 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   const commission: MoveCommission = quote
     ? commissionOnMove(quote, { signed, toRep: target.name, logins: await ruleLogins(accountId), settings: await commissionSettings(accountId) })
     : { change: 'none', why: 'signed', fields: null }
-  const words = commissionWords(commission, commissionCents)
+  // Who sold it stays who sold it. With no name on it at all, the new Salesman is the first one credited.
+  const soldBy = signed ? sellerOf({ id: quote?.id ?? job!.id, salesRep: from, pricing: quote?.pricing }, await movedSellers()) || target.name : ''
+  const words = commissionWords(commission, commissionCents, soldBy)
   const after = quote && commission.fields ? quoteCommissionCents({ ...quote, ...commission.fields }) : commissionCents
-  const moved: SalesmanMoved = { quoteId: quote?.id ?? null, jobIds: jobs.map(j => j.id), from, to: target.name, signed, priceCents, commissionCents: after, commissionWas: commissionCents, commissionChange: commission.change, commissionWords: words }
+  const moved: SalesmanMoved = { quoteId: quote?.id ?? null, jobIds: jobs.map(j => j.id), from, to: target.name, signed, soldBy, priceCents, commissionCents: after, commissionWas: commissionCents, commissionChange: commission.change, commissionWords: words }
 
   // Already theirs everywhere: nothing to do, no History line.
   if (samePerson(from, target.name) && jobs.every(j => samePerson(j.salesRep, target.name))) return { ok: true, already: true, moved }
 
   if (signed && !input.confirm) {
-    return { ok: false, status: 409, code: 'CONFIRM_SIGNED', error: confirmQuestion(from, target.name, commissionCents), confirm: { from, to: target.name, signed: true, commissionCents, question: confirmQuestion(from, target.name, commissionCents) } }
+    return { ok: false, status: 409, code: 'CONFIRM_SIGNED', error: confirmQuestion(from, target.name, commissionCents, soldBy), confirm: { from, to: target.name, signed: true, commissionCents, question: confirmQuestion(from, target.name, commissionCents, soldBy) } }
   }
 
   const contactId = quote?.crmContactId ?? job?.crmContactId ?? null
@@ -137,9 +143,12 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
     if (quote) {
       // Only if nobody changed its Salesman since it was read here, and, read as unsigned, it still is: a customer signing
       // at this moment wins, and nothing here changes (it would need the question a signed job gets, and its commission stays).
-      const q = await tx.savedQuote.updateMany({ where: { id: quote.id, accountId, deletedAt: null, salesRep: quote.salesRep, ...(signed ? {} : { status: { not: 'SOLD' as const }, soldAt: null, acceptedAt: null }) }, data: { salesRep: target.name, ...((commission.fields ?? {}) as any) } })
+      // A signed one has its seller written on it, on the pricing read a moment ago: nobody's save or hand edit since is lost.
+      const q = await tx.savedQuote.updateMany({
+        where: { id: quote.id, accountId, deletedAt: null, salesRep: quote.salesRep, ...(signed ? { updatedAt: quote.updatedAt } : { status: { not: 'SOLD' as const }, soldAt: null, acceptedAt: null }) },
+        data: { salesRep: target.name, ...((commission.fields ?? {}) as any), ...(signed ? { pricing: pricingWithSeller(quote.pricing, soldBy) } : {}) },
+      })
       if (q.count !== 1) return false
-      await tx.jobQuotedCost.updateMany({ where: { accountId, quoteId: quote.id }, data: { salesRep: target.name } })
     }
     if (jobs.length) await tx.savedJob.updateMany({ where: { accountId, id: { in: jobs.map(j => j.id) } }, data: { salesRep: target.name, ...(commission.fields ? { hasSalesman: commission.fields.hasSalesman, gmPct: commission.fields.gmPct } : {}) } })
     if (contactId) {
@@ -151,6 +160,7 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   if (!changed) return { ok: false, status: 409, code: 'CHANGED', error: 'This quote was changed a moment ago. Nothing was changed. Look at it again.' }
   // The new Salesman has it on the next request; the old one no longer does (the rep decides).
   forgetAllScopes()
+  forgetMovedSellers()
   return { ok: true, already: false, moved }
 }
 

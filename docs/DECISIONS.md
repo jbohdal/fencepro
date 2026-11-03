@@ -3,6 +3,14 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-11-02: commission stays with whoever sold it when a signed job is moved
+
+- **Jonathan:** "COMMISSION STAYS with whoever sold it when a signed job is moved. Owner can edit it by hand."
+  - Two things kept apart (apps/portal/src/server/lib/soldBy.ts): the rep is who is working it now; the seller is who gets the credit. A move changes the rep only.
+  - The sale goes with its commission (decided in building it): Sales by rep (revenue, close rate, commission) and job costing's By salesman credit the seller, one name for both. The board, the Salesman's lists, the job page, the bell and the automations read the rep.
+  - Kept on the quote's pricing JSON, only once moved or edited (pricing.soldBy, pricing.commissionHandCents), so no schema change. No record: the audit log's first signed move, else the rep.
+  - The hand edit: super_admin only, on a signed quote, from the quote window, the job page or Operations. Only the commission figure, the saved margin (quote and job) and a move's or repair's saved commission change. hasSalesman and pricing.commissionPct stay on purpose: a change order is priced from them, and that would reach what the customer pays. Logged with old and new.
+
 ## 2026-11-02: margin is graded on price less cost; commission only with a Salesman as the rep
 
 Jonathan: "Commission only applies when an actual Salesman (Christa or another salesman login) is the rep. Remove it from the 7 quotes where the rep is me, Jb or blank, including Kristi Murphy's sold job. Nobody is paid on those." "Raise the 'good' margin warning to 39.6% so a low quote shows a warning in the builder." "Fix the 3 display bugs you found (Jaziel margin, list vs report target, Jack Chappell labor) and deploy." He confirmed $5/ft and the other sub rates are what subs get paid.

@@ -5,7 +5,7 @@
  * builder's "Salesman on this job?" switch.)
  */
 import { describe, test, expect } from 'vitest'
-import { salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote, savedCommission, salesmanQuoteView } from '../../web/src/salesmanCommission'
+import { carriesCommission, creditedTo, salesmanSwitchDefault, seesCommission, isSalesmanName, isFreshQuote, marginBeforeCommission, shownMargin, withShownMargin, isRepsQuote, savedCommission, salesmanQuoteView } from '../../web/src/salesmanCommission'
 import { isMine } from '../src/server/lib/salesScope'
 import { calculatePrice, type PriceInputs, type PricingSettings, type StylePricing } from '../../web/src/pricingEngine'
 import { seesCosts } from '../../web/src/moveRepair'
@@ -171,5 +171,21 @@ describe('Pricing (Internal) shows the commission that is in the margin (review 
     expect(savedCommission({ ...q, pricing: undefined })!.pct).toBeCloseTo(0.09, 3)
     expect(savedCommission({ ...q, hasSalesman: false, pricing: undefined })).toBeNull()
     expect(savedCommission({ finalPrice: 450, totalCOGS: 200, gmPct: 0.4, work: { priced: { commissionCents: 4050 } } })).toEqual({ pct: 0.09, cents: 4050 })
+  })
+})
+
+describe('commission stays with whoever sold it (portal lib/soldBy.ts)', () => {
+  const q = { finalPrice: 10000, totalCOGS: 6000, gmPct: 0.31, hasSalesman: true, pricing: { commissionPct: 0.09 } }
+  test('a sale counts for its seller, else the rep', () => {
+    expect(creditedTo({ salesRep: 'Sam', soldBy: 'Christa Feagin' })).toBe('Christa Feagin')
+    expect(creditedTo({ salesRep: 'Sam' })).toBe('Sam')
+    expect(creditedTo({ salesRep: ' ' })).toBe('')
+  })
+  test('the owner\'s hand edit is the figure, zero included, in cents', () => {
+    expect(savedCommission({ ...q, pricing: { commissionPct: 0.09, commissionHandCents: 120050 } })).toEqual({ pct: 0.12005, cents: 120050 })
+    expect(savedCommission({ ...q, pricing: { commissionPct: 0.09, commissionHandCents: 0 } })).toBeNull()
+  })
+  test('a hand edit on a quote with no switch on still counts as a commission', () => {
+    expect(carriesCommission({ ...q, hasSalesman: false, pricing: { commissionHandCents: 50000 } })).toBe(true)
   })
 })
