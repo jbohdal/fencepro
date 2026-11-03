@@ -349,6 +349,19 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
           {moneyField('Tear out, per section', 'subTearOutSection')}
           {moneyField('Tear out, per gate', 'subTearOutGate')}
         </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className={LABEL} htmlFor="sub-extra-hour-rate">Sub extra labor, per hour</label>
+            <div className="flex items-center">
+              <span className="text-gray-400 mr-1">$</span>
+              <input id="sub-extra-hour-rate" type="number" step="0.25" min="0" max="500" className={inputCls} data-sub-extra-hour-rate
+                placeholder="Not set" value={p.subExtraHourRate ?? ''}
+                onChange={e => { const v = parseFloat(e.target.value); setP('subExtraHourRate', e.target.value === '' || isNaN(v) || v < 0 ? undefined : Math.round(v * 100) / 100) }} />
+              <span className="text-gray-400 text-sm ml-2 whitespace-nowrap">/ hr</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Extra hours on a Subcontractor quote. Left blank, they are charged at the man hour rate (${p.manHourRate}) and the quote says so.</p>
+          </div>
+        </div>
       </div>
 
       <div>

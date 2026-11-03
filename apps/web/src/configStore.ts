@@ -110,6 +110,8 @@ export interface PricingConfig {
   subDblGate: number
   subTearOutSection: number
   subTearOutGate: number
+  /** Dollars per extra hour on a Subcontractor quote. Blank: the man hour rate, and the quote says so. */
+  subExtraHourRate?: number
   /** How the customer price is built by default. Each quote can switch. */
   priceMethod: 'cost_factor' | 'per_foot'
   /** 'included' takes commission out of the price; 'added' puts it on top. */

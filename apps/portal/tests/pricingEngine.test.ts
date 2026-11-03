@@ -103,7 +103,7 @@ describe('subcontractor labor', () => {
     expect(r.laborCost).toBeCloseTo(25 * 40 + 50 + 90, 2)
   })
 
-  test('extra hours are billed at the man hour rate on top of sub pay', () => {
+  test('extra hours are billed at the man hour rate on top of sub pay while Settings has no sub extra labor rate', () => {
     const r = calculatePrice({ ...job, pricing: sub, extraLaborHrs: 3 })
     expect(r.laborCost).toBeCloseTo(150 * 8 + 50 + 90 + 3 * 22, 2)
   })

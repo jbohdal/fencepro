@@ -32,7 +32,7 @@
  * Oct 30 2026: "The 15% is for wood labor and repair rates only"): woodWork.
  */
 
-import { calculatePrice, resolveSubRate, subUnitOf, subUnitRateMissing, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
+import { calculatePrice, extraHourRate, extraHoursFellBackNote, resolveSubRate, subUnitOf, subUnitRateMissing, adjustedPrice, adjustmentOf, refusedNote, type PricingSettings, type QuotePricingOverrides } from './pricingEngine'
 import { inventoryCost, sectionWidthForStyle, type LineItem } from './materialCalculator'
 import { kitSetFor, isFabricPart, type KitPart, type KitSet } from './materialKits'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
@@ -843,12 +843,27 @@ export function priceRepair(c: WorkCommon, r: RepairInputs): WorkResult {
 
 // ── Price, minimum, warnings ─────────────────────────────────────────────────
 
+/**
+ * Extra hours as a labor line, as a new fence charges them (pricingEngine.extraHourRate):
+ * the man hour rate, or on a Subcontractor quote the sub extra labor rate. Settings
+ * blank on a Subcontractor quote: the man hour rate as before, said in warnings.
+ */
+function extraHoursLine(c: WorkCommon, warnings: string[]): CostLine | null {
+  if (!c.extraLaborHrs) return null
+  // The labor mode as the rest of the work is charged (styleRates).
+  const mode = styleRates(c.style, c.pricing, c.overrides ?? {}).laborMode
+  const { rate, fellBack } = extraHourRate(mode, c.pricing)
+  if (fellBack) warnings.push(extraHoursFellBackNote(rate))
+  const sub = mode === 'subcontractor' && !fellBack
+  return { key: 'extraHours', label: 'Extra hours', kind: 'labor', cents: Math.round(c.extraLaborHrs * rate * 100), math: `${c.extraLaborHrs} hr × ${usd(rate)}${sub ? ' sub extra labor' : ''}` }
+}
+
 function finish(c: WorkCommon, type: 'move' | 'repair', acc: Acc, kit: KitSet | null, description: string, crew: string[], newPosts: boolean, sections: number, footage: number, manHours: number): WorkResult {
   const o = c.overrides ?? {}
   const s = c.settings
-  const mhRate = Number(c.pricing.manHourRate) || 0
-  if (c.extraLaborHrs) acc.lines.push({ key: 'extraHours', label: 'Extra hours', kind: 'labor', cents: Math.round(c.extraLaborHrs * mhRate * 100), math: `${c.extraLaborHrs} hr × ${usd(mhRate)}` })
   const flat = typeof o.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0
+  const extra = extraHoursLine(c, flat ? [] : acc.warnings)
+  if (extra) acc.lines.push(extra)
   if (flat) {
     for (const l of acc.lines) if (l.kind === 'labor') { l.math += ' (replaced by the flat labor typed on the quote)'; l.cents = 0 }
     acc.lines.push({ key: 'flatLabor', label: 'Labor (flat, typed on the quote)', kind: 'labor', cents: Math.round(o.laborCost! * 100), math: 'typed' })
@@ -946,18 +961,20 @@ function woodWork(c: WorkCommon, run: (c: WorkCommon) => WorkResult): WorkResult
       ]
   lines.push({ key: 'woodLabor', label: w ? `Wood labor: ${pct}% of the White Vinyl labor` : `Wood factor ${pct}% on labor`, kind: 'labor', cents: woodLaborCents - v.laborCents, math: `${usd(v.laborCents / 100)} vinyl labor × ${pct}% = ${usd(woodLaborCents / 100)}` })
   let laborCents = woodLaborCents
-  const mhRate = Number(c.pricing.manHourRate) || 0
-  if (c.extraLaborHrs) { const x = Math.round(c.extraLaborHrs * mhRate * 100); lines.push({ key: 'extraHours', label: 'Extra hours', kind: 'labor', cents: x, math: `${c.extraLaborHrs} hr × ${usd(mhRate)}` }); laborCents += x }
-  if (typeof o.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0) {
+  const flat = typeof o.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0
+  const extraWarnings: string[] = []
+  const extra = extraHoursLine(c, flat ? [] : extraWarnings)
+  if (extra) { lines.push(extra); laborCents += extra.cents }
+  if (flat) {
     for (const l of lines) if (l.kind === 'labor') { l.math += ' (replaced by the flat labor typed on the quote)'; l.cents = 0 }
-    laborCents = Math.round(o.laborCost * 100)
+    laborCents = Math.round(o.laborCost! * 100)
     lines.push({ key: 'flatLabor', label: 'Labor (flat, typed on the quote)', kind: 'labor', cents: laborCents, math: 'typed' })
   }
   // Rate warnings come from the vinyl work (the labor), part warnings from the wood work (the material).
   const rateWords = /^No rate per/
   const missing = v.warnings.find(x => rateWords.test(x))
   const rest = w ? w.warnings.filter(x => !rateWords.test(x)) : v.warnings.filter(x => x !== missing)
-  const acc: Acc = { lines, warnings: rest, missingRates: [], missingParts: new Set(), pull: new Map() }
+  const acc: Acc = { lines, warnings: [...rest, ...extraWarnings], missingRates: [], missingParts: new Set(), pull: new Map() }
   const src = w ?? v
   const r = price(c, v.type, acc, { materialCents, laborCents, disposalCents: v.disposalCents }, null, src.description, src.crew, src.needs811, src.sections, src.footage, src.manHours, c.settings)
   if (missing) r.warnings.unshift(missing)
