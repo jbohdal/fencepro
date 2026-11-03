@@ -310,7 +310,7 @@ export default function QuoteDetailDrawer({
                 <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total cost</span><span>{fmt(quote.totalCOGS)}</span></div>
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
                 {/* The commission, for logins that see it (never a Salesman): the lines add up to the margin after it. */}
-                {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%{quote.soldBy ? ` to ${quote.soldBy}` : ''}</span><span>{fmt(commission.cents / 100)}</span></div>}
+                {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%{quote.pricing?.commissionTo ? ` to ${quote.pricing.commissionTo}` : quote.soldBy ? ` to ${quote.soldBy}` : ''}</span><span>{fmt(commission.cents / 100)}</span></div>}
                 {seesMargin && <><div className="flex justify-between pt-1 text-xs text-gray-500" data-quote-gross-margin><span>Gross Margin (price less cost)</span><span>{fmtPct(shownGm)}</span></div>
                 {afterComm !== null && <div className="flex justify-between text-xs text-gray-500" data-quote-margin-after><span>Margin after commission</span><span>{fmtPct(afterComm)}</span></div>}
                 <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>{targetIsSaved(quote) ? 'Target Margin it was priced with' : 'Target Margin today'}</span><span>{fmtPct(grade.target)}</span></div></>}

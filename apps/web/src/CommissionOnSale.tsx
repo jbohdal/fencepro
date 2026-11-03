@@ -6,7 +6,9 @@
  * Shown to a super_admin only, on a signed quote; the server refuses everyone
  * else (portal lib/soldBy.ts). Only saved internal figures change: the
  * commission and the margin after it. The price, the contract and the payment
- * schedule stay as they are.
+ * schedule stay as they are. Commission is pay only (Jonathan, Nov 3 2026):
+ * handing it to someone else leaves the sale, its revenue and close rate in
+ * Reports, with the seller of record.
  */
 
 import { useEffect, useState } from 'react'
@@ -17,7 +19,7 @@ import { refreshQuotes } from './quoteStore'
 import { refreshJobs } from './jobStore'
 import { typedCents } from './salesmanCommission'
 
-interface Commission { signed: boolean; soldBy: string; rep: string; commissionCents: number; priceCents: number; beforeCents: number; byHand: boolean }
+interface Commission { signed: boolean; soldBy: string; commissionTo: string; rep: string; commissionCents: number; priceCents: number; beforeCents: number; byHand: boolean }
 
 const fmt = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const norm = (s: string | null | undefined) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
@@ -44,7 +46,9 @@ export default function CommissionOnSale({ quoteId, salesRep }: { quoteId: strin
   if (!owner || !c?.signed) return null
   // Who may get it: the owner or a Salesman, as the server allows.
   const choices = (list?.choices ?? []).filter(p => p.role === 'super_admin' || p.role === 'sales_rep')
-  const current = choices.find(p => norm(p.name) === norm(c.soldBy))?.id ?? ''
+  const paidTo = c.commissionTo ?? c.soldBy
+  const current = choices.find(p => norm(p.name) === norm(paidTo))?.id ?? ''
+  const handedOn = !!paidTo && norm(paidTo) !== norm(c.soldBy)
   const cents = typedCents(typed)
 
   const start = () => { setOpen(true); setError(''); setDone(''); setWho(current); setTyped((c.commissionCents / 100).toFixed(2)) }
@@ -72,8 +76,9 @@ export default function CommissionOnSale({ quoteId, salesRep }: { quoteId: strin
         <div className="min-w-0">
           <span className="text-xs text-gray-500 block">Commission (only you see this)</span>
           <span className="text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]" data-commission-who>
-            {c.commissionCents > 0 ? `${fmt(c.commissionCents)} to ${c.soldBy || 'no one (sold with no Salesman)'}` : `None. Sold by ${c.soldBy || 'no one on file'}`}
+            {c.commissionCents > 0 ? `${fmt(c.commissionCents)} to ${paidTo || 'no one (sold with no Salesman)'}` : `None. Sold by ${c.soldBy || 'no one on file'}`}
           </span>
+          {handedOn && <span className="text-xs text-gray-500 block [overflow-wrap:anywhere]" data-commission-seller>{c.soldBy ? `Sold by ${c.soldBy}. The sale stays theirs in Reports.` : 'Sold with no Salesman. The sale stays Unassigned in Reports.'}</span>}
           {c.byHand && <span className="text-xs text-gray-500 block" data-commission-by-hand>Set by hand</span>}
         </div>
         {!open && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" onClick={start} data-commission-change>Change</button>}
@@ -83,7 +88,7 @@ export default function CommissionOnSale({ quoteId, salesRep }: { quoteId: strin
           <label className="block">
             <span className="text-xs text-gray-500 block mb-1">Who gets it</span>
             <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px] bg-white" value={who} onChange={e => setWho(e.target.value)} data-commission-select>
-              {!current && <option value="">{c.soldBy || 'Pick who gets it…'}</option>}
+              {!current && <option value="">{paidTo || 'Pick who gets it…'}</option>}
               {choices.map(p => <option key={p.id} value={p.id}>{p.me ? `${p.name} (me)` : p.name}</option>)}
             </select>
           </label>
@@ -97,7 +102,7 @@ export default function CommissionOnSale({ quoteId, salesRep }: { quoteId: strin
               This is more than the job makes before commission ({fmt(Math.max(0, c.beforeCents))}), so its margin goes below zero. You can still save it.
             </p>
           )}
-          <p className="text-xs text-gray-500">Comes out of the price, so only your margin changes. The customer's price, the contract and the payment schedule stay as they are.</p>
+          <p className="text-xs text-gray-500">Comes out of the price, so only your margin changes. The customer's price, the contract and the payment schedule stay as they are. The sale, its revenue and close rate stay with {c.soldBy || 'Unassigned'} in Reports.</p>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn btn-primary btn-sm min-h-[44px]" disabled={busy || cents === null} onClick={() => void save()} data-commission-save>{busy ? 'Saving…' : 'Save'}</button>
             <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => { setOpen(false); setError('') }}>Cancel</button>

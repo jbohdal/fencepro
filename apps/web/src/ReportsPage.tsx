@@ -10,7 +10,7 @@ import { getConfig } from './configStore'
 import { marginOf, weightedTarget, marginOnPrice, hasCost, leftOutWords } from './moneyTruth'
 import { companyTargets, yearActuals, quoteGrader, groupTarget } from './moneyLoad'
 import { can, signedInRole } from './permissions'
-import { creditedTo, savedCommission, seesCommission } from './salesmanCommission'
+import { salesByRep, savedCommission, seesCommission } from './salesmanCommission'
 
 /* ───────── helpers ───────── */
 
@@ -403,23 +403,15 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
   }, [yearQuotes])
 
   // ── Sales rep analysis ──
-  // Credited to who sold it, not who is working it now: a signed job moved to someone else stays with its seller, its
-  // commission and its revenue together (Jonathan, Nov 2 2026; portal lib/soldBy.ts).
+  // Credited to who sold it, not who is working it now: a signed job moved to someone else stays with its seller
+  // (Jonathan, Nov 2 2026; portal lib/soldBy.ts). Revenue, close rate and sales stay with the seller of record; the
+  // commission column is pay, to whoever the owner handed it to (Nov 3 2026: "Commission is pay only.").
   const salesRepBreakdown = useMemo(() => {
-    const map: Record<string, { total: number; sold: number; revenue: number; commissionCents: number; soldQuotes: SavedQuote[] }> = {}
-    yearQuotes.forEach(q => {
-      const rep = creditedTo(q) || 'Unassigned'
-      if (!map[rep]) map[rep] = { total: 0, sold: 0, revenue: 0, commissionCents: 0, soldQuotes: [] }
-      map[rep].total += 1
-      if (q.status === 'SOLD') {
-        map[rep].sold += 1
-        map[rep].revenue += q.finalPrice
-        // On the price as signed (withChangeOrders adds change orders to finalPrice; the commission was not on those).
-        map[rep].commissionCents += savedCommission({ ...q, finalPrice: (q as { signedPrice?: number }).signedPrice ?? q.finalPrice })?.cents ?? 0
-        map[rep].soldQuotes.push(q)
-      }
-    })
+    // On the price as signed (withChangeOrders adds change orders to finalPrice; the commission was not on those).
+    const map = salesByRep(yearQuotes, q => savedCommission({ ...q, finalPrice: (q as { signedPrice?: number }).signedPrice ?? q.finalPrice })?.cents ?? 0)
     return Object.entries(map)
+      // A line with commission pay only is for logins that see the commission.
+      .filter(([, d]) => d.total > 0 || showCommission)
       .map(([rep, d]) => ({
         rep,
         total: d.total,
@@ -432,7 +424,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
         avgDeal: d.sold > 0 ? d.revenue / d.sold : 0,
       }))
       .sort((a, b) => b.revenue - a.revenue)
-  }, [yearQuotes])
+  }, [yearQuotes, showCommission])
 
   // ── Pipeline by status ──
   const pipelineByStatus = useMemo(() => {
@@ -1343,7 +1335,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Close Rate</p>
-                    <p className={`text-lg font-bold ${r.closeRate >= 0.4 ? 'text-green-700' : 'text-amber-700'}`}>{fmtPct(r.closeRate)}</p>
+                    <p className={`text-lg font-bold ${r.closeRate >= 0.4 ? 'text-green-700' : 'text-amber-700'}`}>{r.total > 0 ? fmtPct(r.closeRate) : '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Avg Deal</p>
@@ -1394,7 +1386,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="Quotes" className="px-6 py-3 text-right text-gray-700">{r.total}</td>
                     <td data-label="Sold" className="px-6 py-3 text-right text-gray-700">{r.sold}</td>
                     <td data-label="Close Rate" className={`px-6 py-3 text-right font-semibold ${r.closeRate >= 0.4 ? 'text-green-700' : 'text-amber-700'}`}>
-                      {fmtPct(r.closeRate)}
+                      {r.total > 0 ? fmtPct(r.closeRate) : '—'}
                     </td>
                     <td data-label="Revenue" className="px-6 py-3 text-right font-bold text-gray-900">{fmt(r.revenue)}</td>
                     <td data-label="Avg Deal" className="px-6 py-3 text-right text-gray-700">{r.sold > 0 ? fmt(r.avgDeal) : '—'}</td>
