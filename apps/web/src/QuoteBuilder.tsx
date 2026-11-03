@@ -732,13 +732,14 @@ export default function QuoteBuilder({
   const cfgStyle = style
   const isAutoMix = !!cfgStyle?.autoRailMix
   const optSettings = getRailOptimizerConfig()
-  // Owner, admin, manager and office see costs and price the quote here. A
-  // Salesman or Installer gets prices only: the server prices it (quoteJob.ts)
-  // and their phone never receives a cost (Jonathan, Oct 2026).
-  const internal = seesCosts(signedInRole())
-  // A Salesman never sees margin (Jonathan, Nov 2 2026): not the quote's, not an option's, not the target, not the
-  // profit split. Owner, admin, manager and office keep theirs, every margin read the same way: price less cost.
-  const seesMargin = internal && signedInRole() !== 'sales_rep'
+  // Owner, admin, manager and office see costs and margin and price the quote here. A Salesman or Installer is
+  // priced by the server (quoteJob.ts): a Salesman never sees margin (Jonathan, Nov 2 2026), and her phone no longer
+  // receives the margin, Target Profit, overhead or sub rates the quote math needs. She still sees material and
+  // labor costs (the server's view, `costs`); the Installer sees no cost and no price.
+  const internal = seesCosts(signedInRole()) && signedInRole() !== 'sales_rep'
+  // Every margin an owner or office login reads, read the same way: price less cost.
+  const seesMargin = internal
+  const seesCostLines = seesCosts(signedInRole())
   // The Salesman's picker (salesmanPicks.ts): Material > Style > Height > Color > add ons; install and section width
   // are worked out. Owner and office keep the full picker, and the Advanced section width on the Price step.
   const simplePicks = signedInRole() === 'sales_rep'
@@ -863,6 +864,9 @@ export default function QuoteBuilder({
     tierSet: tierSet ?? null, tierPrefs, compare: showCompare, offer, offerNewFence, offerMoveAsIs, photoIds, keepStyle: init?.fenceStyle ?? null,
     keepCents,
     ...(changeBase && !internal ? { changeBase } : {}),
+    // The Salesman's picker: the server says which width of her fence prices lowest, and lists each fence once.
+    ...(simplePicks && widthIds && widthIds.length > 1 ? { widthWays: FENCE_STYLES.filter(s => widthIds.includes(s.id)).map(s => s.name) } : {}),
+    ...(simplePicks ? { oneWidth: true } : {}),
   }
   const { view: sv, pricing: svPricing, error: svError } = useServerQuoteView(!internal, priceRequest, init?.id)
   // Prices priced here are kept current (broken list #58): checked when the builder opens and every 30 seconds
@@ -1037,11 +1041,12 @@ export default function QuoteBuilder({
   const tiers = internal ? tiersLocal : viewTiers(sv, FENCE_STYLES)
   // The Salesman's fence in its cheapest section width for this yard (tiers.ts cheapestStyle, the same pick as the
   // Better option's "whichever prices lower"), so the main price and Better are the same fence at the same price.
+  // Priced on the server (her phone has no margin to price with): it says the cheapest of her fence's widths.
   useEffect(() => {
-    if (!simplePicks || !widthIds || widthIds.length < 2 || !widthIds.includes(styleId) || jobType !== 'new' || signedQuote || sections <= 0) return
-    const best = cheapestStyle(calcInput, FENCE_STYLES.filter(s => widthIds.includes(s.id) && isQuotable(s)))
+    if (!simplePicks || !widthIds || widthIds.length < 2 || !widthIds.includes(styleId) || jobType !== 'new' || signedQuote || !sv?.cheapest) return
+    const best = FENCE_STYLES.find(s => s.name === sv.cheapest && widthIds.includes(s.id))
     if (best && best.id !== styleId) setStyleId(best.id)
-  }, [simplePicks, widthIds, styleId, jobType, signedQuote, sections, JSON.stringify(calcInput), invTick])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [simplePicks, widthIds, styleId, jobType, signedQuote, sv?.cheapest])  // eslint-disable-line react-hooks/exhaustive-deps
   // Owner and office: the section width forced by hand (Advanced on the Price step), the same fence in another width.
   const widthWays = useMemo(() => (simplePicks || !style ? [] : widthSiblings(style, FENCE_STYLES)), [simplePicks, style, FENCE_STYLES])
   // A best price quote's own option is shown on the proposal as one tier's card, at the quote's price and with the
@@ -1094,7 +1099,7 @@ export default function QuoteBuilder({
     const taken = new Set(tiers.filter(t => t.spec.key !== card && !t.off && t.style).map(t => t.style!.name))
     const groups = new Map<string, typeof FENCE_STYLES>()
     // A Salesman picks no section width: each fence once, in its best price width (salesmanPicks.ts oneWidthEach).
-    const offered = simplePicks ? oneWidthEach(FENCE_STYLES.filter(isQuotable), ways => cheapestStyle(calcInput, ways)) : FENCE_STYLES.filter(isQuotable)
+    const offered = simplePicks && sv?.oneWidth ? FENCE_STYLES.filter(s => isQuotable(s) && sv.oneWidth!.includes(s.name)) : FENCE_STYLES.filter(isQuotable)
     for (const s of offered) { const w = materialWord(s); groups.set(w, [...(groups.get(w) ?? []), s]) }
     return [...groups].map(([word, list]) => <optgroup key={word} label={word}>{list.map(s => <option key={s.id} value={s.name} disabled={taken.has(s.name)}>{s.label || s.name}{taken.has(s.name) ? ' (already an option)' : ''}</option>)}</optgroup>)
   }
@@ -2426,11 +2431,12 @@ export default function QuoteBuilder({
                 )}
               </div>
 
-              <div className={`bg-white rounded-xl border border-gray-200 p-4 space-y-2 ${work || !internal ? 'hidden' : ''}`}>
+              {/* Costs: priced here for the owner and office; a Salesman reads the server's (material and labor, never margin). */}
+              <div className={`bg-white rounded-xl border border-gray-200 p-4 space-y-2 ${work || !(internal || (seesCostLines && sv?.costs)) ? 'hidden' : ''}`} data-quote-costs>
                 {[
-                  { label: 'Material cost', val: fmt(materialCost) },
-                  { label: laborLabel(priced, calcInput.style), val: fmt(laborCost) },
-                  { label: 'Tear out',      val: fmt(tearOutCost) },
+                  { label: 'Material cost', val: fmt(internal ? materialCost : sv?.costs?.materialCost ?? 0) },
+                  { label: internal ? laborLabel(priced, calcInput.style) : 'Labor cost', val: fmt(internal ? laborCost : sv?.costs?.laborCost ?? 0) },
+                  { label: 'Tear out',      val: fmt(internal ? tearOutCost : sv?.costs?.tearOutCost ?? 0) },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between text-sm">
                     <span className="text-gray-500">{row.label}</span>
@@ -2439,7 +2445,7 @@ export default function QuoteBuilder({
                 ))}
                 <div className="border-t border-gray-100 pt-2 flex justify-between text-sm font-semibold">
                   <span className="text-gray-700">Total cost</span>
-                  <span className="text-gray-900">{fmt(totalCOGS)}</span>
+                  <span className="text-gray-900">{fmt(internal ? totalCOGS : sv?.costs?.totalCOGS ?? 0)}</span>
                 </div>
               </div>
 

@@ -218,10 +218,11 @@ describe('the quote builder\'s job (owner, office and the server for a salesman)
         expect(o.adjustmentCents).toBe(-3000)
       } else expect(o, o.label).toEqual(was)
     }
-    // A salesman's phone: prices and the adjustment, never a cost.
+    // A salesman's phone: prices, the adjustment and her material and labor costs (Nov 2 2026), never margin or commission.
     const v = quoteView(j) as any
     expect([v.price, v.listPrice, v.adjustmentCents, v.adjustmentRefused]).toEqual([j.totals.price, j0.totals.price, -3000, false])
-    expect(JSON.stringify(v)).not.toMatch(/totalCOGS|grossMargin|commissionAmt/)
+    expect(JSON.stringify(v)).not.toMatch(/grossMargin|gmPct|commissionAmt|costFactor|targetProfit|overhead/)
+    expect(Object.keys(v.costs).sort()).toEqual(['laborCost', 'materialCost', 'tearOutCost', 'totalCOGS'])
     // No adjustment: nothing about it is saved.
     expect(j0.pricing).not.toHaveProperty('priceAdjustmentCents')
     expect(j0.pricing).not.toHaveProperty('showDiscountOnProposal')
