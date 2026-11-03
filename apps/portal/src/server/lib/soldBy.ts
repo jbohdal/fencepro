@@ -21,9 +21,9 @@
  * no pricing to hold it), else the rep.
  *
  * The hand edit: the owner (super_admin) only, on a signed quote, from the
- * quote or its job. It changes the name above, the commission figure, the
- * margin saved after it (quote and job) and a move's or repair's saved
- * commission and margin. Nothing else: no price, cost, status, contract or
+ * quote window or the Operations job window. It changes the name above, the
+ * commission figure, the margin saved after it (quote and job) and a move's or
+ * repair's saved commission and margin. Nothing else: no price, cost, status, contract or
  * payment schedule. hasSalesman and pricing.commissionPct stay: a change order
  * is priced from them, so they would reach what the customer pays. The
  * proposal stays as signed, its option copies too. Written to the audit log

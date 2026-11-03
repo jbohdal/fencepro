@@ -17,6 +17,9 @@ import { creditedTo, savedCommission, seesCommission } from './salesmanCommissio
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
+/** A commission, exact: it is what someone gets paid. */
+const fmtCents = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
+
 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -1353,7 +1356,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                   {showCommission && (
                     <div data-rep-commission={r.rep}>
                       <p className="text-xs text-gray-400">Commission</p>
-                      <p className="text-sm font-semibold text-gray-700">{fmt(r.commissionCents / 100)}</p>
+                      <p className="text-sm font-semibold text-gray-700">{fmtCents(r.commissionCents)}</p>
                     </div>
                   )}
                 </div>
@@ -1398,7 +1401,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(r.avgMargin, r.target)}`}>
                       {pctOrDash(r.avgMargin)}
                     </td>
-                    {showCommission && <td data-label="Commission" className="px-6 py-3 text-right text-gray-700">{fmt(r.commissionCents / 100)}</td>}
+                    {showCommission && <td data-label="Commission" className="px-6 py-3 text-right text-gray-700">{fmtCents(r.commissionCents)}</td>}
                   </tr>
                 ))}
               </tbody>
