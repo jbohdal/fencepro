@@ -13,8 +13,9 @@
 // "Final price" field follows, the margin and net profit after show (profit
 // $30 lower). Typing a final price gives exactly that price. With "Show as
 // discount on the proposal" ticked and saved, the customer's link shows the
-// list price, "Discount −$30" and the final on every option; unticked, the
-// final only. The customer accepts on a phone: the quote is sold at the final
+// list price, "Discount −$30" and the final on the main option, and every other
+// option at its own price (the discount is the main option's only, Nov 2 2026);
+// unticked, the final only. The customer accepts on a phone: the quote is sold at the final
 // price and the payment schedule's deposit comes from it.
 // Removes everything it made (hard deletes on ezbiz_dev only).
 import './devOnly.mjs'
@@ -136,7 +137,8 @@ try {
   check('saved: priceAdjustmentCents −3000 and the box, frozen with the quote; the final price', !!saved && Math.round(saved.finalPrice * 100) === list - 3000 && saved.proposal?.showDiscount === true,
     saved ? `${saved.finalPrice} ${JSON.stringify({ a: saved.pricing.priceAdjustmentCents, s: saved.pricing.showDiscountOnProposal })}` : 'not saved')
   const opts = saved?.proposal?.options ?? []
-  check('every option on the proposal carries −$30', opts.length > 0 && opts.every(o => o.adjustmentCents === -3000), opts.map(o => `${o.finalPrice} (${o.adjustmentCents})`).join(', '))
+  const mainOpt = o => o.fenceStyle === saved.fenceStyle
+  check('the main option on the proposal carries −$30, no other option does', opts.some(mainOpt) && opts.every(o => (mainOpt(o) ? o.adjustmentCents === -3000 : !o.adjustmentCents)), opts.map(o => `${o.finalPrice} (${o.adjustmentCents})`).join(', '))
   const t = await call('POST', `/api/saved-quotes/${quoteId}/share-token`)
   const token = t.json.data?.shareToken
   const cust = await phoneBrowser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
@@ -159,9 +161,12 @@ try {
     const l = dollars(await o.locator('[data-list-price]').innerText().catch(() => ''))
     const dsc = await o.locator('[data-discount]').innerText().catch(() => '')
     const f = dollars(await o.locator('[data-final-price]').innerText().catch(() => ''))
-    if (!(opts[i] && l === Math.round(opts[i].finalPrice * 100) + 3000 && /Discount\s*−\$30\b/.test(dsc) && f === Math.round(opts[i].finalPrice * 100))) allShown = false
+    const plain = dollars(await o.locator('.price').innerText().catch(() => ''))
+    if (!opts[i]) allShown = false
+    else if (opts[i].adjustmentCents === -3000) { if (!(l === Math.round(opts[i].finalPrice * 100) + 3000 && /Discount\s*−\$30\b/.test(dsc) && f === Math.round(opts[i].finalPrice * 100))) allShown = false }
+    else if (dsc || plain !== Math.round(opts[i].finalPrice * 100)) allShown = false
   }
-  check('customer page, box ticked: each option shows the list price, Discount −$30 and the final', allShown, `${cards.length} cards (options ${cards.join(',')}; expected ${wantCards.join(',')}${fold ? `, best price folded into option ${fold.tier}` : ''})`)
+  check('customer page, box ticked: the main option shows the list price, Discount −$30 and the final; every other its own price only', allShown, `${cards.length} cards (options ${cards.join(',')}; expected ${wantCards.join(',')}${fold ? `, best price folded into option ${fold.tier}` : ''})`)
   await shot(cp, 'adjust-2-proposal-discount.png')
 
   // ── Unchecked: the final only ──

@@ -122,16 +122,20 @@ try {
   await sleep(300)
   check('taking it off clears the warning', !(await christa.warning()) && !(await christa.saveOff()) && (await christa.price()) === list)
 
-  // A discount over the minimum for the quote, but not for the other option.
-  const other = (await christa.page.locator('[data-tier-price]').allInnerTexts()).map(dollars).filter(n => n !== list)[0]
+  // A discount that leaves the quote over the minimum: the other option keeps its own price (the discount is the main
+  // option's only, Nov 2 2026), so nothing is under it.
+  // Each card's price by its key; the main option's card says "Main option".
+  const cardPrices = () => christa.page.locator('[data-tier]').evaluateAll(els => els.map(e => [e.getAttribute('data-tier'), /Main option/.test(e.querySelector('[data-tier-main]')?.textContent ?? ''), e.querySelector('[data-tier-price]')?.textContent ?? '']))
+  const others = async () => (await cardPrices()).filter(([, main]) => !main).map(([k, , p]) => `${k} ${dollars(p)}`).join(', ')
+  const othersBefore = await others()
   const off = Math.ceil((list - 35000) / 100) - 1
   await christa.adjust(`-${off}`)
   w = await christa.warning()
-  const lowOther = other - off * 100
-  check('a discount that leaves the quote over it but another option under it: stopped, that option named', lowOther >= 35000 ? !w : /would be/.test(w) && await christa.saveOff(), w || `other $${lowOther / 100}`)
+  const othersAfter = await others()
+  check('a discount that leaves the quote over it: no warning, the other option at its own price', !w && !(await christa.saveOff()) && othersAfter === othersBefore, w || `other options ${othersBefore} -> ${othersAfter}`)
 
-  // Over the minimum on every option: saves.
-  const fine = Math.floor((Math.min(list, other) - 35000) / 100)
+  // Over the minimum: saves.
+  const fine = Math.floor((list - 35000) / 100)
   await christa.adjust(fine > 0 ? `-${fine}` : '')
   check('a discount that keeps every option at or over $350: Save on', !(await christa.warning()) && !(await christa.saveOff()), `-$${fine}`)
   await christa.save()
