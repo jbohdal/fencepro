@@ -101,6 +101,8 @@ export interface QuotePricingOverrides {
   /** Who sold it, and the owner's hand edit of a signed job's commission in cents (portal lib/soldBy.ts): the server's, never priced from. */
   soldBy?: string
   commissionHandCents?: number
+  /** A Salesman's copy: the hand edit's figure is not sent, only that there is one. */
+  commissionByHand?: boolean
   commissionMode?: CommissionMode
   /** Final customer price typed by hand; replaces the calculated price. */
   finalPrice?: number

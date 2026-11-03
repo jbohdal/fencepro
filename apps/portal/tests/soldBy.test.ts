@@ -7,7 +7,8 @@ import { describe, test, expect } from 'vitest'
 import { handCommission, keepSaleRecord, sellerOf, soldByOn, withoutSaleRecord } from '../src/server/lib/soldBy'
 import { quoteCommissionCents } from '../src/server/lib/quotesFollowCustomer'
 import { lockedChanges } from '../src/server/lib/quoteLock'
-import { typedCents } from '../../web/src/salesmanCommission'
+import { typedCents, salesmanQuoteView, creditedTo } from '../../web/src/salesmanCommission'
+import { withoutHandCommission } from '../src/server/lib/costRedact'
 
 describe('who sold it', () => {
   test('the record, then the audit log, then the rep', () => {
@@ -89,5 +90,26 @@ describe('what the owner types', () => {
   })
   test('not an amount', () => {
     for (const t of ['', 'abc', '-5', '1.234', '1.2.3']) expect(typedCents(t)).toBeNull()
+  })
+})
+
+describe('the Salesman', () => {
+  test('her copy says "set by hand", never the figure, wherever it sits', () => {
+    const body = { success: true, data: [{ id: 'q', pricing: { soldBy: 'Christa', commissionHandCents: 120050, laborMode: 'hourly' } }], at: new Date(0) }
+    const out = withoutHandCommission(body) as any
+    expect(out.data[0].pricing).toEqual({ soldBy: 'Christa', commissionByHand: true, laborMode: 'hourly' })
+    expect(out.at).toBeInstanceOf(Date)
+    expect(JSON.stringify(out)).not.toContain('120050')
+  })
+  test('her own sales: credited to who sold it, not the rep it was moved to', () => {
+    const me = { firstName: 'Sam', lastName: 'Walk' }
+    const quotes = [
+      { id: 'moved-to-sam', status: 'SOLD', salesRep: 'Sam Walk', soldBy: 'Christa Feagin' },
+      { id: 'sams-own', status: 'SOLD', salesRep: 'Sam Walk' },
+      { id: 'moved-from-sam', status: 'SOLD', salesRep: 'Christa Feagin', soldBy: 'Sam Walk' },
+      { id: 'no-one', status: 'SOLD', salesRep: 'Sam Walk', soldBy: '' },
+    ]
+    expect(salesmanQuoteView(quotes, 'sales_rep', me).mine.map(q => q.id)).toEqual(['sams-own', 'moved-from-sam'])
+    expect(creditedTo({ salesRep: 'Sam', soldBy: '' })).toBe('')
   })
 })

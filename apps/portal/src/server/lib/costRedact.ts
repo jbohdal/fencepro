@@ -236,8 +236,27 @@ export function staffRoleOf(req: any): string | null {
  * before every route: a Salesman's or Installer's answers go out without a
  * cost, whichever route answers.
  */
+/**
+ * A Salesman sees costs but no commission: the owner's hand-typed commission (pricing.commissionHandCents,
+ * lib/soldBy.ts) goes to her phone only as "set by hand" (commissionByHand), in every answer.
+ */
+export function withoutHandCommission(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutHandCommission)
+  if (!isObj(v)) return v
+  const out: Record<string, unknown> = {}
+  for (const [k, x] of Object.entries(v)) {
+    if (k === 'commissionHandCents') { out.commissionByHand = true; continue }
+    out[k] = withoutHandCommission(x)
+  }
+  return out
+}
+
 export function hideCostsFromLimitedLogins(req: any, res: any, next: any): void {
   const role = staffRoleOf(req)
+  if (role === 'sales_rep') {
+    const json = res.json.bind(res)
+    res.json = (body: any) => json(withoutHandCommission(body))
+  }
   if (!hidesCosts(role) && !hidesPrices(role)) { next(); return }
   const h = hideFor(role)
   const json = res.json.bind(res)

@@ -20,7 +20,7 @@ import { markSignedNow } from './everSold.js'
 import { serializeMedia } from './media.js'
 import { landedCostOn, jobLotInvoiceLines } from './priceHistory.js'
 import { currentWorkRow, type StoredWork } from './changeOrderWork.js'
-import { movedSellers, sellerOf } from './soldBy.js'
+import { hasSaleRecord, movedSellers, sellerOf } from './soldBy.js'
 import {
   quotedCostOf, linesFromQuoted, laborFromQuoted, actualCostOf, subPaidOf, jobLotUnitCosts, compare, partsOf, subRateFor, toCents, findItemId, qty,
   type QuotedCost, type TakeoffLine, type TakeoffLabor, type ActualCost, type UnitCost, type ReportJob, type TakeoffStatus, type PricingSettings,
@@ -351,7 +351,7 @@ export async function reportJobs(accountId: string, from?: string, to?: string):
     movedSellers(),
   ])
   // The report credits who sold it, not who is working it now (lib/soldBy.ts).
-  const sellerByQuote = new Map(sellers.map(q => [q.id, sellerOf(q, moves)]))
+  const sellerByQuote = new Map(sellers.filter(q => hasSaleRecord(q.pricing) || moves.has(q.id)).map(q => [q.id, sellerOf(q, moves)]))
   const tByJob = new Map(takeoffs.map(t => [t.jobId, t]))
   const qByQuote = new Map(quotedRows.map(q => [q.quoteId, quotedOf(q)]))
   // Quotes with approved change orders: their quoted cost and price include them (quotedNow).
@@ -368,7 +368,7 @@ export async function reportJobs(accountId: string, from?: string, to?: string):
     if (to && month > to.slice(0, 7)) continue
     const approved = t?.status === 'approved' && t.actualCost && typeof t.actualCost === 'object' ? (t.actualCost as unknown as ActualCost) : null
     out.push({
-      jobId: j.id, customerName: j.customerName, fenceStyle: j.fenceStyle, salesRep: (j.quoteId && sellerByQuote.get(j.quoteId)) || moves.get(j.id) || j.salesRep || quoted?.salesRep || '', month,
+      jobId: j.id, customerName: j.customerName, fenceStyle: j.fenceStyle, salesRep: j.quoteId && sellerByQuote.has(j.quoteId) ? sellerByQuote.get(j.quoteId)! : moves.get(j.id) || j.salesRep || quoted?.salesRep || '', month,
       priceCents: toCents(j.contractValue) || quoted?.priceCents || toCents(j.quotePrice),
       quotedCents: quoted ? quoted.totalCents : null,
       actualCents: approved ? approved.totalCents : null,

@@ -263,4 +263,69 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('commission stays with whoever so
     const crew = await inList(q, tok.installer)
     expect(JSON.stringify(crew ?? {})).not.toMatch(/commissionHandCents|50000/)
   })
+  test('a signed job with no rep: credited to who wrote the quote, else to no one; never to the new Salesman', async () => {
+    const { q, j } = await signedJob({ salesRep: '', ownerId: id.owner })
+    await prisma.savedJob.update({ where: { id: j }, data: { salesRep: '' } })
+    const ask = await call('POST', `/api/saved-quotes/${q}/salesman`, tok.owner, { to: id.sam })
+    expect(ask.json.confirm.question).toBe(`This job is signed. Move it from nobody to ${SAM}? Its $900.00 commission stays with ${OLIVE}.`)
+    await moveTo(q, id.sam)
+    expect((await inList(q)).soldBy).toBe(OLIVE)
+    expect((await inReport(j)).salesRep).toBe(OLIVE)
+    const orphan = await signedJob({ salesRep: '', ownerId: null })
+    await prisma.savedJob.update({ where: { id: orphan.j }, data: { salesRep: '' } })
+    const ask2 = await call('POST', `/api/saved-quotes/${orphan.q}/salesman`, tok.owner, { to: id.sam })
+    expect(ask2.json.confirm.question).toBe(`This job is signed. Move it from nobody to ${SAM}? Its $900.00 commission stays credited to no one (it was sold with no Salesman).`)
+    expect((await moveTo(orphan.q, id.sam)).json.data.commissionWords).toBe('Its commission stays credited to no one.')
+    expect((await quoteOf(orphan.q)).pricing.soldBy).toBe('')
+    expect((await inList(orphan.q)).soldBy).toBe('')
+    expect((await inReport(orphan.j)).salesRep).toBe('')
+    // A later move keeps it credited to no one.
+    await moveTo(orphan.q, id.owner)
+    expect((await inList(orphan.q)).soldBy).toBe('')
+  })
+
+  test('saved with nothing changed: nothing written, not set by hand, not logged', async () => {
+    const { q } = await signedJob()
+    const before = await quoteOf(q)
+    const r = await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 90000 })
+    expect(r.json.data).toMatchObject({ unchanged: true, byHand: false, commissionCents: 90000 })
+    expect(await quoteOf(q)).toEqual(before)
+    expect(await prisma.crmAuditLog.count({ where: { entityId: q } })).toBe(0)
+    expect((await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 90000, to: id.sally })).json.data.unchanged).toBe(true)
+  })
+
+  test('the commission goes to the owner or a Salesman only; the reply says what the job makes before it', async () => {
+    const { q } = await signedJob()
+    for (const who of ['admin', 'office', 'manager', 'installer']) expect((await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { to: id[who] })).json.code).toBe('NOT_ASSIGNABLE')
+    expect((await call('GET', `/api/saved-quotes/${q}/commission`, tok.owner)).json.data.beforeCents).toBe(400000)
+    // Above it: allowed for the owner (the screen warns first).
+    expect((await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 500000, to: id.owner })).json.data).toMatchObject({ soldBy: OLIVE, commissionCents: 500000 })
+    expect((await quoteOf(q)).gmPct).toBeCloseTo(-0.1, 10)
+  })
+
+  test('a Salesman\'s phone never gets the hand-typed figure: list, one quote, a save\'s reply, a job', async () => {
+    const { q, j } = await signedJob({ salesRep: SAM })
+    await prisma.savedJob.update({ where: { id: j }, data: { salesRep: SAM } })
+    await call('POST', `/api/saved-quotes/${q}/commission`, tok.owner, { commissionCents: 123456, to: id.sally })
+    const replies = [
+      await call('GET', '/api/saved-quotes', tok.sam),
+      await call('GET', `/api/saved-quotes/${q}`, tok.sam),
+      await call('PATCH', `/api/saved-quotes/${q}`, tok.sam, { notes: 'sam note' }),
+      await call('GET', '/api/saved-jobs', tok.sam),
+      await call('GET', `/api/saved-jobs/${j}`, tok.sam),
+    ]
+    for (const r of replies) {
+      expect(r.status).toBe(200)
+      expect(JSON.stringify(r.json)).not.toMatch(/commissionHandCents|123456/)
+    }
+    const mine = (replies[0].json.data as any[]).find(x => x.id === q)
+    expect(mine.pricing).toMatchObject({ commissionByHand: true, soldBy: SALLY })
+    expect(mine.soldBy).toBe(SALLY)
+    // Her save back with that copy keeps the owner's figure.
+    expect((await call('PATCH', `/api/saved-quotes/${q}`, tok.sam, { notes: 'again', pricing: mine.pricing, gmPct: mine.gmPct })).status).toBe(200)
+    expect((await quoteOf(q)).pricing).toMatchObject({ commissionHandCents: 123456, soldBy: SALLY })
+    expect((await quoteOf(q)).pricing.commissionByHand).toBeUndefined()
+    // The owner still gets the figure.
+    expect(JSON.stringify((await call('GET', `/api/saved-quotes/${q}`, tok.owner)).json)).toMatch(/commissionHandCents/)
+  })
 })

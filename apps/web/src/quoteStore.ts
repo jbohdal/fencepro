@@ -49,7 +49,7 @@ function fromApi(r: SavedQuoteRecord): SavedQuote {
     customerAddress: r.customerAddress,
     leadSource: r.leadSource,
     salesRep: r.salesRep,
-    soldBy: r.soldBy || r.pricing?.soldBy || undefined,
+    soldBy: r.soldBy ?? r.pricing?.soldBy ?? undefined,
     fenceStyle: r.fenceStyle,
     runs: Array.isArray(r.runs) ? r.runs : [],
     runRails: r.runRails || undefined,

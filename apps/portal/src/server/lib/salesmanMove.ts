@@ -45,7 +45,7 @@ import { enteringName, OWNER_ONLY_SALESMAN, requestIsOwner } from './salesmanCho
 
 import { SALESMAN_MOVED_NOTE_PREFIX } from './salesRep.js'
 import { commissionOnMove, commissionSettings, ruleLogins, type MoveCommission } from './commissionRule.js'
-import { forgetMovedSellers, movedSellers, pricingWithSeller, sellerOf } from './soldBy.js'
+import { forgetMovedSellers, hasSaleRecord, makerName, movedSellers, pricingWithSeller, sellerOf } from './soldBy.js'
 export { SALESMAN_MOVED_NOTE_PREFIX }
 
 export interface SalesmanMoved {
@@ -56,7 +56,7 @@ export interface SalesmanMoved {
   signed: boolean
   /** The customer's price, unchanged (integer cents). */
   priceCents: number
-  /** Who sold it: a signed one's commission stays credited to them. '' on an unsigned one, which has no seller yet. */
+  /** Who sold it: a signed one's commission stays credited to them. '' on an unsigned one (no seller yet), or a signed one credited to no one. */
   soldBy: string
   /** The commission it carries now (integer cents), and before the move. */
   commissionCents: number
@@ -76,7 +76,7 @@ const dollars = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { m
 export function confirmQuestion(from: string, to: string, commissionCents: number, soldBy: string): string {
   const was = from.trim() || 'nobody'
   return commissionCents > 0
-    ? `This job is signed. Move it from ${was} to ${to}? Its ${dollars(commissionCents)} commission stays with ${soldBy}.`
+    ? `This job is signed. Move it from ${was} to ${to}? Its ${dollars(commissionCents)} commission ${soldBy.trim() ? `stays with ${soldBy.trim()}` : 'stays credited to no one (it was sold with no Salesman)'}.`
     : `This job is signed. Move it from ${was} to ${to}? It carries no commission.`
 }
 
@@ -85,7 +85,7 @@ export function commissionWords(c: MoveCommission, carriedCents: number, soldBy 
   if (c.change === 'off') return 'Its commission is off: this person is not a Salesman.'
   if (c.change === 'on') return 'Commission is on, with the Salesman.'
   if (c.why === 'added') return 'Commission is left as it was: it is added on top of the price, so change it on the quote.'
-  if (c.why === 'signed') return carriedCents > 0 ? `Its commission stays with ${soldBy}.` : 'It carries no commission.'
+  if (c.why === 'signed') return carriedCents > 0 ? `Its commission ${soldBy.trim() ? `stays with ${soldBy.trim()}` : 'stays credited to no one'}.` : 'It carries no commission.'
   return carriedCents > 0 ? 'Its commission goes with it.' : 'It carries no commission.'
 }
 
@@ -125,8 +125,10 @@ export async function moveSalesman(input: { accountId: string; quoteId?: string;
   const commission: MoveCommission = quote
     ? commissionOnMove(quote, { signed, toRep: target.name, logins: await ruleLogins(accountId), settings: await commissionSettings(accountId) })
     : { change: 'none', why: 'signed', fields: null }
-  // Who sold it stays who sold it. With no name on it at all, the new Salesman is the first one credited.
-  const soldBy = signed ? sellerOf({ id: quote?.id ?? job!.id, salesRep: from, pricing: quote?.pricing }, await movedSellers()) || target.name : ''
+  // Who sold it stays who sold it. A signed job with no rep was sold by who wrote the quote, as the commission rule
+  // reads a blank rep (lib/soldBy.ts); with no maker on file, by no one. Never the new Salesman.
+  let soldBy = signed ? sellerOf({ id: quote?.id ?? job!.id, salesRep: from, pricing: quote?.pricing }, await movedSellers()) : ''
+  if (signed && !soldBy && !hasSaleRecord(quote?.pricing)) soldBy = await makerName(quote?.ownerId)
   const words = commissionWords(commission, commissionCents, soldBy)
   const after = quote && commission.fields ? quoteCommissionCents({ ...quote, ...commission.fields }) : commissionCents
   const moved: SalesmanMoved = { quoteId: quote?.id ?? null, jobIds: jobs.map(j => j.id), from, to: target.name, signed, soldBy, priceCents, commissionCents: after, commissionWas: commissionCents, commissionChange: commission.change, commissionWords: words }

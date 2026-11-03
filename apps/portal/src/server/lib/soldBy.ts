@@ -14,7 +14,16 @@
  * The record: the quote's pricing JSON, written only when a signed quote is
  * moved or edited by hand (no schema change, nothing to fill in on old rows):
  *   pricing.soldBy              the seller's name. Unsold quotes never have it.
+ *                               '' (present, blank): sold with no Salesman and
+ *                               no maker on file, credited to no one.
  *   pricing.commissionHandCents the commission the owner typed, integer cents.
+ *                               A Salesman's phone never gets it (lib/costRedact.ts
+ *                               withoutHandCommission): only "set by hand".
+ *
+ * A signed job with no rep: the seller is who wrote the quote (ownerId), as the
+ * commission rule reads a blank rep (lib/commissionRule.ts repRulesOut) and as
+ * the Salesman scope does (lib/salesScope.ts quoteIsMine). With no maker on
+ * file it stays credited to no one: a move never credits the new Salesman.
  *
  * With no record, in order: the audit log's first signed salesmanMoved `from`
  * (a job moved before this record existed, and a job with no quote, which has
@@ -44,15 +53,29 @@ import { assignees } from './leadAssign.js'
 import { isSignedQuote } from './quoteLock.js'
 import { quoteCommissionCents, samePerson } from './quotesFollowCustomer.js'
 import { staffRoleOf } from './costRedact.js'
+import { repName, SALESMAN_ROLE } from './salesRep.js'
 
 type Json = any
 
 export const OWNER_ONLY_COMMISSION = 'Only the owner can change a commission.'
 
-/** The name on a quote's record: '' with none. */
+/** The name on a quote's record: '' with none, or with a blank one. */
 export function soldByOn(pricing: unknown): string {
   const s = (pricing as Json)?.soldBy
   return typeof s === 'string' ? s.trim() : ''
+}
+
+/** Has the quote a record (a blank name included)? */
+export const hasSaleRecord = (pricing: unknown): boolean => typeof (pricing as Json)?.soldBy === 'string'
+
+/** Who gets a commission: the owner or a Salesman (not an admin, the office or the crew). */
+export const takesCommission = (role: string): boolean => role === 'super_admin' || role === SALESMAN_ROLE
+
+/** The name of the login that wrote a quote, as a rep is written; '' with none on file. */
+export async function makerName(ownerId: string | null | undefined): Promise<string> {
+  if (!ownerId) return ''
+  const u = await prisma.crmUser.findUnique({ where: { id: ownerId }, select: { firstName: true, lastName: true } }).catch(() => null)
+  return u ? repName(u) : ''
 }
 
 /** A quote's pricing with the seller written on it. */
@@ -61,7 +84,7 @@ export const pricingWithSeller = (pricing: unknown, soldBy: string): Json => ({ 
 /** A quote's pricing with no record: what a new or unsold quote saves, so a copy of a signed quote never carries one. */
 export function withoutSaleRecord<T>(pricing: T): T {
   if (!pricing || typeof pricing !== 'object') return pricing
-  const { soldBy: _by, commissionHandCents: _hand, ...rest } = pricing as Json
+  const { soldBy: _by, commissionHandCents: _hand, commissionByHand: _mark, ...rest } = pricing as Json
   return rest as T
 }
 
@@ -70,7 +93,7 @@ export function withoutSaleRecord<T>(pricing: T): T {
  * not a save's to change. They are left as saved, so the rest of the save (a note, a name) goes through.
  */
 export function keepSaleRecord(existing: { pricing?: unknown; work?: unknown }, data: Json): void {
-  if (!soldByOn(existing.pricing)) return
+  if (!hasSaleRecord(existing.pricing)) return
   delete data.pricing
   delete data.gmPct
   delete data.hasSalesman
@@ -107,15 +130,17 @@ export const forgetMovedSellers = (): void => { moved = null }
 
 /** Who sold this quote or job, for its commission and its sale. */
 export function sellerOf(q: { id: string; salesRep?: string | null; pricing?: unknown }, moves: ReadonlyMap<string, string>): string {
-  return soldByOn(q.pricing) || moves.get(q.id) || String(q.salesRep ?? '').trim()
+  if (hasSaleRecord(q.pricing)) return soldByOn(q.pricing)
+  return moves.get(q.id) || String(q.salesRep ?? '').trim()
 }
 
-/** Quotes as they go to the app: `soldBy` on each one sold by someone other than its rep (a name, no money). */
+/** Quotes as they go to the app: `soldBy` on each one sold by someone other than its rep (a name, no money; '' for no one). */
 export async function withSoldBy<T extends { id: string; salesRep?: string | null; pricing?: unknown }>(quotes: T[]): Promise<Array<T & { soldBy?: string }>> {
   const moves = await movedSellers()
   return quotes.map(q => {
     const soldBy = sellerOf(q, moves)
-    return soldBy && !samePerson(soldBy, q.salesRep) ? { ...q, soldBy } : q
+    const rep = String(q.salesRep ?? '').trim()
+    return soldBy !== rep && !samePerson(soldBy, rep) ? { ...q, soldBy } : q
   })
 }
 
@@ -157,8 +182,14 @@ async function quoteToEdit(accountId: string, id: string) {
 }
 
 async function commissionNow(q: NonNullable<Awaited<ReturnType<typeof quoteToEdit>>>['q']) {
+  const commissionCents = quoteCommissionCents(q)
+  const priced = (q.work as Json)?.priced
+  // What the job makes before the commission: a commission above it puts the margin below zero.
+  const beforeCents = priced && typeof priced === 'object'
+    ? (Number(priced.grossMarginCents) || 0) + (Number(priced.commissionCents) || 0)
+    : Math.round(q.finalPrice * 100) - Math.round(q.totalCOGS * 100)
   return {
-    soldBy: sellerOf(q, await movedSellers()), rep: q.salesRep, commissionCents: quoteCommissionCents(q), priceCents: Math.round(q.finalPrice * 100),
+    soldBy: sellerOf(q, await movedSellers()), rep: q.salesRep, commissionCents, priceCents: Math.round(q.finalPrice * 100), beforeCents,
     byHand: typeof (q.pricing as Json)?.commissionHandCents === 'number',
   }
 }
@@ -194,11 +225,13 @@ export async function commissionEdit(req: any, res: any) {
     if (cents > was.priceCents) { res.status(400).json({ success: false, error: 'The commission cannot be more than the price.' }); return }
     let soldBy = was.soldBy
     if (req.body?.to !== undefined) {
-      const person = (await assignees(accountId)).find(p => p.id === req.body.to)
+      const person = (await assignees(accountId)).find(p => p.id === req.body.to && takesCommission(p.role))
       if (!person) { res.status(400).json({ success: false, code: 'NOT_ASSIGNABLE', error: 'The commission goes to the owner or a Salesman with an active login.' }); return }
       soldBy = person.name
     }
     if (!soldBy) { res.status(400).json({ success: false, error: 'Choose who gets the commission.' }); return }
+    // Saved with nothing changed: nothing is written, nothing is logged, and it is not "set by hand".
+    if (cents === was.commissionCents && soldBy === was.soldBy) { res.json({ success: true, data: { signed: true, ...was, unchanged: true } }); return }
     const fields = handCommission(q, cents, soldBy)
     const changed = await prisma.$transaction(async tx => {
       // Only if nobody saved it since it was read here.
@@ -210,7 +243,7 @@ export async function commissionEdit(req: any, res: any) {
     if (!changed) { res.status(409).json({ success: false, code: 'CHANGED', error: 'This quote was changed a moment ago. Nothing was changed. Look at it again.' }); return }
     const now = { soldBy, commissionCents: cents, gmPct: fields.gmPct }
     await audit(req, 'update', 'SavedQuote', q.id, { oldValues: { soldBy: was.soldBy, commissionCents: was.commissionCents, gmPct: q.gmPct }, newValues: { ...now, commissionHandEdit: true } })
-    res.json({ success: true, data: { signed: true, rep: q.salesRep, priceCents: was.priceCents, byHand: true, ...now } })
+    res.json({ success: true, data: { signed: true, rep: q.salesRep, priceCents: was.priceCents, beforeCents: was.beforeCents, byHand: true, ...now } })
   } catch (err) {
     console.error('[commission] edit error:', err)
     res.status(500).json({ success: false, error: 'Could not change the commission. Nothing was changed.' })

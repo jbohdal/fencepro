@@ -88,7 +88,7 @@ type SavedMargin = {
   finalPrice: number
   totalCOGS: number
   hasSalesman?: boolean
-  pricing?: { commissionPct?: number; commissionHandCents?: number } | null
+  pricing?: { commissionPct?: number; commissionHandCents?: number; commissionByHand?: boolean } | null
   work?: { priced?: { commissionCents?: number } } | null
 }
 
@@ -96,12 +96,12 @@ const pos = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
 
 /** Does this saved quote carry a commission (the switch was on, the quote kept its own %, or a repair's commission)? */
 export function carriesCommission(q: SavedMargin): boolean {
-  return !!q.hasSalesman || pos(q.pricing?.commissionPct) || pos(q.work?.priced?.commissionCents) || pos(q.pricing?.commissionHandCents)
+  return !!q.hasSalesman || pos(q.pricing?.commissionPct) || pos(q.work?.priced?.commissionCents) || pos(q.pricing?.commissionHandCents) || q.pricing?.commissionByHand === true
 }
 
-/** Who a sale and its commission count for: who sold it (the server says, when it is not the rep on it now), else the rep. */
+/** Who a sale and its commission count for: who sold it (the server says, when it is not the rep on it now; '' for no one), else the rep. */
 export function creditedTo(q: { soldBy?: string | null; salesRep?: string | null }): string {
-  return q.soldBy?.trim() || q.salesRep?.trim() || ''
+  return typeof q.soldBy === 'string' ? q.soldBy.trim() : q.salesRep?.trim() || ''
 }
 
 /**
@@ -176,12 +176,13 @@ export function isRepsQuote(salesRep: string | null | undefined, me: Login): boo
 
 /**
  * The Salesman's Quotes screen: the server already sends only the quotes the Salesman may see
- * (lib/salesScope.ts), so the list is every quote sent. `mine` is the part with the Salesman as Sales rep
- * (the commission is on those). Every other login: the whole list, `mine` empty.
+ * (lib/salesScope.ts), so the list is every quote sent. `mine` is the part credited to the Salesman: Sales rep,
+ * or for a signed job moved to someone else, who sold it (portal lib/soldBy.ts), so a job moved to her does not
+ * count as her sale and one moved away still would. Every other login: the whole list, `mine` empty.
  */
-export function salesmanQuoteView<T extends { salesRep?: string | null }>(quotes: readonly T[], role: string | null | undefined, me: Login): { listed: readonly T[]; mine: T[] } {
+export function salesmanQuoteView<T extends { salesRep?: string | null; soldBy?: string | null }>(quotes: readonly T[], role: string | null | undefined, me: Login): { listed: readonly T[]; mine: T[] } {
   if (role !== SALESMAN_ROLE) return { listed: quotes, mine: [] }
-  return { listed: quotes, mine: quotes.filter(q => isRepsQuote(q.salesRep, me)) }
+  return { listed: quotes, mine: quotes.filter(q => isRepsQuote(creditedTo(q), me)) }
 }
 
 /** What the owner typed for a commission, in cents: "1,200", "$1200.50". Null if it is not an amount. */
