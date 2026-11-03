@@ -31,7 +31,7 @@ const sql = q => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', q]).toStr
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
 const run = Date.now().toString(36)
 const made = []
-const VINYL = 'White Vinyl Privacy.*6 ft tall.*6 ft panels.*No dig', ALUM = 'Aluminum.*No dig', CHAIN = 'Galvanized.*4 ft.*No dig|4 ft.*Galvanized.*No dig'
+const VINYL = 'White Vinyl Privacy.*6 ft tall.*6 ft (panels|sections).*No dig', ALUM = 'Aluminum.*No dig', CHAIN = 'Galvanized.*4 ft.*No dig|4 ft.*Galvanized.*No dig'
 
 async function phone(browser, cookie) {
   const ctx = await browser.newContext(PHONE)
