@@ -16,11 +16,13 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { execFileSync } from 'child_process'
+import { devSignIn, DEV_SALES_EMAIL, DEV_OWNER_EMAIL } from './devSignIn.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
-const TOKENS = { sales: process.env.E2E_SALES_TOKEN || '', owner: process.env.E2E_OWNER_TOKEN || '' }
-const COOKIES = { sales: process.env.E2E_SALES_COOKIE || '', owner: process.env.E2E_OWNER_COOKIE || '' }
+// Not given (the nightly gives the owner's sign in only): the owner's from E2E_ACCESS_TOKEN / E2E_STAFF_COOKIE, the rest made here.
+const TOKENS = { sales: process.env.E2E_SALES_TOKEN || devSignIn(DEV_SALES_EMAIL), owner: process.env.E2E_OWNER_TOKEN || process.env.E2E_ACCESS_TOKEN || devSignIn(DEV_OWNER_EMAIL) }
+const COOKIES = { sales: process.env.E2E_SALES_COOKIE || devSignIn(DEV_SALES_EMAIL, { cookie: true }), owner: process.env.E2E_OWNER_COOKIE || process.env.E2E_STAFF_COOKIE || devSignIn(DEV_OWNER_EMAIL, { cookie: true }) }
 const SHOTS = process.env.SHOTS || ''
 if (!TOKENS.sales || !TOKENS.owner || !COOKIES.sales || !COOKIES.owner) { console.error('Set E2E_SALES_TOKEN, E2E_OWNER_TOKEN, E2E_SALES_COOKIE and E2E_OWNER_COOKIE (scripts/dev-session-token.ts).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })

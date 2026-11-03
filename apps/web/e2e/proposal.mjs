@@ -113,8 +113,11 @@ try {
   const wt = keys.filter(k => /^(WV|TV)-/.test(k)).length
   check('compare: white vs tan, no dig vs dig set, 6 vs 8 wide (plus any added color)', wt >= 7 && wt <= 8, `${rows} rows: ${keys.join(', ')}`)
   check('compare: shows what each costs against this quote', /\+\$[\d,]+\.\d\d/.test(sixRow), sixRow)
+  // A proposal offers at most 3 options (Nov 2 2026): with Good, Better and Best on, no more can be ticked. Good (dig set)
+  // comes off to make room for the tan; Best is the 6 ft wide (SIX) already.
+  check('compare: with Good, Better and Best on, no fourth option can be ticked', await b.locator(`[data-compare-row="${TAN}"] input`).isDisabled())
+  await b.locator('[data-tier="good"] input[aria-label="Offer Good"]').uncheck(); await sleep(300)
   await b.locator(`[data-compare-row="${TAN}"] input`).check()
-  await b.locator(`[data-compare-row="${SIX}"] input`).check()
   if (SHOTS) { await b.locator('[data-compare]').scrollIntoViewIfNeeded(); await p.screenshot({ path: `${SHOTS}/2-phone-compare-options.png` }) }
   await p.locator('[data-quote-bar] [data-save-open]').click()
   await p.locator('input[placeholder="Name, phone, or email..."]').fill(CUST); await sleep(600)
@@ -127,8 +130,9 @@ try {
   const q = (Array.isArray(list) ? list : []).filter(x => x.crmContactId === contactId && x.proposal?.options?.length >= 3 && !x.acceptedAt).sort((a, z) => String(z.createdAt).localeCompare(String(a.createdAt)))[0]
   quoteId = q?.id
   const offered = q ? q.proposal.options.map(o => o.fenceStyle) : []
-  check('saved: Good, Better, Best first, then the extra option ticked', q.proposal.options.slice(0, 3).map(o => o.tier?.label).join(',') === 'Good,Better,Best' && offered.includes(OWN) && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
-  check('saved: Most popular (Better) is the recommended option', q.proposal.recommended === 1 && q.proposal.options[1].badge === 'Most popular')
+  check('saved: Better and Best first, then the tan option ticked (3 options)', q.proposal.options.slice(0, 2).map(o => o.tier?.label).join(',') === 'Better,Best' && offered.length === 3 && offered.includes(OWN) && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
+  const rec = q.proposal.recommended
+  check('saved: Most popular (Better) is the recommended option', q.proposal.options[rec]?.tier?.label === 'Better' && q.proposal.options[rec].badge === 'Most popular', `${rec}`)
   check('the proposal carries the site plan, deposit and financing', !!q?.proposal.planSvg?.startsWith('<svg') && q.proposal.depositPct === 50 && q.proposal.financing?.months === 60)
   const sixIndex = offered.indexOf(SIX), tanIndex = offered.indexOf(TAN)
   const sixOpt = q.proposal.options[sixIndex]
@@ -145,8 +149,8 @@ try {
   await c.page.goto(`${API}/p/${token}`); await sleep(1200)
   const pageText = (await c.page.locator('body').textContent()).replace(/\s+/g, ' ')
   const opts = await c.page.locator('.opt').count()
-  check('customer page: every option offered, tiers side by side, Better marked Most popular', opts === offered.length && await c.page.locator('.opts.tiers').count() === 1 && (await c.page.locator('.opt').nth(1).textContent()).includes('Most popular'))
-  check('customer page: each tier says what makes it better', ['Posts set in concrete. Solid fence at the best price.', 'Steel pipe driven deep, no concrete, faster install.', 'More posts per foot for the strongest fence we build.'].every(t => pageText.includes(t)))
+  check('customer page: every option offered, tiers side by side, Better marked Most popular', opts === offered.length && await c.page.locator('.opts.tiers').count() === 1 && (await c.page.locator('.opt').nth(rec).textContent()).includes('Most popular'))
+  check('customer page: each tier says what makes it better', ['Steel pipe driven deep, no concrete, faster install.', 'More posts per foot for the strongest fence we build.'].every(t => pageText.includes(t)))
   check('customer page: site plan, monthly payment, deposit, warranty, what is included', ['Site plan', 'As low as $', '/month for 60 months', 'Deposit', '50% to schedule', 'Warranty', "What's included", '446 ft of new fence'].every(t => pageText.includes(t)), pageText.slice(0, 200))
   check('customer page: the tan option shows its style photo', await c.page.locator('.opt').nth(tanIndex).locator('img.photo').count() === 1)
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/3-customer-proposal-top.png` })

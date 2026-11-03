@@ -17,11 +17,15 @@ import { chromium, webkit } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { devSignIn, DEV_SALES_EMAIL, DEV_OWNER_EMAIL } from './devSignIn.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
 const read = v => (v && fs.existsSync(v) ? fs.readFileSync(v, 'utf8').trim() : v || '')
-const OWNER = read(process.env.E2E_OWNER_COOKIE), SALES = read(process.env.E2E_SALES_COOKIE), SALES_TOKEN = read(process.env.E2E_SALES_TOKEN)
+// Not given (the nightly's run of every suite gives the owner's sign in only): the owner's from E2E_STAFF_COOKIE, the Salesman's made here.
+const OWNER = read(process.env.E2E_OWNER_COOKIE) || process.env.E2E_STAFF_COOKIE || devSignIn(DEV_OWNER_EMAIL, { cookie: true })
+const SALES = read(process.env.E2E_SALES_COOKIE) || devSignIn(DEV_SALES_EMAIL, { cookie: true })
+const SALES_TOKEN = read(process.env.E2E_SALES_TOKEN) || devSignIn(DEV_SALES_EMAIL)
 const SHOTS = process.env.SHOTS || ''
 if (!OWNER || !SALES || !SALES_TOKEN) { console.error('Set E2E_OWNER_COOKIE, E2E_SALES_COOKIE and E2E_SALES_TOKEN (scripts/dev-session-token.ts).'); process.exit(2) }
 const envFile = new URL('../../portal/.env', import.meta.url)

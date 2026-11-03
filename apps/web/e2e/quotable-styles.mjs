@@ -43,6 +43,13 @@ async function settle(style, quotable) { for (let i = 0; i < 15; i++) { const r 
 const browser = await chromium.launch()
 let quoteId = ''
 try {
+  // A quote saved on CL - Com 6' while it was still offered (the server refuses a new save on a style on hold, so it is
+  // made with the style on, then the five go on hold): later it must still open and price.
+  await setQuotable(() => true)
+  await settle("CL - Com 6'", true)
+  const made = await post('/api/saved-quotes', { customerName: 'E2E Commercial on hold', ...job("CL - Com 6'"), runs: [150, 80], corners: 1, ends: 2, sections: 0, status: 'DRAFT', finalPrice: 0, date: '2026-10-19' })
+  quoteId = made.data?.id
+  if (!quoteId) throw new Error(`could not save the CL - Com 6' quote: ${made.error ?? ''}`)
   await setQuotable(() => false)
   await settle("CL - Com 6'", false)
 
@@ -88,8 +95,6 @@ try {
   check('quote builder: a new quote\'s style list leaves the five out', HELD.every(h => !names.some(n => n.startsWith(LABEL[h]))) && names.includes(LABEL["CL - 6' Galv"]), `${names.length - 1} styles`)
 
   // ── A saved quote on CL - Com 6' still opens and prices ──
-  const made = await post('/api/saved-quotes', { customerName: 'E2E Commercial on hold', ...job("CL - Com 6'"), runs: [150, 80], corners: 1, ends: 2, sections: 0, status: 'DRAFT', finalPrice: 0, date: '2026-10-19' })
-  quoteId = made.data?.id
   await page.goto(`${APP}/quotes?quote=${quoteId}`); await page.waitForSelector('[data-quote-price]', { timeout: 60000 }); await sleep(1500)
   const price = Number((await page.locator('[data-quote-price]').textContent()).replace(/[$,\s]/g, ''))
   await page.locator('[data-step="style"]').first().click(); await sleep(500)

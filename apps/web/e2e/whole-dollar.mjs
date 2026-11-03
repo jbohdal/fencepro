@@ -117,7 +117,8 @@ try {
   const dep = await cp.locator('#deposit b').innerText().catch(() => '')
   check('the proposal shows no cents anywhere (prices, a foot, deposit)', shownPrices.length > 0 && shownPrices.every(p => !/\.\d{2}$/.test(p)), shownPrices.slice(0, 6).join(' '))
   if (dep) {
-    const pct = Number(await cp.locator('#deposit').getAttribute('data-pct'))
+    // "50% to schedule: $175" (the data-pct attribute went with the Oct 29 2026 deposit rule; the server works it out).
+    const pct = Number((await cp.locator('#deposit').innerText()).match(/([\d.]+)% to schedule/)?.[1])
     const chosen = Math.round(opts[saved.proposal.recommended ?? 0].finalPrice * 100)
     check('the deposit: whole dollars, as the payment schedule makes it', cents(dep) === Math.floor(Math.round(chosen * pct / 100) / 100) * 100, `${dep} at ${pct}% of ${chosen / 100}`)
   }

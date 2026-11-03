@@ -34,6 +34,15 @@ const CONTACT_FIELDS: Record<string, { emails: string[]; phones: string[] }> = {
   Notification: { emails: ['recipientId'], phones: [] },
 }
 
+/**
+ * The business office line, (352) 789-4314: the company's own published number
+ * (Settings > Company phone), which the scrub keeps on purpose (keepPhones) and
+ * Jonathan said is fine on dev (Nov 2 2026). A test contact on live carries it.
+ * Only this one number; anyone's own phone still has to be a fake one.
+ */
+const OFFICE_LINE = '3527894314'
+const allowedPhone = (p: string | null | undefined) => String(p ?? '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '') === OFFICE_LINE
+
 describe.skipIf(!process.env.DEV_DB || !onDev)('the dev database is scrubbed', () => {
   let prisma: any
   let scrubbedAt: Date | null = null
@@ -70,7 +79,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the dev database is scrubbed', (
         `select ${wanted.map(c => `"${c}"`).join(', ')} from "${table}" ${when}`, ...(when ? [scrubbedAt] : []))
       for (const r of rows) {
         for (const c of f.emails) if (have.has(c)) { checked++; if (!isFakeEmail(r[c])) bad.push(`${table}.${c}: ${r[c]}`) }
-        for (const c of f.phones) if (have.has(c)) { checked++; if (!isFakePhone(r[c])) bad.push(`${table}.${c}: ${r[c]}`) }
+        for (const c of f.phones) if (have.has(c)) { checked++; if (!isFakePhone(r[c]) && !allowedPhone(r[c])) bad.push(`${table}.${c}: ${r[c]}`) }
       }
     }
     expect(bad.slice(0, 20)).toEqual([])

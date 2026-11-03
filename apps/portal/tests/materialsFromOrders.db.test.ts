@@ -37,8 +37,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const { jobMilestones } = await import('../src/server/lib/jobTruth.js')
 
+  const { OPS_STAGES_KEY } = await import('../src/server/lib/opsStages.js')
+  const { START_OPS_STAGES } = await import('../src/server/lib/opsStageModel.js')
+
   const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: { in: ['super_admin', 'admin'] as any } }, orderBy: { createdAt: 'asc' } }))!
-  const accountId = user.crmAccountId!
+  // A company made for the test with the start stage list, Need Drawing in it, and its own Sales Orders: the dev
+  // copy has live's own stage list, which the owner can change in Settings (Nov 2 2026 he removed Need Drawing).
+  const tag = `mfo-${crypto.randomUUID().slice(0, 8)}`
+  const accountId = (await prisma.crmAccount.create({ data: { name: `Test ${tag} start stages` } })).id
+  await prisma.accountKeyValue.create({ data: { accountId, key: OPS_STAGES_KEY, value: START_OPS_STAGES.map((s, i) => ({ ...s, order: i })) as any } })
+  await prisma.businessState.create({ data: { accountId } })
   const token = jwt.sign({ sub: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me'), { expiresIn: '30m' })
   const app = express()
   app.use(express.json({ limit: '10mb' }))
@@ -49,8 +57,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
 
-  const tag = `mfo-${crypto.randomUUID().slice(0, 8)}`
-  const ids = { a: '', b: '', c: '', d: '', e: '', f: '', g: '' }
+  const ids ={ a: '', b: '', c: '', d: '', e: '', f: '', g: '' }
   let quoteD = ''
   const quoteC = `${tag}-quote`
   const orderIds = [`${tag}-oa`, `${tag}-ob`, `${tag}-oc`, `${tag}-od`, `${tag}-oe`, `${tag}-of`, `${tag}-og`]
@@ -114,6 +121,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('materials follow the Sales Order
     await prisma.activityLog.deleteMany({ where: { entityType: 'job', entityId: { in: jobIds } } })
     await prisma.savedJob.deleteMany({ where: { id: { in: jobIds } } })
     if (quoteD) await prisma.savedQuote.deleteMany({ where: { id: quoteD } })
+    await prisma.businessState.deleteMany({ where: { accountId } })
+    await prisma.accountKeyValue.deleteMany({ where: { accountId } })
+    await prisma.crmAccount.delete({ where: { id: accountId } }).catch(() => {})
     server.close()
   })
 

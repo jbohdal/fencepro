@@ -33,9 +33,11 @@ const api = async (path, init = {}) => {
   return r.json().catch(() => null)
 }
 
-// Monday Nov 2, 2026, 11:15 AM in Florida (EST). The test checks the week is empty first.
-const DAY = '2026-11-02', WED = '2026-11-04'
-const NOW = new Date('2026-11-02T11:15:00-05:00')
+// A Monday, 11:15 AM in Florida (EST): the first one from Nov 2, 2026 whose week has nothing booked for the
+// default person (picked below; the dev copy is refreshed from live, so real appointments come and go). Mondays
+// through March 1, 2027 only: Florida stays on EST (-05:00) all that time.
+let DAY = '', WED = '', NOW = null
+const plusDays = (d, n) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10) }
 const at = (date, hm) => new Date(`${date}T${hm}:00-05:00`).toISOString()
 const HOME = '17008 SE 60th St, Ocklawaha, FL 32179'
 const OCALA = { address: '3500 NE 14th St, Ocala, FL 34470', lat: 29.200791, lng: -82.088115 }
@@ -191,7 +193,7 @@ async function bookingRun(browser, phone, dunnellonId) {
     await dlg.locator('[data-save]').click()
     await s.page.locator('[data-booked]').waitFor({ timeout: 15000 })
     const list = await api('/api/appointments')
-    const mine = (list?.data || []).filter(a => a.crmContactId === dunnellonId && a.startAt && a.startAt.startsWith('2026-11-02'))
+    const mine = (list?.data || []).filter(a => a.crmContactId === dunnellonId && a.startAt && a.startAt.startsWith(DAY))
     mine.forEach(a => made.appointments.push(a.id))
     check('desktop: booked at the Best time, on the server', mine.length === 1 && mine[0].startAt === at(DAY, opts[0].time), mine.map(a => a.startAt).join(','))
   }
@@ -211,8 +213,12 @@ try {
   origAppointments = cfg?.data?.config?.appointments
   accountId = cfg?.data?.accountId || ''
   const all = (await api('/api/appointments'))?.data || []
-  const busy = all.filter(a => a.assignedTo === person && a.startAt && a.startAt >= '2026-11-02' && a.startAt < '2026-11-09' && !['cancelled', 'completed', 'no_show'].includes(a.status))
-  if (busy.length) throw new Error(`the test week already has ${busy.length} appointment(s) for ${person}; pick another week`)
+  const busyIn = mon => all.filter(a => a.assignedTo === person && a.startAt && a.startAt >= mon && a.startAt < plusDays(mon, 7) && !['cancelled', 'completed', 'no_show'].includes(a.status))
+  for (let w = 0; w <= 17 && !DAY; w++) { const mon = plusDays('2026-11-02', 7 * w); if (!busyIn(mon).length) DAY = mon }
+  if (!DAY) throw new Error(`every week from Nov 2, 2026 to Mar 1, 2027 has appointments for ${person}`)
+  WED = plusDays(DAY, 2)
+  NOW = new Date(`${DAY}T11:15:00-05:00`)
+  console.log(`test week: Monday ${DAY}`)
 
   const contact = async (firstName, lastName, serviceAddress) => {
     const r = await api('/api/crm-contacts', { method: 'POST', body: JSON.stringify({ firstName, lastName, phone: '3525550199', serviceAddress, leadSource: 'Referral' }) })

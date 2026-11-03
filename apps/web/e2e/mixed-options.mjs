@@ -12,11 +12,13 @@ import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev cop
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
 import { signInByCookie, pickStyle } from './lib.mjs'
+import { devSignIn, DEV_SALES_EMAIL } from './devSignIn.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
 const OWNER = process.env.E2E_STAFF_COOKIE || ''
-const SALES = process.env.SALES_COOKIE || ''
+// Not given (the nightly gives the owner's sign in only): the Salesman's made here.
+const SALES = process.env.SALES_COOKIE || devSignIn(DEV_SALES_EMAIL, { cookie: true })
 const SHOTS = process.env.SHOTS || ''
 if (!OWNER || !SALES) { console.error('Set E2E_STAFF_COOKIE and SALES_COOKIE.'); process.exit(2) }
 

@@ -29,6 +29,7 @@ import { chromium, webkit, devices } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { execFileSync } from 'child_process'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -59,13 +60,16 @@ const COST = /"(unitCost|fallbackCost|materialCost|laborCost|tearOutCost|totalCO
 
 async function invite(role, last) {
   const email = `e2e-signin-${role}-${stamp}@example.test`
-  const inv = await owner('POST', '/api/crm-auth/invite', { firstName: 'E2E', lastName: last, email, role })
+  // Inviting an admin asks the owner's own password since Nov 2 2026, which is not known here: invited one step
+  // down and raised on the dev copy, as lib.mjs makeTestLogin does.
+  const inv = await owner('POST', '/api/crm-auth/invite', { firstName: 'E2E', lastName: last, email, role: role === 'admin' ? 'manager' : role })
   if (!inv.json.data?.inviteUrl) throw new Error(`invite failed: ${inv.status} ${inv.text.slice(0, 200)}`)
   const link = new URL(inv.json.data.inviteUrl)
   made.users.push(email)
   const password = `Si-${crypto.randomBytes(9).toString('base64url')}`
   const acc = await call('', 'POST', '/api/crm-auth/accept-invite', { token: link.searchParams.get('token'), email, password })
   if (acc.status !== 200) throw new Error(`accept failed: ${acc.status}`)
+  if (role === 'admin' && /^[a-z0-9@.-]+$/.test(email)) execFileSync('psql', ['-d', 'ezbiz_dev', '-Atc', `update "CrmUser" set role = 'admin' where email = '${email}'`])
   return { email, password, id: acc.json.data.user.id }
 }
 

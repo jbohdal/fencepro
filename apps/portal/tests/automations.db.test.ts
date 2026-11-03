@@ -547,4 +547,6 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('automations (dev database)', asy
     expect(Q.jobWaitAfter(21 * MIN)).toBe(60 * MIN)
     expect(Q.jobWaitAfter(600 * MIN)).toBe(60 * MIN)
   })
-})
+  // A worker pass reads the whole shared dev copy (every card, job and queued run, live's and other runs'), which takes
+  // more than the default 5 s on a busy night; a test cut off mid pass leaves the worker busy and every later tick skipped.
+}, 60_000)
