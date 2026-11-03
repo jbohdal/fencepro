@@ -108,6 +108,15 @@ export function can(action: Action): boolean { return roleCan(current, action) }
  */
 export function isCrewLogin(role: string | null = current): boolean { return !!role && !roleCan(role, 'prices.view') }
 
+/**
+ * Margins, Target Margin, overhead and profit: every login that sees costs but
+ * the Salesman. She keeps material, labor and total cost and the prices
+ * (Jonathan, Nov 2-3 2026); the crew sees no cost at all.
+ */
+export function seesMargin(role: string | null = current): boolean {
+  return roleCan(role, 'costs.view') && role !== 'sales_rep'
+}
+
 /** Owner, admin and manager: nothing is held back from them but users and system tools. */
 export function isFullRole(role: string | null = current): boolean {
   return role === 'super_admin' || role === 'admin' || role === 'manager'
