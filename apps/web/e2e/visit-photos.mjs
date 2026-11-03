@@ -129,7 +129,7 @@ async function phone(browser) {
   const b = page.locator('[data-quote-builder]')
   await b.locator('[data-step="style"]').tap(); await sleep(400)
   await b.locator('[data-job-type-option="repair"]').tap(); await sleep(300)
-  await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }); await sleep(300)
+  await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig' }); await sleep(300)
   await b.locator('[data-what="leaning"]').tap(); await sleep(300)
   await b.locator('[data-repair-starter-add]').tap(); await sleep(200)
   await b.locator('[data-repair-item="resetPost"] button[aria-label^="One more"]').tap(); await sleep(200)

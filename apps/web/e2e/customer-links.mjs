@@ -225,7 +225,7 @@ async function run(phone) {
       await s.press(s.page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
     }
     await s.press(b.locator('[data-step="style"]').first())
-    await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig' })
+    await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig' })
     await s.press(b.locator('[data-step="price"]').first())
     await s.press(s.page.locator('[data-save-open]:visible').first())
     await s.page.locator('[data-quote-property-address]').waitFor({ timeout: 10000 })

@@ -116,6 +116,9 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     photoIds: b.photoIds && typeof b.photoIds === 'object' ? b.photoIds : {},
     keepStyle: existing?.fenceStyle ?? null,
     changeBase: changeBaseIn(b.changeBase),
+    // The Salesman's picker: her fence's section widths to price the cheapest of, and her lists one width each.
+    ...(Array.isArray(b.widthWays) ? { widthWays: b.widthWays.filter((x: unknown) => typeof x === 'string').slice(0, 12) } : {}),
+    ...(b.oneWidth === true ? { oneWidth: true } : {}),
   }
   const overheadPct = existing && typeof existing.pricing?.overheadPct === 'number' ? existing.pricing.overheadPct : null
   return { req, overheadPct }

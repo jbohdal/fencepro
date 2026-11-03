@@ -890,7 +890,7 @@ async function changeStyle() {
   const cards = await D.exec(`return [...document.querySelectorAll('.opt[data-option]')].map(c => ({ i: +c.getAttribute('data-option'), text: c.innerText.replace(/\\s+/g, ' ') }))`)
   const shownOpts = cards.map(c => opts[c.i])
   const asCarded = [[iWood, wood], [opts.indexOf(vinyl), better], [opts.indexOf(alumOpt), alum]]
-  await check('customer: no sign in, the three options on Christa\'s cards at the same prices, each with its warranty', cards.length === 3 && !(await has('input[type="password"]')) && asCarded.every(([i, c]) => cards.some(x => x.i === i)) && cards.every(c => c.text.includes(opts[c.i].label.replace('6 or 8 ft panels (best price)', '6 ft and 8 ft panels')) && c.text.includes(opts[c.i].warranty.name) && c.text.includes(moneyText(Math.round(opts[c.i].finalPrice)).replace(/\.00$/, ''))), cards.map(c => c.text).join(' || '))
+  await check('customer: no sign in, the three options on Christa\'s cards at the same prices, each with its warranty', cards.length === 3 && !(await has('input[type="password"]')) && asCarded.every(([i, c]) => cards.some(x => x.i === i)) && cards.every(c => c.text.includes(opts[c.i].label.replace('6 or 8 ft sections (best price)', '6 ft and 8 ft sections')) && c.text.includes(opts[c.i].warranty.name) && c.text.includes(moneyText(Math.round(opts[c.i].finalPrice)).replace(/\.00$/, ''))), cards.map(c => c.text).join(' || '))
   const over = await D.exec('return document.scrollingElement.scrollWidth - innerWidth')
   await check('customer: the page fits the iPhone (no sideways scroll)', over <= 0, `${over}px`)
   await D.screenshot(path.join(SHOTS, `${TAG}-style-customer-options.png`)).catch(() => {})

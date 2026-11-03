@@ -170,3 +170,42 @@ export function reporter() {
     },
   }
 }
+
+/**
+ * Picks the fence whose plain name matches `styleText` (a regular expression) on the quote builder's Style step.
+ * The owner and office pick from the list; a Salesman has no list (Nov 2 2026: Material > Style > Height > Color >
+ * add ons, the width and install worked out), so her chips are tapped until the fence named matches.
+ */
+export async function pickStyle(page, styleText) {
+  const b = page.locator('[data-quote-builder]')
+  const re = new RegExp(styleText, 'i')
+  const list = b.locator('[data-step-panel="style"] [data-style-list]')
+  if (await list.count()) {
+    const value = await list.evaluate((el, text) => [...el.options].find(o => new RegExp(text, 'i').test(o.textContent))?.value, styleText)
+    if (!value) throw new Error(`no style like ${styleText}`)
+    await list.selectOption(value); await sleep(600)
+    return
+  }
+  const simple = b.locator('[data-style-choices-simple]')
+  const named = async () => re.test((await simple.locator('[data-style-plain-name]').textContent().catch(() => '')) ?? '')
+  for (const m of await simple.locator('[data-choice-material]').all()) {
+    await m.tap(); await sleep(500)
+    if (await named()) return
+    // One choice at a time, each option in turn, keeping the first that names the fence; then two at a time.
+    const dims = await simple.locator('[data-choice-dim]').evaluateAll(els => [...new Set(els.map(e => e.getAttribute('data-choice-dim')))])
+    for (const d of dims) {
+      for (const o of await simple.locator(`[data-choice-dim="${d}"]`).all()) {
+        await o.tap(); await sleep(400)
+        if (await named()) return
+      }
+    }
+    for (const d of dims) for (const o of await simple.locator(`[data-choice-dim="${d}"]`).all()) {
+      await o.tap(); await sleep(300)
+      for (const d2 of dims.filter(x => x !== d)) for (const o2 of await simple.locator(`[data-choice-dim="${d2}"]`).all()) {
+        await o2.tap(); await sleep(300)
+        if (await named()) return
+      }
+    }
+  }
+  throw new Error(`the Salesman's picker names no fence like ${styleText}`)
+}

@@ -2,7 +2,7 @@
  * Review Oct 27 2026 (round 7), without a database: what the customer reads.
  *   1. "What's included" leaves out zero counts and says "end posts" when there are no gates;
  *   2. the contract's Fence line is the plain fence name, never the tier word;
- *   3. a best price fence says the panels its runs used ("8 ft panels"), "6 ft and 8 ft panels" only when mixed;
+ *   3. a best price fence says the panels its runs used ("8 ft sections"), "6 ft and 8 ft sections" only when mixed;
  *   4. a repair contract names the fence repaired, and does not say its description twice;
  *   5. the sold link says "Your fence" once.
  */
@@ -15,8 +15,8 @@ import { includedFacts, postsFact } from '../../web/src/proposal'
 import { pdfText } from './pdfText'
 
 const company = { name: 'Getter Done Fence', phone: '3528442677' }
-const AUTO = 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig'
-const EIGHT = 'White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig'
+const AUTO = 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig'
+const EIGHT = 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig'
 const opt = (label: string, fenceStyle: string, finalPrice: number, snapshot: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
   ({ label, fenceStyle, finalPrice, perFoot: 0, sections: 15, snapshot: { pullSheet: [], ...snapshot }, ...extra })
 
@@ -47,9 +47,9 @@ describe('3. a best price fence by the panels its runs used', () => {
     expect(panelWidthsOf(['8ft', '6ft', '8ft'])).toEqual(['6', '8'])
     expect(panelWidthsOf(['auto', '8ft'])).toEqual([])
     expect(customerFenceName(AUTO, ['8ft'])).toBe(EIGHT)
-    expect(customerFenceName(AUTO, ['6ft', '6ft'])).toBe('White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig')
-    expect(customerFenceName(AUTO, ['6ft', '8ft'])).toBe('White Vinyl Privacy, 6 ft tall, 6 ft and 8 ft panels, No dig')
-    expect(customerFenceName(AUTO)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft panels, No dig')
+    expect(customerFenceName(AUTO, ['6ft', '6ft'])).toBe('White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig')
+    expect(customerFenceName(AUTO, ['6ft', '8ft'])).toBe('White Vinyl Privacy, 6 ft tall, 6 ft and 8 ft sections, No dig')
+    expect(customerFenceName(AUTO)).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig')
     expect(customerFenceName(EIGHT, ['6ft'])).toBe(EIGHT)
   })
 

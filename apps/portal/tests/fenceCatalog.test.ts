@@ -79,10 +79,10 @@ describe('choices and plain names for the old codes', () => {
     }
   })
   test('the names Jonathan asked for', () => {
-    expect(styleLabel("WV-ND 6'x8' Privacy")).toBe('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+    expect(styleLabel("WV-ND 6'x8' Privacy")).toBe('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
     expect(styleLabel("CL - 4' Black")).toBe('Black Chain Link, 4 ft, Residential, No dig')
-    expect(styleLabel('WV-Auto DS Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), Dig set')
-    expect(styleLabel("WV-ND 8'x6' Privacy")).toBe('White Vinyl Privacy, 8 ft tall, 6 ft panels, No dig')
+    expect(styleLabel('WV-Auto DS Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), Dig set')
+    expect(styleLabel("WV-ND 8'x6' Privacy")).toBe('White Vinyl Privacy, 8 ft tall, 6 ft sections, No dig')
     expect(styleLabel("CL - Com 6'+1' Black")).toBe('Black Chain Link, 6 ft + 1 ft barbed wire, Commercial, No dig')
     expect(styleLabel('Alum - DS - Ind Abigail')).toBe('Aluminum Industrial Abigail, 6 ft tall, Dig set')
     expect(styleLabel('Durafence')).toBe('Durafence')
@@ -107,7 +107,7 @@ describe('choices and plain names for the old codes', () => {
     const st = fresh()
     const renamed = planUpdateOption(st, 'vinyl', 'color', 'white', { label: 'Bright White' })
     const cfg2 = use(renamed)
-    expect(cfg2.fenceStyles.find(s => s.name === "WV-ND 6'x8' Privacy")!.label).toBe('Bright White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+    expect(cfg2.fenceStyles.find(s => s.name === "WV-ND 6'x8' Privacy")!.label).toBe('Bright White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
   })
   test('color parts: by a whole piece of the name, swapped for the new color', () => {
     expect(isColorPart('*Vinyl, White, Picket, 62-1/4"', ['White', 'W'])).toBe(true)
@@ -134,7 +134,7 @@ describe('a job lot color (priced by piece)', () => {
     expect(made.length).toBe(whites.length)
     expect(made.map(s => s.name)).toContain('vinyl/privacy/6/testclay/nd/8')
     const cfg = use(st)
-    expect(cfg.fenceStyles.find(s => s.name === 'vinyl/privacy/6/testclay/nd/8')!.label).toBe('Testclay Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+    expect(cfg.fenceStyles.find(s => s.name === 'vinyl/privacy/6/testclay/nd/8')!.label).toBe('Testclay Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
     const newItems = st.items.filter(i => i.madeFor === 'vinyl:color:testclay')
     expect(newItems.length).toBeGreaterThan(5)
     expect(newItems.every(i => i.unitCost === 0 && /Testclay/.test(i.name))).toBe(true)
@@ -322,7 +322,7 @@ describe('the rest of the app follows the color', () => {
     expect(made.length).toBe(LIVE.filter(s => LEGACY_STYLE_CHOICES[s.name]?.material === 'vinyl' && LEGACY_STYLE_CHOICES[s.name]!.choices.height === '6').length)
     const cfg = use(r.state)
     const s7 = cfg.fenceStyles.find(s => s.name === 'vinyl/privacy/7-ft/white/nd/8')!
-    expect(s7.label).toBe('White Vinyl Privacy, 7 ft tall, 8 ft panels, No dig')
+    expect(s7.label).toBe('White Vinyl Privacy, 7 ft tall, 8 ft sections, No dig')
     expect(isQuotable(s7)).toBe(false)
     const on = use(planUpdateOption(r.state, 'vinyl', 'height', '7-ft', { quotable: true }))
     expect(isQuotable(on.fenceStyles.find(s => s.name === s7.name)!)).toBe(true)

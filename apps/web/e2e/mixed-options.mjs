@@ -11,7 +11,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, pickStyle } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -54,10 +54,7 @@ async function quoteUpToPrice(page, name, styleText, shape = 'backyard', sides =
     if (side !== sides[sides.length - 1][0]) { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
   }
   await bar.locator('[data-bar-next]').tap(); await sleep(400)
-  const pick = b.locator('[data-step-panel="style"] select').first()
-  const value = await pick.evaluate((el, text) => [...el.options].find(o => new RegExp(text, 'i').test(o.textContent))?.value, styleText)
-  if (!value) throw new Error(`no style like ${styleText}`)
-  await pick.selectOption(value); await sleep(600)
+  await pickStyle(page, styleText)
   await bar.locator('[data-bar-next]').tap()
   await b.locator('[data-tiers]').waitFor({ timeout: 15000 })
   await sleep(1500)
@@ -130,7 +127,7 @@ try {
   const clPrice = await priceOf(b, 'good')
   check('chain link option: its own name and a lower price', (await card(b, 'good').locator('[data-tier-name]').textContent()) === 'Chain link' && clPrice < alumPrice, `chain link $${clPrice}, aluminum $${alumPrice}`)
   check('chain link option: its own warranty and the words of its own material', /Warranty:/.test(await card(b, 'good').locator('[data-tier-warranty]').textContent()) && /Schedule 40/.test(await card(b, 'good').locator('[data-tier-text]').textContent()), await card(b, 'good').textContent())
-  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*6 ft panels.*No dig')
+  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*No dig')
   const added = card(b, 'added1')
   check('Add option: a third option of any material', (await b.locator('[data-tier]').count()) === 3 && /Vinyl/.test(await added.locator('[data-tier-name]').textContent()), `$${await priceOf(b, 'added1')}`)
   check('three on the proposal: no more can be added', (await b.locator('[data-option-add]').count()) === 0)
@@ -271,7 +268,8 @@ try {
   const taken = await card(b, 'good').locator('[data-tier-swap] option[disabled]').allTextContents()
   check('a style on another card cannot be picked again', taken.some(t => /Aluminum Emily.*No dig/.test(t)) && taken.some(t => /Black Chain Link, 4 ft/.test(t)), taken.join(' / '))
   check('an odd gate says so on the option with no parts list', /10 ft double gate/.test(await card(b, 'better').textContent()) && /two 4 ft leaves/.test(await card(b, 'better').textContent()))
-  check('each option shows its margin', /Margin \d/.test(await card(b, 'good').locator('[data-tier-margin]').textContent()), await card(b, 'good').locator('[data-tier-margin]').textContent())
+  // The Salesman never sees margin (Jonathan, Nov 2 2026): no margin line on any option.
+  check('the Salesman sees no margin on any option', (await b.locator('[data-tier-margin]').count()) === 0 && !/margin/i.test(await b.locator('[data-tiers]').textContent()))
   await b.locator('[data-tier-popular]').first().evaluate(() => {})
   await card(b, 'better').locator('[data-tier-popular-pick]').tap(); await sleep(1500)
   check('Most popular cleared on the card', (await b.locator('[data-tier-popular]').count()) === 0)
@@ -412,7 +410,7 @@ try {
 
   // Compare options stop at the limit.
   const fx7 = await phone(browser, SALES)
-  b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall, 6 ft panels.*No dig')
+  b = await quoteUpToPrice(fx7.page, `Mixed e2e compare ${run}`, 'White Vinyl Privacy.*6 ft tall.*No dig')
   await b.locator('[data-compare-toggle]').tap(); await sleep(1500)
   const free = await b.locator('[data-compare-row] input:not(:disabled):not(:checked)').count()
   check('Compare options: with 3 on, no more can be ticked', free === 0, `${free} open, ${await b.locator('[data-compare-row]').count()} rows`)

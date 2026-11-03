@@ -6,7 +6,7 @@
 //   (cookies: cd apps/portal && npx tsx scripts/dev-session-token.ts --cookie --email <login> --out <file>)
 //
 // Salesman on a phone (390 x 844, WebKit):
-//   1. a best price quote whose runs all take 8 ft panels: one tier card says "Main option", highlighted;
+//   1. a best price quote whose runs all take 8 ft sections: one tier card says "Main option", highlighted;
 //   7. Chain link, Green, then 5 ft: the picker says Green is not offered at 5 ft and the finish changed;
 //   8. a green chain link quote with a gate: the old price heading names the Settings months plainly.
 // Owner on a computer: 2. invites an Installer; the email held in the dev outbox says "as Installer".
@@ -93,7 +93,7 @@ try {
       const highlighted = n ? /border-orange-500/.test(await mainCard.getAttribute('class') || '') : false
       const name = n ? await mainCard.locator('[data-tier-name]').innerText() : ''
       const style = n ? await mainCard.locator('[data-tier-style]').innerText() : ''
-      check('1. uniform yard (48 and 96 ft, 8 ft panels): exactly one card says Main option, highlighted', n === 1 && highlighted, `${mains.join(' | ')} -> ${name}: ${style}`)
+      check('1. uniform yard (48 and 96 ft, 8 ft sections): exactly one card says Main option, highlighted', n === 1 && highlighted, `${mains.join(' | ')} -> ${name}: ${style}`)
       await mainCard.scrollIntoViewIfNeeded().catch(() => {})
       await shot(page, '1-salesman-phone-uniform-yard-main-option')
     }

@@ -10,8 +10,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FenceStyle } from './configStore'
 import { offWords, pickerState, styleChoicesOf, styleForChoices, type FenceCatalog, type OptionState } from './fenceCatalog'
 import { roleCan, signedInRole } from './permissions'
+import { choiceLabel, picksOf, simplePicker, widthChoices } from './salesmanPicks'
 
-export default function StyleChoices({ styles, catalog, value, onChange, isOk }: {
+export default function StyleChoices(props: Parameters<typeof FullChoices>[0] & {
+  /**
+   * The Salesman's picker (salesmanPicks.ts): only Material > Style > Height > Color > add ons, a choice with one
+   * option not shown, nothing that cannot be quoted. `installFor` is the Better option's install for a category.
+   */
+  simple?: { installFor: (category: string) => 'no-dig' | 'dig-set' | null }
+  /** Simple: the styles the quote picks the cheapest of for the yard (every section width of the fence picked). */
+  onWidths?: (ids: string[]) => void
+}) {
+  return props.simple ? <SimpleChoices {...props} simple={props.simple} /> : <FullChoices {...props} />
+}
+
+function FullChoices({ styles, catalog, value, onChange, isOk }: {
   /** Every style turned on (the picker greys the ones not available for quoting). */
   styles: FenceStyle[]
   catalog: FenceCatalog
@@ -101,7 +114,8 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
           ))}
         </div>
       </div>
-      {rows.map(({ dim, options }) => {
+      {rows.map(({ dim: dim0, options }) => {
+        const dim = { ...dim0, label: choiceLabel(material, dim0) }
         // Choices that are off say why, in sight (a phone has no hover): "8 ft is off: 8 ft tall needs our post cost in Settings → …".
         const offLines = options.filter(o => o.state === 'held' && o.why?.length).map(o => ({ key: o.opt.key, text: offWords(o.opt.label, o.why!, canPrice) }))
         return (
@@ -127,6 +141,72 @@ export default function StyleChoices({ styles, catalog, value, onChange, isOk }:
         </div>
         )
       })}
+      {current && (
+        <p className="text-sm font-semibold text-gray-900" data-style-plain-name>{current.label || current.name}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The Salesman's picker: the material, then only the choices she makes (salesmanPicks.ts). Install, section width
+ * and grade are worked out: the Better option's install, every width of the fence for the quote to price the
+ * cheapest of. Nothing that cannot be quoted shows; a choice with one option is used without showing.
+ */
+function SimpleChoices({ styles, catalog, value, onChange, isOk, simple, onWidths }: Parameters<typeof FullChoices>[0] & {
+  simple: { installFor: (category: string) => 'no-dig' | 'dig-set' | null }
+  onWidths?: (ids: string[]) => void
+}) {
+  const current = styles.find(s => s.id === value)
+  const from = () => picksOf(current, catalog)
+  const [material, setMaterial] = useState<string>(() => from()?.material ?? '')
+  const [picks, setPicks] = useState<Record<string, string>>(() => from()?.picks ?? {})
+  // Picked another way (voice, Make main): show its choices.
+  useEffect(() => {
+    const f = from()
+    if (f) { setMaterial(f.material); setPicks(f.picks) }
+  }, [value])  // eslint-disable-line react-hooks/exhaustive-deps
+  const materials = useMemo(() => catalog.materials.filter(m => styles.some(s => styleChoicesOf(s)?.material === m.key && isOk(s))), [catalog, styles, isOk])
+  const view = useMemo(() => (material ? simplePicker(styles, catalog, material, picks, isOk) : null), [styles, catalog, material, picks, isOk])
+
+  function pick(mat: string, next: Record<string, string>) {
+    const v = simplePicker(styles, catalog, mat, next, isOk)
+    setMaterial(mat); setPicks(v.picks)
+    if (!v.candidates.length) return
+    const ways = widthChoices(v.candidates, catalog, mat, simple.installFor(String(v.candidates[0].category ?? '')))
+    // The best price mix first; the quote prices them all for the yard and keeps the cheapest.
+    const first = ways.find(s => s.autoRailMix) ?? ways[0]
+    onWidths?.(ways.map(s => s.id))
+    if (first.id !== value) onChange(first.id)
+  }
+
+  const chip = (on: boolean) => `min-h-[44px] px-3 rounded-lg border text-sm font-medium transition-colors ${on ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-300 text-gray-800 hover:border-orange-400'}`
+  return (
+    <div className="space-y-4" data-style-choices data-style-choices-simple>
+      <div>
+        <p className="text-xs font-semibold text-gray-500 mb-2">Material</p>
+        <div className="flex flex-wrap gap-2">
+          {materials.map(m => (
+            <button key={m.key} type="button" aria-pressed={material === m.key} data-choice-material={m.key} className={chip(material === m.key)}
+              onClick={() => pick(m.key, material === m.key ? picks : {})}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view?.dims.filter(d => d.shown).map(d => (
+        <div key={d.key}>
+          <p className="text-xs font-semibold text-gray-500 mb-2">{d.label}</p>
+          <div className="flex flex-wrap gap-2">
+            {d.options.map(o => (
+              <button key={o.key} type="button" aria-pressed={picks[d.key] === o.key} data-choice-dim={d.key} data-choice-key={o.key} data-choice-state="ok"
+                className={chip(picks[d.key] === o.key)} onClick={() => pick(material, { ...picks, [d.key]: o.key })}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       {current && (
         <p className="text-sm font-semibold text-gray-900" data-style-plain-name>{current.label || current.name}</p>
       )}

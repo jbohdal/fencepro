@@ -75,7 +75,7 @@ try {
   await tap(b.locator('[data-side-row="Left return"]'))
   await tap(b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")'))
   await tap(b.locator('[data-step="style"]'))
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" }); taps += 1
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" }); taps += 1
   await tap(b.locator('[data-step="yard"]'))
   await sleep(500)
   const secs = Math.round((Date.now() - t0) / 1000)
@@ -143,7 +143,7 @@ try {
   const d = await open(browser, false)
   await d.page.keyboard.press('Meta+k')
   await d.page.keyboard.type(CUST); await sleep(800)
-  await d.page.locator('[data-global-search] [role="option"]:has-text("White Vinyl Privacy, 6 ft tall, 8 ft panels")').first().locator('button').first().click()
+  await d.page.locator('[data-global-search] [role="option"]:has-text("White Vinyl Privacy, 6 ft tall, 8 ft sections")').first().locator('button').first().click()
   await sleep(800)
   const reopened = await d.page.locator('[data-quote-builder] [data-side]').count()
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/desktop-layout-reopened.png` })

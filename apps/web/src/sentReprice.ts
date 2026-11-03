@@ -19,6 +19,11 @@ interface CardProposal { options?: CardOption[] | null; ownTier?: { own: number;
 type CardQuote = { fenceStyle?: string | null; runRails?: unknown; status?: string | null; acceptedAt?: unknown; soldAt?: unknown; firstViewedAt?: unknown; viewCount?: number | null }
 type SentProposal = CardProposal
 
+/** A fence's plain name as people read it: no "(best price)" tag, "sections" never "panels". */
+export function plainFence(label: unknown): string {
+  return String(label ?? '').replace(/\s*\((?:best price|auto)\)/gi, '').replace(/(\d+ ft) panels\b/g, '$1 sections').trim()
+}
+
 
 /** Each card the customer reads on a proposal: its price in cents and its fence (a folded tier: the quote's own option in its place). */
 function customerCards(p: SentProposal | null | undefined, quote: CardQuote, styleOf: StyleRecordOf): Map<string, { name: string; cents: number; label: string }> {
@@ -34,7 +39,9 @@ function customerCards(p: SentProposal | null | undefined, quote: CardQuote, sty
     const label = `${String(shown.label ?? '')}|${JSON.stringify(rails ?? null)}`
     const key = o?.tier?.key ? `tier:${o.tier.key}` : `fence:${o?.fenceStyle ?? ''}`
     const tierName = (o?.tier as { label?: string } | null | undefined)?.label
-    if (!out.has(key)) out.set(key, { name: tierName || String(shown.label ?? '').replace(/\s*\((?:best price|auto)\)/gi, ''), cents: Math.round((Number(shown.finalPrice) || 0) * 100), label })
+    // Named by its fence, not its card (one word per thing, Nov 2 2026: "No dig would be $340" read like a choice).
+    const fence = plainFence(shown.label)
+    if (!out.has(key)) out.set(key, { name: fence || tierName || String(shown.fenceStyle ?? ''), cents: Math.round((Number(shown.finalPrice) || 0) * 100), label })
   })
   return out
 }

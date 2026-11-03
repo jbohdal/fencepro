@@ -306,11 +306,12 @@ router.post('/commission-rule', requireUser, requireAccount, requireCan('quotes.
 
 // ── Create ──
 /**
- * A Salesman's or Installer's save (they see prices only): the costs are
- * worked out here from the quote builder's request, or kept as saved.
+ * A Salesman's or Installer's save: the costs and margin are worked out here from the quote builder's request, or
+ * kept as saved. The Installer sees prices only; the Salesman sees costs but never margin, so her phone is priced by
+ * the server too and sends no margin (Nov 2 2026).
  */
 async function costsForLimited(req: any, existing: any | null): Promise<any> {
-  if (!hidesCosts(roleOf(req))) return req.body
+  if (!hidesCosts(roleOf(req)) && roleOf(req) !== 'sales_rep') return req.body
   return req.body?.priceRequest ? withServerCosts(req.user.crmAccountId, req.body, existing) : keepSavedCosts(req.body, existing)
 }
 

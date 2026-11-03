@@ -1,9 +1,9 @@
 /**
  * The quote builder's Price step and the customer's proposal show the same Better (review Oct 27 2026: the
  * Salesman drew 236 ft of white vinyl privacy 6 ft, a walk gate, best price, no dig; her Price step said
- * Better $8,593, all 8 ft panels; the unsent proposal's Better card said $8,409, 6 ft and 8 ft panels).
+ * Better $8,593, all 8 ft sections; the unsent proposal's Better card said $8,409, 6 ft and 8 ft sections).
  *
- * A best price quote (6 or 8 ft panels, the cheaper per run) is shown on the proposal as the tier it is the
+ * A best price quote (6 or 8 ft sections, the cheaper per run) is shown on the proposal as the tier it is the
  * fence of, at the quote's price (web/src/proposalOptions.ts ownTierFold). The builder's tier card now shows
  * that too (web/src/tiers.ts ownTierKey). A sent proposal keeps the cards and prices it went out with.
  *
@@ -25,7 +25,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('builder Better = proposal Better
   const { priceOption, optionLabel } = await import('../../web/src/proposal')
   const { proposalSent } = await import('../../web/src/proposalOptions')
 
-  // 236 ft: five runs that pick 6 ft panels on the short returns and 8 ft on the rest, one walk gate, no dig.
+  // 236 ft: five runs that pick 6 ft sections on the short returns and 8 ft on the rest, one walk gate, no dig.
   const runs = [12, 50, 112, 50, 12]
   const STYLE = 'WV-Auto ND Privacy'
 
@@ -60,52 +60,53 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('builder Better = proposal Better
     return { cents: Math.round(o.finalPrice * 100), name: customerFenceName(o.label, railsOf(o as any, o.fenceStyle === STYLE ? q.runRails : null)) }
   }
 
-  test('the example: Better reads the same price and panels on the Price step and on the unsent proposal', async () => {
+  test('the example: Better is the quote\'s own best price fence, the same price on the Price step and on the unsent proposal', async () => {
     const { m, job, view, tierSet, styleOf, p } = await setup()
     expect(tierSet, 'the dev database has a vinyl Good / Better / Best').toBeTruthy()
-    // The yard really mixes, per run (ceil(footage / width) each run, summed), and the mix is cheaper than all 8 ft.
+    // The yard really mixes, per run (ceil(footage / width) each run, summed).
     expect(new Set(job.calc.perRunRail.filter((_: unknown, i: number) => runs[i] > 0))).toEqual(new Set(['6ft', '8ft']))
+    // Better's "whichever width prices lower" takes the best price mix (Nov 2 2026): it is the quote's own fence.
     const better = job.tiers.find((t: any) => t.spec.key === 'better')
-    expect(better?.option).toBeTruthy()
-    expect(Math.round(job.totals.price * 100)).toBeLessThan(Math.round(better.option.finalPrice * 100))
-
-    // The builder (a Salesman's phone reads the server's view; the owner's builder works it out itself).
-    expect(view.ownTierKey).toBe('better')
-    const own = { ...priceOption(job.calcInput, job.style), finalPrice: job.totals.price }
-    expect(ownTierKey(job.tiers, own, n => styleOf(n), tierSet!.tiers)).toBe('better')
-    const builderCents = Math.round((view.ownTierKey === 'better' ? view.price : better.option.finalPrice) * 100)
+    expect(better?.style?.name).toBe(STYLE)
+    expect(Math.round(better.option.finalPrice * 100)).toBe(Math.round(job.totals.price * 100))
+    // Nothing to fold: the builder shows Better as the main card at the quote's price.
+    expect(view.ownTierKey).toBeNull()
+    expect(ownTierKey(job.tiers, { ...priceOption(job.calcInput, job.style), finalPrice: job.totals.price }, n => styleOf(n), tierSet!.tiers)).toBeNull()
     const builderName = customerFenceName(optionLabel(STYLE), job.calc.perRunRail.filter((_: unknown, i: number) => runs[i] > 0))
-    expect(builderName).toMatch(/6 ft and 8 ft panels/)
-
-    // The proposal saved now (not sent): the fold is frozen on it (lib/ownTier.ts stampOwnTier).
+    expect(builderName).toMatch(/6 ft and 8 ft sections/)
+    // The proposal saved now (not sent): no fold frozen; Better's card is the quote's own price and sections.
     p.ownTier = m.ownTierToStamp(p, { fenceStyle: STYLE }, null, false, styleOf)
-    expect(p.ownTier).not.toBeNull()
+    expect(p.ownTier).toBeNull()
     const card = await customerCard(m, p, { finalPrice: job.totals.price, status: 'DRAFT', runRails: job.calc.perRunRail }, 'better')
-    expect(card.cents).toBe(builderCents)
+    expect(card.cents).toBe(Math.round(job.totals.price * 100))
     expect(card.name).toBe(builderName)
     // And the Good and Best cards: the tier prices on both sides.
     for (const key of ['good', 'best']) {
       const t = job.tiers.find((x: any) => x.spec.key === key)
       if (!t?.option) continue
-      // Since per foot sub labor, Better's cheapest width can be Best's 6 ft: the same fence at the same price shows once.
       if (t.option.fenceStyle === better.option.fenceStyle && t.option.finalPrice === better.option.finalPrice) continue
       const c = await customerCard(m, p, { finalPrice: job.totals.price, status: 'DRAFT', runRails: job.calc.perRunRail }, key)
       expect(c.cents, key).toBe(Math.round(t.option.finalPrice * 100))
     }
   }, 60_000)
 
-  test('a proposal sent before folding existed keeps its Better price; the builder shows it the same', async () => {
-    const { m, job, p } = await setup()
+  test('a proposal saved before (Better all 8 ft, the quote\'s own beside it) keeps its cards and prices once sent', async () => {
+    const { m, job, p: now } = await setup()
+    // The old way: Better was one width for the whole yard, the quote's own best price option a card of its own.
+    const { data } = await (await import('../src/server/lib/estimates.js')).pricingWithData()
+    const eight = data.config.fenceStyles.find((s: any) => s.name === "WV-ND 6'x8' Privacy")
+    const betterOld = { ...priceOption(job.calcInput, eight), tier: { key: 'better' }, badge: 'Most popular' }
+    const options = now.options.map((o: any) => (o.tier?.key === 'better' ? betterOld : o))
+    options.push({ ...priceOption(job.calcInput, job.style), finalPrice: job.totals.price })
+    const p: any = { ...now, options }
     const q = { fenceStyle: STYLE, status: 'SENT', finalPrice: job.totals.price, runRails: job.calc.perRunRail }
     expect(proposalSent(q)).toBe(true)
     // Nothing frozen: the cards it went out with (Better at all 8 ft), never repriced.
     expect(m.proposalFold(p, q)).toBeNull()
-    const better = job.tiers.find((t: any) => t.spec.key === 'better')
     const card = await customerCard(m, p, q, 'better')
-    expect(card.cents).toBe(Math.round(better.option.finalPrice * 100))
-    // The builder folds a sent quote only as frozen on its proposal: here, none.
+    expect(card.cents).toBe(Math.round(betterOld.finalPrice * 100))
     expect(frozenOwnTierKey(p)).toBeNull()
-    // Frozen when it was saved before sending: the folded card, the same on both sides.
+    // Frozen when it was saved before sending: the folded card, as it went out.
     const frozen = { ...p, ownTier: m.ownTierToStamp(p, { fenceStyle: STYLE }, null, false) }
     expect(frozenOwnTierKey(frozen)).toBe('better')
     const card2 = await customerCard(m, frozen, q, 'better')

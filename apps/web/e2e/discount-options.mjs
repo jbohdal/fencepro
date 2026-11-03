@@ -13,7 +13,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, pickStyle } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -59,10 +59,7 @@ async function quoteUpToPrice(page, name, styleText) {
     if (side !== sides[sides.length - 1][0]) { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
   }
   await bar.locator('[data-bar-next]').tap(); await sleep(400)
-  const pick = b.locator('[data-step-panel="style"] select').first()
-  const value = await pick.evaluate((el, text) => [...el.options].find(o => new RegExp(text, 'i').test(o.textContent))?.value, styleText)
-  if (!value) throw new Error(`no style like ${styleText}`)
-  await pick.selectOption(value); await sleep(600)
+  await pickStyle(page, styleText)
   await bar.locator('[data-bar-next]').tap()
   await b.locator('[data-tiers]').waitFor({ timeout: 15000 })
   await sleep(1500)
@@ -104,7 +101,7 @@ const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `$
 async function threeOptions(who, page, name) {
   const b = await quoteUpToPrice(page, name, 'Aluminum.*No dig')
   await swap(b, 'good', 'Galvanized.*4 ft.*No dig|4 ft.*Galvanized.*No dig')
-  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*6 ft panels.*No dig')
+  await addOption(b, 'White Vinyl Privacy.*6 ft tall.*No dig')
   check(`${who}: three options, mixed styles`, (await b.locator('[data-tier]').count()) === 3)
   const p0 = await prices(b)
   const bar0 = await barPrice(page)

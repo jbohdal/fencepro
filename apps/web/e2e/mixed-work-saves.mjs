@@ -34,7 +34,7 @@ async function quote(name, feet, job) {
   for (const d of feet) { await page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`).tap(); await sleep(60) }
   await page.locator('[data-ftin-pad] [data-pad-done]').tap(); await sleep(200)
   await bar.locator('[data-bar-next]').tap(); await sleep(500)
-  await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft panels, No dig' }); await sleep(400)
+  await b.locator('[data-style-list]').selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig' }); await sleep(400)
   await job(b, page, bar)
   await sleep(1500)
   await page.locator('[data-quote-bar] [data-save-open]').tap(); await sleep(800)

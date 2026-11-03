@@ -90,7 +90,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a discount below the minimum, on
   test('another option under it blocks too, by name', async () => {
     const r = await create('sales_rep', body(500, 251, -10000))
     expect(r.status).toBe(409)
-    expect(r.json.error).toContain('Better would be $251')
+    expect(r.json.error).toContain(`${OTHER} would be $251`)
     expect(await row(r.id)).toBeNull()
   })
 

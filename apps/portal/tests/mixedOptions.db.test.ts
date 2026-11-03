@@ -94,14 +94,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     const o = cardOf(j, 'good')
     expect(o.finalPrice).toBe(job(request(WOOD, null)).totals.price)
     expect(o.tier).toMatchObject({ label: 'Good', swapped: true, blurb: 'Pressure treated pine pickets.' })
-    expect(j.ownTierKey).toBe('better')
+    // Better is the quote's own best price fence (whichever width prices lower includes the mix, Nov 2 2026): no fold.
+    expect(cardOf(j, 'better').fenceStyle).toBe(VINYL)
+    expect(j.ownTierKey).toBeNull()
     const p = await proposalOf(j, r)
-    expect(p.options.length).toBe(4)       // the three cards and the quote's own, folded into Better
+    expect(p.options.length).toBe(3)       // the three cards; the quote's own is Better's
     const fold = ownTierFold(p.options, { fenceStyle: VINYL }, n => data.config.fenceStyles.find((s: any) => s.name === n), r.tierSet.tiers)
-    expect(p.options[fold!.tier].tier.key).toBe('better')
+    expect(fold).toBeNull()
+    expect(p.options.find((x: any) => x.tier?.key === 'better').finalPrice).toBe(j.totals.price)
     expect(p.options.find((x: any) => x.fenceStyle === WOOD).warranty.text).toMatch(/No warranty on the wood itself/)
-    // Better and Best are the same 6 ft panels on this short yard, so the customer reads two cards, as without the swap.
-    expect(offeredCount(j.tiers, VINYL, true)).toBe(m.shownOptions(p.options, fold).length)
+    // Better and Best can be the same 6 ft sections on this short yard; the customer reads each fence once.
+    expect(offeredCount(j.tiers, VINYL, false)).toBe(m.shownOptions(p.options, fold).length)
   })
 
   test('a style swapped in is never folded into the quote\'s own option', () => {
@@ -305,14 +308,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(out.pricing.showDiscountOnProposal).toBeUndefined()
   })
 
-  test('no Most popular: no Recommended label; a proposal saved before keeps its label', async () => {
+  test('no Most popular: no badge; a proposal saved before keeps its badge, read "Most popular" (one word since Nov 2 2026)', async () => {
     const r = request(CHAIN, setOf('Chainlink'), { off: [], swap: {}, popular: null })
     const j = job(r)
     const p = await proposalOf(j, r)
     const q: any = { accountId, acceptedAt: null, fenceStyle: CHAIN, finalPrice: j.totals.price, status: 'SENT', customerName: 'x', proposal: p }
     const html = (x: any) => renderProposal(q, x, 't', 'n', [], null, '', { start: 0 })
-    expect(html({ ...p, noRecommendedLabel: true })).not.toContain('>Recommended<')
-    expect(html(p)).toContain('>Recommended<')
+    expect(html({ ...p, noRecommendedLabel: true })).not.toContain('>Most popular<')
+    expect(html(p)).toContain('>Most popular<')
+    expect(html(p)).not.toContain('Recommended')
     expect(html({ ...p, options: [{ ...p.options[0], sections: 1, perFoot: 5 }, p.options[1]] })).toContain('1 section<')
   })
 

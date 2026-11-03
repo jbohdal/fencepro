@@ -12,7 +12,7 @@
 import { calculateQuote, widthComparison, type QuoteCalc, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import { totalMaterialCost, type GateWidths, type LineItem } from './materialCalculator'
 import { gateWidthsOf, type YardLayout } from './yardLayout'
-import { resolveTiers, tierOptions, ownTierKey, twinTierKey, optionCard, type OptionCard, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
+import { resolveTiers, tierOptions, cheapestStyle, ownTierKey, twinTierKey, optionCard, type OptionCard, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
 import { warrantySettingsOf } from './warranties'
 import { compareStyles, priceOption, workOption, gateWarnings, withoutAdjustment, costChoicesForMain, type ProposalOption } from './proposal'
 import {
@@ -21,6 +21,7 @@ import {
 } from './moveRepair'
 import { cleanOverrides, adjustedPrice, roundsToWholeDollar, subUnitOf, type QuotePricingOverrides } from './pricingEngine'
 import { isQuotable } from './styleAvailability'
+import { oneWidthEach } from './salesmanPicks'
 import { changeOrderPrice, type ChangeBase } from './changeOrderPricing'
 import type { AppConfig, FenceStyle } from './configStore'
 
@@ -67,6 +68,10 @@ export interface QuoteJobRequest {
   keepCents?: boolean
   /** A signed quote being changed: the work a change order starts from, so changePrice is priced too. Changes nothing else. */
   changeBase?: ChangeBase | null
+  /** The Salesman's picks name one fence in these section widths (salesmanPicks.ts): the cheapest for this yard is said (`cheapest`). */
+  widthWays?: string[]
+  /** The Salesman's lists (Change style, Add option, Compare options): each fence once, in its best price width. */
+  oneWidth?: boolean
 }
 
 export interface QuoteJob {
@@ -104,6 +109,10 @@ export interface QuoteJob {
   twinTierKey: string | null
   /** What the quote saves as its pricing choices (with the cost factor and overhead it was priced at). */
   pricing: QuotePricingOverrides | undefined
+  /** Of the request's `widthWays`, the one that prices lowest for this yard (tiers.ts cheapestStyle); null when not asked. */
+  cheapest: string | null
+  /** The Salesman's lists: the styles offered, each fence once in its best price width; null when not asked. */
+  oneWidth: string[] | null
 }
 
 /** The minimum job price for a new fence, under the whole dollar rule (dollars, and the cents rounded off). */
@@ -211,7 +220,13 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   }
 
   const tiers = req.tierSet && style && sections > 0 ? resolveTiers(calcInput, cfg.fenceStyles, req.tierSet, req.tierPrefs ?? { off: [], swap: {} }) : []
-  const compareRows = req.compare && style && sections > 0 ? compareStyles(style, styles).map(s => ({ style: s, option: priceOption(calcInput, s) })) : []
+  // The Salesman's picks: the cheapest width of her fence, and each other fence once in its best price width.
+  const ways = (req.widthWays ?? []).filter(n => typeof n === 'string')
+  const cheapest = ways.length > 1 && sections > 0 ? cheapestStyle(calcInput, cfg.fenceStyles.filter(s => ways.includes(s.name) && isQuotable(s)))?.name ?? null : null
+  const oneWidth = req.oneWidth ? oneWidthEach(cfg.fenceStyles.filter(isQuotable), w => cheapestStyle(calcInput, w)).map(s => s.name) : null
+  const compareRows = req.compare && style && sections > 0
+    ? compareStyles(style, styles).filter((s, i) => i === 0 || !oneWidth || oneWidth.includes(s.name)).map(s => ({ style: s, option: priceOption(calcInput, s) }))
+    : []
 
   // The proposal's options, priced exactly as the quote builder prices them on save.
   const proposalOptions: ProposalOption[] = []
@@ -257,7 +272,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
   return {
     style, calcInput, calc, width, work, moveAsIs, repairCheck, newMin, changePrice, totals,
     pullSheet: work ? work.pullSheet : calc.materials.items,
-    tiers, tierCards, compareRows, proposalOptions, ownTierKey: ownTier, twinTierKey: twinTier, pricing,
+    tiers, tierCards, compareRows, proposalOptions, ownTierKey: ownTier, twinTierKey: twinTier, pricing, cheapest, oneWidth,
   }
 }
 
@@ -321,6 +336,10 @@ export function quoteView(job: QuoteJob) {
     proposalOptions: job.proposalOptions.map(optionView),
     ownTierKey: job.ownTierKey,
     twinTierKey: job.twinTierKey,
+    cheapest: job.cheapest,
+    oneWidth: job.oneWidth,
+    // The Salesman sees material and labor costs, never margin (Nov 2 2026); the Installer's answers drop these (costRedact.ts: costs).
+    costs: { materialCost: job.totals.materialCost, laborCost: job.totals.laborCost, tearOutCost: job.totals.tearOutCost, totalCOGS: job.totals.totalCOGS },
   }
 }
 export type QuoteView = ReturnType<typeof quoteView>

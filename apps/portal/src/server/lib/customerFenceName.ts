@@ -8,6 +8,7 @@
  * "6 ft and 8 ft panels" when it really mixes (review Oct 27 2026: a 120 ft
  * single run of 8 ft panels read "6 ft or 8 ft panels"). Without the runs'
  * picks it stays "6 ft or 8 ft panels". Anything else is left as written.
+ * Since Nov 2 2026 every "panels" reads "sections" (one word per thing).
  *
  * Pure, no imports. Only the words shown change: the saved quote, its option
  * labels and prices are never rewritten.
@@ -15,9 +16,11 @@
 export function customerFenceName(label: string | null | undefined, runRails?: unknown): string {
   const widths = panelWidthsOf(runRails)
   return String(label ?? '')
-    .replace(/\b(\d+) or (\d+) ft panels\b/gi, (_m, a: string, b: string) =>
-      widths.length === 1 ? `${widths[0]} ft panels` : widths.length > 1 ? `${widths.join(' ft and ')} ft panels` : `${a} ft or ${b} ft panels`)
+    .replace(/\b(\d+) or (\d+) ft (?:panels|sections)\b/gi, (_m, a: string, b: string) =>
+      widths.length === 1 ? `${widths[0]} ft sections` : widths.length > 1 ? `${widths.join(' ft and ')} ft sections` : `${a} ft or ${b} ft sections`)
     .replace(/\s*\((?:best price|auto)\)/gi, '')
+    // One word for one panel between two posts (Jonathan, Nov 2 2026: "sections not panels"); saved labels say panels.
+    .replace(/(\d+ ft) panels\b/g, '$1 sections')
     .replace(/\s+,/g, ',')
     .replace(/\s{2,}/g, ' ')
     .trim()

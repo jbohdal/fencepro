@@ -79,7 +79,7 @@ try {
   await b.locator('[data-tiers]').scrollIntoViewIfNeeded(); if (SHOTS) await page.screenshot({ path: `${SHOTS}/dev-alum-two-options.png` })
 
   // ── 3. Vinyl stays Good Better Best ──
-  await quoteOn('White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig')
+  await quoteOn('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
   const vi = await tiers()
   check('vinyl: still Good, Better, Best', (await b.locator('[data-tiers-title]').textContent()).startsWith('Good, Better, Best') && vi.map(t => t.name).join(',') === 'Good,Better,Best', vi.map(t => t.name).join(','))
 

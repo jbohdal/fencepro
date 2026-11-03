@@ -112,7 +112,7 @@ async function run(engine, name, phone) {
     await tap('[data-choice-dim="install"][data-choice-key="nd"]').catch(() => {}); await sleep(200)
     await tap('[data-choice-dim="width"][data-choice-key="8"]'); await sleep(300)
     const plain = (await page.locator('[data-style-plain-name]').textContent()).trim()
-    check(`${name}: picked, and shown by its plain name`, plain === `${COLOR} Vinyl Privacy, 6 ft tall, 8 ft panels, No dig`, plain)
+    check(`${name}: picked, and shown by its plain name`, plain === `${COLOR} Vinyl Privacy, 6 ft tall, 8 ft sections, No dig`, plain)
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/${phone ? 'e2e-color-quote-phone' : 'e2e-color-quote'}.png` })
 
     // A quote on it, priced by the server the way the builder prices it.

@@ -103,7 +103,7 @@ try {
     await page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
   await b.locator('[data-step="style"]').click()
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig" })
+  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
   await b.locator('[data-step="price"]').click()
   await page.locator('[data-save-open]').click(); await sleep(600)
   await doubleTap(page.locator('[data-save-submit]'))

@@ -67,7 +67,7 @@ const drawn = (fenceStyle: string) => ({ fenceStyle, runs: [48, 48], corners: 0,
 afterEach(() => { setMaterialPriceSource(null); setSavedKitSets(() => []) })
 
 describe('the real wood kits', () => {
-  test('six styles (three styles × two picket grades), 6 ft tall, dig set, 8 ft panels, each with its own kit; labor from WV-DS 6x8', () => {
+  test('six styles (three styles × two picket grades), 6 ft tall, dig set, 8 ft sections, each with its own kit; labor from WV-DS 6x8', () => {
     expect(WOOD_REAL_STYLES).toEqual([
       'wood/stockade/6/pine/ds/8', 'wood/stockade/6/premium/ds/8', 'wood/bob/6/pine/ds/8', 'wood/bob/6/premium/ds/8', 'wood/sb/6/pine/ds/8', 'wood/sb/6/premium/ds/8',
     ])
@@ -80,9 +80,9 @@ describe('the real wood kits', () => {
       expect(s.panelWidth).toBe(8)
       expect(s.category).toBe('Wood')
     }
-    expect(cfg.fenceStyles.find(x => x.name === ST)!.label).toBe('Wood Stockade, 6 ft tall, 8 ft panels, Dig set, PT Pine pickets')
-    expect(cfg.fenceStyles.find(x => x.name === SB_P)!.label).toBe('Wood Shadow Box, 6 ft tall, 8 ft panels, Dig set, Alta Premium pickets')
-    expect(cfg.fenceStyles.find(x => x.name === 'wood/privacy/6/nd/6')!.label).toBe('Wood Privacy, 6 ft tall, 6 ft panels, No dig')
+    expect(cfg.fenceStyles.find(x => x.name === ST)!.label).toBe('Wood Stockade, 6 ft tall, 8 ft sections, Dig set, PT Pine pickets')
+    expect(cfg.fenceStyles.find(x => x.name === SB_P)!.label).toBe('Wood Shadow Box, 6 ft tall, 8 ft sections, Dig set, Alta Premium pickets')
+    expect(cfg.fenceStyles.find(x => x.name === 'wood/privacy/6/nd/6')!.label).toBe('Wood Privacy, 6 ft tall, 6 ft sections, No dig')
   })
 
   test('quantities as set Oct 30 2026; the two grades differ only in the picket', () => {
@@ -331,7 +331,7 @@ describe('the Oct 30 change on saved Settings and Inventory (planWoodRealKits)',
     }
     expect(p.state.items.find(i => i.name === 'Misc, Concrete')!.unitCost).toBe(7.06)
   })
-  test('the saved tree: styles and pickets added, Privacy, No dig and 6 ft panels archived, wood turned back on', () => {
+  test('the saved tree: styles and pickets added, Privacy, No dig and 6 ft sections archived, wood turned back on', () => {
     const m = p.state.fenceCatalog!.materials.find(x => x.key === 'wood')!
     expect(m.quotable).toBeUndefined()
     expect(m.dims.map(d => d.key)).toEqual(['style', 'height', 'picket', 'install', 'width'])

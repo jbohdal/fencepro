@@ -212,7 +212,8 @@ export default function TierSettings() {
                       </select>
                     </label>
                     )}
-                    <label className="block text-xs text-gray-600">Color
+                    {/* The material's own word for it (one word per thing, Nov 2 2026): Finish for chain link, Picket type for wood. */}
+                    <label className="block text-xs text-gray-600">{/^chain/i.test(draft?.category ?? '') ? 'Finish' : /^wood/i.test(draft?.category ?? '') ? 'Picket type' : 'Color'}
                       <select className={inputCls + ' mt-1'} value={t.color} disabled={!!t.style} onChange={e => setTier(i, { color: e.target.value as TierColor })} data-tier-color>
                         {keep(choices.colors, t.color).map(v => <option key={v} value={v}>{colorLabel(v, colorNames)}</option>)}
                       </select>
