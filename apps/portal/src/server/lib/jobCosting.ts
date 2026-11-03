@@ -343,6 +343,7 @@ const DONE = ['completed', 'invoiced', 'paid'] as const
 
 /** Every completed job (and any with a takeoff): quoted vs actual, "No takeoff" where there is none. */
 export async function reportJobs(accountId: string, from?: string, to?: string): Promise<ReportJob[]> {
+  // all rows: sellers by quote id, a deleted quote's too: its job still credits who sold it (lib/soldBy.ts).
   const [jobs, takeoffs, quotedRows, sellers, moves] = await Promise.all([
     prisma.savedJob.findMany({ where: { accountId, deletedAt: null } }),
     prisma.jobTakeoff.findMany({ where: { accountId } }),
