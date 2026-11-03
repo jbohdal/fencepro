@@ -2192,7 +2192,7 @@ export default function QuoteBuilder({
                     if (showSentCards && !sent) return (
                       <div key={t.spec.key} className="rounded-lg border border-dashed border-gray-300 p-3 opacity-80" data-tier={t.spec.key} data-tier-not-sent>
                         <label className="flex items-center gap-2 min-w-0">
-                          <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} disabled={heldSaved} aria-label={`Offer ${t.spec.name}`}
+                          <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!tierPrefs.off.includes(t.spec.key)} disabled={heldSaved} aria-label={`Offer ${t.spec.name}`}
                             onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
                           <span className="font-bold text-gray-900" data-tier-name>{t.spec.name}</span>
                         </label>
@@ -2228,7 +2228,7 @@ export default function QuoteBuilder({
                         <div className="flex items-start justify-between gap-2">
                           <label className="flex items-center gap-2 min-w-0">
                             {/* The quote's own fence stays on the proposal: another option is made main first. Three at most. */}
-                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!t.off} disabled={heldSaved || (main && !t.off) || (t.off && offeredNow >= MAX_TIERS)} aria-label={`Offer ${t.spec.name}`}
+                            <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={!tierPrefs.off.includes(t.spec.key)} disabled={heldSaved || (main && !t.off) || (t.off && offeredNow >= MAX_TIERS)} aria-label={`Offer ${t.spec.name}`}
                               onChange={e => setTierPrefs(p => ({ ...p, off: e.target.checked ? p.off.filter(k => k !== t.spec.key) : [...p.off, t.spec.key] }))} />
                             <span className="font-bold text-gray-900" data-tier-name>{name}</span>
                             {t.popular && <span className="text-[11px] font-semibold bg-orange-500 text-white rounded-full px-2 py-0.5" data-tier-popular>Most popular</span>}
