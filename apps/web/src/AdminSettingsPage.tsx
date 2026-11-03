@@ -241,7 +241,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
     <div className={CARDS}>
       <div data-overhead>
         <h3 className={TITLE}>Overhead and Target Margin</h3>
-        <p className={HELP}>Target Margin = Overhead % + each style's Target Profit % (set on the Styles tab). Price = (materials + labor) ÷ (100% − Target Margin).</p>
+        <p className={HELP}>Target Margin = Overhead % + each fence's Target Profit % (set in Fence Styles, for a material, a choice or one fence). Price = (materials + labor) ÷ (100% − Target Margin).</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
           <label className="block">
             <span className={LABEL}>Overhead % (typed)</span>
@@ -324,7 +324,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
 
       <div data-settings-focus="sub-rates" className="scroll-mt-4">
         <h3 className={TITLE}>Subcontractor rates</h3>
-        <p className={HELP}>Used when a quote's labor is set to Subcontractor. A rate on the style (Fence Styles tab) wins, then the category rate here, then the default.</p>
+        <p className={HELP}>Used when a quote's labor is set to Subcontractor. A rate set in Fence Styles wins (on the fence, then its choices, then its material), then the category rate here, then the default. Gate rates work the same way.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className={LABEL}>Rates are paid per</label>
