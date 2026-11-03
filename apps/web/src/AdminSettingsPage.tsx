@@ -275,7 +275,7 @@ function PricingTab({ config, onChange }: { config: AppConfig; onChange: (c: App
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className={LABEL}>Install labor</label>
-            <select className={inputCls} value={p.laborMode ?? 'hourly'} onChange={e => setP('laborMode', e.target.value as PricingConfig['laborMode'])}>
+            <select className={inputCls} value={p.laborMode ?? 'subcontractor'} onChange={e => setP('laborMode', e.target.value as PricingConfig['laborMode'])}>
               <option value="hourly">Hourly crew (man hours × rate)</option>
               <option value="subcontractor">Subcontractor (rate per unit)</option>
             </select>

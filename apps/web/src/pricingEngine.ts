@@ -339,7 +339,7 @@ export function subUnitRateMissing(
   pricing: Pick<PricingSettings, 'laborMode' | 'subUnit' | 'subRateDefault' | 'subRateByCategory'>,
   style?: StylePricing,
 ): string | null {
-  if ((o?.laborMode ?? pricing.laborMode ?? 'hourly') !== 'subcontractor') return null
+  if ((o?.laborMode ?? pricing.laborMode ?? 'subcontractor') !== 'subcontractor') return null
   if (typeof o?.laborCost === 'number' && Number.isFinite(o.laborCost) && o.laborCost >= 0) return null
   if (pos(o?.subRate) !== undefined) return null
   const settingsUnit: SubUnit = pricing.subUnit ?? 'foot'
@@ -383,7 +383,8 @@ export function calculatePrice(input: PriceInputs): PriceResult {
   const crewDays = crewHours / (pos(pricing.crewHoursPerDay) ?? 10)
 
   // ── Labor ──
-  const requestedMode: LaborMode = o.laborMode ?? pricing.laborMode ?? 'hourly'
+  // Neither the quote nor Settings says (Nov 3 2026): Subcontractor, how the company works; Hourly crew only when asked for.
+  const requestedMode: LaborMode = o.laborMode ?? pricing.laborMode ?? 'subcontractor'
   const subUnit: SubUnit = subUnitOf(o, pricing)
   let laborMode: PriceResult['laborMode'] = requestedMode
   let subRate = 0

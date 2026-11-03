@@ -257,7 +257,7 @@ const usd = (n: number) => `$${n.toFixed(2)}`
 
 /** Install rates for a style, the way a new fence of that style is charged (sub per section or per foot × width, or hourly). */
 export function styleRates(style: QuoteStyle, pricing: PricingSettings, o: QuotePricingOverrides = {}): StyleRates {
-  const mode = o.laborMode ?? pricing.laborMode ?? 'hourly'
+  const mode = o.laborMode ?? pricing.laborMode ?? 'subcontractor'
   const width = workWidth(style)
   const haul = inventoryCost('Tear Out Haul-Away Fence') ?? 9.5
   const haulGate = inventoryCost('Tear Out Haul-Away Gate') ?? 27

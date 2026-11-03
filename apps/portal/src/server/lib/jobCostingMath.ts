@@ -279,7 +279,7 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
   const work = (q.work && typeof q.work === 'object' ? q.work : null) as Record<string, unknown> | null
   const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(r => num(typeof r === 'object' && r ? (r as any).ft : r)).filter(n => n > 0) : []
   const footage = Math.round(runs.reduce((s, n) => s + n, 0))
-  const requested = String(pricing.laborMode ?? ctx.pricing.laborMode ?? 'hourly')
+  const requested = String(pricing.laborMode ?? ctx.pricing.laborMode ?? 'subcontractor')
   const flat = typeof pricing.laborCost === 'number'
   // The unit travels with the rate (pricingEngine.subUnitOf, Oct 30 2026): the quote's own only when picked on it or with its own rate.
   const ownUnit = pricing.subUnitPicked === true || pos(pricing.subRate) !== undefined

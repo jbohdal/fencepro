@@ -596,7 +596,7 @@ export default function QuoteBuilder({
   const [commissionAsk, setCommissionAsk] = useState<{ data: Parameters<typeof handleSave>[0]; rep: string } | null>(null)
   // Pricing choices for this quote. A saved quote reopens with the choices it
   // was saved with; a new quote starts from Settings → Pricing.
-  const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'hourly')
+  const [laborMode, setLaborMode]       = useState<LaborMode>(initPricing.laborMode ?? cfg.pricing.laborMode ?? 'subcontractor')
   // The sub's "Paid per" travels with the rate (Oct 30 2026, subUnitOf): a quote with no rate of its own follows
   // Settings for both; it keeps its own unit when "Paid per" was picked on it, or with its own typed rate.
   const subOpen = subUnitOnOpen(initPricing, cfg.pricing)
