@@ -139,3 +139,7 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 ## From the last recheck of proposal options (Nov 2)
 
 - A second quote signed for the same customer at a similar price re-points the existing job and keeps that job's Salesman and commission flag (lib/proposalAccepted.ts, the same job rule). Logged, not fixed.
+
+## Parked Nov 2 2026
+
+- Request gateway: parked by Jonathan ("PARK GATEWAY"). The work stays on branches feat/request-gateway and feat/request-gateway-finish, never deployed. It failed security review twice with the worker on (case-insensitive path bypass, trustd fetch, Postgres IPC, .git/logs symlink, survivors); with the worker off it passes. Live has no requests table. Do not pick it up without his say so. Any future version: owner login only, a password or code on every deploy, Tailscale only.
