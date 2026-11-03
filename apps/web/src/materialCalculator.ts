@@ -78,7 +78,7 @@ export interface KitCounts {
   /** Double gates with no kit of their own width: 8 ft, a typed count, or a width with no sheet row. */
   dblGate: number
   /**
-   * Gates by width (chain link, TAKEOFF_RULES "Walk Gate - 5'" ... "Dbl Gate - 12'"):
+   * Gates by width (chain link, TAKEOFF_RULES "Walk Gate - 5'" ... "Dbl Gate - 12'"; aluminum and 8 ft tall vinyl: 10 ft double gates):
    * walk gates 5 or 6 ft wide, double gates 10 or 12 ft wide. A kit set with no
    * kit for one of these uses its walk gate (4 ft) / double gate (8 ft) kit.
    */
@@ -926,13 +926,16 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
     }
 
     const gateLeaves = walkGates + dblGates * 2
-    add(`${V}, Privacy Gate 8 x 4`, gateLeaves, tall.white ? 399.00 : 458.00)
+    // A 10 ft double gate is two 5 ft leaves (TAKEOFF_RULES "Privacy, Gate 8 x 5": 2*addOnQty("Dbl Gate - 10'"); Jonathan, Nov 3, 2026).
+    const dbl10 = gateSizes(walkGates, dblGates, inputs.gateWidths).dbl10
+    add(`${V}, Privacy Gate 8 x 4`, gateLeaves - dbl10 * 2, tall.white ? 399.00 : 458.00)
+    add(`${V}, Privacy, Gate 8 x 5`, dbl10 * 2, tall.white ? 423.00 : 486.00)
     add('*Vinyl, Gate, Hinge', gateLeaves, 29.03) // a pair of hinges per leaf (Jonathan, Oct 25, 2026: hinges come as a pair; 2 per leaf at every height)
     add('*Vinyl, Gate, Latch', walkGates + dblGates, 20.46)
     add('*Vinyl, Gate, Handle', gateLeaves * 2, 5.98)
     add(tall.white ? '*Vinyl, White, Cap, Gate' : 'Vinyl, Tan, Cap, Gate', gateLeaves * 2, 1.00)
     warnings.push(
-      `8 ft privacy parts list is new and unconfirmed: 8' x ${tall.width}' sections from their parts, 8 ft posts${tall.noDig ? ", the same 8' no dig pipe as 6 ft fence" : ', 2 bags of concrete per post'}, and 4 ft wide gate leaves. Check the pull sheet before you quote.`,
+      `8 ft privacy parts list is new and unconfirmed: 8' x ${tall.width}' sections from their parts, 8 ft posts${tall.noDig ? ", the same 8' no dig pipe as 6 ft fence" : ', 2 bags of concrete per post'}, and 4 ft wide gate leaves (5 ft on a 10 ft double gate). Check the pull sheet before you quote.`,
     )
   }
 
@@ -1128,7 +1131,10 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       add("Alum, Gate, Latch, AQUA , Black, 20\"", walkGates, 50.43)
     }
     if (dblGates > 0) {
-      add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", dblGates * 2, 168.83)
+      // A 10 ft double gate is two 5 ft leaves (TAKEOFF_RULES "Gate, 4' x 5'": 2*addOnQty("Dbl Gate - 10'"); Jonathan, Nov 3, 2026).
+      const dbl10 = gateSizes(walkGates, dblGates, inputs.gateWidths).dbl10
+      add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", (dblGates - dbl10) * 2, 168.83)
+      add("Alum, 3-Rail, Emily, Gate, 4' x 5', 48\"", dbl10 * 2, 183.69)
       add("Alum, Gate, Hinge, Self-Closing", dblGates * 4, 33.36)
       add("Alum, Gate, Latch", dblGates, 21.25)
     }
@@ -1150,7 +1156,10 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       add("Alum, Gate, Latch, AQUA , Black, 20\"", walkGates, 50.43)
     }
     if (dblGates > 0) {
-      add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", dblGates * 2, 168.83)
+      // A 10 ft double gate is two 5 ft leaves (TAKEOFF_RULES "Gate, 4' x 5'": 2*addOnQty("Dbl Gate - 10'"); Jonathan, Nov 3, 2026).
+      const dbl10 = gateSizes(walkGates, dblGates, inputs.gateWidths).dbl10
+      add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", (dblGates - dbl10) * 2, 168.83)
+      add("Alum, 3-Rail, Emily, Gate, 4' x 5', 48\"", dbl10 * 2, 183.69)
       add("Alum, Gate, Hinge, Self-Closing", dblGates * 4, 33.36)
       add("Alum, Gate, Latch", dblGates, 21.25)
     }
