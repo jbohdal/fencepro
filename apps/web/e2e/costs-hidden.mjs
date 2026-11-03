@@ -18,7 +18,8 @@
 //      and the schedule: every answer recorded is checked the same way, and no
 //      screen shows a dollar figure.
 //   4. The office (computer) sees a quote's margin and cost breakdown; the Salesman
-//      (phone) sees its cost breakdown but never its margin (Jonathan, Nov 2 2026);
+//      (phone) sees its cost breakdown but never its margin, on the quote or her
+//      Dashboard (Jonathan, Nov 2-3 2026); the office still sees Gross margin there;
 //      the office opens Accounts Payable and vendor invoices.
 // There is no subcontractor role in the app (lib/permissions.ts); the Installer
 // (Field Crew) is the role that sees no price.
@@ -186,6 +187,11 @@ try {
   const sq = (await call(sales.token, 'GET', `/api/saved-quotes/${salesQuote.id}`)).json.data
   check('salesman: the quote shows its cost breakdown but no margin', !/margin/i.test(sd) && /Material cost/.test(sd) && (await s.page.locator('[data-quote-drawer] [data-quote-margin], [data-quote-drawer] [data-quote-gross-margin]').count()) === 0, sd.match(/.{0,40}margin.{0,20}/i)?.[0] ?? sd.slice(0, 80))
   check('salesman: her copy of the quote carries no margin (gmPct)', !!sq && !('gmPct' in sq) && sq.totalCOGS === costed.totalCOGS, JSON.stringify({ gmPct: sq?.gmPct, cogs: sq?.totalCOGS }))
+  // Her Dashboard (Nov 3 2026): no Gross margin, no margin % on her recent quotes, no Target Margin, overhead or profit.
+  await go(s.page, '/')
+  await s.page.getByText('Recent quotes').first().waitFor({ timeout: 15000 }).catch(() => {})
+  const sdash = await s.page.locator('main, body').first().innerText().catch(() => '')
+  check('salesman: her Dashboard shows no margin, overhead or profit', /Recent quotes/.test(sdash) && !/margin|overhead|profit/i.test(sdash) && !/\d+\.\d%/.test(sdash.split('Recent quotes')[1]?.split('This month at a glance')[0] ?? ''), sdash.match(/.{0,40}(margin|overhead|profit).{0,20}/i)?.[0] ?? '')
   await s.ctx.close()
   const o = await signedIn(office, false)
   await go(o.page, `/quotes?qv=${costed.id}`)
@@ -194,6 +200,9 @@ try {
   check('office: the quote shows its margin and cost breakdown', /margin/i.test(od) && /Material cost/.test(od))
   const oq = (await call(office.token, 'GET', `/api/saved-quotes/${costed.id}`)).json.data
   check('office: her copy of the quote carries its margin (gmPct)', typeof oq?.gmPct === 'number', String(oq?.gmPct))
+  await go(o.page, '/')
+  await o.page.getByText('Recent quotes').first().waitFor({ timeout: 15000 }).catch(() => {})
+  check('office: her Dashboard still shows Gross margin', /Gross margin/.test(await o.page.locator('body').innerText().catch(() => '')))
   await go(o.page, '/accounts-payable')
   check('office: Accounts Payable opens', new URL(o.page.url()).pathname === '/accounts-payable', o.page.url())
   await o.ctx.close()

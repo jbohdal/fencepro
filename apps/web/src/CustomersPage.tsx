@@ -61,7 +61,7 @@ import { newId } from './recordSync'
 import { sendJson } from './syncHttp'
 import { businessDate } from './businessDate'
 import AddressAutocomplete from './AddressAutocomplete'
-import { can, canOpenOperations, signedInRole } from './permissions'
+import { can, canOpenOperations, signedInRole, seesMargin } from './permissions'
 import { costRow } from './jobCostLabor'
 import PopMenu, { PopItem } from './PopMenu'
 import ConfirmByTyping from './ConfirmByTyping'
@@ -825,6 +825,9 @@ function CustomerJobCostingTab({ customerId }: { customerId: string }) {
   const fmtP = (n: number | null) => (n === null ? 'Not available' : `${(n * 100).toFixed(1)}%`)
   const none = 'Not available'
   const varColor = (v: number) => v > 0 ? 'text-red-600' : v < 0 ? 'text-green-600' : 'text-gray-600'
+  // A Salesman reads the costs, never the margins (Jonathan, Nov 2-3 2026).
+  const margins = seesMargin(signedInRole())
+  const cols = margins ? 'grid-cols-7' : 'grid-cols-5'
 
   if (costedJobs.length === 0) {
     return (
@@ -848,12 +851,12 @@ function CustomerJobCostingTab({ customerId }: { customerId: string }) {
 
       {/* Job list */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 grid grid-cols-7 gap-2 text-xs font-medium text-gray-500">
-          <div className="col-span-2">Job</div><div>Est. COGS</div><div>Actual</div><div>Variance</div><div>Est. GM</div><div>Actual GM</div>
+        <div className={`px-4 py-2.5 bg-gray-50 border-b border-gray-100 grid ${cols} gap-2 text-xs font-medium text-gray-500`}>
+          <div className="col-span-2">Job</div><div>Est. COGS</div><div>Actual</div><div>Variance</div>{margins && <><div>Est. GM</div><div>Actual GM</div></>}
         </div>
         <div className="divide-y divide-gray-50">
           {costedJobs.map((j: any) => (
-            <div key={j.quote.id} className="px-4 py-3 grid grid-cols-7 gap-2 items-center text-sm hover:bg-gray-50">
+            <div key={j.quote.id} className={`px-4 py-3 grid ${cols} gap-2 items-center text-sm hover:bg-gray-50`}>
               <div className="col-span-2">
                 <p className="font-medium text-gray-900">{j.quote.customerName}</p>
                 <p className="text-xs text-gray-400">{styleLabel(j.quote.fenceStyle)} • {j.entry.completionDate}</p>
@@ -861,13 +864,13 @@ function CustomerJobCostingTab({ customerId }: { customerId: string }) {
               <div className="text-gray-700">{j.estCents === null ? none : fmtD(j.estCents)}</div>
               <div className="text-gray-700">{j.actualCents > 0 ? fmtD(j.actualCents) : 'Not entered'}</div>
               <div className={`font-medium ${varColor(j.varianceCents ?? 0)}`}>{j.varianceCents === null ? none : `${j.varianceCents > 0 ? '+' : ''}${fmtD(j.varianceCents)}`}</div>
-              <div className="text-gray-700">{fmtP(j.estGM)}</div>
-              <div className={`font-medium ${j.estGM === null || j.actGM === null ? 'text-gray-700' : j.actGM >= j.estGM ? 'text-green-600' : 'text-red-600'}`}>{fmtP(j.actGM)}</div>
+              {margins && <><div className="text-gray-700">{fmtP(j.estGM)}</div>
+              <div className={`font-medium ${j.estGM === null || j.actGM === null ? 'text-gray-700' : j.actGM >= j.estGM ? 'text-green-600' : 'text-red-600'}`}>{fmtP(j.actGM)}</div></>}
             </div>
           ))}
         </div>
       </div>
-      <p className="text-xs text-gray-400">Margins are price less cost, before any commission.</p>
+      {margins && <p className="text-xs text-gray-400">Margins are price less cost, before any commission.</p>}
     </div>
   )
 }

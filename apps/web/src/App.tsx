@@ -80,7 +80,7 @@ import { applyQuoteSaved } from './appointmentPipeline'
 import { startIntakeSync } from './intakeStore'
 import { initTierSets, isTierSetsLoaded } from './tierSetsApi'
 import { ToastContainer, toast } from './toast'
-import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole } from './permissions'
+import { setSignedInRole, isFullRole, can, isCrewLogin, signedInRole, seesMargin } from './permissions'
 import { isMyRep } from './salesmanChoice'
 import { signedInUserId } from './crmAuth'
 import { MOVED_EVENT, recentMoved } from './movedNotice'
@@ -1124,6 +1124,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const ytdGoal            = revenueGoal * (thisMonth + 1) / 12
 
   const seesCostsHere = can('costs.view')
+  // Margins, Target Margin, overhead and profit: never for a Salesman (Jonathan, Nov 2-3 2026); she keeps prices.
+  const seesMarginHere = seesMargin(signedInRole())
   // The commission is not shown to a Salesman (Oct 27 2026): her quote margins are before it, her budget line is Labor.
   const showCommissionHere = seesCommission(signedInRole(), seesCostsHere)
   const kpis = [
@@ -1132,8 +1134,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     { label: 'Open quotes', value: String(openQuotes), sub: fmt(quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').reduce((s, q) => s + q.finalPrice, 0)), tone: 'plain' as const },
     { label: 'Active pipeline', value: String(activePipeline), sub: 'leads in progress', tone: 'plain' as const },
     { label: 'Gross margin', value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'Needs sold quotes with costs' : `${avgMargin >= marginTarget - 0.005 ? 'On' : 'Under'} the ${fmtPct(marginTarget)} target · ${yearMargin.withCosts} sold this year with costs`, sub2: leftOutWords(yearMargin), tone: avgMargin !== null && avgMargin < marginTarget - 0.005 ? 'bad' as const : 'plain' as const },
-  // Margins and the budget's cost shares are for logins that see costs; the office, a Salesman and the crew see prices only.
-  ].filter(k => seesCostsHere || k.label !== 'Gross margin')
+  // Margins are for logins that see them: never a Salesman or the crew.
+  ].filter(k => seesMarginHere || k.label !== 'Gross margin')
 
   const pctOr = (n: number | null) => (n === null ? '—' : fmtPct(n))
   const budgetBuckets = [
@@ -1510,7 +1512,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                           <p className="text-sm text-gray-500">{[quoteStyleLabel(q as any), q.work || q.sections ? sizeText(q.sections, q.work) : '', q.date].filter(Boolean).join(' · ')}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          {q.totalCOGS > 0 && (() => { const g = gradeOfQuote(q); return <span className={`text-sm ${marginColor(g.tone)}`}>{fmtPct(g.margin ?? 0)}</span> })()}
+                          {seesMarginHere && q.totalCOGS > 0 && (() => { const g = gradeOfQuote(q); return <span className={`text-sm ${marginColor(g.tone)}`}>{fmtPct(g.margin ?? 0)}</span> })()}
                           <span className="text-sm font-semibold text-gray-900">{fmt(q.finalPrice)}</span>
                           <span className={`chip ${STATUS_COLORS[q.status]}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                         </div>
@@ -1532,7 +1534,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                       { label: 'Close Rate', value: monthQuotes.length > 0 ? fmtPct(monthSold / monthQuotes.length) : '0%' },
                       { label: 'Revenue Closed', value: fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0)) },
                       { label: 'Avg Deal Size', value: monthSold > 0 ? fmt(monthQuotes.filter(q => q.status === 'SOLD').reduce((s, q) => s + q.finalPrice, 0) / monthSold) : '$0' },
-                      ...(seesCostsHere ? [{ label: 'Target Margin', value: targets.words }] : []),
+                      ...(seesMarginHere ? [{ label: 'Target Margin', value: targets.words }] : []),
                     ].map(row => (
                       <div key={row.label} className="flex items-center justify-between">
                         <span className="text-sm text-gray-500">{row.label}</span>
@@ -1543,8 +1545,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
                 </div>
               </div>
 
-              {/* Budget buckets: cost shares, for logins that see costs */}
-              {seesCostsHere && <div className="bg-white rounded-2xl border border-gray-200 p-6">
+              {/* Budget buckets: overhead, profit and cost shares, for logins that see margins (never a Salesman) */}
+              {seesMarginHere && <div className="bg-white rounded-2xl border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="font-semibold text-gray-900">Budget Targets</h3>
