@@ -255,8 +255,8 @@ export default function QuoteDetailDrawer({
             </section>
           )}
 
-          {/* Internal: where every dollar of this quote goes */}
-          {quote.finalPrice > 0 && quote.totalCOGS > 0 && (() => {
+          {/* Internal: where every dollar of this quote goes. Its Profit is the margin: never shown to a Salesman (Nov 2 2026). */}
+          {quote.finalPrice > 0 && quote.totalCOGS > 0 && signedInRole() !== 'sales_rep' && (() => {
             const cfg = getConfig()
             // Not shown to a Salesman (Oct 27 2026): her view reads as it did without the commission.
             const shows = seesCommission(signedInRole(), can('costs.view'))
