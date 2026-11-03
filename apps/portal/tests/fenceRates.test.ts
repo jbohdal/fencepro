@@ -233,3 +233,27 @@ describe('the 100 ft example', () => {
     expect(example100ft(st(ND, { quotable: false }), { pricing } as any)).toEqual({ cannot: 'it is switched off' })
   })
 })
+
+describe('the server checks the cap at the overhead in use, as the screen does (final review Nov 3 2026)', () => {
+  // Live overhead on: the screen prices at the live figure (25.6%); Settings as saved also hold last month's (36.9%).
+  const live = (pct: number | null | undefined) => ({ ...pricing, overheadPct: 30, liveOverhead: { on: true, basis: 'last12' }, overheadHistory: [{ month: '2026-10', pct: 36.9 }], ...(pct === undefined ? {} : { liveOverheadPct: pct }) })
+  const vinylAt = (p: number) => catalog(x => { vinyl(x).rateDefaults = { targetProfitPct: p } })
+  test('54% with 25.6% in use (79.6%): accepted by the server, as by the screen (up to 54.4%)', async () => {
+    const { overMaxTargetMargin } = await import('../../web/src/estimate')
+    const { maxProfitPct } = await import('../../web/src/targetMargin')
+    expect(maxProfitPct(25.6)).toBe(54.4)
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: vinylAt(54), pricing: live(25.6) } as any)).toEqual([])
+  })
+  test('55% with 25.6% in use (80.6%): refused by both', async () => {
+    const { overMaxTargetMargin } = await import('../../web/src/estimate')
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: vinylAt(55), pricing: live(25.6) } as any).length).toBe(3)
+  })
+  test('without the figure in use, last month (36.9%) would refuse 45%: why the server adds it before checking', async () => {
+    const { overMaxTargetMargin } = await import('../../web/src/estimate')
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: vinylAt(45), pricing: live(undefined) } as any).length).toBe(3)
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: vinylAt(45), pricing: live(25.6) } as any)).toEqual([])
+    // Live on but no budget yet (null): the typed 30%, as the screen.
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: vinylAt(50), pricing: live(null) } as any)).toEqual([])
+    expect(overMaxTargetMargin({ fenceStyles: styles(), fenceCatalog: vinylAt(51), pricing: live(null) } as any).length).toBe(3)
+  })
+})

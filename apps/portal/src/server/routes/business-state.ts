@@ -39,7 +39,7 @@ import { salesBusinessView, salesBusinessPatch, businessHanded, OutsideScopeErro
 import { handedOut, handedOutHad, handedAt, afterOwnSave, NOTHING, type Had } from '../lib/salesServed.js'
 import { businessPart } from '../lib/pricingStamp.js'
 import { pricingModule } from '../lib/estimates.js'
-import { overheadNowFor, liveOverheadPctFor, forgetOverheadNow } from '../lib/liveOverhead.js'
+import { overheadNowFor, liveOverheadPctFor, forgetOverheadNow, withLiveOverhead } from '../lib/liveOverhead.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -198,11 +198,15 @@ router.patch('/', async (req: any, res) => {
     // A Target Margin (Overhead % + Target Profit %) over the most allowed is never saved (web targetMargin.ts
     // MAX_TARGET_MARGIN_PCT): 80% profit read 110% and priced lower (review Nov 2 2026). One already over is left to fix.
     if (updateData.config !== undefined) {
+      // At the Overhead % in use, the figure every phone and the Settings screen price with (live from the budget
+      // when on, else typed): Settings as saved carry no live figure, and the last month on file (36.9%) refused
+      // numbers the screen showed under the cap (final review Nov 3 2026).
       const m = await pricingModule()
-      const before = new Set(m.overMaxTargetMargin((saved as any)?.config ?? null))
-      const added = m.overMaxTargetMargin(updateData.config).filter(n => !before.has(n))
+      const before = new Set(m.overMaxTargetMargin((saved as any)?.config ? await withLiveOverhead(accountId, (saved as any).config) : null))
+      const added = m.overMaxTargetMargin(await withLiveOverhead(accountId, updateData.config)).filter(n => !before.has(n))
       if (added.length) {
-        res.status(400).json({ success: false, code: 'TARGET_MARGIN_TOO_HIGH', error: `Target Margin (Overhead % + Target Profit %) can be at most 80%. Lower the Target Profit for ${added.slice(0, 3).join('; ')}${added.length > 3 ? ` and ${added.length - 3} more` : ''}. Not saved.` })
+        // With the saved copy, so the phone puts the screen back and says why (web syncGuard.ts versionedSave: refused).
+        res.status(400).json({ success: false, code: 'TARGET_MARGIN_TOO_HIGH', error: `Not saved: Target Margin (Overhead % + Target Profit %) can be at most 80%. Lower the Target Profit for ${added.slice(0, 3).join('; ')}${added.length > 3 ? ` and ${added.length - 3} more` : ''}.`, data: leanState(saved, omit), version: saved?.version ?? 0 })
         return
       }
     }

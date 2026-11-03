@@ -10,8 +10,8 @@ export default function PercentField({ value, onChange, onBad, min = 0, max = 99
   /** The percent (44 for 44%), or undefined when blank. */
   value: number | undefined
   onChange: (pct: number | undefined) => void
-  /** Told whether the text typed was refused (outside min to max), to say so beside it. */
-  onBad?: (bad: boolean) => void
+  /** Told why the text typed was refused (null: it was not), to say so beside it: not a percent, or outside min to max. */
+  onBad?: (why: 'letters' | 'range' | null) => void
   min?: number
   max?: number
   placeholder?: string
@@ -23,10 +23,11 @@ export default function PercentField({ value, onChange, onBad, min = 0, max = 99
   useEffect(() => { setText(show(value)) }, [value])
   function commit() {
     // Blank: whatever the number becomes is shown (a fence back to the number it follows), never an empty box.
-    if (!text.trim()) { setBad(false); onBad?.(false); onChange(undefined); setText(show(value)); return }
+    if (!text.trim()) { setBad(false); onBad?.(null); onChange(undefined); setText(show(value)); return }
     const n = parsePercent(text)
-    if (n == null || n < min || n > max) { setBad(true); onBad?.(true); return }
-    setBad(false); onBad?.(false)
+    // Refused: the box goes back to the number in use (never keeps a number that was not taken), and says why.
+    if (n == null || n < min || n > max) { setBad(true); onBad?.(n == null ? 'letters' : 'range'); setText(show(value)); return }
+    setBad(false); onBad?.(null)
     onChange(n)
     setText(show(n))
   }

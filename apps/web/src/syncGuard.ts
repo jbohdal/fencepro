@@ -235,7 +235,9 @@ export async function versionedSave<T>(url: string, method: 'PUT' | 'PATCH', bod
     if (res.status === 409 && json?.code === 'STALE_VERSION') {
       return { status: 'stale', server: pick(json.data), version: typeof json.version === 'number' ? json.version : 0 }
     }
-    if (res.status === 403 && json?.code === 'NOT_ALLOWED') {
+    // Not allowed for this login, or a Settings number the server never saves (a Target Margin over 80%,
+    // TARGET_MARGIN_TOO_HIGH): the copy on screen goes back to the saved one and the reason is shown; it never waits for signal.
+    if ((res.status === 403 && json?.code === 'NOT_ALLOWED') || (res.status === 400 && json?.code === 'TARGET_MARGIN_TOO_HIGH')) {
       const message = typeof json.error === 'string' ? json.error : 'Your login is not allowed to do this. Ask Jonathan.'
       return 'data' in json ? { status: 'refused', message, server: pick(json.data), version: typeof json.version === 'number' ? json.version : undefined } : { status: 'refused', message }
     }

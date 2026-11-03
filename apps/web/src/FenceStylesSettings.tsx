@@ -374,7 +374,7 @@ function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
 }) {
   const overhead = overheadPctOf(config)
   const unit = subUnitWords(config.pricing)
-  const [tooHigh, setTooHigh] = useState(false)
+  const [tooHigh, setTooHigh] = useState<'letters' | 'range' | null>(null)
   const name = opt ? opt.label : m.label
   const where = opt ? `${m.key}:${dim!.key}:${opt.key}` : m.key
   const own = (k: RateKey) => (opt ? optionRate(opt, k) : materialRate(m, k))
@@ -404,7 +404,7 @@ function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
         </label>
         {profit !== undefined && <p className="text-xs text-gray-700 pb-3" data-level-margin={where}>+ Overhead {pct(overhead)} = Target Margin {pct(overhead + profit)}</p>}
       </div>
-      {tooHigh && <p className="text-xs font-semibold text-red-700" role="alert" data-level-profit-too-high={where}>{profitLimitWords(overhead)} Not changed.</p>}
+      {tooHigh && <p className="text-xs font-semibold text-red-700" role="alert" data-level-profit-too-high={where}>{tooHigh === 'letters' ? 'Type a percent, like 14.' : profitLimitWords(overhead)} Not changed.</p>}
       {!isWood && (
         <div className="flex flex-wrap gap-x-3 gap-y-2">
           {SUB_KEYS.map(k => (
@@ -453,7 +453,7 @@ function FenceRow({ s, m, config, views, updateStyle }: { s: FenceStyle; m: Mate
   const overhead = overheadPctOf(config)
   const unit = subUnitWords(config.pricing)
   const [open, setOpen] = useState(false)
-  const [tooHigh, setTooHigh] = useState(false)
+  const [tooHigh, setTooHigh] = useState<'letters' | 'range' | null>(null)
   const status = fenceStatus(s)
   const profit = profitShown(s, m)
   const was = views.savedById.get(s.id)
@@ -502,7 +502,7 @@ function FenceRow({ s, m, config, views, updateStyle }: { s: FenceStyle; m: Mate
           <p className="text-xs text-gray-700 pb-3">+ Overhead {pct(overhead)} = <span className="font-semibold" data-style-target-margin={s.name}>{pct(tm)}</span> Target Margin</p>
           <RateSource shown={profit} name={s.name} attr="profit" fmt={pct} onReset={() => setProfit(undefined)} wasText={wasProfit && wasProfit.value !== profit.value ? `was ${pct(wasProfit.value)}` : null} />
         </div>
-        {tooHigh && <p className="text-xs font-semibold text-red-700" role="alert" data-fence-profit-too-high={s.name}>{profitLimitWords(overhead)} Not changed.</p>}
+        {tooHigh && <p className="text-xs font-semibold text-red-700" role="alert" data-fence-profit-too-high={s.name}>{tooHigh === 'letters' ? 'Type a percent, like 14.' : profitLimitWords(overhead)} Not changed.</p>}
         {wood ? (
           <p className="mt-1 text-xs text-gray-600" data-fence-sub={s.name}>
             Sub labor: {fenceName(wood)}’s labor × {Math.round((s.woodFactor ?? 1.15) * 1000) / 10}% (sub {rateText(subShown(wood, materialOf(catalogOf(config), styleChoicesOf(wood)?.material), config.pricing, 'subRate').value)}/{unit.short} there).
