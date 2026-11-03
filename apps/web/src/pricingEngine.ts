@@ -113,6 +113,8 @@ export interface QuotePricingOverrides {
   finalPrice?: number
   /** Overhead % the quote was priced at (for "where every dollar goes"; the engine does not use it). */
   overheadPct?: number
+  /** The Target Profit % its cost factor came from, when that came from Settings (draftMargin.ts; the engine does not use it). */
+  targetProfitPct?: number
   /**
    * false: priced to the cent, as every quote was before the whole dollar rule
    * (a quote sent, sold or accepted before Oct 21 2026 keeps it). Anything

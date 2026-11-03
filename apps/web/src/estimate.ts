@@ -16,6 +16,7 @@ import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
 import { isTallVinyl, styleChoicesOf, catalogOf, materialOf } from './fenceCatalog'
 import { followedRates, type FollowedRates } from './fenceRates'
+import { draftMarginNow, type DraftMargin, type QuoteForDraft } from './draftMargin'
 import { priceQuoteJob, quoteView, savedWorkOf, type QuoteJob, type QuoteJobRequest } from './quoteJob'
 import { widgetCatalog, widgetOptions, widgetStyles, priceForStyle, type WidgetCatalog, type WidgetPick, type WidgetPriced } from './widgetPricing'
 import type { YardLayout } from './yardLayout'
@@ -187,6 +188,16 @@ export function followedRatesByStyle(saved: Partial<AppConfig> | null): Record<s
  */
 export function overMaxTargetMargin(saved: Partial<AppConfig> | null): string[] {
   return estimateConfig(saved).fenceStyles.filter(s => (1 - s.margin) * 100 > MAX_TARGET_MARGIN_PCT + 1e-9).map(s => s.label || s.name)
+}
+
+/**
+ * An unsent draft whose Target Margin came from Settings, opened again: the
+ * cost factor at its fence's Target Profit today (draftMargin.ts), or null.
+ * The server prices a Salesman's draft with it (lib/quotePricing.ts).
+ */
+export function draftMarginFor(saved: Partial<AppConfig> | null, quote: QuoteForDraft & { fenceStyle?: string | null }): DraftMargin | null {
+  if (!quote?.fenceStyle) return null
+  return draftMarginNow(quote, estimateConfig(saved).fenceStyles.find(s => s.name === quote.fenceStyle))
 }
 
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */

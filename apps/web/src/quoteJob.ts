@@ -9,6 +9,7 @@
  * the server.
  */
 
+import { profitRecord } from './draftMargin'
 import { calculateQuote, widthComparison, type QuoteCalc, type QuoteCalcInput, type QuoteStyle } from './quoteCalc'
 import { totalMaterialCost, type GateWidths, type LineItem } from './materialCalculator'
 import { gateWidthsOf, type YardLayout } from './yardLayout'
@@ -261,7 +262,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...req.overrides,
     // The unit the sub was paid per on this price (it follows Settings unless picked on the quote or with its own rate).
     ...(req.overrides.subUnit !== undefined ? { subUnit: subUnitOf(req.overrides, cfg.pricing) } : {}),
-    ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}),
+    ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor, ...profitRecord(priced.costFactor, overheadPct, style) } : {}),
     overheadPct,
     ...wholeDollarRecord(req.overrides, roundingCents),
     ...adjustmentRecord(req.overrides, adjustmentCents),
@@ -344,4 +345,5 @@ export function quoteView(job: QuoteJob) {
     costs: { materialCost: job.totals.materialCost, laborCost: job.totals.laborCost, tearOutCost: job.totals.tearOutCost, totalCOGS: job.totals.totalCOGS },
   }
 }
-export type QuoteView = ReturnType<typeof quoteView>
+/** With, on a Salesman's reopened unsent draft that takes today's Target Profit (lib/quotePricing.ts), draftFollowsSettings. */
+export type QuoteView = ReturnType<typeof quoteView> & { draftFollowsSettings?: boolean }

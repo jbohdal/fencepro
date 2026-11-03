@@ -43,6 +43,7 @@ import { compareStyles, priceOption, buildProposal, optionLabel, gateWarnings, o
 import { resolveTiers, tierOptions, tierSetFor, cheapestStyle, ownTierKey, twinTierKey, frozenOwnTierKey, tierCategory, pinnedForMain, offeredCount, newOptionKey, optionCard, materialWord, MAX_TIERS, type OptionCard, type ResolvedTier, type TierPrefs, type TierKey } from './tiers'
 import { warrantySettingsOf, stampWarranties } from './warranties'
 import { proposalSent, ownTierToStamp, proposalStamp, tickedStyles, addsPastLimit } from './proposalOptions'
+import { draftMarginNow, draftMarginWords, profitRecord } from './draftMargin'
 import { sentTierCards, sentTiersNote } from './sentTiers'
 import { proposalPriceChanges, type ProposalPriceChange } from './sentReprice'
 import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
@@ -547,6 +548,9 @@ export default function QuoteBuilder({
   const oldPrice = importedOldPrice(init as any)
   const keepOldPrice = oldPrice != null && init?.status === 'SOLD'
   const initPricing: QuotePricingOverrides = oldPrice != null && !keepOldPrice ? {} : (init?.pricing ?? {})
+  // An unsent draft whose Target Margin came from Settings takes its fence's Target Profit today (draftMargin.ts),
+  // at the Overhead % it was saved with; worked out once, when it is opened, and said on screen (draftLine).
+  const [draftMargin] = useState(() => (init?.id && oldPrice == null ? draftMarginNow(init as Parameters<typeof draftMarginNow>[0], cfg.fenceStyles.find(s => s.name === init.fenceStyle)) : null))
 
   const [customerName, setCustomerName] = useState(init?.customerName ?? '')
   // A customer on file picked at the Customer name step (audit #44): Save puts the quote on them, never a second copy.
@@ -611,7 +615,7 @@ export default function QuoteBuilder({
   const [laborFlatStr, setLaborFlatStr] = useState(initPricing.laborCost != null ? String(initPricing.laborCost) : '')
   const [priceMethod, setPriceMethod]   = useState<PriceMethod>(initPricing.priceMethod ?? cfg.pricing.priceMethod ?? 'cost_factor')
   const [perFootStr, setPerFootStr]     = useState(initPricing.pricePerFoot != null ? String(initPricing.pricePerFoot) : '')
-  const [factorStr, setFactorStr]       = useState(initPricing.costFactor != null ? String(initPricing.costFactor) : '')
+  const [factorStr, setFactorStr]       = useState(draftMargin ? String(draftMargin.costFactor) : initPricing.costFactor != null ? String(initPricing.costFactor) : '')
   const [finalPriceStr, setFinalPriceStr] = useState(initPricing.finalPrice != null ? String(initPricing.finalPrice) : '')
   // The ± dollar adjustment (whole dollars, "-30" = $30 off), after the slider; and how the proposal shows it.
   const [adjDollarsStr, setAdjDollarsStr] = useState(typeof initPricing.priceAdjustmentCents === 'number' && initPricing.priceAdjustmentCents !== 0 ? String(Math.round(initPricing.priceAdjustmentCents / 100)) : '')
@@ -1023,8 +1027,11 @@ export default function QuoteBuilder({
   // A save the server sent back left this phone's copy at the refused price: the saved one is the server's.
   const sentBack = !!init?.id && pendingFor(`quote:${init.id}`).some(o => o.redo)
   const savedPrice = (sentBack && init?.id ? serverSavedPrice(init.id) : undefined) ?? init?.finalPrice ?? 0
+  // Why an unsent draft's price moved on open: today's Target Profit (draftMargin.ts). The Salesman, who sees no
+  // margin, is told in plain words from the server's view; the owner and office see the figures.
+  const draftWhy = draftMargin ? draftMarginWords(draftMargin) : !internal && sv?.draftFollowsSettings ? 'Settings changed for this fence since this draft was saved, so it is priced at today’s prices.' : null
   const draftLine = !pricesStand && !heldSaved && !!init?.id && init.status === 'DRAFT' && oldPrice == null && !fenceChanged && !!style && (internal || !!sv)
-    ? draftPriceLine(savedPrice, adjPrice, neverSaved ? 'opened' : 'saved') : null
+    ? (draftWhy && !neverSaved && draftPriceLine(savedPrice, adjPrice) ? `${draftWhy} ${draftPriceLine(savedPrice, adjPrice)}` : draftPriceLine(savedPrice, adjPrice, neverSaved ? 'opened' : 'saved')) : null
   const repricedLine = !draftLine && !pricesStand && !heldSaved && repriced ? `Prices changed while this quote was open. It is now ${priceText(adjPrice)} (was ${priceText(repriced.was)}).` : null
   const commissionPctLabel = `${Math.round((cfg.pricing.commissionSalesman ?? 0) * 1000) / 10}%`
   // Help that prevents bad quotes: plain warnings, never a block.
@@ -1346,7 +1353,7 @@ export default function QuoteBuilder({
       notes: data.notes,
       leadTemp: data.leadTemp ?? 0,
       // The Target Margin it was priced at is kept, so this quote's price never moves when Settings change.
-      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents), ...adjustmentRecord(pricingOverrides, adjApplied) }),
+      pricing: cleanOverrides({ ...pricingOverrides, ...(work ? { costFactor: work.costFactor } : priced.priceMethod === 'cost_factor' ? { costFactor: priced.costFactor, ...profitRecord(priced.costFactor, overheadNow, style) } : {}), overheadPct: overheadNow, ...wholeDollarRecord(pricingOverrides, roundingCents), ...adjustmentRecord(pricingOverrides, adjApplied) }),
       work: savedWork,
       // A Salesman's or Installer's save: the server works out the costs from these inputs.
       ...(internal ? {} : { priceRequest }),

@@ -131,13 +131,30 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
  */
 const mainFrom = (req: Json): Json => (req.keepStyle ? { ...req, mainFrom: req.keepStyle } : req)
 
+/**
+ * An unsent draft whose Target Margin came from Settings takes its fence's
+ * Target Profit today (web draftMargin.ts), as the owner's quote builder does;
+ * a sent or signed quote, or one with a margin typed on it, keeps its own.
+ * Only while it is still the fence it was saved on.
+ */
+function followTargetProfit(m: Json, data: Json, req: Json, existing: Json | null): boolean {
+  if (!existing || req.jobType !== 'new' || req.fenceStyle !== existing.fenceStyle || existing.pricing?.costFactor !== req.overrides.costFactor) return false
+  const d = m.draftMarginFor(data.config, existing)
+  if (d) req.overrides.costFactor = d.costFactor
+  return !!d
+}
+
 /** What the quote builder shows a Salesman or Installer: prices only. */
 export async function quoteViewFor(accountId: string, body: Json, quoteId?: string | null) {
   const m = await pricingModule() as Json
   const existing = quoteId ? await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } }) : null
   const { req, overheadPct } = requestFrom(body, existing, m.importedOldPrice, m.keepsCents)
-  const job = m.quoteJobFor(await dataFor(accountId), mainFrom(req), overheadPct)
-  return m.quoteView(job)
+  const data = await dataFor(accountId)
+  // An unsent draft on its saved fence takes today's Target Profit; another main is priced at its own (mainFrom).
+  const follows = followTargetProfit(m, data, req, existing)
+  const job = m.quoteJobFor(data, mainFrom(req), overheadPct)
+  // Said on her screen in plain words, never a margin figure (she sees none): Settings changed for this fence.
+  return { ...m.quoteView(job), ...(follows ? { draftFollowsSettings: true } : {}) }
 }
 
 const optKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.label ?? ''}`
@@ -150,7 +167,10 @@ const optKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.l
 export async function withServerCosts(accountId: string, body: Json, existing: Json | null): Promise<Json> {
   const m = await pricingModule() as Json
   const { req, overheadPct } = requestFrom(body.priceRequest, existing, m.importedOldPrice, m.keepsCents)
-  const job = m.quoteJobFor(await dataFor(accountId), mainFrom(req), overheadPct)
+  const data = await dataFor(accountId)
+  // An unsent draft on its saved fence takes today's Target Profit; another main is priced at its own (mainFrom).
+  followTargetProfit(m, data, req, existing)
+  const job = m.quoteJobFor(data, mainFrom(req), overheadPct)
   const out: Json = { ...body }
   delete out.priceRequest
   const t = job.totals
