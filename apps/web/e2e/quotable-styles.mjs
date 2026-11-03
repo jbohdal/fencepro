@@ -3,7 +3,8 @@
 //   E2E_ACCESS_TOKEN=<dev owner token> EZ_QUOTE_WIDGET_TOKEN=<from apps/portal/.env> \
 //     APP_URL=http://localhost:4001 SHOTS=<folder, optional> node e2e/quotable-styles.mjs
 //
-// Dev only (4001). With the five styles off: Settings shows the switches off,
+// Dev only (4001). With the five styles off: Settings shows the switches off
+// (other fences that cannot be quoted show off too, each with its reason),
 // the quote builder's style list, the website widget, /api/quotes and
 // /api/quoting leave them out (asking for one gets "Call us for commercial
 // and industrial fencing"), and a saved CL - Com 6' quote still opens and
@@ -80,8 +81,19 @@ try {
   page.on('dialog', d => d.accept().catch(() => {}))
   await page.route('**/api/automations/trigger', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' }))
   await page.goto(`${APP}/settings?tab=styles`); await page.waitForSelector('[data-style-quotable]', { timeout: 60000 }); await sleep(800)
-  const sw = await page.locator('[data-style-quotable]').evaluateAll(els => els.map(e => [e.getAttribute('data-style-quotable'), e.getAttribute('aria-checked')]))
-  check('Settings → Fence Styles: "Available for quoting" off for exactly the five', sw.filter(([, on]) => on === 'false').map(([n]) => n).sort().join('|') === [...HELD].sort().join('|'), sw.filter(([, on]) => on === 'false').map(([n]) => n).join(', '))
+  // Each switch, and the words beside it: a fence that cannot be quoted for another reason (prices not in, a choice
+  // off, archived) also shows its switch off since Nov 2 2026, with the reason (FenceStylesSettings.tsx).
+  const sw = await page.locator('[data-style-quotable]').evaluateAll(els => els.map(e => {
+    const n = e.getAttribute('data-style-quotable')
+    const status = [...document.querySelectorAll('[data-fence-row-status]')].find(x => x.getAttribute('data-fence-row-status') === n)?.textContent?.trim() ?? ''
+    return [n, e.getAttribute('aria-checked'), status, e.getAttribute('aria-label') ?? '']
+  }))
+  const off = sw.filter(([, on]) => on === 'false')
+  const savedOff = (await bs()).config.fenceStyles.filter(st => HELD.includes(st.name) && st.quotable === false).map(st => st.name)
+  check('the five are held in the saved Settings (switched off for quoting)', savedOff.sort().join('|') === [...HELD].sort().join('|'), savedOff.join(', '))
+  check('Settings → Fence Styles: "Available for quoting" off for the five', HELD.every(h => off.some(([n]) => n === h)), off.map(([n]) => n).join(', '))
+  const silent = off.filter(([n, , status, label]) => !HELD.includes(n) && !status && !/cannot be quoted: \S/.test(label))
+  check('Settings → Fence Styles: every other switch that is off says why', silent.length === 0, silent.map(([n]) => n).join(', ') || off.filter(([n]) => !HELD.includes(n)).map(([n, , st, l]) => `${n}: ${st || l}`).join(' | ').slice(0, 400))
   if (SHOTS) {
     await page.locator('[data-style-quotable="CL - Com 6\'"]').scrollIntoViewIfNeeded()
     await page.screenshot({ path: `${SHOTS}/dev-style-quotable-switch.png` })
