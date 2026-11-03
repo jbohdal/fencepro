@@ -81,7 +81,7 @@ describe('choices and plain names for the old codes', () => {
   test('the names Jonathan asked for', () => {
     expect(styleLabel("WV-ND 6'x8' Privacy")).toBe('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
     expect(styleLabel("CL - 4' Black")).toBe('Black Chain Link, 4 ft, Residential, No dig')
-    expect(styleLabel('WV-Auto DS Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), Dig set')
+    expect(styleLabel('WV-Auto DS Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections (best price), Dig set')
     expect(styleLabel("WV-ND 8'x6' Privacy")).toBe('White Vinyl Privacy, 8 ft tall, 6 ft sections, No dig')
     expect(styleLabel("CL - Com 6'+1' Black")).toBe('Black Chain Link, 6 ft + 1 ft barbed wire, Commercial, No dig')
     expect(styleLabel('Alum - DS - Ind Abigail')).toBe('Aluminum Industrial Abigail, 6 ft tall, Dig set')

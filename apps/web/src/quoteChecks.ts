@@ -3,6 +3,7 @@
  * block saving; they say what to check. Pure, so each is tested on its own.
  */
 
+import { styleLabel } from './fenceCatalog'
 import { formatFtIn, type YardLayout } from './yardLayout'
 
 /** "Back (150' 0")" for a layout run, "Run 2 (81' 0")" for a typed one. */
@@ -81,7 +82,9 @@ export function perFootCheck(perFoot: number, style: string, past: PastQuote[], 
   if (!n) return null
   const money = (v: number) => `$${v.toFixed(2)}`
   const range = `usually ${money(n.low)} to ${money(n.high)} a foot, from ${n.n} past quotes`
-  if (perFoot > n.high * 1.15) return `${money(perFoot)} a foot is far above your past ${style} quotes (${range}).`
-  if (perFoot < n.low * 0.85) return `${money(perFoot)} a foot is far below your past ${style} quotes (${range}).`
+  // The fence by its plain name, never its internal code (wood/stockade/6/pine/ds/8).
+  const name = styleLabel(style) || style
+  if (perFoot > n.high * 1.15) return `${money(perFoot)} a foot is far above your past ${name} quotes (${range}).`
+  if (perFoot < n.low * 0.85) return `${money(perFoot)} a foot is far below your past ${name} quotes (${range}).`
   return null
 }

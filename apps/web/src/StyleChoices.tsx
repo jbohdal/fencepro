@@ -169,8 +169,21 @@ function SimpleChoices({ styles, catalog, value, onChange, isOk, simple, onWidth
   const materials = useMemo(() => catalog.materials.filter(m => styles.some(s => styleChoicesOf(s)?.material === m.key && isOk(s))), [catalog, styles, isOk])
   const view = useMemo(() => (material ? simplePicker(styles, catalog, material, picks, isOk) : null), [styles, catalog, material, picks, isOk])
 
-  function pick(mat: string, next: Record<string, string>) {
+  // A pick changed by the tap of another (Tan, then 8 ft: 8 ft comes in White only): said under the tapped choice, never silent.
+  const [changed, setChanged] = useState<{ dim: string; text: string } | null>(null)
+  function pick(mat: string, next: Record<string, string>, tapped?: string) {
     const v = simplePicker(styles, catalog, mat, next, isOk)
+    const said: string[] = []
+    if (tapped && mat === material && view) {
+      const tappedLabel = v.dims.find(d => d.key === tapped)?.options.find(o => o.key === v.picks[tapped])?.label ?? ''
+      for (const d of view.dims) {
+        if (d.key === tapped || !(d.key in picks) || v.picks[d.key] === picks[d.key]) continue
+        const was = d.options.find(o => o.key === picks[d.key])?.label ?? picks[d.key]
+        const now = v.dims.find(x => x.key === d.key)?.options.find(o => o.key === v.picks[d.key])?.label ?? v.picks[d.key]
+        said.push(`${was} is not made in ${tappedLabel}, so the ${d.label.toLowerCase()} is now ${now}.`)
+      }
+    }
+    setChanged(said.length && tapped ? { dim: tapped, text: said.join(' ') } : null)
     setMaterial(mat); setPicks(v.picks)
     if (!v.candidates.length) return
     const ways = widthChoices(v.candidates, catalog, mat, simple.installFor(String(v.candidates[0].category ?? '')))
@@ -200,11 +213,13 @@ function SimpleChoices({ styles, catalog, value, onChange, isOk, simple, onWidth
           <div className="flex flex-wrap gap-2">
             {d.options.map(o => (
               <button key={o.key} type="button" aria-pressed={picks[d.key] === o.key} data-choice-dim={d.key} data-choice-key={o.key} data-choice-state="ok"
-                className={chip(picks[d.key] === o.key)} onClick={() => pick(material, { ...picks, [d.key]: o.key })}>
+                className={chip(picks[d.key] === o.key)} onClick={() => pick(material, { ...picks, [d.key]: o.key }, d.key)}>
                 {o.label}
               </button>
             ))}
           </div>
+          {d.notes.map(n => <p key={n} className="mt-1.5 text-xs text-gray-700" data-choice-not-made={d.key}>{n}</p>)}
+          {changed?.dim === d.key && <p className="mt-2 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" role="status" data-style-changed-note>{changed.text}</p>}
         </div>
       ))}
       {current && (

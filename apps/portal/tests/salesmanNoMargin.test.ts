@@ -40,7 +40,7 @@ describe('the Salesman: costs yes, margin never', () => {
     for (const k of ['gmPct', 'costFactor', 'overheadPct', 'subRate', 'commissionPct', 'targetProfitPct', 'targetMarginPct']) expect(keys.has(k), k).toBe(false)
     expect([out.finalPrice, out.materialCost, out.laborCost, out.totalCOGS]).toEqual([10069, 3100.5, 1720, 4820.5])
     expect(out.pullSheet[0]).toEqual({ item: 'Post', qty: 10, unitCost: 13.5, total: 135 })
-    expect(out.pricing).toEqual({ wholeDollar: true, priceMethod: 'cost_factor', commissionMode: 'included' })
+    expect(out.pricing).toEqual({ wholeDollar: true, priceMethod: 'cost_factor' })  // commissionMode too (review Nov 3 2026)
     expect(out.proposal.options[0].snapshot).toEqual({ materialCost: 3100.5 })
   })
   test('Settings: no margin, Target Profit, overhead, sub rates, commission %, margin thresholds; the man hour rate and tear out stay', () => {

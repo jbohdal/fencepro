@@ -273,17 +273,18 @@ describe('C. typed in Settings: the save, and every place says what is missing',
 
   test('the Price step: a width that is not priced is said, never "prices lower"', () => {
     const set: Pick<TierSet, 'category' | 'tiers' | 'popular'> = { category: 'Vinyl', popular: null as any, tiers: [
-      { key: 'good', name: 'Good', install: 'same', width: 'cheapest', color: 'same', text: '' } as any,
+      { key: 'good', name: 'Good', install: 'no-dig', width: 'cheapest', color: 'same', text: '' } as any,
     ] }
-    // Only 8 x 8 priced: the tier uses it, and says 8 x 6 is not priced yet (and why).
+    // Only 8 x 8 priced: the tier uses it, and says 8 x 6 is not priced yet (and why). The quote is the dig set one, so
+    // the no dig tier picks a width (a tier of the quote's own install is the quote's own fence, Nov 3 2026).
     let cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 } })
-    let t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]
+    let t = resolveTiers(job(cfg, "WV-DS 8'x8' Privacy"), cfg.fenceStyles, set)[0]
     expect(t.widthFt).toBe(8)
     expect(t.otherWidth).toBeNull()
     expect(t.otherWidthHeld).toEqual({ widthFt: 6, held: '8 ft tall needs our section and post costs in Settings → Price List → 8 ft tall vinyl' })
     // Both priced: compared as before.
     cfg = setup({ "WV-ND 8'x8' Privacy": { section: 41250, post: 6500 }, "WV-ND 8'x6' Privacy": { section: 30000, post: 6500 } })
-    t = resolveTiers(job(cfg, "WV-ND 8'x8' Privacy"), cfg.fenceStyles, set)[0]
+    t = resolveTiers(job(cfg, "WV-DS 8'x8' Privacy"), cfg.fenceStyles, set)[0]
     expect(t.otherWidth).not.toBeNull()
     expect(t.otherWidthHeld).toBeUndefined()
   })

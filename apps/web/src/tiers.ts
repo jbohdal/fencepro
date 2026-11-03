@@ -183,6 +183,13 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
     if (held) return { reason: `${cap(want)} is not available for quoting yet: ${(held as { held?: string }).held}.` }
     return { reason: `No ${want} style is turned on in Settings → Fence Styles.` }
   }
+  // The quote's own fence is one of them (its install's tier): that tier is the quote's own fence at the quote's
+  // price, whatever width was forced or picked, so the main price is that card's and never a card of its own
+  // (Jonathan, Nov 2 2026: "make the main quote price equal Better"; review Nov 3 2026: all 8 ft forced made a fourth card).
+  if (width === 'any') {
+    const mine = found.find(s => s.name === own.name)
+    if (mine) return { styles: [mine], pickCheaper: false }
+  }
   // The cheaper width: a width that exists but is held back is said, not compared.
   const heldWidths: Array<{ widthFt: number; held: string }> = []
   if (width === 'any') {
@@ -256,6 +263,19 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   for (let i = 0; i < out.length; i++) {
     const earlier = out.slice(0, i).find(t => t.style && out[i].style && t.style.name === out[i].style!.name)
     if (earlier) out[i].sameAs = earlier.spec.name
+  }
+  // Most popular is never on a card cheaper than the quote's own unless picked by hand on this quote (review Nov 3
+  // 2026): the tier set's pick moves to the quote's own card, or none when no card is the quote's own.
+  if (prefs.popular === undefined) {
+    const pop = out.find(t => t.popular)
+    if (pop?.option && pop.style?.name !== own.name) {
+      const ownCents = Math.round(priceOption(input, own).finalPrice * 100)
+      if (Math.round(pop.option.finalPrice * 100) < ownCents) {
+        pop.popular = false
+        const mine = out.find(t => !t.off && t.style?.name === own.name)
+        if (mine) mine.popular = true
+      }
+    }
   }
   return out
 }

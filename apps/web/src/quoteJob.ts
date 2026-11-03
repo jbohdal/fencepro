@@ -292,6 +292,8 @@ const optionView = (o: ProposalOption) => ({
   label: o.label, fenceStyle: o.fenceStyle, finalPrice: o.finalPrice, perFoot: o.perFoot, sections: o.sections,
   ...(o.adjustmentCents ? { adjustmentCents: o.adjustmentCents } : {}),
   ...(o.tier ? { tier: o.tier } : {}), ...(o.badge ? { badge: o.badge } : {}), ...(o.photoId ? { photoId: o.photoId } : {}),
+  // Which width each run took (not a cost): the option reads "6 ft and 8 ft sections" as the customer does.
+  ...(Array.isArray(o.snapshot?.runRails) && o.snapshot!.runRails.length ? { runRails: o.snapshot!.runRails } : {}),
   ...(o.problems ? { problems: o.problems } : {}),
   ...(o.adjustmentRefused ? { adjustmentRefused: true } : {}), ...(o.minimumLifted ? { minimumLifted: true } : {}),
 })

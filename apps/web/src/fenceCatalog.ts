@@ -255,7 +255,8 @@ export function plainName(catalog: FenceCatalog, sc: StyleChoices): string {
  * choice tree keeps its own name text ("8 ft panels"); only what a person reads changes.
  */
 export function sectionWords(text: string): string {
-  return text.replace(/(\d+ ft) panels\b/g, '$1 sections')
+  // One wording for the best price width before the yard says which (Nov 3 2026): "6 ft or 8 ft sections (best price)".
+  return text.replace(/(\d+ ft) panels\b/g, '$1 sections').replace(/\b(\d+) or (\d+) ft sections\b/g, '$1 ft or $2 ft sections')
 }
 
 /** The internal name a combination made in Settings gets: material and choice keys. */

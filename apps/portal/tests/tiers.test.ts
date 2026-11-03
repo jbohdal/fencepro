@@ -54,12 +54,16 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
     expect(tiers[2].style!.name).toBe("WV-ND 6'x6' Privacy")
   })
 
-  test('Good and Better use whichever width prices lower, and say which', () => {
-    for (const t of tiers.slice(0, 2)) {
-      expect(t.widthFt).not.toBeNull()
-      expect(t.otherWidth!.price).toBeGreaterThanOrEqual(t.option!.finalPrice)
-      expect(t.style!.name).toContain(`x${t.widthFt}'`)
-    }
+  test('Good uses whichever width prices lower, and says which; Better is the quote\'s own fence (its install)', () => {
+    const good = tiers[0]
+    expect(good.widthFt).not.toBeNull()
+    expect(good.otherWidth!.price).toBeGreaterThanOrEqual(good.option!.finalPrice)
+    expect(good.style!.name).toContain(`x${good.widthFt}'`)
+    // The quote is no dig 8 ft wide: Better (no dig, whichever width) is that fence, never a card of its own (Nov 3 2026).
+    expect(tiers[1].style!.name).toBe("WV-ND 6'x8' Privacy")
+    expect(tiers[1].widthFt).toBeNull()
+    // A no dig 6 ft quote: Better is the 6 ft fence too.
+    expect(resolveTiers(input(byName("WV-ND 6'x6' Privacy")), STYLES, VINYL)[1].style!.name).toBe("WV-ND 6'x6' Privacy")
   })
 
   test('every price is the quote math for that style', () => {

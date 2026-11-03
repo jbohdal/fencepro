@@ -54,6 +54,18 @@ describe('what she is asked', () => {
     expect(v.candidates.map(s => s.name).sort()).toEqual(["WV-Auto DS Privacy", "WV-Auto ND Privacy", "WV-DS 6'x6' Privacy", "WV-DS 6'x8' Privacy", "WV-ND 6'x6' Privacy", "WV-ND 6'x8' Privacy"])
   })
 
+  test('a pick is never changed silently: an option not made with a later pick says what it comes in', () => {
+    const list = styles()
+    const tan = simplePicker(list, DEFAULT_CATALOG, 'vinyl', { style: 'privacy', height: '6', color: 'tan' }, ok)
+    // Tan 8 ft tall is priced here, so 8 ft is made in Tan: nothing to say.
+    expect(tan.dims.find(d => d.key === 'height')!.notes).toEqual([])
+    const off = styles(l => { for (const s of l) if (/^TV-(ND|DS) 8'/.test(s.name)) s.quotable = false })
+    const v = simplePicker(off, DEFAULT_CATALOG, 'vinyl', { style: 'privacy', height: '6', color: 'tan' }, ok)
+    expect(v.dims.find(d => d.key === 'height')!.options.map(o => o.label)).toEqual(['6 ft', '8 ft'])
+    expect(v.dims.find(d => d.key === 'height')!.notes).toEqual(['8 ft comes in White only.'])
+    expect(v.dims.find(d => d.key === 'style')!.notes).toEqual(['Bell comes in 4 ft only.'])
+  })
+
   test('a choice with one option is used, not shown: Bell is 4 ft White only', () => {
     const v = simplePicker(styles(), DEFAULT_CATALOG, 'vinyl', { style: 'bell' }, ok)
     expect(shown(v)).toEqual([['Style', ['Privacy', 'Bell']]])
@@ -206,7 +218,9 @@ describe('one word: sections', () => {
   test('plain names and the customer name read sections; a label saved with panels does too', () => {
     resolveFenceStyles(styles(), DEFAULT_CATALOG, () => 1, () => null)
     expect(styleLabel("WV-ND 6'x8' Privacy")).toBe('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')
-    expect(styleLabel('WV-Auto ND Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig')
+    // One wording for the best price width before the yard says which (Nov 3 2026).
+    expect(styleLabel('WV-Auto ND Privacy')).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections (best price), No dig')
+    expect(customerFenceName(styleLabel('WV-Auto ND Privacy'))).toBe('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig')
     expect(sectionWords('a 6 ft panels b')).toBe('a 6 ft sections b')
     expect(customerFenceName('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', ['6ft', '8ft'])).toBe('White Vinyl Privacy, 6 ft tall, 6 ft and 8 ft sections, No dig')
     expect(customerFenceName('White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig', ['8ft'])).toBe('White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig')

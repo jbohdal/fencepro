@@ -46,7 +46,7 @@ describe('price per foot against past quotes', () => {
     expect(normalPerFoot('CL - 4\' Galv', past)).toBeNull()
   })
   test('far above or below warns, inside the range does not', () => {
-    expect(perFootCheck(50, 'WV-ND 6\'x8\' Privacy', past)).toMatch(/^\$50\.00 a foot is far above your past WV-ND 6'x8' Privacy quotes \(usually \$30\.00 to \$38\.00 a foot, from 10 past quotes\)/)
+    expect(perFootCheck(50, 'WV-ND 6\'x8\' Privacy', past)).toMatch(/^\$50\.00 a foot is far above your past White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig quotes \(usually \$30\.00 to \$38\.00 a foot, from 10 past quotes\)/)
     expect(perFootCheck(20, 'WV-ND 6\'x8\' Privacy', past)).toMatch(/far below/)
     expect(perFootCheck(36, 'WV-ND 6\'x8\' Privacy', past)).toBeNull()
   })

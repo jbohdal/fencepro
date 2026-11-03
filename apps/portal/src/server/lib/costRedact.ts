@@ -173,12 +173,14 @@ export const MARGIN_KEYS: ReadonlySet<string> = new Set([
   'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate',
   'commissionPct', 'commissionSalesman', 'commissionNonSalesman',
 ])
-/** Any field whose name says it is a margin, a profit or the overhead (targetMarginPct, grossMargin, targetProfitPct, overheadPct, ...). */
-const MARGIN_NAME = /margin|profit|overhead/i
+/** Any field whose name says it is a margin, a profit, the overhead or a commission (targetMarginPct, grossMargin, targetProfitPct, overheadPct, commissionMode, commissionCents, ...). */
+const MARGIN_NAME = /margin|profit|overhead|commission/i
+/** Kept: the owner's hand edit said only as "set by hand" (withoutHandCommission), no figure. */
+const NOT_A_MARGIN: ReadonlySet<string> = new Set(['commissionByHand'])
 
-/** Is this field a margin (for the Salesman, who sees costs but never margin)? */
+/** Is this field a margin (for the Salesman, who sees costs but never margin or commission)? */
 export function isMarginKey(k: string): boolean {
-  return MARGIN_KEYS.has(k) || MARGIN_NAME.test(k)
+  return !NOT_A_MARGIN.has(k) && (MARGIN_KEYS.has(k) || MARGIN_NAME.test(k))
 }
 
 /** What a login may not receive: costs, and for the Installer prices too; for the Salesman (`margin`) margins only. */

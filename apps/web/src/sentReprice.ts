@@ -21,7 +21,7 @@ type SentProposal = CardProposal
 
 /** A fence's plain name as people read it: no "(best price)" tag, "sections" never "panels". */
 export function plainFence(label: unknown): string {
-  return String(label ?? '').replace(/\s*\((?:best price|auto)\)/gi, '').replace(/(\d+ ft) panels\b/g, '$1 sections').trim()
+  return String(label ?? '').replace(/\s*\((?:best price|auto)\)/gi, '').replace(/(\d+ ft) panels\b/g, '$1 sections').replace(/\b(\d+) or (\d+) ft sections\b/g, '$1 ft or $2 ft sections').trim()
 }
 
 

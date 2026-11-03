@@ -2372,7 +2372,7 @@ export default function QuoteBuilder({
               {seesMargin && <div className="bg-white rounded-xl border border-gray-200 p-4">
                 {roundingCents > 0 && (
                   <div className="flex justify-between items-center text-sm mb-2 pb-2 border-b border-gray-100" data-quote-rounding>
-                    <span className="text-gray-600">Rounded to the whole dollar <span className="text-xs text-gray-400">(out of profit)</span></span>
+                    <span className="text-gray-600">Rounded to the whole dollar {seesMargin && <span className="text-xs text-gray-400">(out of profit)</span>}</span>
                     <span className="font-semibold text-red-600 tabular-nums" data-quote-rounding-amount>−{fmt(roundingCents / 100)}</span>
                   </div>
                 )}
@@ -2553,7 +2553,7 @@ export default function QuoteBuilder({
                     return (
                       <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 space-y-1 text-sm" data-adjust-summary>
                         <div className="flex justify-between"><span className="text-gray-600">Price before adjustment</span><span className="tabular-nums" data-adjust-list>{fmt(listPrice)}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-600">{adjApplied < 0 ? 'Discount' : 'Adjustment'} <span className="text-xs text-gray-400">(out of profit)</span></span><span className={`tabular-nums font-semibold ${adjApplied < 0 ? 'text-red-600' : 'text-green-700'}`} data-adjust-amount>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-600">{adjApplied < 0 ? 'Discount' : 'Adjustment'} {seesMargin && <span className="text-xs text-gray-400">(out of profit)</span>}</span><span className={`tabular-nums font-semibold ${adjApplied < 0 ? 'text-red-600' : 'text-green-700'}`} data-adjust-amount>{adjApplied < 0 ? '−' : '+'}{fmt(Math.abs(adjApplied) / 100)}</span></div>
                         <div className="flex justify-between font-semibold"><span>Final price</span><span className="tabular-nums" data-adjust-final-price>{fmt(adjPrice)}</span></div>
                         {seesMargin && <>
                           <div className="flex justify-between border-t border-gray-200 pt-1 mt-1"><span className="text-gray-600">Margin after</span><span className={`tabular-nums font-semibold ${gmColor}`} data-adjust-margin>{(viewGmPct * 100).toFixed(1)}%</span></div>

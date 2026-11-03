@@ -24,6 +24,7 @@ import { linkPullSheetToCustomer, getPullSheetsForCustomer } from './billingStor
 import { fireQuoteSold, fireSalesStageChange } from './automationTrigger'
 import { getQuotes, getQuoteById, updateQuote } from './quoteStore'
 import { pickSignedQuote } from './signedQuotePick'
+import { styleLabel } from './fenceCatalog'
 
 export const QUOTES_UPDATED_EVENT = 'fencepro:quotes:updated'
 export const JOBS_UPDATED_EVENT = 'fencepro:jobs:updated'
@@ -70,7 +71,12 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
   if (updatedQuote.customerId && updatedQuote.pullSheet && updatedQuote.pullSheet.length > 0) {
     try {
       const existing = getPullSheetsForCustomer(updatedQuote.customerId)
-      const already = existing.some(ps => ps.quoteId === updatedQuote.id)
+      // The newest one on file for this quote (newest first). Signed for another option than the one saved (the
+      // customer picked chain link on a vinyl quote), the signed fence's pull sheet goes on file as the next version:
+      // the earlier ones stay as they are, so nothing linked or kept by hand is ever dropped (Nov 3 2026).
+      const latest = existing.find(ps => ps.quoteId === updatedQuote.id)
+      const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+      const already = !!latest && same(latest.versionSnapshot, updatedQuote.pullSheet)
       if (!already) {
         linkPullSheetToCustomer({
           customerId: updatedQuote.customerId,
@@ -78,14 +84,14 @@ export function markQuoteSold(quoteId: string, opts?: { actor?: string }): Signe
           jobId: job?.id,
           jobName: job ? updatedQuote.customerName : undefined,
           quoteId: updatedQuote.id,
-          quoteName: `${updatedQuote.fenceStyle} — ${updatedQuote.customerName}`,
+          quoteName: `${styleLabel(updatedQuote.fenceStyle)} — ${updatedQuote.customerName}`,
           versionSnapshot: JSON.parse(JSON.stringify(updatedQuote.pullSheet)),
           versionNumber: existing.filter(ps => ps.quoteId === updatedQuote.id).length + 1,
           linkedAt: new Date().toISOString(),
           linkedBy: opts?.actor || 'system',
         })
         logCustomerActivity(updatedQuote.customerId,
-          `Pull sheet generated automatically from sold quote #${quoteId.slice(-6).toUpperCase()}`,
+          latest ? `Pull sheet of the signed fence (${styleLabel(updatedQuote.fenceStyle)}) put on file from quote #${quoteId.slice(-6).toUpperCase()}; the earlier one is kept` : `Pull sheet generated automatically from sold quote #${quoteId.slice(-6).toUpperCase()}`,
           { actor: opts?.actor || 'system', kind: 'job' })
       }
     } catch {}

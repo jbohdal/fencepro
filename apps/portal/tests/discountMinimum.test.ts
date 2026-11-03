@@ -47,7 +47,7 @@ describe('prices under the minimum', () => {
     // Named by the fence, not the card (Nov 2 2026): "No dig would be $340" read like a choice of install.
     expect(under.map(u => [u.name, u.priceCents, u.own])).toEqual([['A', 30000, true], ['B', 25000, false]])
     const named = pricesUnderMinimum({ fenceStyle: 'A', finalPrice: 900, proposal: { options: [{ fenceStyle: 'B', label: 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig', finalPrice: 250, tier: { label: 'No dig' } }] } }, MIN)
-    expect(named.map(u => u.name)).toEqual(['White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections, No dig'])
+    expect(named.map(u => u.name)).toEqual(['White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections, No dig'])
   })
 
   test('a quote with its own price under and no option of its own still counts', () => {

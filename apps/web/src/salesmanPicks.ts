@@ -49,6 +49,8 @@ export interface SimpleDim {
   options: SimpleOption[]
   /** More than one option: shown. One: used without asking (rule 4). */
   shown: boolean
+  /** The options not made with a pick after them, said plainly ("8 ft comes in White only."), so a tap that changes that pick is no surprise. */
+  notes: string[]
 }
 
 /** What one style reads as on the Salesman's picker: its choices, the height without the add on, and the add on. */
@@ -93,16 +95,39 @@ export function simplePicker<S extends FenceStyle>(styles: S[], catalog: FenceCa
   // The add on is asked last (Material > Style > Height > Color > add ons).
   const addOns = order.filter(d => d.key === BARBED)
   const asked = [...order.filter(d => d.key !== BARBED), ...addOns]
+  // Settle the picks: each one kept when a fence has it with the picks before it, else the first that does. A pick that
+  // changes this way is said, never silent (review Nov 3 2026: Tan, then 8 ft, turned the color White without a word).
+  const all = mine
   const out: Record<string, string> = {}
-  const dims: SimpleDim[] = []
   for (const d of asked) {
-    // Only options a quotable style has, given the picks before it (rule 5: the rest are hidden).
     const options = d.opts.filter(o => mine.some(x => x.v[d.key] === o.key))
     if (!options.length) continue
     const pick = options.some(o => o.key === picks[d.key]) ? picks[d.key] : options[0].key
     out[d.key] = pick
     mine = mine.filter(x => x.v[d.key] === pick)
-    dims.push({ key: d.key, label: d.label, options, shown: options.length > 1 })
+  }
+  const keys = asked.map(d => d.key).filter(k => k in out)
+  const fitsExcept = (x: { v: Record<string, string> }, skip: string[]) => keys.every(k => skip.includes(k) || x.v[k] === out[k])
+  const labelOf = (key: string, val: string) => asked.find(d => d.key === key)?.opts.find(o => o.key === val)?.label ?? val
+  const dims: SimpleDim[] = []
+  for (const d of asked) {
+    if (!(d.key in out)) continue
+    const at = keys.indexOf(d.key)
+    const before = keys.slice(0, at), after = keys.slice(at + 1)
+    // What the picks before it allow (whether the choice is asked at all), and what every other pick allows (offered).
+    const options = d.opts.filter(o => all.some(x => before.every(k => x.v[k] === out[k]) && x.v[d.key] === o.key))
+    // An option not made with a pick after it says so before it is tapped ("8 ft comes in White only."); tapping it
+    // changes that pick, and the picker says that too (StyleChoices).
+    const notes = options.filter(o => !all.some(x => fitsExcept(x, [d.key]) && x.v[d.key] === o.key)).flatMap(o => {
+      // The pick after it that it is not made with: the first one that, set free, lets it be made.
+      const l = after.find(k => all.some(x => fitsExcept(x, [d.key, k]) && x.v[d.key] === o.key)) ?? after[0]
+      if (!l) return []
+      const fits = all.filter(x => before.every(k => x.v[k] === out[k]) && x.v[d.key] === o.key)
+      if (l === BARBED) return [`${o.label} is ${out[l] === 'yes' ? 'not made with barbed wire' : 'made with barbed wire only'}.`]
+      const vals = [...new Set(fits.map(x => x.v[l]))].map(v => labelOf(l, v))
+      return vals.length ? [`${o.label} comes in ${vals.join(' or ')} only.`] : []
+    })
+    dims.push({ key: d.key, label: d.label, options, shown: options.length > 1, notes })
   }
   return { dims, picks: out, candidates: mine.map(x => x.s) }
 }

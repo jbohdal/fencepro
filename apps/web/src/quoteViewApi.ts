@@ -52,7 +52,10 @@ export function useServerQuoteView(enabled: boolean, request: QuoteJobRequest, q
 
 const line = (l: QuoteView['pullSheet'][number]): LineItem => ({ item: l.item, qty: l.qty, unitCost: 0, total: 0, ...('costSource' in l && l.costSource ? { costSource: l.costSource as LineItem['costSource'] } : {}), ...('moneyOnly' in l && l.moneyOnly ? { moneyOnly: true } : {}) })
 const NO_SNAPSHOT: ProposalOption['snapshot'] = { materialCost: 0, laborCost: 0, tearOutCost: 0, totalCOGS: 0, gmPct: 0, pullSheet: [], runSections: [] }
-const option = (o: QuoteView['proposalOptions'][number]): ProposalOption => ({ ...o, snapshot: NO_SNAPSHOT })
+const option = (o: QuoteView['proposalOptions'][number]): ProposalOption => {
+  const { runRails, ...rest } = o as typeof o & { runRails?: Array<'6ft' | '8ft'> }
+  return { ...rest, snapshot: { ...NO_SNAPSHOT, ...(runRails ? { runRails } : {}) } }
+}
 
 export function viewCalc(local: QuoteCalc, v: QuoteView | null): QuoteCalc {
   const p = local.priced

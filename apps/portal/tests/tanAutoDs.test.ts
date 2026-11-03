@@ -173,7 +173,7 @@ describe('TV-Auto DS Privacy quotes', () => {
 
 describe('the style in Settings', () => {
   test('plain name', () => {
-    expect(styleLabel(TAN_AUTO_DS)).toBe('Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), Dig set')
+    expect(styleLabel(TAN_AUTO_DS)).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections (best price), Dig set')
   })
   test("defaults: TV-DS 6'x6' man hours and margin", () => {
     const d = DEFAULT_FENCE_STYLES.find(s => s.name === TAN_AUTO_DS)!
@@ -204,7 +204,7 @@ describe('the style in Settings', () => {
   test('it resolves with its plain name and is not held back', () => {
     const plan = planTanAutoDs(DEFAULT_FENCE_STYLES.filter(s => s.name !== TAN_AUTO_DS))
     const r = resolveFenceStyles(plan.fenceStyles, DEFAULT_CATALOG, p => prices[p]).find(s => s.name === TAN_AUTO_DS)!
-    expect(r.label).toBe('Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), Dig set')
+    expect(r.label).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections (best price), Dig set')
     expect(r.held).toBeUndefined()
   })
 })

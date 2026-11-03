@@ -16,7 +16,7 @@
 export function customerFenceName(label: string | null | undefined, runRails?: unknown): string {
   const widths = panelWidthsOf(runRails)
   return String(label ?? '')
-    .replace(/\b(\d+) or (\d+) ft (?:panels|sections)\b/gi, (_m, a: string, b: string) =>
+    .replace(/\b(\d+)(?: ft)? or (\d+) ft (?:panels|sections)\b/gi, (_m, a: string, b: string) =>
       widths.length === 1 ? `${widths[0]} ft sections` : widths.length > 1 ? `${widths.join(' ft and ')} ft sections` : `${a} ft or ${b} ft sections`)
     .replace(/\s*\((?:best price|auto)\)/gi, '')
     // One word for one panel between two posts (Jonathan, Nov 2 2026: "sections not panels"); saved labels say panels.

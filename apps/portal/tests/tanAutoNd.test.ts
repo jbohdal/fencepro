@@ -90,6 +90,6 @@ describe('planTanAutoNd: the style row', () => {
     const s = planTanAutoNd(styles).fenceStyles.find(x => x.name === TAN_AUTO_ND)!
     expect(s.quotable).toBe(false)
     resolveFenceStyles([s], DEFAULT_CATALOG)
-    expect(styleLabel(TAN_AUTO_ND)).toBe('Tan Vinyl Privacy, 6 ft tall, 6 or 8 ft sections (best price), No dig')
+    expect(styleLabel(TAN_AUTO_ND)).toBe('Tan Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections (best price), No dig')
   })
 })
