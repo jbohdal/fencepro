@@ -42,6 +42,8 @@ export { planWood, planWoodRealKits } from './wood'
 export { planChainDigSet, planChainDigSetPipesAndTies, planChainGateKits } from './chainDigSet'
 // The server's tan dig set auto mix seed (lib/tanAutoDsSeed.ts).
 export { planTanAutoDs } from './tanAutoDs'
+// The server's tan no dig auto mix seed (lib/tanAutoNdSeed.ts).
+export { planTanAutoNd } from './tanAutoNd'
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
 // Tan 8 ft tall vinyl, the four styles (lib/tanTallSeed.ts).
