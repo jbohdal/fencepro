@@ -2,7 +2,9 @@
 // found Christa's quote for a vinyl yard about 12% under the owner's and the
 // website's: live overhead (Settings → Pricing, from the budget) was worked out
 // on each phone from the jobs it holds, and hers holds only her own, so she was
-// at the typed 30% while the owner was at the live 36.9%.
+// at the typed 30% while the owner was at the live 36.9%. Since Nov 2 2026 she
+// never sees margin or overhead: her phone gets none, and the server prices her
+// quote at the overhead in use (the owner's copy shows it).
 //
 //   APP_URL=http://localhost:<worktree server> E2E_OWNER_COOKIE=<file> E2E_SALES_COOKIE=<file> E2E_SALES_TOKEN=<file> \
 //     [SHOTS=<folder>] node e2e/salesman-live-overhead.mjs
@@ -94,7 +96,8 @@ try {
   if (SHOTS) await sales.page.screenshot({ path: path.join(SHOTS, 'salesman-iphone.png') })
   check('the owner\'s builder (computer) shows the website\'s price', owner.cents === webCents, `${money(owner.cents)} vs website ${money(webCents)}, overhead ${owner.overhead}%`)
   check('the Salesman\'s builder (iPhone) shows the same price', sales.cents === owner.cents, `${money(sales.cents)}, overhead ${sales.overhead}%`)
-  check('both phones got the same live overhead from the server', sales.overhead != null && sales.overhead === owner.overhead, `${sales.overhead}% / ${owner.overhead}%`)
+  // The Salesman never sees margin or overhead (Nov 2 2026; server lib/costRedact.ts): her phone gets none, the owner's does.
+  check('the owner got the live overhead from the server; the Salesman got none', owner.overhead != null && sales.overhead == null, `${sales.overhead}% / ${owner.overhead}%`)
 
   // The Salesman saves it from her phone.
   await sales.page.locator('[data-save-open]').first().click()
@@ -103,7 +106,10 @@ try {
   if (confirm) { await sales.page.waitForSelector('[data-save-submit]', { timeout: 10000 }); await sales.page.locator('[data-save-submit]').click() }
   const saved = await until(async () => { const r = (await asSales('GET', `/api/saved-quotes/${quoteId}`)).json.data; return r && r.finalPrice > 0 ? r : null }, 30000)
   check('her save: the server has the owner\'s price', !!saved && Math.round(saved.finalPrice * 100) === owner.cents, saved ? money(Math.round(saved.finalPrice * 100)) : 'not saved')
-  check('...priced at the overhead in use', !!saved && saved.pricing?.overheadPct === owner.overhead, `${saved?.pricing?.overheadPct}%`)
+  // Her copy has no overhead; the owner's copy of the same quote says it was priced at the overhead in use.
+  const ownerCopy = await (await fetch(`${API}/api/saved-quotes/${quoteId}`, { headers: { Cookie: `ezbiz_staff=${OWNER}`, 'X-Staff-Request': '1' } })).json().catch(() => ({}))
+  check('...priced at the overhead in use (the owner\'s copy)', ownerCopy?.data?.pricing?.overheadPct === owner.overhead, `${ownerCopy?.data?.pricing?.overheadPct}%`)
+  check('...and her copy carries no overhead', !!saved && saved.pricing?.overheadPct === undefined, `${saved?.pricing?.overheadPct}`)
   if (SHOTS) await sales.page.screenshot({ path: path.join(SHOTS, 'salesman-saved.png') })
   await owner.ctx.close(); await sales.ctx.close()
 } catch (e) {
