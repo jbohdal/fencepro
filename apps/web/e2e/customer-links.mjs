@@ -66,11 +66,12 @@ async function makeCustomer(first, last, address) {
 /** A draft quote for that customer with its own property address. */
 async function makeQuote(c, property) {
   const id = crypto.randomUUID()
+  // finalPrice 0: not priced yet, the builder prices it as it opens (a made up $10 is under the minimum job price, refused since Nov 2 2026).
   const r = await call('POST', '/api/saved-quotes', {
     id, crmContactId: c.id, customerName: `${c.firstName} ${c.lastName}`, customerPhone: c.phone, customerEmail: c.email, customerAddress: property,
     leadSource: 'Other', salesRep: 'E2E', date: '2026-10-21', status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy",
     runs: [60], corners: 0, ends: 2, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
-    sections: 10, materialCost: 1, laborCost: 1, tearOutCost: 0, totalCOGS: 2, finalPrice: 10, gmPct: 0.5, pullSheet: [],
+    sections: 10, materialCost: 1, laborCost: 1, tearOutCost: 0, totalCOGS: 2, finalPrice: 0, gmPct: 0.5, pullSheet: [],
   })
   if (r.status < 300) made.quotes.push(id)
   return r.status < 300 ? id : null

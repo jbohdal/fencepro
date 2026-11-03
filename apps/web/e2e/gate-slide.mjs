@@ -172,11 +172,12 @@ try {
   // ── Set up: a customer and a draft quote with the yard; the builder prices it as it opens ──
   const yard0 = yardWith({ type: 'walk', widthIn: 60, position: 'middle' })
   const c = await call('POST', '/api/crm-contacts', { id: contactId, firstName: 'E2E', lastName: `Gate Slide ${ENGINE} ${stamp}`, phone: '3525550177', email: 'e2e-gate-slide@example.invalid', leadSource: 'Other' })
+  // finalPrice 0: not priced yet, the builder prices it as it opens (a made up $10 is under the minimum job price, refused since Nov 2 2026).
   const base = {
     crmContactId: contactId, customerName: NAME, customerPhone: '3525550177', customerEmail: 'e2e-gate-slide@example.invalid', customerAddress: '1 Gate Slide Way, Ocala, FL 34470',
     leadSource: 'Other', salesRep: 'E2E', date: '2026-10-20', status: 'DRAFT', fenceStyle: STYLE,
     runs: [20, 60, 21.5, 21.5, 60, 20], corners: 4, ends: 4, walkGates: 1, dblGates: 0, tearOutSections: 0, tearOutGates: 0, adjLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
-    sections: 27, materialCost: 1, laborCost: 1, tearOutCost: 0, totalCOGS: 2, finalPrice: 10, gmPct: 0.5, pullSheet: [],
+    sections: 27, materialCost: 1, laborCost: 1, tearOutCost: 0, totalCOGS: 2, finalPrice: 0, gmPct: 0.5, pullSheet: [],
   }
   const q1 = await call('POST', '/api/saved-quotes', { id: quoteId, ...base, layout: { yard: yard0, runSections: [3, 8, 3, 3, 8, 3] } })
   check('set up: a customer and a draft quote with a 5 ft gate in the middle of the 48 ft Back', c.status < 300 && q1.status < 300, `${c.status} ${q1.status} ${q1.json.error ?? ''}`)

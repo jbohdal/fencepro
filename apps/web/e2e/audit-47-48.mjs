@@ -132,7 +132,7 @@ try {
     made.contacts.push(pat.id, kim.id)
     const quoteFor = async name => {
       const id = crypto.randomUUID()
-      await salesApi('POST', '/api/saved-quotes', { id, customerName: name, customerAddress: '48 New Lot Rd, Ocala, FL 34471', date: today, status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy", runs: [60], corners: 0, ends: 2, sections: 10, finalPrice: 10, pullSheet: [] })
+      await salesApi('POST', '/api/saved-quotes', { id, customerName: name, customerAddress: '48 New Lot Rd, Ocala, FL 34471', date: today, status: 'DRAFT', fenceStyle: "WV-ND 6'x6' Privacy", runs: [60], corners: 0, ends: 2, sections: 10, finalPrice: 0, pullSheet: [] })
       made.quotes.push(id)
       return id
     }
