@@ -17,8 +17,9 @@
 //   3. The Installer on a phone opens My installs, Operations and a job, Inventory
 //      and the schedule: every answer recorded is checked the same way, and no
 //      screen shows a dollar figure.
-//   4. The Salesman (phone) and the office (computer) see a quote's margin and
-//      cost breakdown; the office opens Accounts Payable and vendor invoices.
+//   4. The office (computer) sees a quote's margin and cost breakdown; the Salesman
+//      (phone) sees its cost breakdown but never its margin (Jonathan, Nov 2 2026);
+//      the office opens Accounts Payable and vendor invoices.
 // There is no subcontractor role in the app (lib/permissions.ts); the Installer
 // (Field Crew) is the role that sees no price.
 // Dev only (port 4001). Removes the logins it made.
@@ -118,7 +119,9 @@ try {
   VALUES = [...new Set((inv.items || []).map(i => Number(i.unitCost)).filter(c => c >= 10 && Math.round(c * 100) % 100 !== 0).map(c => c.toFixed(2).replace(/0$/, '')))].slice(0, 40)
   check('setup: real unit costs to look for', VALUES.length >= 10, VALUES.slice(0, 8).join(', '))
   const quotes = (await owner('GET', '/api/saved-quotes')).json.data ?? []
-  const costed = quotes.find(q => q.totalCOGS > 0 && q.finalPrice > 0 && q.status === 'SENT') ?? quotes.find(q => q.totalCOGS > 0 && q.finalPrice > 0)
+  // Not another run's test quote (they come and go while this runs on the shared dev copy).
+  const real = quotes.filter(q => !/e2e|NIGHTLY|GREENCHECK|SAVE409/i.test(q.customerName ?? ''))
+  const costed = real.find(q => q.totalCOGS > 0 && q.finalPrice > 0 && q.status === 'SENT') ?? real.find(q => q.totalCOGS > 0 && q.finalPrice > 0)
   const jobs = (await owner('GET', '/api/saved-jobs')).json.data ?? []
   const pricedJob = jobs.find(j => j.contractValue > 0 && j.scheduledDate) ?? jobs.find(j => j.contractValue > 0)
   check('setup: a quote with costs and a job with a contract value', !!costed && !!pricedJob)
@@ -174,18 +177,23 @@ try {
   check('installer phone: no screen shows a dollar figure', !shown, shown ? shown[0] : '')
   await c.ctx.close()
 
-  // ── 4. The Salesman and the office see the costs ──
+  // ── 4. The Salesman sees the costs (no margin), the office the costs and margin ──
   const s = await signedIn(sales, true)
   await go(s.page, `/quotes?qv=${salesQuote.id}`)
   await s.page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
   const sd = await s.page.locator('[data-quote-drawer]').innerText().catch(() => '')
-  check('salesman: the quote shows its margin and cost breakdown', /margin/i.test(sd) && /Material cost/.test(sd), sd.slice(0, 80))
+  // A Salesman never sees margin (Nov 2 2026): the cost lines show, no margin line, and her copy from the server has no gmPct.
+  const sq = (await call(sales.token, 'GET', `/api/saved-quotes/${salesQuote.id}`)).json.data
+  check('salesman: the quote shows its cost breakdown but no margin', !/margin/i.test(sd) && /Material cost/.test(sd) && (await s.page.locator('[data-quote-drawer] [data-quote-margin], [data-quote-drawer] [data-quote-gross-margin]').count()) === 0, sd.match(/.{0,40}margin.{0,20}/i)?.[0] ?? sd.slice(0, 80))
+  check('salesman: her copy of the quote carries no margin (gmPct)', !!sq && !('gmPct' in sq) && sq.totalCOGS === costed.totalCOGS, JSON.stringify({ gmPct: sq?.gmPct, cogs: sq?.totalCOGS }))
   await s.ctx.close()
   const o = await signedIn(office, false)
   await go(o.page, `/quotes?qv=${costed.id}`)
   await o.page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
   const od = await o.page.locator('[data-quote-drawer]').innerText().catch(() => '')
   check('office: the quote shows its margin and cost breakdown', /margin/i.test(od) && /Material cost/.test(od))
+  const oq = (await call(office.token, 'GET', `/api/saved-quotes/${costed.id}`)).json.data
+  check('office: her copy of the quote carries its margin (gmPct)', typeof oq?.gmPct === 'number', String(oq?.gmPct))
   await go(o.page, '/accounts-payable')
   check('office: Accounts Payable opens', new URL(o.page.url()).pathname === '/accounts-payable', o.page.url())
   await o.ctx.close()
