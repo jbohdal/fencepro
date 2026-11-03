@@ -34,7 +34,7 @@
  */
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
 import { backToState, changeBaseOf, changeOrderInput, fabricFeet, gateChange, gateOpeningFt, gatesGoing, gatesOnJob, jobSteps, noWorkCents, voidGaps, CHANGES_LINE, DIFFERENCE_LINE, type ChangeBase, type ChangeNow, type GateOnJob, type JobHistory, type JobStep, type WorkState } from './changeOrderPricing'
-import { wholeDollarCents } from './pricingEngine'
+import { adjustedPrice, wholeDollarCents } from './pricingEngine'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
 import { styleLabel } from './fenceCatalog'
@@ -49,12 +49,12 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 // every step, so each line came out $0 and the change order could not be saved (seen Oct 23, 2026
 // on a signed quote with its price typed in). The step's difference is what the change costs today.
 /** The step's price (cents) and its panels: in all, and on each run (per run rounding, never pooled). */
-const priced = (input: QuoteCalcInput, base: ChangeBase, posts: { ends: number; linePosts: number } = { ends: 0, linePosts: 0 }): { cents: number; sections: number; perRun: number[] } => {
-  if (!input.style) return { cents: 0, sections: 0, perRun: [] }
+const priced = (input: QuoteCalcInput, base: ChangeBase, posts: { ends: number; linePosts: number } = { ends: 0, linePosts: 0 }): { cents: number; beforeCents: number; sections: number; perRun: number[] } => {
+  if (!input.style) return { cents: 0, beforeCents: 0, sections: 0, perRun: [] }
   const { finalPrice, ...o } = input.overrides ?? {}; void finalPrice
   const p = changeOrderInput(input, base)
   const c = calculateQuote({ ...p, ends: p.ends + posts.ends, ...(posts.linePosts ? { extraLinePosts: (p.extraLinePosts ?? 0) + posts.linePosts } : {}), overrides: { ...o, wholeDollar: true } })
-  return { cents: Math.round(c.priced.price * 100), sections: c.sections, perRun: c.perRunSections }
+  return { cents: Math.round(c.priced.price * 100), beforeCents: Math.round(c.priced.priceBeforeAdjustment * 100), sections: c.sections, perRun: c.perRunSections }
 }
 const panels = (n: number) => `${n} panel${n === 1 ? '' : 's'}`
 /** The pricing choices without the whole dollar mark (which every change order step prices with). */
@@ -234,6 +234,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const own = changeBaseOf(s, d.now, signedStyle)
   const base = on.length ? { ...own, feet: fabricFeet(steps, soldState, d.styles as never) } : own
   let was = priced(at, base, postsAt(gatesWas))
+  const signedToday = was
   // The one side whose length changed (same sides otherwise), for "still 7 panels on that side".
   const ftNowRuns = cur.runs.map(r => r.ft)
   const diffs = ftNowRuns.length === signedRuns.length ? ftNowRuns.map((f, i) => (f === signedRuns[i].ft ? -1 : i)).filter(i => i >= 0) : []
@@ -264,9 +265,53 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   }
   // Each step is whole dollars, so a gate's price can land a dollar from what it charged: what it charged.
   // (One gate of several on one line has no whole dollar share: its price stands.)
-  const charged = going.length === 1 && going[0].cents !== null && going[0].cents % 100 === 0 && going[0].whole ? going[0].cents : null
+  const minimum = back === null ? atMinimum(lines, s, cur, signedToday, was) : null
+  const charged = minimum === null && going.length === 1 && going[0].cents !== null && going[0].cents % 100 === 0 && going[0].whole ? going[0].cents : null
   if (back === null && charged !== null && gateLine && Math.abs(gateCents + charged) <= 100) { gateLine.amountCents -= gateCents + charged; gateCents = -charged }
-  return done(lines.map(l => ({ ...l, fromChange: true })), warningsOf(steps, s, d, { back, walkOut, dblOut, feetNow: ftNow, feetWas: ftWas, openingOut, gateCents: feetBack && ownFt > 0 ? 0 : gateCents, going }))
+  return done(lines.map(l => ({ ...l, fromChange: true })), [...(minimum ? [minimum] : []), ...warningsOf(steps, s, d, { back, walkOut, dblOut, feetNow: ftNow, feetWas: ftWas, openingOut, gateCents: feetBack && ownFt > 0 ? 0 : gateCents, going })])
+}
+
+/**
+ * A job signed at the minimum job price (Jonathan, Nov 3 2026, on a 6 ft job
+ * signed at the $350 minimum, $260 from cost, with 10 ft added: "Yes. Count
+ * from the signed price. If the new total is still under the minimum, charge
+ * $0."). The change is the new work priced as a fresh quote would price it,
+ * minimum included, less the price signed for: $572 for 16 ft less $350 is
+ * $222, never $572 less $260. Still under the minimum, it is $0, both ways:
+ * fence taken off a job held at the minimum is no credit, as the same work
+ * quoted fresh is still the minimum.
+ *
+ * Signed at the minimum: the contract now is no more than the minimum (with
+ * the quote's ± dollar adjustment) and the work now prices under it today.
+ * Any other job is left as it was. The amounts change, never the lines: the
+ * difference goes on the last line it leaves pointing the same way, else off
+ * the lines from the last. Returns what to tell whoever makes it, or null.
+ */
+function atMinimum(lines: ChangeOrderLine[], s: SavedQuote, cur: QuoteCalcInput, signedToday: { cents: number; beforeCents: number }, now: { cents: number; beforeCents: number }): string | null {
+  const minimumCents = cur.minimumCents ?? 0
+  const signedCents = Math.round(s.finalPrice * 100)
+  if (!(minimumCents > 0) || !(signedCents > 0) || !lines.length) return null
+  const { finalPrice, ...o } = cur.overrides ?? {}; void finalPrice
+  const floorCents = adjustedPrice(minimumCents, { ...o, wholeDollar: true }, 0).priceCents
+  if (!(signedToday.beforeCents < minimumCents) || signedCents > floorCents) return null
+  const under = now.beforeCents < minimumCents
+  const target = under ? 0 : wholeDollarCents(now.cents - signedCents).cents
+  let off = target - lines.reduce((t, l) => t + l.amountCents, 0)
+  if (off) {
+    const carrier = [...lines].reverse().find(l => l.amountCents * (l.amountCents + off) > 0)
+    if (carrier) { carrier.amountCents += off; off = 0 }
+    // None: each line toward $0 from the last, then what is left on the last.
+    for (const l of [...lines].reverse()) {
+      if (!off) break
+      const take = off < 0 ? Math.max(off, -Math.max(0, l.amountCents)) : Math.min(off, Math.max(0, -l.amountCents))
+      l.amountCents += take; off -= take
+    }
+    if (off) lines[lines.length - 1].amountCents += off
+  }
+  const signed = dollars(signedCents)
+  return under
+    ? `Signed at the ${dollars(floorCents)} minimum job price, and still under it with this change: no charge and no credit. The contract stays ${signed}.`
+    : `Signed at the ${dollars(floorCents)} minimum job price: this change is counted from the ${signed} signed for. The new work prices at ${dollars(now.cents)}, so the contract becomes ${dollars(now.cents)}.`
 }
 
 /**
