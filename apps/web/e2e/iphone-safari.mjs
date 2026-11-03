@@ -834,9 +834,16 @@ async function changeStyle() {
   const sales = T.salesman ?? await makeSalesman()
   if (await salesmanSignsIn(sales) !== 200) return
   await drawYard()
-  const list = '[data-step-panel="style"] [data-style-list]'
-  await waitFor(list, 15000)
-  await D.choose(list, await valueLike(list, /White Vinyl Privacy.*(6 or 8 ft|best price).*No dig/))
+  // Her picker (Nov 2 2026): Material > Style > Height > Color, no style list; the width is the best price, the install the Better option's.
+  const simple = '[data-step-panel="style"] [data-style-choices-simple]'
+  await waitFor(`${simple} [data-choice-material="vinyl"]`, 15000)
+  await D.tap(`${simple} [data-choice-material="vinyl"]`)
+  await sleep(500)
+  for (const [dim, key] of [['style', 'privacy'], ['height', '6'], ['color', 'white']]) {
+    const chip = `${simple} [data-choice-dim="${dim}"][data-choice-key="${key}"]`
+    if (await count(chip)) { await D.tap(chip); await sleep(400) }
+  }
+  await check('as the Salesman: no style list; her picker names white vinyl privacy', !(await has('[data-step-panel="style"] [data-style-list]')) && /White Vinyl Privacy, 6 ft/.test(await text(`${simple} [data-style-plain-name]`) || ''), await text(`${simple} [data-style-plain-name]`))
   await D.tap('[data-quote-bar] [data-bar-next]')
   await check('as the Salesman: yard drawn by tapping, Price shows Good, Better, Best', !!await waitFor('[data-quote-builder] [data-tiers]', 20000) && (await until(async () => await count('[data-tier]') === 3, 15000)), `${await count('[data-tier]')} options`)
   await sleep(1500)
