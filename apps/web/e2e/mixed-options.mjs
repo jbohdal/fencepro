@@ -268,7 +268,8 @@ try {
   const taken = await card(b, 'good').locator('[data-tier-swap] option[disabled]').allTextContents()
   check('a style on another card cannot be picked again', taken.some(t => /Aluminum Emily.*No dig/.test(t)) && taken.some(t => /Black Chain Link, 4 ft/.test(t)), taken.join(' / '))
   check('an odd gate says so on the option with no parts list', /10 ft double gate/.test(await card(b, 'better').textContent()) && /two 4 ft leaves/.test(await card(b, 'better').textContent()))
-  check('each option shows its margin', /Margin \d/.test(await card(b, 'good').locator('[data-tier-margin]').textContent()), await card(b, 'good').locator('[data-tier-margin]').textContent())
+  // The Salesman never sees margin (Jonathan, Nov 2 2026): no margin line on any option.
+  check('the Salesman sees no margin on any option', (await b.locator('[data-tier-margin]').count()) === 0 && !/margin/i.test(await b.locator('[data-tiers]').textContent()))
   await b.locator('[data-tier-popular]').first().evaluate(() => {})
   await card(b, 'better').locator('[data-tier-popular-pick]').tap(); await sleep(1500)
   check('Most popular cleared on the card', (await b.locator('[data-tier-popular]').count()) === 0)
