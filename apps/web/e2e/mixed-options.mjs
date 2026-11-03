@@ -195,12 +195,15 @@ try {
   await save(page2, V)
   q = (await quotesNamed(christa2.ctx, V))[0]
   const wood = q.proposal.options.find(o => o.fenceStyle.startsWith('wood'))
+  // The Salesman's copy has no margin (costRedact.ts, Nov 3 2026): the cost factor saved on the option is read as the owner.
+  const woodOwner = (await (await owner.ctx.request.get(`${API}/api/saved-quotes/${q.id}`)).json()).data.proposal.options.find(o => o.fenceStyle === wood?.fenceStyle)
+  check('the Salesman\'s copy of the option has no cost factor or margin; the saved one has them', wood?.snapshot?.costFactor === undefined && wood?.snapshot?.gmPct === undefined && woodOwner?.snapshot?.costFactor > 0 && typeof woodOwner?.snapshot?.gmPct === 'number', `${woodOwner?.snapshot?.costFactor} ${woodOwner?.snapshot?.gmPct}`)
   check('saved: wood at the server\'s price, with the wood warranty line', Math.round(wood?.finalPrice) === Math.round(woodPrice) && /wood itself/.test(wood?.warranty?.text ?? ''), `${wood?.fenceStyle} $${wood?.finalPrice}: ${wood?.warranty?.name}`)
   const tv = (await (await christa2.ctx.request.post(`${API}/api/saved-quotes/${q.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
   const sv = await customerSigns(browser, tv.shareToken, 'Wood|Stockade', 'v')
   check('customer: the options, and the wood one signs', /Accepted/.test(sv.done) && /Stockade|Wood/i.test(sv.done) && sv.pdfOk, `${sv.cards.join(' || ')} >> ${sv.done}`)
   const s2 = (await (await owner.ctx.request.get(`${API}/api/saved-quotes/${q.id}`)).json()).data
-  check('owner: the vinyl quote is now the wood option', s2.fenceStyle === wood.fenceStyle && s2.finalPrice === wood.finalPrice && s2.pricing?.costFactor === wood.snapshot.costFactor && s2.runRails == null, `${s2.fenceStyle} $${s2.finalPrice} factor ${s2.pricing?.costFactor}`)
+  check('owner: the vinyl quote is now the wood option', s2.fenceStyle === wood.fenceStyle && s2.finalPrice === wood.finalPrice && s2.pricing?.costFactor === woodOwner?.snapshot?.costFactor && s2.runRails == null, `${s2.fenceStyle} $${s2.finalPrice} factor ${s2.pricing?.costFactor}`)
   // ── A change order on the signed option follows it ──
   async function changeOrder(quote, word) {
     const fresh = await phone(browser, OWNER) // Playwright's WebKit crashes on a second goto after the quote builder
