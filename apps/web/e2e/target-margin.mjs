@@ -56,7 +56,8 @@ try {
   check(`Styles: no dig vinyl 14% profit, ${wantTM} Target Margin (overhead in use + profit)`, nd === '14%' && ndTM.trim() === wantTM, `${nd} / ${ndTM}`)
   check('Styles: dig set vinyl 10%, chain link 12%', ds === '10%' && cl === '12%', `${ds} / ${cl}`)
   const body = await page.locator('[data-page-scroll]').textContent()
-  check('Settings: no "magic number" and no 0.56 style numbers', !/magic/i.test(body) && !/\b0\.(5|6)\d?\b/.test(await page.locator('table').first().textContent()))
+  // The Fence Styles page has no table since Nov 2 2026 (a tree per material, rates per fence): its tree is checked.
+  check('Settings: no "magic number" and no 0.56 style numbers', !/magic/i.test(body) && !/\b0\.(5|6)\d?\b/.test(await page.locator('[data-styles-tree]').textContent()))
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/2-styles-target-margin.png` })
 
   // A quote priced from cost.
