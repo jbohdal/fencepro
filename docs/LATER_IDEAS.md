@@ -143,3 +143,5 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 ## Parked Nov 2 2026
 
 - Request gateway: parked by Jonathan ("PARK GATEWAY"). The work stays on branches feat/request-gateway and feat/request-gateway-finish, never deployed. It failed security review twice with the worker on (case-insensitive path bypass, trustd fetch, Postgres IPC, .git/logs symlink, survivors); with the worker off it passes. Live has no requests table. Do not pick it up without his say so. Any future version: owner login only, a password or code on every deploy, Tailscale only.
+- From the Nov 2 nightly: the sales-orders AUD Web Chainlink check relies on an audit job missing from dev since the Oct 30 refresh; give it its own test job (a chain link order with an approved +20 ft change order). The automations browser suite needs the automation worker on, which the nightly server turns off (DISABLE_CRON=1): run it on a server with the worker on, outbound closed. Old mixed-options and mixed-work-saves runs (mw07..., mw08...) leave quotes and jobs on dev by design.
+
