@@ -214,7 +214,7 @@ try {
   const N = `Picks e2e owner ${run}`
   const b = await toStyle(page, N)
   check('owner: keeps the full picker and the list', (await b.locator('[data-style-choices-simple]').count()) === 0 && (await b.locator('[data-style-list]').count()) === 1)
-  await pickStyle(page, 'White Vinyl Privacy, 6 ft tall, 6 or 8 ft sections \\(best price\\), No dig')
+  await pickStyle(page, 'White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections \\(best price\\), No dig')
   await shot(page, 'owner-1-style')
   await page.locator('[data-quote-bar] [data-bar-next]').tap()
   await b.locator('[data-tiers]').waitFor({ timeout: 15000 }); await sleep(2500)
