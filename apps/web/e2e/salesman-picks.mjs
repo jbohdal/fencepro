@@ -160,6 +160,9 @@ try {
     const q = (await quotesNamed(christa.ctx, N))[0]
     if (q) made.push(q.id)
     check(`${m.label}: saved at the main price`, !!q && Math.round(q.finalPrice) === Math.round(main), q ? `$${q.finalPrice} ${q.fenceStyle}` : 'not saved')
+    // Her phone is priced by the server and sends no margin: the costs, margin and each option's pull sheet are the server's.
+    const row = q ? sql(`select "totalCOGS" > 0 and "gmPct" > 0 and (select bool_and((o->'snapshot'->>'totalCOGS')::numeric > 0) from jsonb_array_elements(proposal->'options') o) from "SavedQuote" where id = '${q.id}'`) : ''
+    check(`${m.label}: saved with the server's costs and margin, every option its own pull sheet`, row === 't', row)
     counts[m.key].saved = q ? { fenceStyle: q.fenceStyle, price: q.finalPrice, options: (q.proposal?.options ?? []).map(o => [o.tier?.key ?? 'own', o.fenceStyle, o.finalPrice]) } : null
     // Sent: Copy link in the quote's window (the Send box).
     await page.waitForSelector('[data-proposal-send]', { timeout: 20000 }).catch(() => {})
