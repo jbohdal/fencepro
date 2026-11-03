@@ -15,6 +15,7 @@
  */
 
 import { moveRepairSettings, type MoveRepairSettings } from './moveRepair'
+import { plainFence } from './sentReprice'
 
 /** A repair's option of a new fence: the minimum does not lift it (the job is a repair), so it is not held to it. */
 const NEW_FENCE_INSTEAD = 'New fence instead'
@@ -23,7 +24,7 @@ export interface MinimumOption { label?: string | null; fenceStyle?: string | nu
 export interface MinimumQuote { fenceStyle?: string | null; finalPrice?: number | null; proposal?: { options?: MinimumOption[] | null } | null }
 export interface UnderMinimum {
   key: string
-  /** The option's name; blank for the quote's own price. */
+  /** The option's fence, by its plain name (not its card's name); blank for the quote's own price. */
   name: string
   priceCents: number
   own: boolean
@@ -51,7 +52,7 @@ export function pricesUnderMinimum(q: MinimumQuote, minimumCents: number): Under
   for (const o of optionsOf(q)) {
     if (String(o.label ?? '').startsWith(NEW_FENCE_INSTEAD)) continue
     const c = cents(o.finalPrice)
-    if (c > 0 && c < minimumCents) out.push({ key: optionKey(o), name: o.tier?.label || o.label || o.fenceStyle || '', priceCents: c, own: !!q.fenceStyle && o.fenceStyle === q.fenceStyle })
+    if (c > 0 && c < minimumCents) out.push({ key: optionKey(o), name: plainFence(o.label) || o.tier?.label || o.fenceStyle || '', priceCents: c, own: !!q.fenceStyle && o.fenceStyle === q.fenceStyle })
   }
   const own = cents(q.finalPrice)
   if (own > 0 && own < minimumCents && !out.some(u => u.own && u.priceCents === own)) out.push({ key: OWN_KEY, name: '', priceCents: own, own: true })

@@ -40,15 +40,15 @@ const sentProposal = (good: number) => ({
 describe('what a save would change on the customer\'s cards', () => {
   const q = { fenceStyle: STYLE, status: 'SENT', runRails: ['auto'] }
   test('Good repriced at today\'s costs: one change, Good $9,407 then, $8,780 now', () => {
-    expect(proposalPriceChanges(sentProposal(9407), q, sentProposal(8780), q)).toEqual([{ name: 'Good', wasCents: 940700, nowCents: 878000 }])
+    expect(proposalPriceChanges(sentProposal(9407), q, sentProposal(8780), q)).toEqual([{ name: 'White Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set', wasCents: 940700, nowCents: 878000 }])
   })
   test('the same cards: nothing', () => {
     expect(proposalPriceChanges(sentProposal(9407), q, sentProposal(9407), q)).toEqual([])
   })
   test('a card gone or added counts', () => {
     const fewer = { ...sentProposal(9407), options: sentProposal(9407).options.filter(o => o.tier?.key !== 'best') }
-    expect(proposalPriceChanges(sentProposal(9407), q, fewer, q)).toEqual([{ name: 'Best', wasCents: 1134300, nowCents: null }])
-    expect(proposalPriceChanges(fewer, q, sentProposal(9407), q)).toEqual([{ name: 'Best', wasCents: null, nowCents: 1134300 }])
+    expect(proposalPriceChanges(sentProposal(9407), q, fewer, q)).toEqual([{ name: 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig', wasCents: 1134300, nowCents: null }])
+    expect(proposalPriceChanges(fewer, q, sentProposal(9407), q)).toEqual([{ name: 'White Vinyl Privacy, 6 ft tall, 6 ft sections, No dig', wasCents: null, nowCents: 1134300 }])
   })
 })
 
@@ -95,7 +95,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the server never reprices a sent
     const q = await sentQuote()
     const r = await call('PATCH', `/api/saved-quotes/${q.id}`, { notes: 'gate code 4411', finalPrice: 10457, proposal: sentProposal(8780) })
     expect(r.status).toBe(200)
-    expect(r.json.keptSentPrices).toEqual([{ name: 'Good', wasCents: 940700, nowCents: 878000 }])
+    expect(r.json.keptSentPrices).toEqual([{ name: 'White Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set', wasCents: 940700, nowCents: 878000 }])
     const after = (await prisma.savedQuote.findUnique({ where: { id: q.id } }))!
     expect(goodOf(after.proposal)).toBe(9407)
     expect((after.proposal as any).options.map((o: any) => o.finalPrice)).toEqual([9407, 10549, 11343, 10457])

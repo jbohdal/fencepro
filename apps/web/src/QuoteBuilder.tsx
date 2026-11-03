@@ -2154,7 +2154,7 @@ export default function QuoteBuilder({
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-semibold text-gray-500" data-tiers-title>{tiers.length === 2 ? 'Two options' : tierPrefs.added?.length ? 'Options' : 'Good, Better, Best'} <span className="font-normal" data-tiers-where={sentTierSet && !usingSentTiers ? 'today' : 'proposal'}>{sentTierSet && !usingSentTiers ? "· at today's prices, not on the customer's proposal" : '· on the proposal'}</span></p>
                     {can('settings.change') && <button type="button" className="btn btn-quiet btn-sm shrink-0" data-edit-tiers
-                      onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit tiers</button>}
+                      onClick={() => { if (okToLeave()) navigate('/settings?tab=tiers') }}>Edit options</button>}
                   </div>
                   {heldSaved && (
                     <p className="text-xs rounded-lg px-2 py-1.5 border text-gray-700 bg-blue-50 border-blue-200" data-tiers-held>
@@ -2179,8 +2179,8 @@ export default function QuoteBuilder({
                     </p>
                   )}
                   {!tierSet && tierSets === null && <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5" data-tiers-not-loaded>Good, Better, Best have not loaded yet (weak signal). They are tried again every few seconds; a proposal saved now would not show them.</p>}
-                  {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. {can('settings.change') ? 'Tap Edit tiers to add one.' : 'Ask Jonathan to add one.'}</p>}
-                  {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No tiers for {tierSet.category} yet. {can('settings.change') ? 'Tap Edit tiers to add them.' : 'Ask Jonathan to add them.'}</p>}
+                  {!tierSet && tierSets !== null && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best set for {style.category} yet. {can('settings.change') ? 'Tap Edit options to add one.' : 'Ask Jonathan to add one.'}</p>}
+                  {tierSet && tierSet.tiers.length === 0 && <p className="text-sm text-gray-600" data-tiers-none>No Good, Better, Best options for {tierSet.category} yet. {can('settings.change') ? 'Tap Edit options to add them.' : 'Ask Jonathan to add them.'}</p>}
                   {(heldSaved && !showSentCards ? [] : tiers).map(t => {
                     // A sent proposal, the fence unchanged: each tier as the customer reads it (frozen price and fence).
                     const sent = showSentCards ? sentCards![t.spec.key] : undefined
@@ -2233,7 +2233,7 @@ export default function QuoteBuilder({
                             <span className="block text-xs text-gray-600 tabular-nums">{fmt(perFoot)}/ft</span>
                           </span>
                         </div>
-                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded ? ownPanelsLabel : optionLabel(t.style!.name)}</p>
+                        <p className="text-xs text-gray-700 mt-1" data-tier-style>{sent ? sent.label : folded || (main && t.style?.name === style?.name) ? ownPanelsLabel : customerFenceName(optionLabel(t.style!.name), t.option?.snapshot?.runRails)}</p>
                         {words && <p className="text-xs text-gray-600 mt-0.5" data-tier-text>{words}</p>}
                         {!sent && t.swapOff && <p className="text-xs font-semibold text-amber-800 mt-1" data-tier-swap-off>{optionLabel(t.swapOff)} is off for quoting now, so this option went back to automatic. Pick another style or take it off.</p>}
                         {!sent && t.option && !t.off && t.option.minimumLifted && <p className="text-xs font-semibold text-gray-700 mt-0.5" data-tier-minimum>Lifted to the minimum job price (internal).</p>}
@@ -2357,7 +2357,8 @@ export default function QuoteBuilder({
                 </div>
               )}
 
-              <div className={`bg-white rounded-xl border border-gray-200 p-4 ${!seesMargin ? 'hidden' : ''}`}>
+              {/* Not rendered at all for a Salesman (never margin, not even hidden in the page). */}
+              {seesMargin && <div className="bg-white rounded-xl border border-gray-200 p-4">
                 {roundingCents > 0 && (
                   <div className="flex justify-between items-center text-sm mb-2 pb-2 border-b border-gray-100" data-quote-rounding>
                     <span className="text-gray-600">Rounded to the whole dollar <span className="text-xs text-gray-400">(out of profit)</span></span>
@@ -2386,7 +2387,7 @@ export default function QuoteBuilder({
                     {`${gmTone === 'good' ? '✓ At or above' : gmTone === 'near' ? '⚠ Below' : '✗ Well below'} its ${Math.round(quoteTarget * 1000) / 10}% Target Margin`}
                   </p>
                 </div>
-              </div>
+              </div>}
 
               <h3 className="text-xs font-semibold text-gray-500">Live quote</h3>
 
