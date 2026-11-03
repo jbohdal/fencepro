@@ -1528,7 +1528,7 @@ function CustomerDetail({
                           <th className="text-left px-5 py-3 text-xs font-semibold text-gray-400">Type</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Sections</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Price</th>
-                          {can('costs.view') && <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>}
+                          {can('costs.view') && signedInRole() !== 'sales_rep' && <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Margin</th>}
                           <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Date</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400">Status</th>
                         </tr>
@@ -1539,7 +1539,7 @@ function CustomerDetail({
                             <td data-label="Type" className="px-5 py-3 font-medium text-gray-800">{q.label || styleLabel(q.type) || q.type}</td>
                             <td data-label="Sections" className="px-4 py-3 text-right text-gray-600">{q.sections}</td>
                             <td data-label="Price" className="px-4 py-3 text-right font-bold text-gray-900">{fmt(q.price)}</td>
-                            {can('costs.view') && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.marginTone === 'good' ? 'text-green-600' : q.marginTone === 'near' ? 'text-yellow-600' : q.marginTone === 'bad' ? 'text-red-500' : 'text-gray-400'}`}>
+                            {can('costs.view') && signedInRole() !== 'sales_rep' && <td data-label="Margin" className={`px-4 py-3 text-right font-semibold text-sm ${q.marginTone === 'good' ? 'text-green-600' : q.marginTone === 'near' ? 'text-yellow-600' : q.marginTone === 'bad' ? 'text-red-500' : 'text-gray-400'}`}>
                               {(q.margin * 100).toFixed(1)}%
                             </td>}
                             <td data-label="Date" className="px-4 py-3 text-right text-gray-400 text-xs">{dayWords(q.date)}</td>

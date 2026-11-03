@@ -74,6 +74,8 @@ export default function QuoteDetailDrawer({
 }) {
   // Costs, margin and the pull sheet's costs: the owner, admin, manager and office only (a Salesman's or Installer's copy has none).
   const internalView = wantInternal && can('costs.view')
+  // A Salesman sees costs but never margin (Jonathan, Nov 2 2026).
+  const seesMargin = internalView && signedInRole() !== 'sales_rep'
   const canSend = can('quotes.change')
   // The newest copy: a customer may accept online while this is open (it shows Sold then).
   const [, setTick] = useState(0)
@@ -211,7 +213,7 @@ export default function QuoteDetailDrawer({
               {workSummary(quote.work)
                 ? <p className="text-gray-700 max-w-[16rem]" data-quote-work-summary>{workSummary(quote.work)}</p>
                 : <><p className="text-gray-500">{totalFootage} ft total</p><p className="text-gray-500">{quote.sections} sections</p>{changeNote?.pullSheetRev ? <p className="text-xs text-amber-800">as signed</p> : null}</>}
-              {internalView && <p className={`mt-1 font-semibold ${grade.tone === 'good' ? 'text-green-700' : grade.tone === 'near' ? 'text-yellow-600' : grade.tone === 'bad' ? 'text-red-600' : 'text-gray-400'}`} data-quote-margin={grade.tone}>{fmtPct(shownGm)} margin</p>}
+              {seesMargin && <p className={`mt-1 font-semibold ${grade.tone === 'good' ? 'text-green-700' : grade.tone === 'near' ? 'text-yellow-600' : grade.tone === 'bad' ? 'text-red-600' : 'text-gray-400'}`} data-quote-margin={grade.tone}>{fmtPct(shownGm)} margin</p>}
             </div>
           </div>
 
@@ -309,9 +311,9 @@ export default function QuoteDetailDrawer({
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
                 {/* The commission, for logins that see it (never a Salesman): the lines add up to the margin after it. */}
                 {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%{quote.soldBy ? ` to ${quote.soldBy}` : ''}</span><span>{fmt(commission.cents / 100)}</span></div>}
-                <div className="flex justify-between pt-1 text-xs text-gray-500" data-quote-gross-margin><span>Gross Margin (price less cost)</span><span>{fmtPct(shownGm)}</span></div>
+                {seesMargin && <><div className="flex justify-between pt-1 text-xs text-gray-500" data-quote-gross-margin><span>Gross Margin (price less cost)</span><span>{fmtPct(shownGm)}</span></div>
                 {afterComm !== null && <div className="flex justify-between text-xs text-gray-500" data-quote-margin-after><span>Margin after commission</span><span>{fmtPct(afterComm)}</span></div>}
-                <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>{targetIsSaved(quote) ? 'Target Margin it was priced with' : 'Target Margin today'}</span><span>{fmtPct(grade.target)}</span></div>
+                <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>{targetIsSaved(quote) ? 'Target Margin it was priced with' : 'Target Margin today'}</span><span>{fmtPct(grade.target)}</span></div></>}
               </div>
             </section>
           )}

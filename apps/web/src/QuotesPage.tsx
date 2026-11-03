@@ -266,8 +266,9 @@ function PipelineAnalytics({ quotes, rep, repQuotes }: { quotes: SavedQuote[]; r
           { label: 'Closed',         value: String(totalSold), sub: fmtPct(closingRate) + ' close rate', accent: true },
           { label: 'Closed Revenue', value: fmt(totalRev),     sub: `avg ${fmt(avgDeal)}/job` },
           { label: 'Open Pipeline',  value: fmt(openPipe),     sub: `${quotes.filter(q => q.status === 'DRAFT' || q.status === 'SENT').length} active` },
-          { label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => gradeOf(q).tone === 'good').length + ' at their Target Margin' },
-        ].map(s => (
+          // A Salesman never sees margin (Jonathan, Nov 2 2026).
+          ...(signedInRole() === SALESMAN_ROLE ? [] : [{ label: 'Avg Margin',     value: avgMargin === null ? '—' : fmtPct(avgMargin), sub: avgMargin === null ? 'no costed quotes yet' : quotes.filter(q => gradeOf(q).tone === 'good').length + ' at their Target Margin' }]),
+        ].map((s: { label: string; value: string; sub: string; accent?: boolean }) => (
           <div key={s.label} className={`rounded-2xl p-4 ${s.accent ? 'bg-orange-500' : 'bg-white border border-gray-200'}`}>
             <p className={`text-xs font-semibold mb-1 ${s.accent ? 'text-orange-100' : 'text-gray-400'}`}>{s.label}</p>
             <p className={`text-xl font-bold ${s.accent ? 'text-white' : 'text-gray-900'}`}>{s.value}</p>
@@ -420,12 +421,12 @@ function QuoteDrawer({
                 <span className="text-white font-bold">Final Price</span>
                 <span className="text-orange-400 font-bold text-lg">{fmt(quote.finalPrice)}</span>
               </div>
-              <div className="flex justify-between">
+              {signedInRole() !== SALESMAN_ROLE && <div className="flex justify-between">
                 <span className="text-gray-400 text-sm">Gross Margin</span>
                 <span className={`font-bold text-sm ${({ good: 'text-green-400', near: 'text-yellow-400', bad: 'text-red-400', none: 'text-gray-400' } as const)[gradeOfQuote(quote).tone]}`}>
                   {quote.totalCOGS > 0 ? fmtPct(gradeOfQuote(quote).margin ?? 0) : 'No cost'}
                 </span>
-              </div>
+              </div>}
             </div>
           </div>
 
@@ -674,7 +675,7 @@ export default function QuotesPage({
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Style</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Sections</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Price</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Margin</th>
+                {!isSalesman && <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Margin</th>}
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Heat</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Rep</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Date</th>
@@ -695,7 +696,7 @@ export default function QuotesPage({
                   <td className="px-4 py-3 text-gray-700" data-label="Style">{quoteStyleLabel(q as any)}</td>
                   <td className="px-4 py-3 text-right text-gray-600" data-label="Sections">{sectionsCell(q.sections, q.work)}</td>
                   <td className="px-4 py-3 text-right font-bold text-gray-900" data-label="Price">{fmt(q.finalPrice)}</td>
-                  <MarginCell q={q} grade={gradeOf(q)} showCommission={showCommission} />
+                  {!isSalesman && <MarginCell q={q} grade={gradeOf(q)} showCommission={showCommission} />}
                   <td className="px-4 py-3" data-label="Heat" onClick={e => e.stopPropagation()}>
                     <FlameRating value={q.leadTemp ?? 0} onChange={v => handleTempChange(q.id, v)} />
                   </td>
