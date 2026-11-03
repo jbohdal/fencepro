@@ -190,7 +190,8 @@ try {
     const whyB = 'Customer wants the side longer'
     await page.keyboard.type(whyB)
     check('B: filled in "Add 6 ft of fence": $0 with "no price change" when it is still the same panels, else priced with the panels added; Save works either way',
-      /^Add 6 ft of fence/.test(lineB) && (amtB === '0' ? /still \d+ panels? on that side, no price change/.test(lineB) && await page.locator('[data-co-no-price-change]').isVisible() : /panels? more/.test(lineB) && Number(amtB) > 0) && await saveB.isEnabled(),
+      // Since per foot sub labor (Settings, Nov 2 2026) the same panels can still cost the added feet's labor: "still 17 panels on that side", priced.
+      /^Add 6 ft of fence/.test(lineB) && (amtB === '0' ? /still \d+ panels? on that side, no price change/.test(lineB) && await page.locator('[data-co-no-price-change]').isVisible() : /panels? more|still \d+ panels? on that side$/.test(lineB) && Number(amtB) > 0) && await saveB.isEnabled(),
       `${lineB} | $${amtB}`)
     await shot(page, '0c-filled')
     const signedQuoteAt = (await call('GET', `/api/saved-quotes/${B.quoteId}`)).json.data?.updatedAt
@@ -250,7 +251,9 @@ try {
   await shot(page, '1-menu')
   await tap(page.locator('[data-co-from-drawing-start]'))
   await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
-  check('the quote builder opens on the signed quote, on the drawing, saying how to make the change order', /Change order: change the drawing, then tap Make change order/.test(await page.locator('[data-quote-locked-banner]').innerText()))
+  // This quote is copied with no yard drawing (layout.yard null), so it opens on its run list and says so (Nov 2 2026).
+  const lockedBanner = await page.locator('[data-quote-locked-banner]').innerText()
+  check('the quote builder opens on the signed quote, on its runs, saying how to make the change order', /Change order: change the run list, then tap Make change order/.test(lockedBanner), lockedBanner)
   // Round 2 (Oct 26 2026): straight from the drawing to the change order; no "Update quote", no status, no lock message.
   const runInput = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first()
   const ftWas = parseFloat(await runInput.inputValue())
