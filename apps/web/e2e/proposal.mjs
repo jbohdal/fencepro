@@ -10,6 +10,7 @@
 // of its own, with a pipeline card (made through the API and removed at the end), never a real one.
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
+import { devSignIn, DEV_OWNER_EMAIL } from './devSignIn.mjs'
 import { chromium } from 'playwright'
 import fs from 'fs'
 import { execFileSync } from 'child_process'
@@ -18,7 +19,8 @@ import crypto from 'crypto'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
-const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
+// The owner's token, or one made here on the dev copy when the run gives only a cookie (devSignIn.mjs).
+const TOKEN = process.env.E2E_ACCESS_TOKEN || devSignIn(DEV_OWNER_EMAIL)
 const SHOTS = process.env.SHOTS || ''
 const local = u => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(u)
 if (!local(APP) || !local(API) || /:4000(\/|$)/.test(API)) { console.error('Refusing to run: the dev copy only (localhost, not port 4000).'); process.exit(2) }
@@ -49,10 +51,15 @@ let quoteId = null, photoId = null
 const CUST_LAST = `Collins E2E${Date.now().toString(36)}`, CUST = `Shawn ${CUST_LAST}`
 const contactId = crypto.randomUUID(), cardId = crypto.randomUUID()
 const TAN = "TV-ND 6'x8' Privacy", SIX = "WV-ND 6'x6' Privacy", OWN = "WV-ND 6'x8' Privacy"
+let settingsBefore = null, settingsRestored = true
 async function setProposalSettings(page, dep, months, apr) {
   await page.goto(APP); await page.waitForSelector('[data-global-appointment]', { timeout: 30000 }); await sleep(800)
   await page.locator('span:text-is("Settings"):visible').first().click(); await sleep(500)
   await page.locator('[data-settings-tab="proposals"]').click(); await sleep(400)
+  // What Settings held before this test changed them: put back in finally, even when a check fails (it once left a
+  // 50% deposit and 60 month financing on the dev copy).
+  if (!settingsBefore) settingsBefore = { dep: await page.locator('[data-deposit-pct]').inputValue(), months: await page.locator('[data-fin-months]').inputValue(), apr: await page.locator('[data-fin-apr]').inputValue() }
+  settingsRestored = dep === settingsBefore.dep && months === settingsBefore.months && apr === settingsBefore.apr
   await page.locator('[data-deposit-pct]').fill(dep)
   await page.locator('[data-fin-months]').fill(months)
   await page.locator('[data-fin-apr]').fill(apr)
@@ -256,11 +263,15 @@ try {
   check('a turned off link shows a friendly page with the phone number', offRes.status === 410 && offHtml.includes('This link is no longer active') && /tel:\d+/.test(offHtml))
   if (SHOTS) { await d.page.locator('[data-proposal-send]').scrollIntoViewIfNeeded(); await d.page.screenshot({ path: `${SHOTS}/6-quote-proposal-block.png` }) }
   check('desktop: no page errors', d.errors.length === 0, d.errors.join(' | '))
-  await setProposalSettings(d.page, '', '', '')
+  await setProposalSettings(d.page, settingsBefore?.dep ?? '', settingsBefore?.months ?? '', settingsBefore?.apr ?? '')
   await d.ctx.close()
 } catch (e) {
   check('test run finished', false, String(e).split('\n').slice(0, 3).join(' '))
 } finally {
+  // Settings as they were, if the run stopped before putting them back.
+  if (settingsBefore && !settingsRestored) {
+    try { const r = await open(browser, false); await setProposalSettings(r.page, settingsBefore.dep, settingsBefore.months, settingsBefore.apr); await r.ctx.close() } catch (e) { console.error('Could not put the proposal Settings back:', String(e).slice(0, 200)) }
+  }
   // Accepting online makes a job: remove it with the quote.
   if (quoteId) for (const j of (await api('/api/saved-jobs')).filter(j => j.quoteId === quoteId)) await api(`/api/saved-jobs/${j.id}`, { method: 'DELETE' })
   if (quoteId) await api(`/api/saved-quotes/${quoteId}`, { method: 'DELETE' })

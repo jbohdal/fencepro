@@ -14,7 +14,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, pickStyle } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -31,7 +31,8 @@ const sql = q => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', q]).toStr
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
 const run = Date.now().toString(36)
 const made = []
-const VINYL = 'White Vinyl Privacy.*6 ft tall.*6 ft (panels|sections).*No dig', ALUM = 'Aluminum.*No dig', CHAIN = 'Galvanized.*4 ft.*No dig|4 ft.*Galvanized.*No dig'
+// A Salesman picks no width (Nov 2 2026): the best price white no dig fence, for her and the owner alike.
+const VINYL = 'White Vinyl Privacy.*6 ft tall.*No dig', ALUM = 'Aluminum.*No dig', CHAIN = 'Galvanized.*4 ft.*No dig|4 ft.*Galvanized.*No dig'
 
 async function phone(browser, cookie) {
   const ctx = await browser.newContext(PHONE)
@@ -61,10 +62,7 @@ async function quoteUpToPrice(page, name, styleText) {
     if (side !== sides[sides.length - 1][0]) { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
   }
   await bar.locator('[data-bar-next]').tap(); await sleep(400)
-  const pick = b.locator('[data-step-panel="style"] select').first()
-  const value = await pick.evaluate((el, text) => [...el.options].find(o => new RegExp(text, 'i').test(o.textContent))?.value, styleText)
-  if (!value) throw new Error(`no style like ${styleText}`)
-  await pick.selectOption(value); await sleep(600)
+  await pickStyle(page, styleText)
   await bar.locator('[data-bar-next]').tap()
   await b.locator('[data-tiers]').waitFor({ timeout: 15000 })
   await sleep(1500)

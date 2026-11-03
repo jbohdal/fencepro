@@ -7,7 +7,7 @@
 //   APP_URL=http://localhost:4093 API_URL=http://localhost:4093 E2E_STAFF_COOKIE=<owner cookie value> \
 //   SALES_COOKIE=<Salesman cookie value> SHOTS=<folder> node e2e/mixed-options.mjs
 //
-// Makes two throwaway quotes named "Mixed e2e ..." and leaves them for the caller to remove (a dev copy).
+// Makes throwaway quotes named "Mixed e2e ... <run>" and removes them, and what signing made, by id at the end.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
@@ -426,6 +426,18 @@ try {
   check('test run finished', false, String(e?.stack || e).split('\n').slice(0, 4).join(' '))
 } finally {
   await browser.close()
+  // Everything this run made, by id: its quotes ("Mixed e2e ... <run>"), what signing made, and their customers.
+  const q = x => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', x]).toString().trim()
+  const ids = q(`select id from "SavedQuote" where "customerName" like 'Mixed e2e %' and "customerName" like '%${run}'`).split('\n').filter(Boolean)
+  for (const id of ids) {
+    for (const t of ['ContractPayment', 'ContractInvoice', 'PaymentSchedule', 'JobQuotedCost', 'SignedDocument', 'ProposalView', 'QuoteOption', 'InventoryPendingOrder', 'SavedJob']) q(`delete from "${t}" where "quoteId" = '${id}'`)
+    q(`update "BusinessState" set "pendingOrders" = (select coalesce(jsonb_agg(o), '[]'::jsonb) from jsonb_array_elements("pendingOrders") o where o->>'quoteId' is distinct from '${id}') where "pendingOrders" @> '[{"quoteId": "${id}"}]'`)
+    const contact = q(`select coalesce("crmContactId", '') from "SavedQuote" where id = '${id}'`)
+    q(`delete from "CrmAuditLog" where "entityId" = '${id}'`)
+    q(`delete from "SavedQuote" where id = '${id}'`)
+    if (contact && q(`select count(*) from "SavedQuote" where "crmContactId" = '${contact}'`) === '0' && /^Mixed e2e/.test(q(`select "firstName" || ' ' || "lastName" from "CrmContact" where id = '${contact}'`))) q(`delete from "CrmContact" where id = '${contact}'`)
+  }
+  console.log(`removed ${ids.length} quotes: ${ids.join(', ')}`)
 }
 const passed = results.filter(Boolean).length
 console.log(`\n${passed} of ${results.length} checks passed`)

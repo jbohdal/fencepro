@@ -15,6 +15,7 @@
 // shows whole dollars, the deposit too.
 // Removes everything it made (hard deletes on ezbiz_dev only).
 import './devOnly.mjs'
+import { devSignIn, DEV_OWNER_EMAIL } from './devSignIn.mjs'
 import { chromium } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
@@ -23,7 +24,8 @@ import { execFileSync } from 'child_process'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
-const TOKEN = process.env.E2E_ACCESS_TOKEN || ''
+// The owner's token, or one made here on the dev copy when the run gives only a cookie (devSignIn.mjs).
+const TOKEN = process.env.E2E_ACCESS_TOKEN || devSignIn(DEV_OWNER_EMAIL)
 const SHOTS = process.env.SHOTS || ''
 if (!TOKEN) { console.error('Set E2E_ACCESS_TOKEN (an owner login on the dev server).'); process.exit(2) }
 if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true })

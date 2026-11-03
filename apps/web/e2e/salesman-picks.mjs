@@ -102,7 +102,7 @@ async function sign(page, who) {
 }
 
 const MATERIALS = [
-  { key: 'vinyl', label: 'Vinyl', taps: [['color', 'Tan'], ['color', 'White']], sign: true },
+  { key: 'vinyl', label: 'Vinyl', taps: [['color', 'Tan'], ['height', '8 ft'], ['height', '6 ft'], ['color', 'White']], sign: true },
   { key: 'wood', label: 'Wood', taps: [['picket', 'Alta Premium'], ['picket', 'PT Pine']] },
   { key: 'chain', label: 'Chain link', taps: [['height', '6 ft'], ['height', '4 ft'], ['finish', 'Black'], ['finish', 'Galvanized']] },
   { key: 'alum', label: 'Aluminum', taps: [] },
@@ -129,7 +129,15 @@ try {
     await shot(page, `${m.key}-2-${m.key}-picked`)
     let i = 3
     for (const [dim, opt] of m.taps) {
+      const pickedColor = m.key === 'vinyl' && dim === 'height' && opt === '8 ft' ? await b.locator('[data-choice-dim="color"][aria-pressed="true"]').textContent().catch(() => '') : ''
+      const said = pickedColor ? await b.locator('[data-choice-not-made="height"]').allTextContents() : []
       await b.locator(`[data-choice-dim="${dim}"]`, { hasText: opt }).first().tap(); await sleep(700)
+      if (pickedColor) {
+        // Tan 8 ft tall is not priced on the dev copy: 8 ft says so before the tap, and the tap says the color changed.
+        const note = await b.locator('[data-style-changed-note]').textContent().catch(() => '')
+        check('Vinyl: Tan, then 8 ft: never a silent switch (8 ft says what it comes in; the change is said)', said.some(t => /^8 ft comes in White only\.$/.test(t)) && /^Tan is not made in 8 ft, so the color is now White\.$/.test(note), `${said.join(' / ')} | ${note}`)
+        await shot(page, `${m.key}-${i++}-tan-then-8ft`)
+      }
       a = await asked(b)
       counts[m.key].steps.push({ step: `tap ${opt}`, asked: a.dims, fence: a.name })
       await shot(page, `${m.key}-${i++}-${dim}-${opt.replace(/\s+/g, '')}`)
@@ -223,7 +231,20 @@ try {
   const bestMain = /Main option/.test(await b.locator('[data-tier="best"] [data-tier-main]').textContent())
   check('owner: all 6 ft forced: the quote is the 6 ft fence (the Best card), at its own price', bestMain && after !== before && after === dollars(await b.locator('[data-tier="best"] [data-tier-price]').first().textContent()), `$${before} to $${after}`)
   await shot(page, 'owner-3-forced-6ft')
-  counts.owner = { bestPrice: before, forced6: after }
+  // All 8 ft forced: the no dig option (Better) is the quote's own fence at its price; three cards, never a fourth.
+  const eight = await b.locator('[data-advanced-width-pick] option', { hasText: 'All 8 ft sections' }).getAttribute('value')
+  await b.locator('[data-advanced-width-pick]').selectOption(eight); await sleep(2500)
+  const at8 = dollars(await b.locator('[data-quote-price]').textContent())
+  const betterMain8 = /Main option/.test(await b.locator('[data-tier="better"] [data-tier-main]').textContent())
+  const better8 = dollars(await b.locator('[data-tier="better"] [data-tier-price]').first().textContent())
+  check('owner: all 8 ft forced: Better is the main option at the quote\'s price, three cards', betterMain8 && better8 === at8 && (await b.locator('[data-tier]').count()) === 3, `$${at8}, Better $${better8}`)
+  await shot(page, 'owner-4-forced-8ft')
+  await save(page)
+  const qo = (await quotesNamed(owner.ctx, N))[0]
+  if (qo) made.push(qo.id)
+  const opts = qo?.proposal?.options ?? []
+  check('owner: saved with three options, the main one Better at the quote\'s price, Most popular on it', opts.length === 3 && opts.some(o => o.tier?.key === 'better' && o.fenceStyle === qo.fenceStyle && Math.round(o.finalPrice) === Math.round(qo.finalPrice) && o.badge === 'Most popular'), JSON.stringify(opts.map(o => [o.tier?.key, o.fenceStyle, o.finalPrice, o.badge ?? ''])))
+  counts.owner = { bestPrice: before, forced6: after, forced8: at8 }
   check('owner: no page errors', owner.errors.length === 0, owner.errors.join('|'))
   await owner.ctx.close()
 } finally {
