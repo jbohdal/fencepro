@@ -84,13 +84,26 @@ export function sentTierCards(
  * changed, a save asks first whether to keep the sent prices or save the new ones as a version to send again. A signed quote's proposal
  * never changes (a change order carries the change).
  */
-export function sentTiersNote(s: { asSent: boolean; fenceChanged: boolean; signed: boolean; sentPricesChanged: boolean }): { kind: 'sent' | 'changed' | 'repriced'; text: string } {
+export function sentTiersNote(s: { asSent: boolean; fenceChanged: boolean; signed: boolean; sentPricesChanged: boolean; pricesAsSent?: boolean }): { kind: 'sent' | 'changed' | 'repriced'; text: string } {
   const went = s.signed ? 'signed' : 'sent'
-  if (s.asSent) return { kind: 'sent', text: `As ${went}: the prices on the customer's proposal.` }
+  // Make main on a sent quote keeps every card at its sent price (review Nov 3 2026): said plainly, not "new prices".
+  if (s.asSent || (s.pricesAsSent && !s.signed)) return { kind: 'sent', text: `As ${went}: the prices on the customer's proposal.` }
   if (!s.fenceChanged) return { kind: 'repriced', text: `The choices this proposal was ${went} with, priced today.` }
   if (s.signed) return { kind: 'changed', text: 'The fence was changed after it was signed: these are new prices. The signed proposal does not change; the change goes on a change order.' }
   return {
     kind: 'changed',
     text: "The fence was changed after this proposal was sent: these are new prices. The customer's proposal keeps the sent prices; saving asks whether to keep them or save these as a new version to send again.",
   }
+}
+
+/**
+ * Every card offered now at the price it went out at (cents exact), and no card more or fewer: Make main on a sent
+ * quote, which keeps the customer's prices (QuoteCalcInput.sliderOn), changes nothing the customer reads.
+ */
+export function cardsAsSent(sent: Record<string, { price: number }> | null | undefined, live: Array<{ key: string; price: number }>): boolean {
+  if (!sent) return false
+  const keys = Object.keys(sent)
+  if (!keys.length || keys.length !== live.length) return false
+  const cents = (n: number) => Math.round((Number(n) || 0) * 100)
+  return live.every(c => !!sent[c.key] && cents(sent[c.key].price) === cents(c.price))
 }

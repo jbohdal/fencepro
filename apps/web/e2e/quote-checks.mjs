@@ -74,7 +74,7 @@ try {
   await go('price')
   await b.locator('input[placeholder="Calculated"]').last().fill('1500'); await sleep(400)
   const w2 = await warnings()
-  check('a low typed price warns about margin', /Margin is -?\d+\.\d% \(price less cost\), under your [\d.]+% good margin in Settings\./.test(w2), w2.slice(0, 200))
+  check('a low typed price warns about margin', /Margin is -?\d+\.\d% \(price less cost\), under this fence's [\d.]+% Target Margin \(Overhead \+ Target Profit in Settings\)\./.test(w2), w2.slice(0, 200))
   // The normal price per foot comes from saved quotes with run lengths (imported quotes have none):
   // quiet with under 5 for this style; once there are 5 or more, it warns and says from how many
   // (the rule itself is covered by tests/quoteChecks.test.ts).

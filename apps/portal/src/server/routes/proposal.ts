@@ -554,7 +554,7 @@ async function refused(q: any, why: 'signed' | 'accepted'): Promise<{ status: nu
  * the contract); an option of another style, its own cost factor, so a change order on the signed job follows its margin;
  * an option of another material, not the labor or per foot price typed for the quote's own (web/src/proposal.ts optionOverrides).
  */
-export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceStyle?: string; finalPrice?: number | null }, s: any, opt?: { fenceStyle?: string; adjustmentCents?: number; finalPrice?: number }): { pricing?: any } {
+export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceStyle?: string; finalPrice?: number | null }, s: any, opt?: { fenceStyle?: string; adjustmentCents?: number; finalPrice?: number }): { pricing?: any; priceAdjust?: number } {
   const rounded = typeof s.roundingCents === 'number' && (q.proposal as any)?.wholeDollar === true
   const factor = typeof s.costFactor === 'number' && s.costFactor > 0
   // Another option than the quote's own: the record says the adjustment that option really took. The ± dollar
@@ -564,7 +564,10 @@ export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceS
   const samePrice = typeof q.finalPrice === 'number' && Math.round(Number(opt?.finalPrice) * 100) === Math.round(q.finalPrice * 100)
   const other = !!opt && !!q.fenceStyle && (opt.fenceStyle !== q.fenceStyle || !samePrice)
   const fixAdjustment = other && had !== (Number(opt!.adjustmentCents) || 0)
-  if (!rounded && !factor && !s.otherMaterial && !fixAdjustment) return {}
+  // The percent slider (Price adjust) is the main option's only too (Nov 3 2026): another option's snapshot says what it
+  // took (web/src/proposal.ts sliderTaken); a proposal priced before says nothing, and its options took the quote's.
+  const slider = typeof s.priceAdjust === 'number' && Number.isFinite(s.priceAdjust) ? { priceAdjust: s.priceAdjust } : {}
+  if (!rounded && !factor && !s.otherMaterial && !fixAdjustment) return slider
   const pricing: any = { ...((q.pricing as any) ?? {}) }
   if (fixAdjustment) {
     if (opt!.adjustmentCents) pricing.priceAdjustmentCents = opt!.adjustmentCents
@@ -573,7 +576,7 @@ export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceS
   if (rounded) { pricing.wholeDollar = true; pricing.roundingCents = s.roundingCents }
   if (factor) pricing.costFactor = s.costFactor
   if (s.otherMaterial) { delete pricing.laborCost; delete pricing.subRate; delete pricing.pricePerFoot }
-  return { pricing }
+  return { pricing, ...slider }
 }
 
 /**
