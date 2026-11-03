@@ -34,6 +34,7 @@ import { chromium, webkit, devices } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
 import { execFileSync } from 'child_process'
+import { pickFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -310,11 +311,8 @@ try {
     await tap(S, S.page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
   }
   await tap(S, b.locator('[data-step="style"]'))
-  const sel = b.locator('[data-style-list], select:has(option:text-is("Select a fence style"))').first()
-  await sel.waitFor({ timeout: 15000 })
-  const styleLabel = (await sel.locator('option').allInnerTexts()).find(o => /White Vinyl Privacy, 6 ft tall.*No dig/i.test(o))
-  if (!styleLabel) throw new Error('no white vinyl no dig style in the list')
-  await sel.selectOption({ label: styleLabel }); await sleep(500)
+  // Her picker (Nov 2 2026): Material > Style > Height > Color; the width and install are worked out for her.
+  await pickFence(S.page, 'vinyl', { style: 'privacy', height: '6', color: 'white' })
   await tap(S, S.page.locator('[data-quote-builder] [data-step="price"]')); await sleep(800)
   await tap(S, S.page.locator('[data-quote-bar] [data-save-open], [data-save-open]').first())
   await tap(S, S.page.locator('[data-save-submit]'))
@@ -399,10 +397,8 @@ try {
   for (const k of ['1', '8', '0']) await tap(S, S.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
   await tap(S, S.page.locator('[data-ftin-pad] [data-pad-done]'))
   await tap(S, S.page.locator('[data-step="style"]'))
-  const sel2 = S.page.locator('[data-quote-builder] [data-style-list], [data-quote-builder] select:has(option:text-is("Select a fence style"))').first()
-  await sel2.waitFor({ timeout: 15000 })
-  const style2 = (await sel2.locator('option').allInnerTexts()).find(o => /White Vinyl Privacy, 6 ft tall.*No dig/i.test(o))
-  await sel2.selectOption({ label: style2 }); await sleep(500)
+  // Her picker (Nov 2 2026): Material > Style > Height > Color; the width and install are worked out for her.
+  await pickFence(S.page, 'vinyl', { style: 'privacy', height: '6', color: 'white' })
   for (let i = 0; i < 6 && !(await S.page.locator('[data-quote-bar] [data-save-open]').count()); i++) await tap(S, S.page.locator('[data-quote-bar] [data-bar-next]'))
   await tap(S, S.page.locator('[data-quote-bar] [data-save-open]'))
   await tap(S, S.page.locator('[data-save-submit]'))
