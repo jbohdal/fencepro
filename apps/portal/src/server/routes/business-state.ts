@@ -38,6 +38,7 @@ import { salesScopeOf, salesScope, forgetScope, type SalesScope } from '../lib/s
 import { salesBusinessView, salesBusinessPatch, businessHanded, OutsideScopeError } from '../lib/salesScopeRecords.js'
 import { handedOut, handedOutHad, handedAt, afterOwnSave, NOTHING, type Had } from '../lib/salesServed.js'
 import { businessPart } from '../lib/pricingStamp.js'
+import { pricingModule } from '../lib/estimates.js'
 import { overheadNowFor, liveOverheadPctFor, forgetOverheadNow } from '../lib/liveOverhead.js'
 
 const router = Router()
@@ -194,6 +195,17 @@ router.patch('/', async (req: any, res) => {
     }
     const refused = businessPatchRefusal(roleOf(req), req.user.id ?? null, saved as any, updateData)
     if (refused) { refuse(res, refused, { data: leanState(saved, omit), version: saved?.version ?? 0 }); return }
+    // A Target Margin (Overhead % + Target Profit %) over the most allowed is never saved (web targetMargin.ts
+    // MAX_TARGET_MARGIN_PCT): 80% profit read 110% and priced lower (review Nov 2 2026). One already over is left to fix.
+    if (updateData.config !== undefined) {
+      const m = await pricingModule()
+      const before = new Set(m.overMaxTargetMargin((saved as any)?.config ?? null))
+      const added = m.overMaxTargetMargin(updateData.config).filter(n => !before.has(n))
+      if (added.length) {
+        res.status(400).json({ success: false, code: 'TARGET_MARGIN_TOO_HIGH', error: `Target Margin (Overhead % + Target Profit %) can be at most 80%. Lower the Target Profit for ${added.slice(0, 3).join('; ')}${added.length > 3 ? ` and ${added.length - 3} more` : ''}. Not saved.` })
+        return
+      }
+    }
     // One version covers the whole record, so a patch built on an older copy
     // is refused even when it touches a different field; the browser merges.
     // Payments recorded in Billing become "payment received" automation events, saved in the same step.

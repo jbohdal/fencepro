@@ -19,7 +19,7 @@ import { isQuotable } from './styleAvailability'
 import { calculateQuote } from './quoteCalc'
 import { resolveSubGateRate, resolveSubRate } from './pricingEngine'
 import { DEFAULT_CONFIG } from './configDefaults'
-import { followedRates, ownRate, ownsProfit, materialRate, optionRate, type RateKey } from './fenceRates'
+import { followedRates, ownRate, materialRate, optionRate, type RateKey } from './fenceRates'
 
 /** The fences as the quote builder would read them with this draft (at the Overhead % in use): holds, what each follows, Target Margins. */
 export function draftView(cfg: AppConfig, overheadPct: number): AppConfig {
@@ -128,14 +128,14 @@ const pos = (v: unknown): number | undefined => (typeof v === 'number' && Number
 /** A fence's Target Profit %, and where it comes from. `s`: resolved (draftView). */
 export function profitShown(s: FenceStyle, m: MaterialDef | undefined): RateShown {
   const sc = styleChoicesOf(s)
-  const above = followedRates(m, sc?.choices)  // with the color's
-  const top = above.targetProfitPct
-  const own = ownsProfit(s)
-  const value = own ? s.targetProfitPct! : top ? top.value : s.targetProfitPct ?? 0
+  const top = followedRates(m, sc?.choices).targetProfitPct  // with the color's
+  const own = ownRate(s, 'targetProfitPct')
+  const saved = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct) ? s.targetProfitPct : undefined
   return {
-    value, own,
-    from: own ? 'Own number' : top ? top.from : 'Set on this fence',
-    reset: top ? { value: top.value, from: top.from } : null,
+    value: own ?? top?.value ?? saved ?? 0, own: own !== undefined,
+    from: own !== undefined ? 'Own number' : top ? top.from : 'Saved on this fence',
+    // Reset goes back to the number above it, or (nothing above) the one saved on the fence.
+    reset: top ? { value: top.value, from: top.from } : own !== undefined && saved !== undefined ? { value: saved, from: 'saved on this fence' } : null,
   }
 }
 
@@ -168,18 +168,29 @@ export function levelRate(m: MaterialDef, dim: ChoiceDim | null, key: RateKey, o
 
 // ── The live example ─────────────────────────────────────────────────────────
 
-/** Cost and price of 100 ft of this fence, one straight run with two end posts, no gates, no Salesman, in cents; null when it cannot be priced. */
-export function example100ft(s: FenceStyle | undefined, cfg: Pick<AppConfig, 'pricing' | 'railOptimizer'>): { costCents: number; priceCents: number; marginPct: number } | null {
+/** What the 100 ft example is: in its label too. */
+export const EXAMPLE_WORDS = '100 ft with 1 walk gate (one run, 2 end posts)'
+
+/** The 100 ft example: its cost and price in cents, or why the fence cannot be quoted. */
+export type Example = { costCents: number; priceCents: number; marginPct: number } | { cannot: string }
+
+/**
+ * Cost and price of 100 ft of this fence with one walk gate (so a gate rate
+ * shows), one straight run with two end posts, no Salesman. A fence that
+ * cannot be quoted is never priced here: it says why. Null when no fence.
+ */
+export function example100ft(s: FenceStyle | undefined, cfg: Pick<AppConfig, 'pricing' | 'railOptimizer'>): Example | null {
   if (!s) return null
+  if (!isQuotable(s)) return { cannot: s.held || (s.quotable === false || s.isActive === false ? 'it is switched off' : 'it is not available for quoting') }
   try {
     const c = calculateQuote({
-      style: s, runs: [{ ft: 100, rail: 'auto' }], corners: 0, ends: 2, walkGates: 0, dblGates: 0,
+      style: s, runs: [{ ft: 100, rail: 'auto' }], corners: 0, ends: 2, walkGates: 1, dblGates: 0,
       tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0,
       pricing: cfg.pricing, optimizer: cfg.railOptimizer ?? DEFAULT_CONFIG.railOptimizer!,
     })
-    if (!(c.materialCost > 0) || !(c.priced.price > 0)) return null
+    if (!(c.materialCost > 0) || !(c.priced.price > 0)) return { cannot: c.priced.notes[0] ?? 'its parts have no prices yet' }
     return { costCents: Math.round(c.priced.totalCOGS * 100), priceCents: Math.round(c.priced.price * 100), marginPct: Math.round((1 - s.margin) * 1000) / 10 }
-  } catch { return null }
+  } catch { return { cannot: 'it could not be priced' } }
 }
 
 /** The fences of a material, resolved, by material key. */

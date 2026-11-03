@@ -9,6 +9,13 @@ import { woodFactorOf } from './wood'
 import { ownsProfit } from './fenceRates'
 
 export const DEFAULT_OVERHEAD_PCT = 30
+/**
+ * The most a Target Margin (Overhead % + Target Profit %) may be (review Nov 2
+ * 2026: 80% profit on vinyl read 110% and priced lower; 69% priced about 100
+ * times cost). Settings refuses more; a fence over it is not available for
+ * quoting until it is lowered.
+ */
+export const MAX_TARGET_MARGIN_PCT = 80
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 export function typedOverheadPct(cfg: Pick<AppConfig, 'pricing'>): number {
@@ -28,13 +35,17 @@ export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceSt
     const saved = typeof s.targetProfitPct === 'number' && Number.isFinite(s.targetProfitPct)
       ? s.targetProfitPct
       : round2((1 - (s.margin || 0.64)) * 100 - typed)
-    // Its own number (set on the fence) wins; else the one its choices or material set (fenceRates.ts), else the one saved on it.
+    // Its own number (set on the fence) wins; else its color's; else the one its choices or material set
+    // (fenceRates.ts); else the one saved on it. The saved one is kept as it is (clearing a number above gives it back).
     const own = ownsProfit(s)
     const above = s.followed?.targetProfitPct?.value
-    const profit = own ? saved : typeof above === 'number' && Number.isFinite(above) ? above : saved
-    // A color with its own Target Profit % (Settings → Fence styles) earns that instead, unless the fence has its own.
-    const earn = !own && typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct : profit
-    return { ...s, targetProfitPct: profit, margin: (100 - overhead - earn) / 100 }
+    const earn = own ? s.ownProfitPct!
+      : typeof s.colorTargetProfitPct === 'number' && Number.isFinite(s.colorTargetProfitPct) ? s.colorTargetProfitPct
+        : typeof above === 'number' && Number.isFinite(above) ? above : saved
+    const margin = (100 - overhead - earn) / 100
+    const tm = round2(overhead + earn)
+    const over = tm > MAX_TARGET_MARGIN_PCT ? `its Target Margin ${tm}% is over ${MAX_TARGET_MARGIN_PCT}%: lower its Target Profit in Settings → Fence styles` : ''
+    return { ...s, targetProfitPct: saved, margin, ...(over ? { held: s.held ? `${s.held}; ${over}` : over } : {}) }
   })
   // Wood's install labor (and its moves and repairs) come from its white vinyl style × the Wood factor (wood.ts): that style as read, and the factor.
   const factor = woodFactorOf(cfg)
@@ -44,6 +55,20 @@ export function withTargetMargins<C extends Pick<AppConfig, 'pricing' | 'fenceSt
     return base ? { ...s, woodBase: base, woodFactor: factor } : s
   })
   return { ...cfg, pricing: { ...cfg.pricing, overheadPct: typed }, fenceStyles }
+}
+
+/** The Target Profit a fence earns (its own, its color's, the one it follows, the one saved on it), as the price reads it. */
+export function earnedProfitPct(s: Pick<FenceStyle, 'ownProfitPct' | 'colorTargetProfitPct' | 'followed' | 'targetProfitPct'>): number | undefined {
+  const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+  if (ownsProfit(s)) return s.ownProfitPct
+  if (ok(s.colorTargetProfitPct)) return s.colorTargetProfitPct
+  if (ok(s.followed?.targetProfitPct?.value)) return s.followed!.targetProfitPct!.value
+  return ok(s.targetProfitPct) ? s.targetProfitPct : undefined
+}
+
+/** The highest Target Profit % that keeps the Target Margin within MAX_TARGET_MARGIN_PCT at this overhead. */
+export function maxProfitPct(overheadPct: number): number {
+  return Math.max(0, round2(MAX_TARGET_MARGIN_PCT - overheadPct))
 }
 
 /** A style's Target Margin as a percent (44 for 44%). */

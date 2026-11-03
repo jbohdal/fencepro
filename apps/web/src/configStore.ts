@@ -41,8 +41,8 @@ export interface FenceStyle {
   /** Subcontractor pay per walk gate and per double gate for this style. Blank follows, as subRate. */
   subWalkGate?: number
   subDblGate?: number
-  /** Its Target Profit % is its own (set on this fence), not the one its choices or material set. */
-  ownProfit?: boolean
+  /** Its own Target Profit % (set on this fence; wins over its color, choices and material). Blank: it follows them. */
+  ownProfitPct?: number
   /** Customer price per foot for this style, used when a quote is priced
    *  per foot instead of from cost. */
   pricePerFoot?: number
