@@ -245,6 +245,8 @@ export interface PricingSettings {
   subDblGate?: number
   subTearOutSection?: number
   subTearOutGate?: number
+  /** Dollars per extra hour on a Subcontractor quote; blank: the man hour rate (as pricingEngine.extraHourRate). */
+  subExtraHourRate?: number
 }
 
 export interface StyleForRate {
@@ -310,13 +312,13 @@ export function quotedCostOf(q: QuoteForSnapshot, ctx: {
     lines,
     labor: {
       mode: laborMode, subUnit, subUnits, subRateCostCents, hourlyCostCents: toCents(ctx.pricing.manHourRate),
-      // The gates (and tear out, extra hours) the sub is paid for besides the sections, as priced.
+      // The gates (and tear out, extra hours at the sub extra labor rate, else the man hour rate) the sub is paid for besides the sections, as priced.
       // Settings' rate past what the quote priced (Jack Chappell: 164 ft at $4 on $458 of labor priced per section): the sub is still paid for the gates.
       ...(laborMode === 'sub' ? { subOtherCents: Math.min(
         laborCents < Math.round(subUnits * subRateCostCents) ? Number.MAX_SAFE_INTEGER : laborCents - Math.round(subUnits * subRateCostCents),
         toCents(num(q.walkGates) * subGateRateFor(ctx.style, ctx.pricing, 'walk') + num(q.dblGates) * subGateRateFor(ctx.style, ctx.pricing, 'dbl')
           + num(q.tearOutSections) * num(ctx.pricing.subTearOutSection) + num(q.tearOutGates) * num(ctx.pricing.subTearOutGate)
-          + num(q.adjLaborHrs) * num(ctx.pricing.manHourRate)),
+          + num(q.adjLaborHrs) * (pos(ctx.pricing.subExtraHourRate) ?? num(ctx.pricing.manHourRate))),
       ) } : {}),
     },
   }
