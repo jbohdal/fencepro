@@ -3,6 +3,13 @@
 Jonathan's rulings on fence rules where the EZ-Quote sheet (TAKEOFF_RULES.md) and the app disagreed,
 or where the sheet was wrong. Newest first. TAKEOFF_RULES.md carries the same correction on its row.
 
+## 2026-11-03: commission is pay only; the sale stays with the seller of record
+
+- **Asked:** "When you hand the commission to someone else, should that sale's revenue and close rate in Reports go with it? It does now." **Jonathan:** "No. Revenue and close rate stay with the seller of record. Commission is pay only."
+  - Replaces "the sale goes with its commission" below. The owner's hand edit never changes the seller (pricing.soldBy); handing it to someone else writes pricing.commissionTo (absent: the seller; handed back to the seller, it is taken off).
+  - The seller of record: Sales by rep (quotes, sold, close rate, revenue, avg deal, margin, the Revenue by Rep chart), job costing's By salesman and the Salesman's own totals. Who is paid it: the Commission figure in Sales by rep (a person paid on a sale they did not make gets a line with that commission and no quotes, close rate "—"), the quote window's commission line, the Operations job window's Commission box and a later move's words. There is no payroll or commission pay report in the app; Sales by rep's Commission is the pay figure.
+  - A Salesman's phone never gets who the commission was handed to (lib/costRedact.ts), as it never gets the hand-typed figure.
+
 ## 2026-11-02: commission stays with whoever sold it when a signed job is moved
 
 - **Jonathan:** "COMMISSION STAYS with whoever sold it when a signed job is moved. Owner can edit it by hand."

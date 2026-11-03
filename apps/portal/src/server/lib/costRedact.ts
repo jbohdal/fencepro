@@ -269,7 +269,8 @@ export function staffRoleOf(req: any): string | null {
  */
 /**
  * A Salesman sees costs but no commission: the owner's hand-typed commission (pricing.commissionHandCents,
- * lib/soldBy.ts) goes to her phone only as "set by hand" (commissionByHand), in every answer.
+ * lib/soldBy.ts) goes to her phone only as "set by hand" (commissionByHand), in every answer, and who the owner
+ * handed a commission to (pricing.commissionTo) not at all.
  */
 export function withoutHandCommission(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(withoutHandCommission)
@@ -277,6 +278,7 @@ export function withoutHandCommission(v: unknown): unknown {
   const out: Record<string, unknown> = {}
   for (const [k, x] of Object.entries(v)) {
     if (k === 'commissionHandCents') { out.commissionByHand = true; continue }
+    if (k === 'commissionTo') continue
     out[k] = withoutHandCommission(x)
   }
   return out
