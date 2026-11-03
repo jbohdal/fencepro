@@ -99,6 +99,15 @@ describe('frozen on the proposal', () => {
     expect(again.warranty).toBe(ONE_YEAR_TEXT)
   })
 
+  test('sent saying "panels", saved today saying "sections": the same options, kept as sent', () => {
+    const named = (words: string) => ({ ...gbb(), warranty: ONE_YEAR_TEXT, options: gbb().options.map(o => ({ ...o, label: `White Vinyl Privacy, 6 ft tall, ${words}` })) })
+    const again = stampWarranties(named('6 ft or 8 ft sections (best price), No dig'), S, styleOf, named('6 or 8 ft panels (best price), No dig'), true)
+    expect(again.options.every((o: any) => o.warranty === undefined)).toBe(true)
+    expect(again.warranty).toBe(ONE_YEAR_TEXT)
+    const eight = stampWarranties(named('8 ft sections'), S, styleOf, named('8 ft panels'), true)
+    expect(eight.options.every((o: any) => o.warranty === undefined)).toBe(true)
+  })
+
   test('the signed option: the accepted one, else the quote\'s own style, else the old block of words', () => {
     const p = stampWarranties(gbb(), S, styleOf, null, false)
     expect(signedOptionWarranty({ proposal: p, chosenOption: 1 })!.warranty.name).toBe('Lifetime Craftsmanship Warranty')

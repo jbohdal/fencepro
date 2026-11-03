@@ -170,8 +170,13 @@ export function warrantyForStyle(settings: WarrantySettings, style: StyleLike | 
 // ── Stamping a proposal ──────────────────────────────────────────────────────
 
 type Json = any
-/** How an option is matched with the same option saved before (as lib/quotePricing.ts). */
-export const optionKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.label ?? ''}`
+/**
+ * How an option is matched with the same option saved before (as lib/quotePricing.ts). Its name is read in today's
+ * words: a proposal sent before Nov 3 2026 says "8 ft panels" and "6 or 8 ft panels", the same option today says
+ * "8 ft sections" and "6 ft or 8 ft sections" (fenceCatalog.ts sectionWords), and is still the option that went out.
+ */
+const sameWords = (label: unknown) => String(label ?? '').replace(/(\d+ ft) panels\b/g, '$1 sections').replace(/\b(\d+) or (\d+) ft sections\b/g, '$1 ft or $2 ft sections')
+export const optionKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${sameWords(o?.label)}`
 
 /**
  * Each option's warranty on a proposal being saved.

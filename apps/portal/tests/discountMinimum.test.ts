@@ -70,6 +70,11 @@ describe('new or lower than saved', () => {
     expect(newlyUnderMinimum(saved, saved, MIN)).toEqual([])
   })
 
+  test('an old card that said "panels" and now says "sections" is the same card: left alone', () => {
+    const card = (label: string) => ({ fenceStyle: 'A', finalPrice: 900, proposal: { options: [{ fenceStyle: 'B', label, finalPrice: 320 }] } })
+    expect(newlyUnderMinimum(card('White Vinyl Privacy, 6 ft tall, 6 ft or 8 ft sections (best price), No dig'), card('White Vinyl Privacy, 6 ft tall, 6 or 8 ft panels (best price), No dig'), MIN)).toEqual([])
+  })
+
   test('a smaller discount on it: left alone; a bigger one: held', () => {
     expect(newlyUnderMinimum({ ...saved, finalPrice: 310, proposal: { options: [option('A', 310), option('B', 330)] } }, saved, MIN)).toEqual([])
     expect(newlyUnderMinimum({ ...saved, finalPrice: 290, proposal: { options: [option('A', 290), option('B', 320)] } }, saved, MIN).map(u => u.priceCents)).toEqual([29000])

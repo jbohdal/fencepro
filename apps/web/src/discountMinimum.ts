@@ -32,7 +32,8 @@ export interface UnderMinimum {
 
 const OWN_KEY = '(quote)'
 const cents = (dollars: unknown): number => (typeof dollars === 'number' && Number.isFinite(dollars) ? Math.round(dollars * 100) : 0)
-const optionKey = (o: MinimumOption) => `${o.fenceStyle ?? ''}|${o.label ?? ''}`
+// Its name in today's words (sentReprice.ts plainFence): an option sent saying "panels" is the same option saying "sections".
+const optionKey = (o: MinimumOption) => `${o.fenceStyle ?? ''}|${plainFence(o.label)}`
 const optionsOf = (q: MinimumQuote): MinimumOption[] => (Array.isArray(q.proposal?.options) ? q.proposal!.options! : [])
 
 /**
