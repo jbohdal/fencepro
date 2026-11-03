@@ -548,9 +548,9 @@ export default function QuoteBuilder({
   const oldPrice = importedOldPrice(init as any)
   const keepOldPrice = oldPrice != null && init?.status === 'SOLD'
   const initPricing: QuotePricingOverrides = oldPrice != null && !keepOldPrice ? {} : (init?.pricing ?? {})
-  // An unsent draft whose Target Margin came from Settings takes its fence's Target Profit today (draftMargin.ts),
-  // at the Overhead % it was saved with; worked out once, when it is opened, and said on screen (draftLine).
-  const [draftMargin] = useState(() => (init?.id && oldPrice == null ? draftMarginNow(init as Parameters<typeof draftMarginNow>[0], cfg.fenceStyles.find(s => s.name === init.fenceStyle)) : null))
+  // An unsent draft whose Target Margin came from Settings takes its fence's Target Profit and today's Overhead %
+  // (draftMargin.ts); worked out once, when it is opened, and said on screen (draftLine).
+  const [draftMargin] = useState(() => (init?.id && oldPrice == null ? draftMarginNow(init as Parameters<typeof draftMarginNow>[0], cfg.fenceStyles.find(s => s.name === init.fenceStyle), overheadPctOf(cfg)) : null))
 
   const [customerName, setCustomerName] = useState(init?.customerName ?? '')
   // A customer on file picked at the Customer name step (audit #44): Save puts the quote on them, never a second copy.
@@ -912,7 +912,7 @@ export default function QuoteBuilder({
     setEntry('advanced')
   }
   // Overhead % this quote is priced at (kept with it, so "where every dollar goes" does not move later).
-  const overheadNow = typeof initPricing.overheadPct === 'number' && init?.id ? initPricing.overheadPct : overheadPctOf(cfg)
+  const overheadNow = draftMargin ? draftMargin.overheadPct : typeof initPricing.overheadPct === 'number' && init?.id ? initPricing.overheadPct : overheadPctOf(cfg)
   // ── Move or repair: priced by moveRepair.ts from the same style, Settings and kits ──
   const newLine = { runs: effRuns.map(r => r.ft), corners: effCorners, ends: effEnds, walkGates: effWalk, dblGates: effDbl }
   const workCommon = style ? { style, pricing: cfg.pricing, overrides: pricingOverrides, settings: mr, overheadPct: overheadNow, hasSalesman, priceAdjust, extraLaborHrs: parseFloat(adjLaborHrs) || 0 } : null

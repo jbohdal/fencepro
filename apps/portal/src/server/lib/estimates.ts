@@ -78,8 +78,8 @@ interface EstimateModule {
   followedRatesByStyle(config: unknown): Record<string, any>
   /** web/src/estimate.ts: fences whose Target Margin is over the most allowed, by plain name. */
   overMaxTargetMargin(config: unknown): string[]
-  /** web/src/estimate.ts: an unsent draft's cost factor at today's Target Profit (draftMargin.ts), or null. */
-  draftMarginFor(config: unknown, quote: unknown): { costFactor: number; profitPct: number; wasProfitPct: number; overheadPct: number } | null
+  /** web/src/estimate.ts: an unsent draft's cost factor and Overhead % at today's Target Profit and overhead (draftMargin.ts), or null. */
+  draftMarginFor(config: unknown, quote: unknown): { costFactor: number; profitPct: number; wasProfitPct: number; overheadPct: number; wasOverheadPct: number } | null
   onHoldStyles(config: unknown): { styles: Array<{ name: string; category: string }>; phone: string }
   styleLabels(config: unknown, data?: unknown): Record<string, string>
   planWood(state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }): { state: { fenceStyles: unknown[]; fenceCatalog?: unknown; items: unknown[]; kits: unknown[] }; styles: string[]; items: string[]; kits: string[]; catalog: boolean }

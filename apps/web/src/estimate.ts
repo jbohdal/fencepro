@@ -192,12 +192,13 @@ export function overMaxTargetMargin(saved: Partial<AppConfig> | null): string[] 
 
 /**
  * An unsent draft whose Target Margin came from Settings, opened again: the
- * cost factor at its fence's Target Profit today (draftMargin.ts), or null.
+ * cost factor at its fence's Target Profit and the Overhead % today (draftMargin.ts), or null.
  * The server prices a Salesman's draft with it (lib/quotePricing.ts).
  */
 export function draftMarginFor(saved: Partial<AppConfig> | null, quote: QuoteForDraft & { fenceStyle?: string | null }): DraftMargin | null {
   if (!quote?.fenceStyle) return null
-  return draftMarginNow(quote, estimateConfig(saved).fenceStyles.find(s => s.name === quote.fenceStyle))
+  const cfg = estimateConfig(saved)
+  return draftMarginNow(quote, cfg.fenceStyles.find(s => s.name === quote.fenceStyle), estimateOverheadPct(cfg))
 }
 
 /** Settings filled in the way the app fills them in, with each style's Target Margin. */

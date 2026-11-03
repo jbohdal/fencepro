@@ -6,8 +6,8 @@
  * A saved quote keeps the cost factor it was priced with (pricing.costFactor:
  * 1 − Target Margin). For a draft that was never sent, shared, viewed, signed
  * or sold, and whose Target Margin came from Settings (not typed on the
- * quote), opening it again prices it at its fence's Target Profit today, with
- * the Overhead % it was saved with (an overhead change is not this rule).
+ * quote), opening it again prices it at its fence's Target Profit and the
+ * Overhead % in use today (Jonathan, Nov 3 2026: "and overhead follows too").
  * The quote builder says so, with the old and new price, before it is saved
  * (QuoteBuilder draftLine). Sub rates already follow Settings on a draft: a
  * quote keeps a sub rate only when one was typed on it.
@@ -81,27 +81,41 @@ export interface DraftMargin {
   costFactor: number
   profitPct: number
   wasProfitPct: number
-  /** Its saved Overhead %, kept. */
+  /** The Overhead % it is priced with now: today's. */
   overheadPct: number
+  /** The Overhead % it was saved with. */
+  wasOverheadPct: number
 }
+
+/** Overheads this close are the same one (a live overhead read back from a saved quote). */
+const sameOverhead = (a: number, b: number) => Math.abs(a - b) < 0.005
 
 /**
  * An unsent draft whose Target Margin came from Settings and whose fence's
- * Target Profit has changed since: the cost factor it takes now. Null: it is
- * priced as saved (sent, signed, a move or repair, a typed margin or price,
- * or nothing changed).
+ * Target Profit, or the Overhead % in use (overheadToday), has changed since:
+ * the cost factor it takes now. Null: it is priced as saved (sent, signed, a
+ * move or repair, a typed margin or price, or nothing changed).
  */
-export function draftMarginNow(q: QuoteForDraft | null | undefined, style: StyleProfit | null | undefined): DraftMargin | null {
+export function draftMarginNow(q: QuoteForDraft | null | undefined, style: StyleProfit | null | undefined, overheadToday?: number): DraftMargin | null {
   if (!q || !isUnsentDraft(q) || q.work) return null
   const p = q.pricing
   if (!p || (p.priceMethod && p.priceMethod !== 'cost_factor')) return null
   const was = factorProfit(p)
   const now = styleEarn(style)
-  if (was === null || now === undefined || now === was) return null
-  return { costFactor: settingsFactor(p.overheadPct!, now), profitPct: now, wasProfitPct: was, overheadPct: p.overheadPct! }
+  if (was === null || now === undefined) return null
+  const wasOverhead = p.overheadPct!
+  const overhead = fin(overheadToday) && !sameOverhead(overheadToday, wasOverhead) ? overheadToday : wasOverhead
+  if (now === was && overhead === wasOverhead) return null
+  return { costFactor: settingsFactor(overhead, now), profitPct: now, wasProfitPct: was, overheadPct: overhead, wasOverheadPct: wasOverhead }
 }
 
-/** What the quote builder says about it: "Target Profit for this fence is now 11% (was 10%) in Settings." */
+const pctText = (n: number) => `${Math.round(n * 10) / 10}%`
+
+/** What the quote builder says about it: "Target Profit for this fence is now 11% (was 10%) in Settings, so …" */
 export function draftMarginWords(d: DraftMargin): string {
-  return `Target Profit for this fence is now ${d.profitPct}% (was ${d.wasProfitPct}%) in Settings, so this unsent draft is priced at the new Target Margin.`
+  const changed = [
+    ...(d.profitPct !== d.wasProfitPct ? [`Target Profit for this fence is now ${d.profitPct}% (was ${d.wasProfitPct}%)`] : []),
+    ...(d.overheadPct !== d.wasOverheadPct ? [`Overhead is now ${pctText(d.overheadPct)} (was ${pctText(d.wasOverheadPct)})`] : []),
+  ]
+  return `${changed.join(' and ')} in Settings, so this unsent draft is priced at the new Target Margin.`
 }

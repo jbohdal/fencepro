@@ -4,7 +4,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { draftMarginNow, factorProfit, legacyProfit, isUnsentDraft, profitRecord, settingsFactor, styleEarn } from '../../web/src/draftMargin'
+import { draftMarginNow, draftMarginWords, factorProfit, legacyProfit, isUnsentDraft, profitRecord, settingsFactor, styleEarn } from '../../web/src/draftMargin'
 
 const draft = (pricing: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ status: 'DRAFT', pricing, ...extra })
 const ds = { targetProfitPct: 11 }
@@ -31,7 +31,23 @@ describe('which quotes follow', () => {
 
 describe('draftMarginNow', () => {
   test('Dig set went from 10% to 11%: the draft takes 11% at its saved overhead', () => {
-    expect(draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), ds)).toEqual({ costFactor: settingsFactor(30, 11), profitPct: 11, wasProfitPct: 10, overheadPct: 30 })
+    expect(draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), ds)).toEqual({ costFactor: settingsFactor(30, 11), profitPct: 11, wasProfitPct: 10, overheadPct: 30, wasOverheadPct: 30 })
+  })
+  test('overhead follows too (Nov 3 2026): 30% then, 25.6% today, the same Target Profit', () => {
+    const d = draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), { targetProfitPct: 10 }, 25.6)
+    expect(d).toEqual({ costFactor: settingsFactor(25.6, 10), profitPct: 10, wasProfitPct: 10, overheadPct: 25.6, wasOverheadPct: 30 })
+    expect(draftMarginWords(d!)).toBe('Overhead is now 25.6% (was 30%) in Settings, so this unsent draft is priced at the new Target Margin.')
+  })
+  test('both changed: both said; a live overhead within a hair of the saved one is the same one', () => {
+    const d = draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), ds, 25.6)
+    expect(draftMarginWords(d!)).toBe('Target Profit for this fence is now 11% (was 10%) and Overhead is now 25.6% (was 30%) in Settings, so this unsent draft is priced at the new Target Margin.')
+    expect(draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), { targetProfitPct: 10 }, 30.001)).toBeNull()
+    expect(draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), ds, 30.001)!.overheadPct).toBe(30)
+  })
+  test('overhead alone moves only a draft that follows: sent, or a typed margin, keeps its own', () => {
+    expect(draftMarginNow({ status: 'SENT', pricing: { costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 } }, { targetProfitPct: 10 }, 25.6)).toBeNull()
+    expect(draftMarginNow(draft({ costFactor: 0.5, overheadPct: 30, targetProfitPct: 10 }), { targetProfitPct: 10 }, 25.6)).toBeNull()
+    expect(draftMarginNow(draft({ costFactor: 0.56, overheadPct: 30 }), { targetProfitPct: 14 }, 25.6)).toBeNull()
   })
   test('nothing changed: priced as saved', () => {
     expect(draftMarginNow(draft({ costFactor: 0.6, overheadPct: 30, targetProfitPct: 10 }), { targetProfitPct: 10 })).toBeNull()
