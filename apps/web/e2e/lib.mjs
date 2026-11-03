@@ -209,3 +209,20 @@ export async function pickStyle(page, styleText) {
   }
   throw new Error(`the Salesman's picker names no fence like ${styleText}`)
 }
+
+/**
+ * The Salesman's picker on the Style step, by keys: the material, then each choice in order
+ * (`{ style: 'privacy', height: '6', color: 'white' }`). A choice with one option is not shown; it is skipped. The
+ * section width and install are hers to never pick (best price, the Better option's install). Returns the fence named.
+ */
+export async function pickFence(page, material, picks = {}) {
+  const simple = page.locator('[data-quote-builder] [data-style-choices-simple]')
+  await simple.waitFor({ timeout: 15000 })
+  await simple.locator(`[data-choice-material="${material}"]`).click(); await sleep(500)
+  for (const [dim, key] of Object.entries(picks)) {
+    const chip = simple.locator(`[data-choice-dim="${dim}"][data-choice-key="${key}"]`)
+    if (await chip.count()) { await chip.first().click(); await sleep(400) }
+  }
+  await simple.locator('[data-style-plain-name]').waitFor({ timeout: 10000 })
+  return (await simple.locator('[data-style-plain-name]').textContent()).trim()
+}
