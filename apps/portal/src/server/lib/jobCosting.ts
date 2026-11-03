@@ -213,7 +213,7 @@ export async function startTakeoff(accountId: string, jobId: string, by: string,
       id: `${id}:q${i}`, key: `q${i}`, part: String(l.item), inventoryItemId: findItemId(s.items, String(l.item)), plannedQty: qty(l.qty), usedQty: qty(l.qty),
       shopReturnQty: 0, vendorReturnQty: 0, extra: false, reason: '', note: '', photoClientId: null,
     }))
-    const mode = ((q?.pricing as any)?.laborMode ?? s.pricing.laborMode) === 'subcontractor' ? 'sub' : 'crew'
+    const mode = ((q?.pricing as any)?.laborMode ?? s.pricing.laborMode ?? 'subcontractor') === 'subcontractor' ? 'sub' : 'crew'
     labor = { mode, subUnit: ((q?.pricing as any)?.subUnit ?? s.pricing.subUnit) === 'foot' ? 'foot' : 'section', subUnits: mode === 'sub' ? job.sections : 0, crew: [] }
   }
   try {
