@@ -202,6 +202,9 @@ try {
       const done = await cp.locator('[data-accepted]').textContent().catch(() => '')
       await shot(cp, `${m.key}-${i++}-customer-signed`, true)
       const after = sql(`select status || '|' || "finalPrice" from "SavedQuote" where id = '${q.id}'`)
+      // Signed on the link: the signed fence's pull sheet is on the customer's file (lib/pullSheetOnFile.ts).
+      const onFile = sql(`select count(*) from "BusinessState", jsonb_array_elements(coalesce("pullSheets", '[]'::jsonb)) e where e->>'quoteId' = '${q.id}' and e->>'linkedBy' like 'customer%'`)
+      check(`${m.label}: signed on the link: its pull sheet is on the customer's file`, onFile === '1', onFile)
       check(`${m.label}: signed at the main price; the contract opens`, /Vinyl/i.test(done) && after.endsWith(`|${Math.round(main)}`) && (await cp.request.get(`${API}/p/${token}/contract.pdf`)).ok(), `${after}; ${done.slice(0, 120)}`)
     }
     check(`${m.label}: customer page, no errors`, errs.length === 0, errs.join('|'))
@@ -254,6 +257,7 @@ try {
     sql(`update "BusinessState" set "pendingOrders" = (select coalesce(jsonb_agg(o), '[]'::jsonb) from jsonb_array_elements("pendingOrders") o where o->>'quoteId' is distinct from '${id}') where "pendingOrders" @> '[{"quoteId": "${id}"}]'`)
     const contact = sql(`select coalesce("crmContactId", '') from "SavedQuote" where id = '${id}'`)
     sql(`delete from "CrmAuditLog" where "entityId" = '${id}'`)
+    sql(`update "BusinessState" set "pullSheets" = (select coalesce(jsonb_agg(e), '[]'::jsonb) from jsonb_array_elements("pullSheets") e where e->>'quoteId' is distinct from '${id}') where "pullSheets" @> '[{"quoteId": "${id}"}]'`)
     sql(`delete from "SavedQuote" where id = '${id}'`)
     if (contact && sql(`select count(*) from "SavedQuote" where "crmContactId" = '${contact}'`) === '0' && /^Picks e2e/.test(sql(`select "firstName" || ' ' || "lastName" from "CrmContact" where id = '${contact}'`))) sql(`delete from "CrmContact" where id = '${contact}'`)
   }
