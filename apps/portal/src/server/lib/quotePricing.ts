@@ -121,12 +121,19 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
   return { req, overheadPct }
 }
 
+/**
+ * The quote builder's request on a saved quote: its saved cost choices were priced for its saved style, so another main
+ * style (Make main, or the style changed) is priced at its own, as its card showed (web quoteJob.ts mainFrom). A change
+ * order keeps the signed quote's choices as before.
+ */
+const mainFrom = (req: Json): Json => (req.keepStyle ? { ...req, mainFrom: req.keepStyle } : req)
+
 /** What the quote builder shows a Salesman or Installer: prices only. */
 export async function quoteViewFor(accountId: string, body: Json, quoteId?: string | null) {
   const m = await pricingModule() as Json
   const existing = quoteId ? await prisma.savedQuote.findFirst({ where: { id: quoteId, accountId } }) : null
   const { req, overheadPct } = requestFrom(body, existing, m.importedOldPrice, m.keepsCents)
-  const job = m.quoteJobFor(await dataFor(accountId), req, overheadPct)
+  const job = m.quoteJobFor(await dataFor(accountId), mainFrom(req), overheadPct)
   return m.quoteView(job)
 }
 
@@ -140,7 +147,7 @@ const optKey = (o: Json) => `${o?.fenceStyle ?? ''}|${o?.tier?.key ?? ''}|${o?.l
 export async function withServerCosts(accountId: string, body: Json, existing: Json | null): Promise<Json> {
   const m = await pricingModule() as Json
   const { req, overheadPct } = requestFrom(body.priceRequest, existing, m.importedOldPrice, m.keepsCents)
-  const job = m.quoteJobFor(await dataFor(accountId), req, overheadPct)
+  const job = m.quoteJobFor(await dataFor(accountId), mainFrom(req), overheadPct)
   const out: Json = { ...body }
   delete out.priceRequest
   const t = job.totals

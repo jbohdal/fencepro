@@ -62,7 +62,7 @@ import {
   REPAIR_ITEMS, chargedRepairItems, repairLines, oldPostsMethod, oldPostsCheck, type MoveDraft, type RepairDraft, type JobType, type MoveInputs, type RepairInputs, type PostType, type WorkResult,
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
-import { workOption, buildWorkProposal } from './proposal'
+import { workOption, buildWorkProposal, pricingForMain, type MainPricingKey } from './proposal'
 import { signedInRole, can } from './permissions'
 import { sendJson } from './syncHttp'
 import { jobMinimumCents, newlyUnderMinimum, underMinimumWarning, type MinimumOption } from './discountMinimum'
@@ -1058,8 +1058,14 @@ export default function QuoteBuilder({
     const s = FENCE_STYLES.find(x => x.name === name)
     if (!s) return
     if (mixed || name !== t.style?.name) setTierPrefs(p => pinnedForMain(p, tiers, t.spec.key, name, tierSet?.category ?? String(style?.category ?? ''), style?.name, mainCard))
+    // Priced as its card showed: the old main's margin, final price and other material's labor stay with the old main (proposal.ts pricingForMain).
+    const next = pricingForMain({ costFactor: factorStr, finalPrice: finalPriceStr, laborCost: laborFlatStr, subRate: subRateStr, pricePerFoot: perFootStr }, mainKept.current, style, s, '')
+    mainKept.current = next.kept
+    setFactorStr(next.typed.costFactor); setFinalPriceStr(next.typed.finalPrice); setLaborFlatStr(next.typed.laborCost); setSubRateStr(next.typed.subRate); setPerFootStr(next.typed.pricePerFoot)
     setStyleId(s.id)
   }
+  // Each former main option's own typed pricing choices, by style name, for Make main back.
+  const mainKept = useRef<Record<string, Record<MainPricingKey, string>>>({})
   const removeAdded = (key: TierKey) => setTierPrefs(p => {
     const swap = { ...p.swap }; delete swap[key]
     const added = (p.added ?? []).filter(a => a.key !== key)

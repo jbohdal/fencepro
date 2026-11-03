@@ -206,6 +206,45 @@ function otherMaterial(own: Pick<QuoteStyle, 'category'> | undefined, style: Pic
   return !!own && String(own.category ?? '').trim().toLowerCase() !== String(style.category ?? '').trim().toLowerCase()
 }
 
+/** The quote's own pricing choices Make main takes off when the main option becomes `to` (from `from`). */
+export type MainPricingKey = 'costFactor' | 'finalPrice' | 'laborCost' | 'subRate' | 'pricePerFoot'
+
+/**
+ * Make main prices the new main option exactly as its card showed (optionOverrides): the old main's cost factor and
+ * typed final price are not its, nor labor, a sub rate or a per foot price set for another material. Review Nov 2
+ * 2026: a saved vinyl draft's aluminum card read $15,250 and Make main priced it $15,755 at vinyl's 0.604. The ±
+ * dollar adjustment is not here: it moves to the new main.
+ */
+export function mainPricingCleared(from: Pick<QuoteStyle, 'name' | 'category'> | undefined, to: Pick<QuoteStyle, 'name' | 'category'>): MainPricingKey[] {
+  if (!from || from.name === to.name) return []
+  return ['costFactor', 'finalPrice', ...(otherMaterial(from, to) ? ['laborCost', 'subRate', 'pricePerFoot'] as const : [])]
+}
+
+/**
+ * Make main on the quote builder: the choices the old main had are kept with its style (so Make main back prices it as
+ * it was, a margin typed by hand included), and the new main takes its own kept ones, or none (its card's price).
+ */
+export function pricingForMain<V>(typed: Record<MainPricingKey, V>, kept: Record<string, Record<MainPricingKey, V>>, from: Pick<QuoteStyle, 'name' | 'category'> | undefined, to: Pick<QuoteStyle, 'name' | 'category'>, blank: V): { typed: Record<MainPricingKey, V>; kept: Record<string, Record<MainPricingKey, V>> } {
+  const cleared = mainPricingCleared(from, to)
+  if (!from || !cleared.length) return { typed, kept }
+  const next = { ...kept, [from.name]: typed }
+  const back = kept[to.name]
+  if (back) return { typed: back, kept: next }
+  const out = { ...typed }
+  for (const k of cleared) out[k] = blank
+  return { typed: out, kept: next }
+}
+
+/** A saved quote's own cost choices (lib/quotePricing.ts) with its main option now `to`: the old main's left off (mainPricingCleared). */
+export function costChoicesForMain<O extends Partial<Record<MainPricingKey, unknown>>>(overrides: O, from: Pick<QuoteStyle, 'name' | 'category'> | undefined, to: Pick<QuoteStyle, 'name' | 'category'> | undefined): O {
+  if (!to) return overrides
+  const cleared = mainPricingCleared(from, to).filter(k => k === 'costFactor' || k === 'laborCost' || k === 'subRate')
+  if (!cleared.length || !cleared.some(k => overrides[k] !== undefined)) return overrides
+  const out = { ...overrides }
+  for (const k of cleared) delete out[k]
+  return out
+}
+
 /** A tee's post by how the quote's style counted it, moved to how `style` posts it. */
 function teePosts(input: QuoteCalcInput, style: QuoteStyle): { corners: number; ends: number; extraLinePosts: number } | null {
   const tees = input.tees ?? 0

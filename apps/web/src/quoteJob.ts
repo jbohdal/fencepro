@@ -14,7 +14,7 @@ import { totalMaterialCost, type GateWidths, type LineItem } from './materialCal
 import { gateWidthsOf, type YardLayout } from './yardLayout'
 import { resolveTiers, tierOptions, ownTierKey, twinTierKey, optionCard, type OptionCard, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
 import { warrantySettingsOf } from './warranties'
-import { compareStyles, priceOption, workOption, gateWarnings, withoutAdjustment, type ProposalOption } from './proposal'
+import { compareStyles, priceOption, workOption, gateWarnings, withoutAdjustment, costChoicesForMain, type ProposalOption } from './proposal'
 import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
   type JobType, type MoveInputs, type RepairInputs, type SavedWork, type WorkResult,
@@ -61,6 +61,8 @@ export interface QuoteJobRequest {
   photoIds?: Record<string, string>
   /** The style the saved quote already has: kept in the list even when it is not available for new quotes. */
   keepStyle?: string | null
+  /** The quote builder on a saved quote (lib/quotePricing.ts): the style its saved cost choices were priced for. Another main style leaves them off (proposal.ts costChoicesForMain), so Make main prices it as its card showed. */
+  mainFrom?: string | null
   /** The phone's word that a quote keeping its cents (sent or signed before the whole dollar rule) is unchanged: false once it is changed. The server decides from the saved quote (lib/quotePricing.ts). */
   keepCents?: boolean
   /** A signed quote being changed: the work a change order starts from, so changePrice is priced too. Changes nothing else. */
@@ -136,6 +138,7 @@ export function quoteStyles(cfg: AppConfig, keep?: string | null): FenceStyle[] 
 export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct: number, tierSets?: Array<Pick<TierSet, 'category' | 'tiers'>> | null): QuoteJob {
   const styles = quoteStyles(cfg, req.keepStyle ?? req.fenceStyle)
   const style = styles.find(s => s.name === req.fenceStyle)
+  if (req.mainFrom && req.mainFrom !== req.fenceStyle) req = { ...req, overrides: costChoicesForMain(req.overrides, cfg.fenceStyles.find(s => s.name === req.mainFrom), style) }
   const calcInput: QuoteCalcInput = {
     style, runs: req.runs, corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates,
     gateWidths: req.gateWidths ?? gateWidthsOf(req.yard),
