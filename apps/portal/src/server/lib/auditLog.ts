@@ -45,6 +45,8 @@ export type AuditAction =
   | 'merge_undone'
   /** A quote saved by an older app without a price stamp (lib/quotePriceCheck.ts). */
   | 'price_check'
+  /** The owner saved a price under the minimum job price (lib/discountMinimum.ts). */
+  | 'discount_override'
 
 export interface AuditOptions {
   oldValues?: unknown

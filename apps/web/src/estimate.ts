@@ -59,6 +59,8 @@ export { stampTerms, proposalTerms, frozenTerms, companyAddressOf, termsAsAsked 
 // Which proposal options are shown and which starts selected (server routes/proposal.ts).
 export { sameFenceAs, shownOptions, startingOption, ownTierFold, proposalFold, ownTierToStamp, proposalStamp, addsPastLimit } from './proposalOptions'
 export { optionBlocks } from './proposal'
+// A discount under the minimum job price: the server asks the quote builder's own question (portal lib/discountMinimum.ts).
+export { jobMinimumCents, newlyUnderMinimum, underMinimumWarning } from './discountMinimum'
 // What a save would change on a sent proposal's cards (server routes/saved-quotes.ts refuses it unless chosen).
 export { proposalPriceChanges } from './sentReprice'
 // Warranties per option (server lib/warranties.ts).

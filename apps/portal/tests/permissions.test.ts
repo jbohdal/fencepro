@@ -27,8 +27,8 @@ describe('the role table', () => {
   })
 
   test('owner and admin: everything; manager: all but users, system, deleting (Archive instead), the lists (pipeline stages, lead sources, tags) and billing amounts', () => {
-    for (const a of ACTIONS) { expect(can('super_admin', a)).toBe(true); expect(can('admin', a)).toBe(true) }
-    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change', 'billing.amounts'].includes(a))
+    for (const a of ACTIONS) { expect(can('super_admin', a)).toBe(true); expect(can('admin', a)).toBe(a !== 'quotes.underMinimum') }
+    for (const a of ACTIONS) expect(can('manager', a)).toBe(!['users.manage', 'system', 'records.delete', 'lists.change', 'billing.amounts', 'quotes.underMinimum'].includes(a))
   })
 
   test('salesman: quotes, payments, costs and prices; crew: nothing, not even prices; office: operations, costs and warranty decisions', () => {

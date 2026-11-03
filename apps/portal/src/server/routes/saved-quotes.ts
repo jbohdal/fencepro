@@ -36,7 +36,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { repForSave, repName } from '../lib/salesRep.js'
 import { samePerson } from '../lib/quotesFollowCustomer.js'
 import { salesmanMoveRoute } from '../lib/salesmanMove.js'
-import { requireCan, roleOf } from '../lib/permissions.js'
+import { can, requireCan, roleOf } from '../lib/permissions.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { withServerCosts, keepSavedCosts } from '../lib/quotePricing.js'
 import { commissionSettings, hasCommissionFigures, ruleLogins, saveTakesCommissionOff, withCommission, withoutCommission } from '../lib/commissionRule.js'
@@ -58,6 +58,7 @@ import { slimQuote, withHeavyParts } from '../lib/quoteSlim.js'
 import { optionSeen } from '../lib/optionSeen.js'
 import { customerProposal } from '../lib/customerProposal.js'
 import { checkQuotePrices, refusePrices, priceCheckAudit, quoteChangedSince, overOptionLimit } from '../lib/quotePriceCheck.js'
+import { checkDiscountMinimum, minimumOverrideAudit } from '../lib/discountMinimum.js'
 
 const router = Router()
 
@@ -340,6 +341,9 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     if (priceCheck.kind === 'refuse') { refusePrices(res, priceCheck); return }
     const over = await overOptionLimit(data, null)
     if (over) { refusePrices(res, over); return }
+    // A discount or typed price under the minimum job price: refused; the owner's override goes through and is recorded (lib/discountMinimum.ts).
+    const minimum = await checkDiscountMinimum(req.user.crmAccountId, roleOf(req), req.body, data, null)
+    if (minimum.kind === 'refuse') { refusePrices(res, minimum); return }
     const repNow = (await repForSave(req, data.salesRep)) ?? ''
     await holdCommissionRule(req.user.crmAccountId, data, repNow, req.user.id, null)
     const created = await prisma.savedQuote.create({
@@ -388,6 +392,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     })
     await audit(req, 'create', 'SavedQuote', created.id, { newValues: created })
     if (priceCheck.kind === 'unstamped') await priceCheckAudit((a, e, id, o) => audit(req, a, e, id, o), created)
+    if (minimum.kind === 'override') await minimumOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), created.id, minimum)
     await linkQuoteMedia(created)
     // Job costing: a quote saved as Sold is signed now; its quoted cost is saved once.
     if (created.status === 'SOLD') { await markEverSold(created.accountId, created.id); await snapshotAfterSigning(created.accountId, created.id, 'app'); await scheduleAfterSigning(created.accountId, created.id, 'sold', { userId: req.user.id ?? null, name: req.user.email ?? '' }) }
@@ -458,6 +463,10 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
         keptSentPrices = changes
       }
     }
+    // A discount or typed price under the minimum job price, on the prices this save really writes: refused; the owner's
+    // override goes through and is recorded. A signed quote's prices stand (lib/discountMinimum.ts).
+    const minimum = (await signedNow(existing)) ? { kind: 'ok' as const } : await checkDiscountMinimum(existing.accountId, roleOf(req), req.body, data, existing)
+    if (minimum.kind === 'refuse') { refusePrices(res, minimum); return }
     // A link is out and this save would put a hand picked style on it that the customer would read wrong: not saved (optionBlocks; share-token stops a new link).
     if (data.proposal && existing.shareToken && !(await signedNow(existing))) {
       const blocks = (await pricingModule()).optionBlocks(data.proposal as any) as string[]
@@ -527,6 +536,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     })
     await audit(req, 'update', 'SavedQuote', updated.id, { oldValues: existing, newValues: updated })
     if (priceCheck.kind === 'unstamped') await priceCheckAudit((a, e, id, o) => audit(req, a, e, id, o), updated)
+    if (minimum.kind === 'override') await minimumOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), updated.id, minimum)
     await linkQuoteMedia(updated)
     // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
     if (updated.status === 'SOLD' && !updated.soldAt) await markEverSold(updated.accountId, updated.id)
@@ -599,7 +609,9 @@ const syncSchema = z.object({
 router.post('/sync', requireUser, requireAccount, requireCan('records.import'), async (req: any, res) => {
   try {
     const { quotes } = syncSchema.parse(req.body)
-    let created = 0, updated = 0, skipped = 0, locked = 0
+    let created = 0, updated = 0, skipped = 0, locked = 0, underMinimum = 0
+    // The owner's import takes what it is given; any other login's is held to the minimum job price (lib/discountMinimum.ts).
+    const minimumBody = { minimumOverride: can(roleOf(req), 'quotes.underMinimum') }
     for (const q of quotes) {
       // If client supplied an id and we already have a row with it under the
       // same account, treat as update.
@@ -608,6 +620,8 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
         if (existing && existing.accountId === req.user.crmAccountId) {
           // A signed quote is not rewritten from an old browser copy.
           if (await signedNow(existing) && lockedChanges(existing, q).length) { locked++; continue }
+          const minimum = (await signedNow(existing)) ? { kind: 'ok' as const } : await checkDiscountMinimum(req.user.crmAccountId, roleOf(req), minimumBody, q, existing)
+          if (minimum.kind === 'refuse') { underMinimum++; continue }
           await prisma.savedQuote.update({
             where: { id: existing.id },
             data: {
@@ -623,6 +637,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
               pullSheet: toJsonValue(q.pullSheet),
             },
           })
+          if (minimum.kind === 'override') await minimumOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), existing.id, minimum)
           await markEverSold(existing.accountId, existing.id)
           updated++
           continue
@@ -636,9 +651,11 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
         if (c && c.accountId === req.user.crmAccountId) safeContactId = c.id
       }
 
+      const minimum = await checkDiscountMinimum(req.user.crmAccountId, roleOf(req), minimumBody, q, null)
+      if (minimum.kind === 'refuse') { underMinimum++; continue }
       await holdCommissionRule(req.user.crmAccountId, q, q.salesRep, req.user.id, null)
       try {
-        await prisma.savedQuote.create({
+        const made = await prisma.savedQuote.create({
           data: {
             accountId: req.user.crmAccountId,
             ownerId: req.user.id,
@@ -680,13 +697,14 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
             leadTemp: q.leadTemp,
           },
         })
+        if (minimum.kind === 'override') await minimumOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), made.id, minimum)
         created++
       } catch {
         skipped++
       }
     }
-    console.log(`[saved-quotes] sync: ${created} created, ${updated} updated, ${skipped} skipped, ${locked} signed (kept) for account ${req.user.crmAccountId}`)
-    res.json({ success: true, data: { created, updated, skipped, locked, total: quotes.length } })
+    console.log(`[saved-quotes] sync: ${created} created, ${updated} updated, ${skipped} skipped, ${locked} signed (kept), ${underMinimum} under the minimum for account ${req.user.crmAccountId}`)
+    res.json({ success: true, data: { created, updated, skipped, locked, underMinimum, total: quotes.length } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     console.error('[saved-quotes] sync error:', err)

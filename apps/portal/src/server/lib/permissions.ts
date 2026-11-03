@@ -102,6 +102,8 @@ export type Action =
    * ask for photos and book the visit.
    */
   | 'service.decide'
+  /** Save a discount that takes a price under the minimum job price (lib/discountMinimum.ts): the owner only. */
+  | 'quotes.underMinimum'
 
 const FULL: Action[] = [
   'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
@@ -110,7 +112,7 @@ const FULL: Action[] = [
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts', 'quotes.underMinimum']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
   // Jonathan, Oct 25, 2026: "office staff like me and sales i think its ok to see cost but installer and
@@ -154,6 +156,7 @@ export const REFUSAL: Record<Action, string> = {
   'payments.record': 'Your role cannot record payments. Ask Jonathan.',
   'billing.amounts': 'Only the owner or an admin can change an invoice amount or the contract amount.',
   'service.decide': 'Only the owner and the office decide warranty coverage. Ask Jonathan.',
+  'quotes.underMinimum': 'Only the owner can go under the minimum job price. Ask Jonathan.',
 }
 
 /** The CRM role on a request. Routes behind requireAuth carry it as crmRole (the portal role is in role). */
