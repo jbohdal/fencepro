@@ -9,8 +9,8 @@
  * everyone else: portal lib/salesmanMove.ts). An unsold quote moves at once.
  * A signed, sold or accepted quote, or a job, asks first, with the commission
  * it carries (the owner's eyes only), and moves on Yes. On a signed quote the
- * commission does not change; on an unsigned one it follows the Salesman
- * (lib/commissionRule.ts). The price, the costs, the
+ * commission stays with whoever sold it (lib/soldBy.ts); on an unsigned one it
+ * follows the Salesman (lib/commissionRule.ts). The price, the costs, the
  * status, the signed papers and the payment schedule stay as they are, and
  * the customer's own Salesman stays (that is the customer page's Change).
  */
@@ -61,7 +61,7 @@ export default function SalesmanOnQuote({ quoteId, jobId, salesRep, label = 'Sal
       const d = r.json?.data ?? {}
       setOpen(false); setAsk(null); setShown(String(d.to ?? ''))
       setDone(d.already ? `It is already ${d.to}'s. Nothing was changed.` : `${d.to} is the Salesman on this ${jobId && !quoteId ? 'job' : 'quote'} now${d.signed ? ', with its job' : ''}.${d.commissionWords ? ` ${d.commissionWords}` : ''} The History says so; the customer's own Salesman is unchanged.`)
-      // The quote list, Sales by rep, the board and Operations read the new Salesman.
+      // The quote list, the board and Operations read the new Salesman (Sales by rep, an unsold one's).
       void refreshQuotes(); void refreshJobs()
       return
     }
@@ -92,7 +92,7 @@ export default function SalesmanOnQuote({ quoteId, jobId, salesRep, label = 'Sal
                 {!pick && <option value="">Pick the Salesman…</option>}
                 {choices.map(c => <option key={c.id} value={c.id}>{c.me ? `${c.name} (me)` : c.name}</option>)}
               </select>
-              <p className="text-xs text-gray-500">Moves this {jobId && !quoteId ? 'job' : 'quote'} only (and its job, once signed). The price stays as it is. Signed: its commission does not change. Not sold yet: commission follows the Salesman.</p>
+              <p className="text-xs text-gray-500">Moves this {jobId && !quoteId ? 'job' : 'quote'} only (and its job, once signed). The price stays as it is. Signed: its commission stays with whoever sold it. Not sold yet: commission follows the Salesman.</p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className="btn btn-primary btn-sm min-h-[44px]" disabled={!pick || busy || samePerson(choices.find(c => c.id === pick)?.name, current)} onClick={() => void send(pick, false)} data-quote-salesman-save>{busy ? 'Saving…' : 'Save'}</button>
                 <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => { setOpen(false); setError('') }}>Cancel</button>

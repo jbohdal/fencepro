@@ -76,6 +76,8 @@ export interface SavedQuotePayload {
 export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp' | 'proposalBase' | 'backToDraft'>> {
   needsResend?: boolean
   id: string
+  /** Who sold it, when that is not the rep on it now (portal lib/soldBy.ts). */
+  soldBy?: string
   pricing: QuotePricingOverrides | null
   work: SavedWork | null
   accountId: string

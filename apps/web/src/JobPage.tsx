@@ -31,6 +31,7 @@ import { hasDrawing } from './jobDrawing'
 import { CustomerContact, JobMilestones, OpenCustomerProfile } from './JobTruth'
 import { JobTimeline } from './ChangeOrders'
 import { backLinkWords } from './customerPage'
+import CommissionOnSale from './CommissionOnSale'
 
 const MATERIALS_WORDS: Record<string, string> = { not_ordered: 'Not ordered yet', ordered: 'Ordered', received: 'Received', loaded: 'Loaded on the truck' }
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0)
@@ -126,6 +127,7 @@ export default function JobPage() {
         <Row label="Sold for" value={money(job.contractValue || job.quotePrice)} attr="data-job-sold-for" />
         {job.changeOrderTotal ? <Row label="Change orders" value={`${job.changeOrderTotal > 0 ? '+' : '−'}${money(Math.abs(job.changeOrderTotal))}`} /> : null}
         <Row label="Sales Rep" value={job.salesRep} />
+        {job.quoteId && <div className="mt-2"><CommissionOnSale quoteId={job.quoteId} salesRep={job.salesRep} /></div>}
       </Card>
 
       <Card title={W}>

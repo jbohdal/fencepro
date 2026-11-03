@@ -38,6 +38,7 @@ import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
 import { loadSchedule, crewName } from './scheduleStore'
 import { CustomerContact, LocatePanel, JobMilestones, JobFinancial, OpenCustomerProfile } from './JobTruth'
 import SalesmanOnQuote from './SalesmanOnQuote'
+import CommissionOnSale from './CommissionOnSale'
 
 // Unified job type for display
 export interface UnifiedJob {
@@ -233,6 +234,7 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               <Field label="Crew" value={crewName(job.crewAssigned) || 'Not assigned'} />
               {/* The job's Salesman (with its quote's): the owner changes it after asking; everyone else reads it (SalesmanOnQuote.tsx). */}
               <div className="my-2"><SalesmanOnQuote quoteId={job.rawJob?.quoteId || undefined} jobId={job.id} salesRep={job.salesRep} label="Sales Rep" /></div>
+              {job.rawJob?.quoteId && <div className="my-2"><CommissionOnSale quoteId={job.rawJob.quoteId} salesRep={job.salesRep} /></div>}
               {can('schedule.change') && !inSideLane && !closed && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} word={W} /></div>}
             </div>
           ) : (

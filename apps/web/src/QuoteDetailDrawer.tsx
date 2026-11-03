@@ -44,6 +44,7 @@ import { gradeOfQuote } from './moneyLoad'
 import { targetIsSaved } from './moneyTruth'
 import { quoteNumber } from './quoteNumber'
 import SalesmanOnQuote from './SalesmanOnQuote'
+import CommissionOnSale from './CommissionOnSale'
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
@@ -224,6 +225,8 @@ export default function QuoteDetailDrawer({
             </div>
             {/* The Salesman on this quote (and its job): the owner changes it, a signed one after asking (SalesmanOnQuote.tsx). */}
             <div className="mt-2"><SalesmanOnQuote quoteId={quote.id} salesRep={quote.salesRep} /></div>
+            {/* A signed quote's commission: the owner edits who gets it and how much (CommissionOnSale.tsx). */}
+            <div className="mt-2"><CommissionOnSale quoteId={quote.id} salesRep={quote.salesRep} /></div>
           </section>
 
 
@@ -254,13 +257,14 @@ export default function QuoteDetailDrawer({
           {quote.finalPrice > 0 && quote.totalCOGS > 0 && (() => {
             const cfg = getConfig()
             // Not shown to a Salesman (Oct 27 2026): her view reads as it did without the commission.
-            const pct = !seesCommission(signedInRole(), can('costs.view')) || !quote.hasSalesman ? 0 : typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : cfg.pricing.commissionSalesman ?? 0
+            const shows = seesCommission(signedInRole(), can('costs.view'))
+            const pct = !shows || !quote.hasSalesman ? 0 : typeof quote.pricing?.commissionPct === 'number' ? quote.pricing.commissionPct : cfg.pricing.commissionSalesman ?? 0
             // Rounded to the whole dollar: commission and overhead stay on the price before rounding (the cents are out of profit).
             const rounding = typeof quote.pricing?.roundingCents === 'number' ? quote.pricing.roundingCents : 0
             // The ± dollar adjustment is out of profit too: commission and overhead stay on the price before it.
             const adj = typeof quote.pricing?.priceAdjustmentCents === 'number' ? quote.pricing.priceAdjustmentCents : 0
             return <DollarPickets price={quote.finalPrice} materials={quote.materialCost} labor={(quote.laborCost || 0) + (quote.tearOutCost || 0)}
-              commission={(quote.finalPrice + rounding / 100 - adj / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} adjustmentCents={adj} category={cfg.fenceStyles?.find(x => x.name === quote.fenceStyle)?.category ?? (/^(chain|cl[- ])/i.test(quote.fenceStyle || '') ? 'Chainlink' : null)} />
+              commission={shows && typeof quote.pricing?.commissionHandCents === 'number' ? quote.pricing.commissionHandCents / 100 : (quote.finalPrice + rounding / 100 - adj / 100) * pct} overheadPct={typeof quote.pricing?.overheadPct === 'number' ? quote.pricing.overheadPct : overheadPctOf(cfg)} roundingCents={rounding} adjustmentCents={adj} category={cfg.fenceStyles?.find(x => x.name === quote.fenceStyle)?.category ?? (/^(chain|cl[- ])/i.test(quote.fenceStyle || '') ? 'Chainlink' : null)} />
           })()}
 
           {/* Photos and video taken for this quote (site walk, gate location, ...) */}
@@ -304,7 +308,7 @@ export default function QuoteDetailDrawer({
                 <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total cost</span><span>{fmt(quote.totalCOGS)}</span></div>
                 <div className="flex justify-between font-bold text-orange-700 border-t border-gray-200 pt-1 mt-1"><span>Quote Price</span><span>{fmt(quote.finalPrice)}</span></div>
                 {/* The commission, for logins that see it (never a Salesman): the lines add up to the margin after it. */}
-                {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%</span><span>{fmt(commission.cents / 100)}</span></div>}
+                {commission && <div className="flex justify-between pt-1 text-gray-600" data-quote-commission><span>Commission {Math.round(commission.pct * 1000) / 10}%{quote.soldBy ? ` to ${quote.soldBy}` : ''}</span><span>{fmt(commission.cents / 100)}</span></div>}
                 <div className="flex justify-between pt-1 text-xs text-gray-500" data-quote-gross-margin><span>Gross Margin (price less cost)</span><span>{fmtPct(shownGm)}</span></div>
                 {afterComm !== null && <div className="flex justify-between text-xs text-gray-500" data-quote-margin-after><span>Margin after commission</span><span>{fmtPct(afterComm)}</span></div>}
                 <div className="flex justify-between text-xs text-gray-500" data-quote-target><span>{targetIsSaved(quote) ? 'Target Margin it was priced with' : 'Target Margin today'}</span><span>{fmtPct(grade.target)}</span></div>

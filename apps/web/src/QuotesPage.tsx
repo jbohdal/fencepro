@@ -34,6 +34,8 @@ export interface SavedQuote {
   customerAddress: string
   leadSource: string
   salesRep: string
+  /** Who sold it, when that is not the rep on it now: a signed job moved to someone else (portal lib/soldBy.ts). */
+  soldBy?: string
   customerId?: string
   fenceStyle: string
   runs: number[]

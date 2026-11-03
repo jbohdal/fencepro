@@ -1,0 +1,102 @@
+/**
+ * Who gets a signed job's commission, and how much: the owner edits it by hand
+ * (Jonathan, Nov 2 2026: "COMMISSION STAYS with whoever sold it when a signed
+ * job is moved. Owner can edit it by hand.").
+ *
+ * Shown to a super_admin only, on a signed quote; the server refuses everyone
+ * else (portal lib/soldBy.ts). Only saved internal figures change: the
+ * commission and the margin after it. The price, the contract and the payment
+ * schedule stay as they are.
+ */
+
+import { useEffect, useState } from 'react'
+import { sendJson } from './syncHttp'
+import { signedInRole } from './permissions'
+import { useSalesmen } from './salesmanChoice'
+import { refreshQuotes } from './quoteStore'
+import { refreshJobs } from './jobStore'
+import { typedCents } from './salesmanCommission'
+
+interface Commission { signed: boolean; soldBy: string; rep: string; commissionCents: number; priceCents: number; byHand: boolean }
+
+const fmt = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const norm = (s: string | null | undefined) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+export default function CommissionOnSale({ quoteId, salesRep }: { quoteId: string; salesRep?: string }) {
+  const owner = signedInRole() === 'super_admin'
+  const { list } = useSalesmen()
+  const [c, setC] = useState<Commission | null>(null)
+  const [open, setOpen] = useState(false)
+  const [who, setWho] = useState('')
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState('')
+  const path = `/api/saved-quotes/${encodeURIComponent(quoteId)}/commission`
+
+  useEffect(() => {
+    if (!owner) return
+    let on = true
+    void sendJson('GET', path).then(r => { if (on) setC(r.result.ok ? r.json?.data ?? null : null) })
+    return () => { on = false }
+  }, [owner, path, salesRep])
+
+  if (!owner || !c?.signed) return null
+  const choices = list?.choices ?? []
+  const current = choices.find(p => norm(p.name) === norm(c.soldBy))?.id ?? ''
+  const cents = typedCents(typed)
+
+  const start = () => { setOpen(true); setError(''); setDone(''); setWho(current); setTyped((c.commissionCents / 100).toFixed(2)) }
+  const save = async () => {
+    if (busy || cents === null) return
+    setBusy(true); setError('')
+    const r = await sendJson('POST', path, { commissionCents: cents, ...(who && who !== current ? { to: who } : {}) })
+    setBusy(false)
+    if (r.result.ok) {
+      setC(r.json?.data ?? null)
+      setOpen(false)
+      setDone('Saved. The price, the contract and the payment schedule did not change.')
+      void refreshQuotes(); void refreshJobs()
+      return
+    }
+    setError(r.status === 0 ? 'No signal right now. Nothing was changed; try again.' : `${r.json?.error || 'Could not change the commission.'}`)
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2" data-commission-on-sale>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <span className="text-xs text-gray-500 block">Commission (only you see this)</span>
+          <span className="text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]" data-commission-who>
+            {c.commissionCents > 0 ? `${fmt(c.commissionCents)} to ${c.soldBy || 'nobody yet'}` : `None. Sold by ${c.soldBy || 'nobody yet'}`}
+          </span>
+          {c.byHand && <span className="text-xs text-gray-500 block" data-commission-by-hand>Set by hand</span>}
+        </div>
+        {!open && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" onClick={start} data-commission-change>Change</button>}
+      </div>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <label className="block">
+            <span className="text-xs text-gray-500 block mb-1">Who gets it</span>
+            <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px] bg-white" value={who} onChange={e => setWho(e.target.value)} data-commission-select>
+              {!current && <option value="">{c.soldBy || 'Pick who gets it…'}</option>}
+              {choices.map(p => <option key={p.id} value={p.id}>{p.me ? `${p.name} (me)` : p.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-500 block mb-1">Amount</span>
+            <input type="text" inputMode="decimal" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px]" value={typed} onChange={e => setTyped(e.target.value)} data-commission-amount />
+          </label>
+          {cents === null && <p className="text-xs text-red-700">Type an amount, like 1200 or 1200.50.</p>}
+          <p className="text-xs text-gray-500">Comes out of the price, so only your margin changes. The customer's price, the contract and the payment schedule stay as they are.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-primary btn-sm min-h-[44px]" disabled={busy || cents === null} onClick={() => void save()} data-commission-save>{busy ? 'Saving…' : 'Save'}</button>
+            <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => { setOpen(false); setError('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-sm text-red-700 mt-1" role="alert" data-commission-error>{error}</p>}
+      {done && <p className="text-xs text-green-800 mt-1" role="status" data-commission-done>{done}</p>}
+    </div>
+  )
+}

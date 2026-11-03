@@ -10,6 +10,7 @@ import { getConfig } from './configStore'
 import { marginOf, weightedTarget, marginOnPrice, hasCost, leftOutWords } from './moneyTruth'
 import { companyTargets, yearActuals, quoteGrader, groupTarget } from './moneyLoad'
 import { can, signedInRole } from './permissions'
+import { creditedTo, savedCommission, seesCommission } from './salesmanCommission'
 
 /* ───────── helpers ───────── */
 
@@ -226,6 +227,7 @@ interface ReportsPageProps {
 export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
   // Every margin here is price less cost (before commission), graded on the Target Margin the quotes were priced with.
   const quotes = savedQuotes
+  const showCommission = seesCommission(signedInRole(), can('costs.view'))
   const currentYear = new Date().getFullYear()
   const years = useMemo(() => {
     const yrs = new Set<number>()
@@ -398,15 +400,19 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
   }, [yearQuotes])
 
   // ── Sales rep analysis ──
+  // Credited to who sold it, not who is working it now: a signed job moved to someone else stays with its seller, its
+  // commission and its revenue together (Jonathan, Nov 2 2026; portal lib/soldBy.ts).
   const salesRepBreakdown = useMemo(() => {
-    const map: Record<string, { total: number; sold: number; revenue: number; soldQuotes: SavedQuote[] }> = {}
+    const map: Record<string, { total: number; sold: number; revenue: number; commissionCents: number; soldQuotes: SavedQuote[] }> = {}
     yearQuotes.forEach(q => {
-      const rep = q.salesRep || 'Unassigned'
-      if (!map[rep]) map[rep] = { total: 0, sold: 0, revenue: 0, soldQuotes: [] }
+      const rep = creditedTo(q) || 'Unassigned'
+      if (!map[rep]) map[rep] = { total: 0, sold: 0, revenue: 0, commissionCents: 0, soldQuotes: [] }
       map[rep].total += 1
       if (q.status === 'SOLD') {
         map[rep].sold += 1
         map[rep].revenue += q.finalPrice
+        // On the price as signed (withChangeOrders adds change orders to finalPrice; the commission was not on those).
+        map[rep].commissionCents += savedCommission({ ...q, finalPrice: (q as { signedPrice?: number }).signedPrice ?? q.finalPrice })?.cents ?? 0
         map[rep].soldQuotes.push(q)
       }
     })
@@ -417,6 +423,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
         sold: d.sold,
         closeRate: d.total > 0 ? d.sold / d.total : 0,
         revenue: d.revenue,
+        commissionCents: d.commissionCents,
         avgMargin: marginOf(d.soldQuotes).margin,
         target: groupTarget(d.soldQuotes),
         avgDeal: d.sold > 0 ? d.revenue / d.sold : 0,
@@ -1343,6 +1350,12 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <p className="text-xs text-gray-400">Avg Margin</p>
                     <p className={`text-sm font-semibold ${marginColorAt(r.avgMargin, r.target)}`}>{pctOrDash(r.avgMargin)}</p>
                   </div>
+                  {showCommission && (
+                    <div data-rep-commission={r.rep}>
+                      <p className="text-xs text-gray-400">Commission</p>
+                      <p className="text-sm font-semibold text-gray-700">{fmt(r.commissionCents / 100)}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1368,6 +1381,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Revenue</th>
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Deal</th>
                   <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Avg Margin</th>
+                  {showCommission && <th className="px-6 py-3 text-xs font-semibold text-gray-500 text-right">Commission</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1384,6 +1398,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
                     <td data-label="Margin" className={`px-6 py-3 text-right font-semibold ${marginColorAt(r.avgMargin, r.target)}`}>
                       {pctOrDash(r.avgMargin)}
                     </td>
+                    {showCommission && <td data-label="Commission" className="px-6 py-3 text-right text-gray-700">{fmt(r.commissionCents / 100)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -1393,7 +1408,7 @@ export default function ReportsPage({ quotes: savedQuotes }: ReportsPageProps) {
           {/* Revenue by rep bar chart */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
             <h4 className="font-semibold text-gray-900 mb-1">Revenue by Rep</h4>
-            <p className="text-xs text-gray-400 mb-4">Total closed revenue per sales rep</p>
+            <p className="text-xs text-gray-400 mb-4">Total closed revenue per sales rep, credited to who sold it</p>
             <HorizontalBarChart
               items={salesRepBreakdown.map((r, i) => ({
                 label: r.rep,
