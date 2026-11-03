@@ -76,7 +76,7 @@ export function tierChoicesFor(styles: Array<Parameters<typeof styleParts>[1] & 
   }
 }
 
-export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: 'Best price (6 or 8 ft sections, whichever prices lower)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
+export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: '6 ft or 8 ft sections (best price)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
 /** Wood's picket grades are its tier "colors" (wood.ts WOOD_GRADES); they are a choice, not a color in Settings. */
 export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', pine: 'PT Pine pickets', premium: 'Alta Premium pickets' }
 

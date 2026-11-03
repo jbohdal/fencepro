@@ -223,7 +223,7 @@ try {
   check('owner: sees margin, the same way on the main and the other cards (price less cost)', /Gross Margin/.test(ownerText) && (await b.locator('[data-tier-margin]').count()) > 0 && /price less cost/.test(await b.locator('[data-tier-margin]').first().textContent()))
   await b.locator('[data-advanced-width] summary').tap(); await sleep(500)
   const ways = await b.locator('[data-advanced-width-pick] option').allTextContents()
-  check('owner: Advanced section width offers best price, all 6 ft, all 8 ft', ways.join('|') === 'Best price (6 or 8 ft sections for each run)|All 6 ft sections|All 8 ft sections', ways.join('|'))
+  check('owner: Advanced section width offers best price, all 6 ft, all 8 ft', ways.join('|') === '6 ft or 8 ft sections (best price)|All 6 ft sections|All 8 ft sections', ways.join('|'))
   await shot(page, 'owner-2-advanced-width')
   const six = await b.locator('[data-advanced-width-pick] option', { hasText: 'All 6 ft sections' }).getAttribute('value')
   await b.locator('[data-advanced-width-pick]').selectOption(six); await sleep(2500)

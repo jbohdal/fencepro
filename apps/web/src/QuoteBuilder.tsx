@@ -1945,7 +1945,7 @@ export default function QuoteBuilder({
                 {(() => {
                   const autoStyles = FENCE_STYLES.filter(s => (s as any).autoRailMix)
                   return autoStyles.length > 0 ? (
-                    <optgroup label="Vinyl Privacy, best price (6 or 8 ft sections)">
+                    <optgroup label="Vinyl Privacy, 6 ft or 8 ft sections (best price)">
                       {autoStyles.map(s => (
                         <option key={s.id} value={s.id}>{styleOptionLabel(s)}</option>
                       ))}
@@ -2122,7 +2122,7 @@ export default function QuoteBuilder({
                 <details className="bg-white rounded-xl border border-gray-200 px-4" data-advanced-width>
                   <summary className="text-sm font-semibold text-gray-700 min-h-[48px] flex items-center">Advanced: section width</summary>
                   <label className="block pb-4">
-                    <span className="block text-xs text-gray-600 mb-1">Best price picks 6 or 8 ft sections for each run. Pick one width to force it on this quote.</span>
+                    <span className="block text-xs text-gray-600 mb-1">6 ft or 8 ft sections (best price) takes the width that prices lower for each run. Pick one width to force it on this quote.</span>
                     <select className="w-full border border-gray-300 rounded-lg px-2 h-11 text-sm bg-white" value={styleId} aria-label="Section width"
                       onChange={e => { setWidthIds(null); setStyleId(e.target.value) }} data-advanced-width-pick>
                       {widthWays.map(w => <option key={w.style.id} value={w.style.id}>{w.label}</option>)}

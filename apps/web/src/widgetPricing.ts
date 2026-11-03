@@ -193,9 +193,14 @@ export function priceForStyle(cfg: AppConfig, overheadPct: number, yard: YardLay
 export function widgetOptions(cfg: AppConfig, overheadPct: number, yard: YardLayout, pick: WidgetPick, tierSets: Array<Pick<TierSet, 'category' | 'tiers' | 'popular'>>): WidgetPriced {
   const mine = widgetStyles(cfg).filter(s => { const p = pickOf(s); return !!p && samePick(p, pick) })
   if (!mine.length) return { options: [], footageFt: 0, sections: 0 }
-  // The quote's own style: the best price mix, no dig first (Nov 3 2026: a tier of the quote's own install is the
-  // quote's own fence, so a fixed width here would fix Better's width too; the other tiers set install and width themselves).
-  const base = [...mine].sort((a, b) => Number(!!b.autoRailMix) - Number(!!a.autoRailMix) || (a.choices?.install === 'nd' ? -1 : 0) - (b.choices?.install === 'nd' ? -1 : 0))[0]
+  // The quote's own style, as the Salesman's picker picks it (salesmanPicks.ts): no dig first, then the best price mix,
+  // else whichever width prices lower for this yard (Nov 3 2026: a tier of the quote's own install is the quote's own
+  // fence, so the dearer width here moved Most popular onto Best for 8 ft tall white).
+  const nd = mine.filter(s => s.choices?.install === 'nd')
+  const ways = nd.length ? nd : mine
+  const base = ways.find(s => s.autoRailMix) ?? (ways.length > 1
+    ? ways.map(s => ({ s, cents: Math.round(priceForStyle(cfg, overheadPct, yard, s).price * 100) })).sort((a, b) => a.cents - b.cents || (Number(b.s.choices?.width) || 0) - (Number(a.s.choices?.width) || 0))[0].s
+    : ways[0])
   const set = tierSets.find(t => t.category.trim().toLowerCase() === String(base.category).trim().toLowerCase()) ?? null
   const options: WidgetOption[] = []
   if (set) {

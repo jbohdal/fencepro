@@ -152,7 +152,7 @@ describe('install and width are worked out', () => {
     const list = styles()
     const own = list.find(s => s.name === "WV-ND 6'x8' Privacy")!
     expect(widthSiblings(own, list).map(w => [w.style.name, w.label])).toEqual([
-      ['WV-Auto ND Privacy', 'Best price (6 or 8 ft sections for each run)'],
+      ['WV-Auto ND Privacy', '6 ft or 8 ft sections (best price)'],
       ["WV-ND 6'x6' Privacy", 'All 6 ft sections'],
       ["WV-ND 6'x8' Privacy", 'All 8 ft sections'],
     ])

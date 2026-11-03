@@ -185,7 +185,7 @@ export function widthSiblings<S extends FenceStyle>(style: S, styles: S[]): Arra
   const rank = (s: S) => { const w = styleChoicesOf(s)!.choices.width; return w === 'auto' ? 0 : Number(w) || 99 }
   return same.sort((a, b) => rank(a) - rank(b)).map(s => {
     const w = styleChoicesOf(s)!.choices.width
-    return { style: s, label: w === 'auto' ? 'Best price (6 or 8 ft sections for each run)' : `All ${w} ft sections` }
+    return { style: s, label: w === 'auto' ? '6 ft or 8 ft sections (best price)' : `All ${w} ft sections` }
   })
 }
 
