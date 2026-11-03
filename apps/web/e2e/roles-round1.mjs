@@ -7,7 +7,7 @@
 //     - opens a pipeline card whose customer has notes (it used to blank the
 //       whole app: dates came out as {} for a prices-only login); the notes,
 //       quotes and history show; no "Something went wrong" message;
-//     - opens the quote from the card: Proposal with Copy link / Text it / Email it, and its margin (she sees costs);
+//     - opens the quote from the card: Proposal with Copy link / Text it / Email it, and no margin (she sees costs, never margin);
 //     - a quote she saves with no rep is hers (sales rep = her name);
 //     - Today opens on her own day; her task list has only tasks named for her.
 //   Office Staff (computer): Customers, Sales Pipeline, Quotes, Billing, Portal
@@ -151,8 +151,9 @@ try {
       await page.locator('[data-quote-drawer]').waitFor({ timeout: 15000 }).catch(() => {})
     }
     check(`${where}: the quote shows Proposal with Copy link, Text it and Email it`, await page.locator('[data-quote-drawer] [data-proposal-send]').count() === 1 && await page.locator('[data-proposal-text]').isVisible() && await page.locator('[data-proposal-copy]').isVisible() && await page.locator('[data-quote-drawer] button:has-text("Email it")').count() === 1)
-    // She sees costs since Oct 25, 2026 (Jonathan): the margin is on her quote.
-    check(`${where}: her quote shows its margin`, /margin/i.test(await page.locator('[data-quote-drawer]').innerText()))
+    // She sees costs since Oct 25, 2026, but never margin (Jonathan, Nov 2 2026): no margin on her quote.
+    const qm = (await page.locator('[data-quote-drawer]').innerText()).match(/.{0,40}margin.{0,20}/i)
+    check(`${where}: her quote shows no margin`, !qm && await page.locator('[data-quote-drawer] [data-quote-margin], [data-quote-drawer] [data-quote-gross-margin]').count() === 0, qm?.[0] ?? '')
     await go(page, '/')
     check(`${where}: sign in lands on Today, not the company Dashboard`, pathOf(page) === '/today', pathOf(page))
     await go(page, '/today')

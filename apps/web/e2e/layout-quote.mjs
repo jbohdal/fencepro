@@ -81,11 +81,14 @@ try {
   const secs = Math.round((Date.now() - t0) / 1000)
 
   const total = async () => (await b.locator('text=Total sections').locator('xpath=following-sibling::span[1]').textContent()).trim()
-  const price = async () => (await b.locator('text=Adjusted Price').locator('xpath=following-sibling::p[1]').textContent()).trim()
+  // The label reads "Price", or "Adjusted price" only when an adjustment is on (Nov 2 2026): the figure by its own mark.
+  const price = async () => (await b.locator('[data-quote-price]').textContent()).trim()
   const sections = await total()
   const posts = (await b.locator('[data-post-counts] p').nth(1).textContent()).trim()
   const leftRuns = (await b.locator('[data-side="Left return"] [data-side-runs]').textContent()).trim()
   const layoutPrice = await price()
+  const priceLabel = (await b.locator('[data-quote-price]').locator('xpath=preceding-sibling::p[1]').textContent()).trim()
+  check('phone: no adjustment on, so the label reads "Price" (not "Adjusted price")', priceLabel === 'Price', priceLabel)
   await p.screenshot({ path: process.env.SHOTS ? `${process.env.SHOTS}/phone-layout-top.png` : '/dev/null' }).catch(() => {})
   check('phone: backyard with two gated returns gives 57 sections', sections === '57', sections)
   check('phone: posts are counted from the finishes: 4 corner, 6 end (4 at gates)', /^4 corner · 6 end \(4 at gates\)/.test(posts), posts)

@@ -22,6 +22,7 @@ import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { pickFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -160,7 +161,9 @@ try {
     await sp.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
   }
   await b.locator('[data-step="style"]').click()
-  await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
+  // Her picker (Nov 2 2026): Material > Style > Height > Color; no style list, the width is the best price.
+  check('quote: no full style list for the salesman', (await b.locator('[data-style-list]').count()) === 0)
+  await pickFence(sp, 'vinyl', { style: 'privacy', height: '6', color: 'white' })
   await b.locator('[data-step="price"]').click()
   await sleep(800)
   await shot(sp, 'desktop-quote')

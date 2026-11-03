@@ -1,10 +1,11 @@
 // "Price may be low" on a green chain link quote (Jonathan, Oct 27 2026: "Any part still priced from Black
 // shows a warning on the quote so the salesman knows it's low"). Each step as the person who does it:
 //   office    adds the lead on a computer (Chromium), picking the Salesman on Add lead
-//   salesman  quotes it from the card on her iPhone (WebKit, 390 x 844): the yard, then Green Chain Link 4 ft
-//             No dig (no part from Black once the green prices are in: no warning), then Dig set (its posts are
-//             still priced from Black: the warning in the Style and Price steps, naming them), saves it and
-//             copies the proposal link
+//   salesman  quotes it from the card on her iPhone (WebKit, 390 x 844): the yard, then Chain link, 4 ft, Green on
+//             her picker (Nov 2 2026: she never picks the install; the quote takes the Better option's, No dig: no
+//             part from Black once the green prices are in, no warning; the Dig set option's card says its price
+//             may be low), then Make main on the Dig set option (its posts are still priced from Black: the warning
+//             in the Style and Price steps, naming them), saves it and copies the proposal link
 //   customer  opens the proposal on her phone (no login): no warning, no "Black", no cost words
 //
 // Run (dev copy only; a server serving the built app):
@@ -17,6 +18,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { execFileSync } from 'child_process'
+import { pickFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -111,17 +113,6 @@ async function officeAddsLead(o, first, last, phone, salesman) {
   return card
 }
 
-async function pickStyle(b, pattern) {
-  const sel = b.locator('[data-style-list]').first()
-  await sel.waitFor({ timeout: 15000 })
-  const opts = await sel.locator('option').allInnerTexts()
-  const label = opts.find(o => pattern.test(o))
-  if (!label) throw new Error(`no fence style like ${pattern} (${opts.filter(o => /chain/i.test(o)).join(' | ')})`)
-  await sel.selectOption({ label })
-  await sleep(800)
-  return label
-}
-
 async function cleanUp() {
   if (sql('SELECT current_database()') !== DB) throw new Error('cleanup refused: not the dev copy')
   const contacts = [...made.contacts]
@@ -188,8 +179,9 @@ async function main() {
     }
     await tap(S, b.locator('[data-step="style"]'))
 
-    // No dig: every green part has its own price now.
-    const nd = await pickStyle(b, /green chain link.*no dig/i)
+    // Her picker (Nov 2 2026): Chain link, 4 ft, Green; the install is the Better option's (No dig).
+    const nd = await pickFence(page, 'chain', { height: '4', finish: 'green' })
+    check(/green chain link.*no dig/i.test(nd), `her picker names the green No dig fence (${nd})`)
     await sleep(800)
     check(await b.locator('[data-from-black="style"]').count() === 0, `${nd}: no "Price may be low" in the Style step`)
     await tap(S, b.locator('[data-step="price"]'))
@@ -203,10 +195,14 @@ async function main() {
     await tierWarn.first().scrollIntoViewIfNeeded().catch(() => {})
     await shot(page, '1b-salesman-no-dig-dig-set-option-warning')
 
-    // Dig set: its posts are still priced from Black.
-    await tap(S, b.locator('[data-step="style"]'))
-    const ds = await pickStyle(b, /green chain link.*dig set/i)
+    // Dig set: its posts are still priced from Black. She makes the Dig set option the main one (its card's Make main).
+    const dsCard = b.locator('[data-tier]').filter({ has: page.locator('[data-tier-from-black]') }).first()
+    const ds = (await dsCard.locator('[data-tier-style]').innerText().catch(() => '')).trim() || 'the Dig set option'
+    await tap(S, dsCard.locator('[data-tier-main]'))
     await sleep(800)
+    await tap(S, b.locator('[data-step="style"]'))
+    await sleep(800)
+    check(/green chain link.*dig set/i.test(await b.locator('[data-style-plain-name]').innerText().catch(() => '')), `Make main: the quote is the green Dig set fence (${await b.locator('[data-style-plain-name]').innerText().catch(() => '')})`)
     const styleWarn = b.locator('[data-from-black="style"]')
     check(await styleWarn.isVisible().catch(() => false), `${ds}: "Price may be low" shows in the Style step`)
     await styleWarn.scrollIntoViewIfNeeded().catch(() => {})
