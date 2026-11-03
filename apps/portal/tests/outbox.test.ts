@@ -83,6 +83,22 @@ describe('outbox', () => {
     expect(srv.got.map(o => o.kind)).toEqual(['quote.update', 'customer.update'])
   })
 
+  // Review Nov 2 2026: a new quote refused as under the minimum (the phone's Settings were older) was dropped, lost.
+  test('a new quote refused as under the minimum: kept on the phone, never dropped, and opened to be made again', async () => {
+    let refused = false
+    const redone: string[] = []
+    registerKind('quote.create', { send: op => srv.send(op), refused: () => { refused = true }, redo: (_op, code) => { redone.push(code) } })
+    srv.answer(() => ({ ok: false, status: 409, code: 'DISCOUNT_BELOW_MINIMUM', error: 'This cannot be saved. Chain link would be $297, under the $350 minimum job price.' }))
+    await startOutbox('u1', { storage: store })
+    await enqueue({ key: 'quote:q2', kind: 'quote.create', payload: { id: 'q2', finalPrice: 297 }, label: 'Cleo, new quote' })
+    await settle()
+    expect(refused).toBe(false)
+    expect(redone).toEqual(['DISCOUNT_BELOW_MINIMUM'])
+    expect(store.map.size).toBe(1)
+    expect(statusOf(['quote:q2']).status).toBe('failed')
+    expect(srv.got).toHaveLength(1)
+  })
+
   test('refused by the server: "Couldn\'t save" in plain words, kept, and Try again sends it', async () => {
     srv.answer(() => ({ ok: false, status: 400, error: 'String must contain at least 8 character(s)' }))
     await startOutbox('u1', { storage: store })

@@ -122,8 +122,10 @@ export const REFUSED_EVENT = 'ezbiz:refused'
  */
 // SUB_RATE_MISSING: its sub is paid per a unit with no rate for it (Oct 30 2026): a rate has to be typed on it first.
 /** Refused for good, in the server's own words: the change leaves the phone and the screen goes back to the server's copy. */
-export const SAID_CODES: ReadonlySet<string> = new Set(['QUOTE_LOCKED', 'QUOTE_CHANGED', 'TOO_MANY_OPTIONS', 'OPTION_NOT_READY', 'DISCOUNT_BELOW_MINIMUM'])
-export const REDO_CODES: ReadonlySet<string> = new Set(['PRICES_CHANGED', 'STYLE_NOT_QUOTABLE', 'SUB_RATE_MISSING'])
+// DISCOUNT_BELOW_MINIMUM: a price under the minimum job price that the phone allowed (its Settings were older): kept,
+// not dropped, so a new quote is not lost; opened again, the builder reads Settings and says why.
+export const SAID_CODES: ReadonlySet<string> = new Set(['QUOTE_LOCKED', 'QUOTE_CHANGED', 'TOO_MANY_OPTIONS', 'OPTION_NOT_READY'])
+export const REDO_CODES: ReadonlySet<string> = new Set(['PRICES_CHANGED', 'STYLE_NOT_QUOTABLE', 'SUB_RATE_MISSING', 'DISCOUNT_BELOW_MINIMUM'])
 
 export type RecordStatus = 'saved' | 'saving' | 'waiting' | 'failed'
 
