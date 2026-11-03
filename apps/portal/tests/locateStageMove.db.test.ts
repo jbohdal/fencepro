@@ -49,7 +49,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
   const { START_OPS_STAGES, advanceStageOf, phaseOf, HELD_FOR_DRAWING_WORDS } = await import('../src/server/lib/opsStageModel.js')
 
   const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null }, role: { in: ['super_admin', 'admin'] as any } }, orderBy: { createdAt: 'asc' } }))!
-  const accountId = user.crmAccountId!
+  // A company made for the test with the start stage list, Need Drawing in it: the dev copy has live's own list,
+  // which the owner can change in Settings (Nov 2 2026 he removed Need Drawing, and these checks read it).
+  const tag = `lsm-${crypto.randomUUID().slice(0, 8)}`
+  const accountId = (await prisma.crmAccount.create({ data: { name: `Test ${tag} start stages` } })).id
+  await prisma.accountKeyValue.create({ data: { accountId, key: OPS_STAGES_KEY, value: START_OPS_STAGES.map((s, i) => ({ ...s, order: i })) as any } })
   const token = jwt.sign({ sub: user.id, email: user.email, role: user.role, firstName: user.firstName, lastName: user.lastName, crmAccountId: accountId }, resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me'), { expiresIn: '30m' })
   const app = express()
   app.use(express.json({ limit: '5mb' }))
@@ -60,8 +64,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself once it
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) as any }))
 
-  const tag = `lsm-${crypto.randomUUID().slice(0, 8)}`
-  const made = { jobs: [] as string[], quotes: [] as string[], account: '', accounts: [] as string[] }
+  const made = { jobs: [] as string[], quotes: [] as string[], account: '', accounts: [accountId] as string[] }
   const fl = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   const today = fl(new Date())
   const tomorrow = fl(new Date(Date.now() + 86_400_000))
