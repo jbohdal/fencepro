@@ -12,7 +12,7 @@
 //     a crew day (Monday to Thursday); the installer makes the packet (no prices), taps Start and Finish, walks
 //     the job with the homeowner (checklist, photos, both signatures); the office takes the final payment and the
 //     job closes itself to Paid (its card to Paid & Closed).
-//   Job B, 4 ft chain link dig set: the office adds the lead and gives it to the Salesman (the Salesman choice on
+//   Job B, 4 ft galvanized chain link (the Better option's install: the Salesman never picks it): the office adds the lead and gives it to the Salesman (the Salesman choice on
 //     Add lead); the Salesman quotes from the card and the customer signs; the office takes the deposit; the Salesman makes a change order (waits for the OK), the office OKs it, the customer signs it on
 //     her phone; Jonathan makes a change order from the job's drawing and the customer signs it; the contract is
 //     the quote plus both.
@@ -41,6 +41,7 @@ import fs from 'fs'
 import path from 'path'
 import zlib from 'zlib'
 import { execFileSync } from 'child_process'
+import { pickFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -255,7 +256,7 @@ async function officeAddsLead(o, first, last, phone, source, salesman = null) {
   return { contactId: card.customerId, cardId: card.id, name, stage: card.stage, source: want ?? '(none picked)' }
 }
 
-/** In the quote builder: the yard as a backyard (returns 30, sides 120 and 100, back 150), then the style. */
+/** In the quote builder: the yard as a backyard (returns 30, sides 120 and 100, back 150), then the style (a pattern on the list, or the Salesman's [material, picks]). */
 async function drawBackyard(who, b, stylePattern) {
   const page = who.page
   await tap(who, b.locator('[data-step="yard"]'))
@@ -266,7 +267,8 @@ async function drawBackyard(who, b, stylePattern) {
     await tap(who, page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
   }
   await tap(who, b.locator('[data-step="style"]'))
-  return pickStyle(b, stylePattern)
+  // A Salesman has no style list (Nov 2 2026): her picker takes [material, picks] (lib.mjs pickFence).
+  return Array.isArray(stylePattern) ? pickFence(page, ...stylePattern) : pickStyle(b, stylePattern)
 }
 async function pickStyle(b, pattern) {
   const sel = b.locator('[data-style-list], select:has(option:text-is("Select a fence style"))').first()
@@ -665,7 +667,7 @@ try {
     })
     await step('A', 'Salesman draws the yard, picks white vinyl no dig, saves the quote (phone)', S, async () => {
       const b = S.page.locator('[data-quote-builder]')
-      const style = await drawBackyard(S, b, /White Vinyl Privacy, 6 ft tall.*No dig/i)
+      const style = await drawBackyard(S, b, ['vinyl', { style: 'privacy', height: '6', color: 'white' }])
       const { quote, shownCents } = await saveQuote(S, A.contactId)
       A.quote = quote
       expect(/WV/.test(quote.fenceStyle) && /ND/.test(quote.fenceStyle), `the quote's style is ${quote.fenceStyle}`)
@@ -736,21 +738,22 @@ try {
       expect(mine, 'the customer is not on the Salesman\'s list after the office gave it to her')
       return `Salesman ${rep}; on her list`
     })
-    await step('B', 'Salesman quotes from the card: the yard, 4 ft chain link dig set, saved (phone)', S, async () => {
+    // Her picker never asks the install (Nov 2 2026): the quote is the Better option's, and the customer signs that one.
+    await step('B', 'Salesman quotes from the card: the yard, 4 ft galvanized chain link, saved (phone)', S, async () => {
       const page = await go(S, `/pipeline?card=${encodeURIComponent(B.cardId)}`)
       await tap(S, page.locator('[data-card-new-quote]').first())
       const b = page.locator('[data-quote-builder]')
       await b.waitFor({ timeout: 20000 })
-      const style = await drawBackyard(S, b, /chain link.*4 ft.*dig set|4 ft.*chain link.*dig set|chain link.*4'.*dig/i)
+      const style = await drawBackyard(S, b, ['chain', { height: '4', finish: 'galv' }])
       const { quote } = await saveQuote(S, B.contactId)
-      B.quote = quote
+      B.quote = quote; B.style = style
       expect(/CL/i.test(quote.fenceStyle) || /chain/i.test(quote.fenceStyle), `the quote's style is ${quote.fenceStyle}`)
       return `${style}: $${quote.finalPrice.toLocaleString('en-US')}`
     })
     await step('B', 'Salesman copies the proposal link; the customer signs on their phone', S, async () => {
       await go(S, `/quotes?qv=${B.quote.id}`)
       B.link = await copyProposalLink(S, B.quote.id)
-      B.job = await customerSignsProposal(C, B.link, B.quote.id, 'Lee Nightly', /galvanized|chain link/i)
+      B.job = await customerSignsProposal(C, B.link, B.quote.id, 'Lee Nightly', new RegExp(B.style.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
       expect(Math.round((B.job.contractValue ?? B.job.quotePrice ?? 0)) === Math.round(B.quote.finalPrice), `the job's contract ($${B.job.contractValue}) is not the price quoted ($${B.quote.finalPrice})${B.job.chose ? `; the customer picked "${B.job.chose}"` : ''}`)
       return `job made (${B.job.status})${B.job.chose ? `, picked "${B.job.chose}"` : ''}`
     })
