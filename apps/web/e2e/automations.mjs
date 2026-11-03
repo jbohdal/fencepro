@@ -3,7 +3,8 @@
 //   cd apps/web && pnpm -s build
 //   E2E_ACCESS_TOKEN=<dev staff token> SHOTS=<folder, optional> node e2e/automations.mjs
 //
-// Dev only (4001 serves the built app and the API). Makes a test customer
+// Dev only (4001 serves the built app and the API), on a server with its
+// automation worker on: not started with DISABLE_CRON=1. Makes a test customer
 // with a pipeline card and a job, then in the app: builds a rule (card moved
 // into Estimating: make a task), tests it in dry run (nothing made), switches
 // it on, moves the card in its window, sees the run on the card; switches on
@@ -115,7 +116,8 @@ try {
   await p.locator('[data-card-stage]').selectOption('Estimating')
   let task = null
   for (let i = 0; i < 40 && !task; i++) { await sleep(1000); task = (await call('/api/automations/tasks?all=1&limit=500')).json.data.find(t => t.title === `E2E ${tag} measure Erin at 100 Pecan Dr, Ocala, FL 34472`) }
-  check('moving the card ran the rule on the server: the task is there', !!task, task?.title)
+  // The server's automation worker runs it: a server started with DISABLE_CRON=1 has it off, and then nothing runs.
+  check('moving the card ran the rule on the server: the task is there', !!task, task?.title ?? 'no task in 40 s: is the server\'s automation worker on? DISABLE_CRON=1 turns it off')
   // The card's run log (it reads again every 20 s; open the card again to see it now).
   await p.goto(`${APP}/pipeline?card=${cardId}`)
   await p.waitForSelector(`[data-run-log="${cardId}"] [data-run-status="succeeded"]`, { timeout: 30000 }).catch(() => null)
