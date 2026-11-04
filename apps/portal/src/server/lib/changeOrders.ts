@@ -596,7 +596,7 @@ async function pickedWork(accountId: string, quoteId: string, lines: ChangeOrder
 }
 
 /** Make one on a signed quote. Approved at once (verbally, with a reason) updates the job too. */
-export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row & { notice?: string; minimumOverride?: CutOverride[] }> {
+export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row & { notice?: string; overridesGiven?: CutOverride[] }> {
   if (!(await quoteIsSigned(accountId, c.quoteId))) throw err(409, 'Change orders are for signed quotes. This one is not signed: edit the quote instead.')
   if (c.id) {
     const same = await prisma.changeOrder.findUnique({ where: { id: c.id } })
@@ -632,7 +632,7 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
         if (c.minimum && overrides.length) await keepOverride(tx, row.id, overrideToKeep(c.minimum, overrides[0], totalOf(lines)))
         if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx, { id: row.id, by: c.by })
         const out = said((await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row)
-        return overrides.length ? Object.assign(out, { minimumOverride: overrides }) : out
+        return overrides.length ? Object.assign(out, { overridesGiven: overrides }) : out
       }, { timeout: 20_000 })
     } catch (e) {
       // Two made at the same moment took the same number: try the next one.

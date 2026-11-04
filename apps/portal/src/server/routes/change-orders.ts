@@ -177,7 +177,7 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     // A credit under the minimum job price: refused (409) inside the save; the owner's full credit goes through and is recorded (lib/changeOrderMinimum.ts).
     const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason.trim(), lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null, minimum: minimumAsk(req, by) })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
-    for (const o of row.minimumOverride ?? []) await cutOverrideAudit((a, e, id, x) => audit(req, a, e, id, x), row.id, o)
+    for (const o of row.overridesGiven ?? []) await cutOverrideAudit((a, e, id, x) => audit(req, a, e, id, x), row.id, o)
     if (needsOk && !known) await askForOk(row, by)
     res.status(201).json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.notice ? { notice: row.notice } : {}), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }

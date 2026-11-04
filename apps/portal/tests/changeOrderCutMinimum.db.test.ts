@@ -221,6 +221,17 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     return { status: r.status, json: await r.json().catch(() => ({})) as any }
   }
 
+  test('the owner\'s full credit sent twice (the phone resends): the first one stands, no error, one override in the audit log', async () => {
+    const q = await signed(647)
+    const made = await make('super_admin', q, -47900, { minimumOverride: true })
+    expect(made.status).toBe(201)
+    const again = await send('super_admin', 'POST', '/api/change-orders', { id: made.id, quoteId: q, reason: 'Customer wants less fence', lines: [{ id: crypto.randomUUID(), description: 'Remove 12 ft of fence', amountCents: -47900 }], minimumOverride: true })
+    expect(again.status).toBeLessThan(300)
+    expect(again.json.data.id).toBe(made.id)
+    expect(await prisma.changeOrder.count({ where: { quoteId: q } })).toBe(1)
+    expect(await prisma.crmAuditLog.count({ where: { entityId: made.id, entityType: 'ChangeOrder', action: 'discount_override' } })).toBe(1)
+  })
+
   test('the owner\'s full credit is kept on the change order: the customer signs it on their link, covered by it in the audit log', async () => {
     const q = await signed(647)
     const made = await make('super_admin', q, -47900, { minimumOverride: true })
