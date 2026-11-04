@@ -33,7 +33,7 @@ import { Prisma } from '@prisma/client'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, signingClash, inputs, type StoredWork, type WorkInput } from './changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
-import { lockJob, checkCut, checkVoid, checkApprove, type MinimumAsk, type CutOverride } from './changeOrderMinimum.js'
+import { lockJob, checkCut, checkVoid, checkApprove, keepOverride, overrideToKeep, type MinimumAsk, type CutOverride } from './changeOrderMinimum.js'
 import { dataFor } from './quotePricing.js'
 
 /**
@@ -289,6 +289,11 @@ export interface CustomerSignature { name: string; signature: string; ip: string
  */
 export async function signByCustomer(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   const out = await signIn(accountId, id, s)
+  // Signed under the minimum job price on the owner's override kept on it: in the audit log as covered by it (lib/changeOrderMinimum.ts).
+  if (out.covered) {
+    const { auditSystem } = await import('./auditLog.js')
+    await auditSystem('update', 'ChangeOrder', out.row.id, { newValues: { signedBy: s.name, signedVia: s.via, coveredByOwnerOverride: out.covered.covered, minimumCents: out.covered.floorCents, contractCents: out.covered.contractCents, changeCents: out.covered.changeCents } })
+  }
   // Whoever made it, and the owner and the office, are told it was signed (lib/changeOrderNotices.ts).
   if (!out.again) { const { signedNotice } = await import('./changeOrderNotices.js'); await signedNotice(out.row) }
   // The signed change order PDF, stored once with the signed record (lib/signedDocuments.ts); a repeat makes it if the first try did not.
@@ -305,7 +310,7 @@ async function refuseClash(tx: any, accountId: string, cur: Row, customer = fals
   if (why) throw err(409, customer ? 'This change order needs another look from our office before it can be signed. Please call us.' : why)
 }
 
-async function signIn(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
+async function signIn(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean; covered?: CutOverride | null }> {
   return prisma.$transaction(async tx => {
     // One save at a time on this job (lib/changeOrderMinimum.ts lockJob).
     const of = await tx.changeOrder.findUnique({ where: { id }, select: { quoteId: true } })
@@ -321,7 +326,7 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
     if (!verbal && cur.status !== 'sent' && !(cur.status === 'draft' && s.via === 'in_person')) throw err(409, 'This change order is not ready to sign yet. Please call us.')
     if (!verbal) await refuseClash(tx, accountId, cur, s.via !== 'in_person')
     // A cut the job no longer has room for under the minimum job price: never signed past it (the owner approves it first).
-    if (!verbal) await checkApprove(tx, accountId, cur, { role: null, override: false, customer: s.via !== 'in_person' })
+    const covered = verbal ? null : await checkApprove(tx, accountId, cur, { role: null, override: false, customer: s.via !== 'in_person' })
     const now = new Date()
     // The words they were shown are the words they sign (the signed PDF and the record keep them).
     const shown = shownLines(cur)
@@ -339,7 +344,7 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
         },
     })
     if (!verbal) await applyToJob(accountId, cur.quoteId, tx, { id, by: s.name })
-    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, again: false }
+    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, again: false, covered }
   }, { timeout: 15_000 })
 }
 
@@ -623,6 +628,8 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
             ...(verbal ? { approvedAt: now, approvedBy: c.by, verbalBy: c.by, verbalAt: now, verbalReason: verbal } : {}),
           },
         })
+        // The owner's full credit is kept on it, so approving or signing it later is not asked again (lib/changeOrderMinimum.ts).
+        if (c.minimum && overrides.length) await keepOverride(tx, row.id, overrideToKeep(c.minimum, overrides[0], totalOf(lines)))
         if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx, { id: row.id, by: c.by })
         const out = said((await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row)
         return overrides.length ? Object.assign(out, { minimumOverride: overrides }) : out
@@ -726,6 +733,10 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
       if (to === 'void') data.voidedAt = new Date()
     }
     const row = await tx.changeOrder.update({ where: { id }, data: data as any })
+    // The owner's override is kept on it at its total now; new lines without one clear the one kept (lib/changeOrderMinimum.ts).
+    const given = overrides.find(o => !o.covered)
+    if (given && minimum) await keepOverride(tx, id, overrideToKeep(minimum, given, row.totalCents))
+    else if (data.lines !== undefined && JSON.stringify(data.lines) !== JSON.stringify(linesOf(cur)) && JSON.stringify(data.lines) !== JSON.stringify(shownLines(cur))) await keepOverride(tx, id, null)
     if (cur.status === 'approved' || row.status === 'approved') await applyToJob(accountId, cur.quoteId, tx, { id, by })
     return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false, backToOk: backToOk && row.status === 'needs_ok', ...(overrides.length ? { minimumOverride: overrides } : {}) }
   }, { timeout: 15_000 })

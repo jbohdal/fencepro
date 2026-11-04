@@ -2904,6 +2904,9 @@ model ChangeOrder {
   verbalReason   String?
   /// The contract revision it made when approved (rev 1 is the contract as signed).
   contractRev    Int?
+  // The owner's override of the minimum job price (lib/changeOrderMinimum.ts): who gave it, when, and the
+  // change order's total then. Signing or approving it later at that same total is not asked again.
+  minimumOverride Json?
   version    Int       @default(1)
   /// Deleted (owner or admin): in Settings > Deleted Records until restored (lib/deletion.ts). archivedAt is the everyday Archive.
   deletedAt DateTime?

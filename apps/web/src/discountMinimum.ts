@@ -131,7 +131,7 @@ export function cutUnderMinimum(contractCents: number, changeCents: number, floo
 }
 
 /** What the login is told of a credit past the floor: the same words on the screen and from the server. */
-export function cutUnderMinimumWarning(contractCents: number, changeCents: number, floorCents: number, owner: boolean, doing: 'cut' | 'void' | 'approve' = 'cut'): string {
+export function cutUnderMinimumWarning(contractCents: number, changeCents: number, floorCents: number, owner: boolean, doing: 'cut' | 'void' | 'approve' = 'cut', withOpen = false): string {
   const floor = dollars(floorCents), after = dollars(contractCents + changeCents)
   if (doing === 'cut') {
     return owner
@@ -139,10 +139,13 @@ export function cutUnderMinimumWarning(contractCents: number, changeCents: numbe
       : `This cannot be saved. It takes the job under the ${floor} minimum job price: the contract would be ${after}. Take less off, or ask Jonathan.`
   }
   // Voiding an approved addition, or approving a cut that the job no longer has room for: "Take less off" is for cuts only.
-  const verb = doing === 'void' ? 'voided' : 'approved'
+  // With open change orders counted, it says so (review Nov 3 2026): the job is under only once they are signed too.
+  const why = withOpen
+    ? `${doing === 'void' ? 'Voiding' : 'Approving'} this, with the open change orders, takes the job under the ${floor} minimum job price: the contract would be ${after}.`
+    : `It takes the job under the ${floor} minimum job price: the contract would be ${after}.`
   return owner
-    ? `This takes the job under the ${floor} minimum job price: the contract would be ${after}. As the owner you can ${doing === 'void' ? 'void' : 'approve'} it anyway.`
-    : `This cannot be ${verb}. It takes the job under the ${floor} minimum job price: the contract would be ${after}. Ask Jonathan.`
+    ? `${withOpen ? why : `This takes the job under the ${floor} minimum job price: the contract would be ${after}.`} As the owner you can ${doing === 'void' ? 'void' : 'approve'} it anyway.`
+    : `This cannot be ${doing === 'void' ? 'voided' : 'approved'}. ${why} Ask Jonathan.`
 }
 
 /** The owner's note once the box gives the full credit (in place of "the credit stops at"). */

@@ -10,6 +10,8 @@ import 'dotenv/config'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
 import type { AddressInfo } from 'net'
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 
@@ -21,6 +23,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const { resolveIntakeAccountId } = await import('../src/server/lib/intake.js')
   const { CUT_BELOW_MINIMUM_CODE } = await import('../src/server/lib/changeOrderMinimum.js')
+  const { changeOrderPublic } = await import('../src/server/routes/changeOrderPublic.js')
+  const started = new Date()
 
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
   const quotes: string[] = [], orders: string[] = [], jobs: string[] = [], adjustments: string[] = []
@@ -42,12 +46,28 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     const app = express()
     app.use(express.json({ limit: '10mb' }))
     app.use('/api/change-orders', changeOrders)
+    app.use('/p/co', changeOrderPublic)
     server = app.listen(0)
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
 
   afterAll(async () => {
     server?.close()
+    // What a signing made: its notices, its signed PDF (record and file).
+    const notes = await prisma.notification.findMany({ where: { createdAt: { gte: started }, title: { contains: 'ZZ Test Cut Minimum' } }, select: { id: true } })
+    for (const n of notes) await prisma.notification.deleteMany({ where: { id: n.id } })
+    for (const q of quotes) {
+      const docs = await prisma.signedDocument.findMany({ where: { quoteId: q } }) as any[]
+      for (const d of docs) {
+        if (d.fileKey) fs.rmSync(path.resolve(process.env.UPLOAD_DIR || 'uploads', d.fileKey), { force: true })
+        if (d.portalFileId) {
+          const f = await prisma.portalFile.findUnique({ where: { id: d.portalFileId } }) as any
+          if (f?.fileKey) fs.rmSync(path.resolve(process.env.UPLOAD_DIR || 'uploads', f.fileKey), { force: true })
+          await prisma.signedDocument.deleteMany({ where: { id: d.id } })
+          await prisma.portalFile.deleteMany({ where: { id: d.portalFileId } })
+        } else await prisma.signedDocument.deleteMany({ where: { id: d.id } })
+      }
+    }
     for (const id of orders) {
       await prisma.crmAuditLog.deleteMany({ where: { entityId: id, entityType: 'ChangeOrder' } })
       await prisma.changeOrder.deleteMany({ where: { id, accountId } })
@@ -146,12 +166,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     const refused = await voidIt('office_staff')
     expect(refused.status).toBe(409)
     expect(refused.json.code).toBe(CUT_BELOW_MINIMUM_CODE)
-    expect(refused.json.error).toBe('This cannot be voided. It takes the job under the $350 minimum job price: the contract would be −$150. Ask Jonathan.')
+    expect(refused.json.error).toBe('This cannot be voided. Voiding this, with the open change orders, takes the job under the $350 minimum job price: the contract would be −$150. Ask Jonathan.')
     expect((await prisma.changeOrder.findUnique({ where: { id: add.id } }))!.status).toBe('approved')
     // The owner too, until the box is ticked; then it goes through and is in the audit log.
     const asked = await voidIt('super_admin')
     expect(asked.status).toBe(409)
-    expect(asked.json.error).toBe('This takes the job under the $350 minimum job price: the contract would be −$150. As the owner you can void it anyway.')
+    expect(asked.json.error).toBe('Voiding this, with the open change orders, takes the job under the $350 minimum job price: the contract would be −$150. As the owner you can void it anyway.')
     const byOwner = await voidIt('super_admin', { minimumOverride: true })
     expect(byOwner.status).toBe(200)
     expect(byOwner.json.data.status).toBe('void')
@@ -188,6 +208,56 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     const [a, b] = await Promise.all([make('office_staff', q, -29700), make('office_staff', q, -29700)])
     expect([a.status, b.status].sort()).toEqual([201, 409])
     expect(await prisma.changeOrder.count({ where: { quoteId: q, deletedAt: null } })).toBe(1)
+  })
+
+  const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+  const kept = async (id: string) => ((await prisma.$queryRaw`SELECT "minimumOverride" AS o FROM "ChangeOrder" WHERE id = ${id}`) as Array<{ o: any }>)[0]?.o ?? null
+  /** Sent to the customer (its link), then signed on it as the customer. */
+  async function signOnLink(id: string) {
+    const link = await send('super_admin', 'POST', `/api/change-orders/${id}/link`, {})
+    const row = (await prisma.changeOrder.findUnique({ where: { id } }))!
+    if (row.status === 'draft') expect((await send('office_staff', 'PATCH', `/api/change-orders/${id}`, { baseVersion: row.version, status: 'sent' })).status).toBe(200)
+    const r = await fetch(`${base}/p/co/${link.json.data.token}/sign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'ZZ Signer', signature: SIG }) })
+    return { status: r.status, json: await r.json().catch(() => ({})) as any }
+  }
+
+  test('the owner\'s full credit is kept on the change order: the customer signs it on their link, covered by it in the audit log', async () => {
+    const q = await signed(647)
+    const made = await make('super_admin', q, -47900, { minimumOverride: true })
+    expect(made.status).toBe(201)
+    expect(await kept(made.id)).toMatchObject({ totalCents: -47900, doing: 'cut', userId: ownerId })
+    const signedIt = await signOnLink(made.id)
+    expect(signedIt.status).toBe(200)
+    const row = (await prisma.changeOrder.findUnique({ where: { id: made.id } }))!
+    expect([row.status, row.totalCents, row.signedBy]).toEqual(['approved', -47900, 'ZZ Signer'])
+    const logs = await prisma.crmAuditLog.findMany({ where: { entityId: made.id, entityType: 'ChangeOrder', action: 'update' } })
+    expect(logs.some(l => (l.newValues as any)?.coveredByOwnerOverride?.totalCents === -47900)).toBe(true)
+  })
+
+  test('the owner\'s full credit, then its lines changed: the override no longer applies and the customer cannot sign it', async () => {
+    const q = await signed(647)
+    const made = await make('super_admin', q, -47900, { minimumOverride: true })
+    const row = (await prisma.changeOrder.findUnique({ where: { id: made.id } }))!
+    // The office changes the amount to one that still takes the job under: refused as a cut would be.
+    expect((await send('office_staff', 'PATCH', `/api/change-orders/${made.id}`, { baseVersion: row.version, lines: [{ id: crypto.randomUUID(), description: 'Credit', amountCents: -48000 }] })).status).toBe(409)
+    // Less off (allowed as a change), and its kept override is cleared.
+    const less = await send('office_staff', 'PATCH', `/api/change-orders/${made.id}`, { baseVersion: row.version, lines: [{ id: crypto.randomUUID(), description: 'Credit', amountCents: -40000 }] })
+    expect(less.status).toBe(200)
+    expect(await kept(made.id)).toBeNull()
+    const signedIt = await signOnLink(made.id)
+    expect(signedIt.status).toBe(409)
+    expect(signedIt.json.error).toBe('This change order needs another look from our office before it can be signed. Please call us.')
+    expect((await prisma.changeOrder.findUnique({ where: { id: made.id } }))!.signedAt).toBeNull()
+  })
+
+  test('a login that is not the owner can never set the override', async () => {
+    const q = await signed(647)
+    const r = await make('office_staff', q, -47900, { minimumOverride: true, minimumOverrideRecord: { totalCents: -47900 } })
+    expect(r.status).toBe(409)
+    // A cut it may make is not marked either, however it asks.
+    const ok = await make('office_staff', q, -29700, { minimumOverride: true })
+    expect(ok.status).toBe(201)
+    expect(await kept(ok.id)).toBeNull()
   })
 
   test('the contract adjustments on the payment schedule count too', async () => {

@@ -246,5 +246,9 @@ describe('a cut stops at the minimum job price', () => {
     expect(cutUnderMinimumWarning(84000, -50000, 35000, false, 'void')).toBe('This cannot be voided. It takes the job under the $350 minimum job price: the contract would be $340. Ask Jonathan.')
     expect(cutUnderMinimumWarning(84000, -50000, 35000, true, 'void')).toBe('This takes the job under the $350 minimum job price: the contract would be $340. As the owner you can void it anyway.')
     expect(cutUnderMinimumWarning(84000, -50000, 35000, false, 'approve')).toBe('This cannot be approved. It takes the job under the $350 minimum job price: the contract would be $340. Ask Jonathan.')
+    // With open change orders counted, it says so.
+    expect(cutUnderMinimumWarning(20000, -35000, 35000, false, 'void', true)).toBe('This cannot be voided. Voiding this, with the open change orders, takes the job under the $350 minimum job price: the contract would be −$150. Ask Jonathan.')
+    expect(cutUnderMinimumWarning(20000, -35000, 35000, true, 'void', true)).toBe('Voiding this, with the open change orders, takes the job under the $350 minimum job price: the contract would be −$150. As the owner you can void it anyway.')
+    expect(cutUnderMinimumWarning(20000, -35000, 35000, false, 'approve', true)).toBe('This cannot be approved. Approving this, with the open change orders, takes the job under the $350 minimum job price: the contract would be −$150. Ask Jonathan.')
   })
 })

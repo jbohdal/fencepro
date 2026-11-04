@@ -122,7 +122,7 @@ const editSchema = z.object({
 })
 
 /** Who is saving, and whether the owner ticked the box to go under the minimum job price (lib/changeOrderMinimum.ts). */
-const minimumAsk = (req: any): MinimumAsk => ({ role: roleOf(req), override: req.body?.minimumOverride === true })
+const minimumAsk = (req: any, by: string): MinimumAsk => ({ role: roleOf(req), override: req.body?.minimumOverride === true, by, userId: req.user?.id ?? null })
 
 async function who(req: any): Promise<string> {
   const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)
@@ -175,7 +175,7 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     const noReason = known ? null : reasonProblem(body.reason)
     if (noReason) { res.status(400).json({ success: false, error: noReason }); return }
     // A credit under the minimum job price: refused (409) inside the save; the owner's full credit goes through and is recorded (lib/changeOrderMinimum.ts).
-    const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason.trim(), lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null, minimum: minimumAsk(req) })
+    const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason.trim(), lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null, minimum: minimumAsk(req, by) })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
     for (const o of row.minimumOverride ?? []) await cutOverrideAudit((a, e, id, x) => audit(req, a, e, id, x), row.id, o)
     if (needsOk && !known) await askForOk(row, by)
@@ -196,7 +196,7 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     const by = await who(req)
     // A Salesman's change to an OK'd one goes back to "Waiting for OK" (lib/changeOrders.ts editChangeOrder). New lines that take
     // more off, voiding an approved addition and approving a cut are held to the minimum job price inside the save (lib/changeOrderMinimum.ts).
-    const { row, stale, backToOk, minimumOverride } = await editChangeOrder(accountId, cur.id, base, edit as any, by, { needsOk: !can(roleOf(req), 'billing.change'), minimum: minimumAsk(req) })
+    const { row, stale, backToOk, minimumOverride } = await editChangeOrder(accountId, cur.id, base, edit as any, by, { needsOk: !can(roleOf(req), 'billing.change'), minimum: minimumAsk(req, by) })
     if (stale) { refuseStale(res, view(row), row.version); return }
     await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: view(row) })
     for (const o of minimumOverride ?? []) await cutOverrideAudit((a, e, id, x) => audit(req, a, e, id, x), row.id, o)
@@ -305,7 +305,7 @@ router.get('/cut-floor', requireCan('quotes.change'), async (req: any, res) => {
     const quoteId = typeof req.query.quoteId === 'string' ? req.query.quoteId : ''
     const s = quoteId ? await cutStanding(req.user.crmAccountId, quoteId) : null
     if (!s) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
-    res.json({ success: true, data: s })
+    res.json({ success: true, data: { floorCents: s.floorCents, contractCents: s.contractCents } })
   } catch (e) { fail(res, e, 'load the minimum job price') }
 })
 
