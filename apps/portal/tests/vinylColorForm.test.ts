@@ -71,9 +71,10 @@ describe('creating a color: the same takeoff rules (kit lines) as the White temp
         pieces: { picketCents: 300, rail6Cents: 700, rail8Cents: 1000, uTrimCents: 150 },
       }
       const plan = planVinylColor(st, input, opts)
-      expect(plan.created.styles.length).toBe(8)
-      for (const size of sizes) for (const m of ['nd', 'ds'] as const) {
-        const w = kitOf(white(size, m), [])
+      // 4 sizes x 2 methods, and the best price fence (6x6 and 6x8 both ticked: 6 or 8 ft per run, Nov 3 2026) x 2 methods.
+      expect(plan.created.styles.length).toBe(10)
+      for (const size of [...sizes, '6xauto'] as const) for (const m of ['nd', 'ds'] as const) {
+        const w = kitOf(size === '6xauto' ? `WV-Auto ${m.toUpperCase()} Privacy` : white(size, m), [])
         const name = `vinyl/privacy/${size.split('x')[0]}/test-clay/${m}/${size.split('x')[1]}`
         const c = kitOf(name, plan.state.kits)
         const wc = kitLineCounts(w), cc = kitLineCounts(c)
@@ -85,7 +86,7 @@ describe('creating a color: the same takeoff rules (kit lines) as the White temp
           // Per section: White's section-part lines become the section kit's own lines.
           const sectionParts = (set: KitSet) => (set.kits[kind] ?? []).filter(p => ['picket', 'rail', 'uTrim', 'railInsert', 'sectionItem'].includes(whitePartRole(p.part).role)).length
           const kitLines = mode === 'section' && sectionParts(w) > 0
-            ? (() => { const s = input.sections[(kind === 'walkGate' || kind === 'dblGate') && size.startsWith('6') ? '6x6' : size]!; return [s.pickets, s.rails, s.picketStiffeners, s.railStiffeners, s.uChannels].filter(x => (x ?? 0) > 0).length })()
+            ? (() => { const s = input.sections[(kind === 'walkGate' || kind === 'dblGate') && size.startsWith('6') ? '6x6' : size === '6xauto' ? (kind === 'section8' ? '6x8' : '6x6') : size]!; return [s.pickets, s.rails, s.picketStiffeners, s.railStiffeners, s.uChannels].filter(x => (x ?? 0) > 0).length })()
             : 0
           const expected = mode === 'section' && sectionParts(w) > 0 ? wc[kind]! - sectionParts(w) + kitLines : wc[kind]!
           expect(cc[kind], `${name} ${kind}`).toBe(expected)
@@ -223,6 +224,46 @@ describe('Jonathan\'s answers, Oct 21: the rail insert is shared, rivets can be 
     // The edit form reads it back.
     expect(inputFromColor(plan.state, plan.key)!.rivets).toEqual({ color: 'Black', cents: 60 })
     setMaterialPriceSource(null); setSavedKitSets(() => [])
+  })
+})
+
+describe('a color in both widths gets a best price fence (Jonathan, Nov 3, 2026: "Yes, add the other width")', () => {
+  // The 6x6 cost and contents here are test figures only: Chai Gray's real 6x6 section is not priced yet.
+  const BOTH: VinylColorInput = { ...CHAI_GRAY, sizes: ['6x6', '6x8'], sections: { ...CHAI_GRAY.sections, '6x6': { costCents: 15000, pickets: 11, rails: 2, railFt: 6, picketStiffeners: 2, railStiffeners: 0, uChannels: 2 } } }
+
+  test('one per method, copying White\'s best price fence; each run priced at 6 or 8 ft from the color\'s own section kits', () => {
+    expect(planVinylColor(baseState(), CHAI_GRAY, opts).state.fenceStyles.some(s => /chai-gray\/.*\/auto$/.test(s.name)), 'one width: no best price fence').toBe(false)
+    const plan = planVinylColor(baseState(), BOTH, opts)
+    expect(plan.created.styles.map(s => s.label)).toEqual(expect.arrayContaining([
+      'Chai Gray Vinyl Privacy, 6 ft tall, 6 ft sections, No dig', 'Chai Gray Vinyl Privacy, 6 ft tall, 8 ft sections, No dig',
+      expect.stringMatching(/^Chai Gray Vinyl Privacy, 6 ft tall, .*best price.*No dig$/), expect.stringMatching(/^Chai Gray Vinyl Privacy, 6 ft tall, .*best price.*Dig set$/),
+    ]))
+    for (const m of ['nd', 'ds'] as const) {
+      const a = plan.state.fenceStyles.find(s => s.name === `vinyl/privacy/6/chai-gray/${m}/auto`)!
+      const w = plan.state.fenceStyles.find(s => s.name === `WV-Auto ${m.toUpperCase()} Privacy`)!
+      expect([a.autoRailMix, a.kitKey, a.installMethod, a.panelWidth, a.sectionsPerMH, a.mhPerDblGate]).toEqual([true, a.name, w.installMethod, w.panelWidth, w.sectionsPerMH, w.mhPerDblGate])
+      const k = kitOf(a.name, plan.state.kits)
+      expect(k.kits.section!.find(p => p.part === "*Vinyl, Chai Gray, Rail, 6'")?.qty).toBe(2)
+      expect(k.kits.section8!.find(p => p.part === "*Vinyl, Chai Gray, Rail, 8'")?.qty).toBe(2)
+      expect(k.kits.dblGate!.find(p => p.part === '*Vinyl, Chai Gray, Picket')!.qty).toBe(22)
+    }
+    const cfg = estimateConfig({ fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog } as any)
+    setMaterialPriceSource(priceSourceFromMap(Object.fromEntries(plan.state.items.map((i: InvItem) => [i.name, i.unitCost]))))
+    setSavedKitSets(() => plan.state.kits)
+    const styles = resolveFenceStyles(cfg.fenceStyles, cfg.fenceCatalog!)
+    const style = styles.find(s => s.name === 'vinyl/privacy/6/chai-gray/nd/auto')!
+    expect(style.held, 'fully priced, available for quoting').toBeUndefined()
+    const q = (rail: 'auto' | '6ft' | '8ft') => calculateQuote({
+      style, runs: [{ ft: 48, rail }, { ft: 12, rail }], corners: 1, ends: 2, walkGates: 0, dblGates: 1,
+      tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing: cfg.pricing, optimizer: cfg.railOptimizer!,
+    })
+    const at6 = q('6ft'), at8 = q('8ft'), best = q('auto')
+    const line = (c: ReturnType<typeof q>, name: string) => c.materials.items.find(i => i.item === name)?.qty ?? 0
+    // All 6 ft: 8 + 2 sections and the two gate leaves, each a 6x6 kit. All 8 ft: 6 + 2 sections 6x8, the leaves still 6x6.
+    expect([line(at6, '*Vinyl, Chai Gray, Section, 6x6'), line(at6, '*Vinyl, Chai Gray, Section, 6x8')]).toEqual([12, 0])
+    expect([line(at8, '*Vinyl, Chai Gray, Section, 6x6'), line(at8, '*Vinyl, Chai Gray, Section, 6x8')]).toEqual([2, 8])
+    expect(best.perRunRail.every(r => r === '6ft' || r === '8ft')).toBe(true)
+    expect(best.priced.price).toBeLessThanOrEqual(Math.min(at6.priced.price, at8.priced.price))
   })
 })
 

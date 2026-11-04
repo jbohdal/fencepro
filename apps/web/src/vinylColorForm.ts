@@ -12,7 +12,10 @@
  *                     Picket Stiffener, Rail Stiffener, U Channel)
  *                   per piece: Picket, 62-1/4" · Rail, 6' · Rail, 8' · U-Trim, 59-1/4"
  *   fences          one per size and set method ticked, copying the White
- *                   fence of that size and method (labor, profit, sub rate, gates)
+ *                   fence of that size and method (labor, profit, sub rate, gates);
+ *                   6 ft tall with both 6x6 and 6x8 ticked, also the best price
+ *                   fence (6 or 8 ft sections chosen per run), copying White's
+ *                   (Jonathan, Nov 3, 2026: "Yes, add the other width")
  *   material kits   the White fence's kits with the color parts swapped in:
  *                   every kit keeps White's lines; a section kit's lines are
  *                   what Jonathan says the section includes
@@ -106,8 +109,8 @@ export const WHITE_SECTION: Record<SizeKey, SectionContents | null> = {
 /** What the $0 parts of an 8 ft tall fence are included in. */
 export const TALL_INCLUDED = { section: '8 ft tall section price', post: '8 ft tall post price' } as const
 
-const heightOf = (s: SizeKey) => s.split('x')[0]
-const widthOf = (s: SizeKey) => s.split('x')[1]
+const heightOf = (s: string) => s.split('x')[0]
+const widthOf = (s: string) => s.split('x')[1]
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
 const isCents = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
 
@@ -272,10 +275,14 @@ function templateFor(st: CatalogState, height: string, method: SetMethod, width:
   })
 }
 
+/** The best price fence of a 6 ft tall color: 6 or 8 ft sections, chosen per run (White's "WV-Auto ND Privacy"). */
+export const AUTO_SIZE = '6xauto' as const
+type BuildSize = SizeKey | typeof AUTO_SIZE
+
 /** The White fence a size and method copy: its labor and profit, and its kits. */
-export function whiteTemplate(st: CatalogState, size: SizeKey, method: SetMethod): { style: FenceStyle; kits: KitSet } | { problem: string } {
+export function whiteTemplate(st: CatalogState, size: BuildSize, method: SetMethod): { style: FenceStyle; kits: KitSet } | { problem: string } {
   const style = templateFor(st, heightOf(size), method, widthOf(size))
-  if (!style) return { problem: `There is no White ${SET_METHOD_LABEL[method]} ${size.replace('x', "'x")}' privacy fence turned on to copy.` }
+  if (!style) return { problem: `There is no White ${SET_METHOD_LABEL[method]} ${size === AUTO_SIZE ? '6 ft tall best price (6 or 8 ft sections)' : `${size.replace('x', "'x")}'`} privacy fence turned on to copy.` }
   const k = kitSetFor(style.name, st.kits)
   if (!k || k === 'archived' || k.mismatch) return { problem: `${style.name} has no material kit in use to copy.` }
   return { style, kits: clone(k) }
@@ -373,21 +380,24 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   const now = new Date().toISOString()
   const ticked = new Set<string>()
 
-  for (const size of sizes) for (const method of methods) {
+  // 6 ft tall in both widths: the best price fence too, its runs priced at 6 or 8 ft each (as White's and Tan's).
+  const builds: BuildSize[] = [...sizes, ...(sizes.includes('6x6') && sizes.includes('6x8') ? [AUTO_SIZE] : [])]
+  for (const size of builds) for (const method of methods) {
     const t = whiteTemplate(st, size, method)
     if ('problem' in t) throw new Error(t.problem)
     const h = heightOf(size), w = widthOf(size)
+    const auto = size === AUTO_SIZE
     const choices = { ...styleChoicesOf(t.style)!.choices, color: key }
     const name = generatedName(m, choices)
     ticked.add(name)
     allStyles.push(name)
-    // Per section (6 ft tall): the section item. 8 ft tall is priced by the piece: no section item.
-    const sectionItem = input.mode === 'section' && h === '6'
-      ? want(`section:${size}`, sectionItemName(color, size), input.sections[size]?.costCents ?? null, `Section, ${size}`)
+    // Per section (6 ft tall): the section item (the best price fence uses the 6x6 and 6x8 ones). 8 ft tall is priced by the piece: no section item.
+    const sectionItem = input.mode === 'section' && h === '6' && !auto
+      ? want(`section:${size}`, sectionItemName(color, size), input.sections[size as SizeKey]?.costCents ?? null, `Section, ${size}`)
       : null
     if (sectionItem) (sectionItems[h] ??= {})[w] = sectionItem
     // A gate leaf takes a 6 ft wide section kit when the color has one, else this size's.
-    const leafSize: SizeKey = h === '6' && sizes.includes('6x6') ? '6x6' : size
+    const leafSize: SizeKey = h === '6' && sizes.includes('6x6') ? '6x6' : size as SizeKey
     const kits: KitSet['kits'] = {}
     for (const kind of KIT_KINDS) {
       const parts = t.kits.kits[kind]
@@ -402,7 +412,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
         if (input.mode === 'section' && h === '6' && sectionPart && (isSectionKit || leaves)) {
           // The section's parts become what the section kit includes, listed once where White's first one was.
           if (!placed) {
-            const kitParts = isSectionKit ? sectionKitParts(size) : sectionKitParts(leafSize, leaves)
+            const kitParts = isSectionKit ? sectionKitParts(auto ? (kind === 'section8' ? '6x8' : '6x6') : size as SizeKey) : sectionKitParts(leafSize, leaves)
             out.push(...kitParts)
             cover(isSectionKit ? 'section' : kind === 'walkGate' ? 'walkGate' : 'dblGate', kitParts)
             placed = true
@@ -411,7 +421,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
         }
         if (r.role === 'sectionItem') {
           if (!sectionItem) throw new Error(`${t.style.name}'s material kit still lists a whole section (${p.part}); 8 ft tall sections are listed by their parts since Oct 21, 2026. Update its kit in Inventory > Material Kits first.`)
-          out.push({ part: sectionItem, qty: p.qty, fallbackCost: (input.sections[size]?.costCents ?? 0) / 100 }); continue
+          out.push({ part: sectionItem, qty: p.qty, fallbackCost: (input.sections[size as SizeKey]?.costCents ?? 0) / 100 }); continue
         }
         if (r.role === 'rivet' && input.rivets?.color.trim() && !/^white$/i.test(input.rivets.color.trim())) {
           const rc = input.rivets.color.trim(), cents = input.rivets.cents
@@ -436,9 +446,10 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
       const s = t.style
       st.fenceStyles.push({
         id: opts.newId('fs'), name, category: s.category, margin: s.margin, targetProfitPct: s.targetProfitPct,
-        sectionsPerMH: s.sectionsPerMH, panelWidth: Number(w), mhPerWalkGate: s.mhPerWalkGate, mhPerDblGate: s.mhPerDblGate,
+        sectionsPerMH: s.sectionsPerMH, panelWidth: auto ? s.panelWidth : Number(w), mhPerWalkGate: s.mhPerWalkGate, mhPerDblGate: s.mhPerDblGate,
         isActive: true, ...(s.quotable === false ? { quotable: false } : {}),
         ...(s.subRate !== undefined ? { subRate: s.subRate } : {}), ...(s.pricePerFoot !== undefined ? { pricePerFoot: s.pricePerFoot } : {}),
+        ...(auto ? { autoRailMix: true, installMethod: s.installMethod, colorFamily: s.colorFamily, kitKey: name } : {}),
         material: 'vinyl', choices, madeFrom: s.name,
       })
       madeStyles.push({ name, label: '', madeFrom: s.name })
@@ -446,7 +457,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
     // 8 ft tall: the form's section and post price are the fence's own piece prices.
     if (h === '8') {
       const fs = st.fenceStyles.find(x => x.name === name)!
-      const sec = input.sections[size]?.costCents ?? null, post = input.posts['8']?.allCents ?? null
+      const sec = input.sections[size as SizeKey]?.costCents ?? null, post = input.posts['8']?.allCents ?? null
       const was = fs.pieceCents ?? {}
       if (isCents(sec) && isCents(post) && (was.section !== sec || was.post !== post)) {
         tallPrices.push({ name, sectionCents: sec, postCents: post, prevSectionCents: isCents(was.section) ? was.section : null, prevPostCents: isCents(was.post) ? was.post : null })

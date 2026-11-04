@@ -24,7 +24,10 @@
  * Commission stays with whoever sold it (Jonathan, Nov 2 2026): a signed job
  * moved to someone else keeps its seller, and the owner can edit who gets it
  * and how much by hand (portal lib/soldBy.ts). creditedTo is who a sale counts
- * for; the rep (salesRep) is who is working it now.
+ * for; the rep (salesRep) is who is working it now. Commission is pay only
+ * (Jonathan, Nov 3 2026: "No. Revenue and close rate stay with the seller of
+ * record. Commission is pay only."): commissionGoesTo is who is paid it, and
+ * it moves nothing else (salesByRep).
  *
  * Pure: QuoteBuilder and QuoteDetailDrawer call it, tests call it directly.
  */
@@ -99,9 +102,39 @@ export function carriesCommission(q: SavedMargin): boolean {
   return !!q.hasSalesman || pos(q.pricing?.commissionPct) || pos(q.work?.priced?.commissionCents) || pos(q.pricing?.commissionHandCents) || q.pricing?.commissionByHand === true
 }
 
-/** Who a sale and its commission count for: who sold it (the server says, when it is not the rep on it now; '' for no one), else the rep. */
+/** Who a sale counts for (its revenue, close rate, sales): who sold it (the server says, when it is not the rep on it now; '' for no one), else the rep. */
 export function creditedTo(q: { soldBy?: string | null; salesRep?: string | null }): string {
   return typeof q.soldBy === 'string' ? q.soldBy.trim() : q.salesRep?.trim() || ''
+}
+
+/** Who is paid a sale's commission: who the owner handed it to by hand (portal lib/soldBy.ts), else who sold it. */
+export function commissionGoesTo(q: { soldBy?: string | null; salesRep?: string | null; pricing?: { commissionTo?: unknown } | null }): string {
+  const to = q.pricing?.commissionTo
+  return typeof to === 'string' && to.trim() ? to.trim() : creditedTo(q)
+}
+
+/** One person's line in Sales by rep: quotes, sales and revenue as the seller; commission as who is paid it. */
+export interface RepTotals<T> { total: number; sold: number; revenue: number; commissionCents: number; soldQuotes: T[] }
+
+/**
+ * Sales by rep: each quote counts for its seller (quotes, sold, revenue, the sold quotes the margin is read from);
+ * each sold quote's commission (`commissionCents`, the caller's figure) for who is paid it. A person paid a commission
+ * on a sale they did not make gets a line with that commission and no quotes. '' is 'Unassigned'.
+ */
+export function salesByRep<T extends { status?: string; finalPrice: number; soldBy?: string | null; salesRep?: string | null; pricing?: { commissionTo?: unknown } | null }>(quotes: readonly T[], commissionCents: (q: T) => number): Record<string, RepTotals<T>> {
+  const map: Record<string, RepTotals<T>> = {}
+  const line = (name: string) => (map[name || 'Unassigned'] ??= { total: 0, sold: 0, revenue: 0, commissionCents: 0, soldQuotes: [] })
+  for (const q of quotes) {
+    const seller = line(creditedTo(q))
+    seller.total += 1
+    if (q.status !== 'SOLD') continue
+    seller.sold += 1
+    seller.revenue += q.finalPrice
+    seller.soldQuotes.push(q)
+    const cents = commissionCents(q)
+    if (cents) line(commissionGoesTo(q)).commissionCents += cents
+  }
+  return map
 }
 
 /**

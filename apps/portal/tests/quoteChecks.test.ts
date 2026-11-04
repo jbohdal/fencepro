@@ -34,7 +34,7 @@ describe('gate checks', () => {
 
 describe('margin', () => {
   test('under the target', () => {
-    expect(marginCheck(0.3, 0.34, 5000)).toBe('Margin is 30.0% (price less cost), under your 34% good margin in Settings.')
+    expect(marginCheck(0.3, 0.34, 5000)).toBe('Margin is 30.0% (price less cost), under this fence\'s 34% Target Margin (Overhead + Target Profit in Settings).')
     expect(marginCheck(0.4, 0.34, 5000)).toBeNull()
   })
 })

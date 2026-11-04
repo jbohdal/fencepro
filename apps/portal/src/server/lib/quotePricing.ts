@@ -99,6 +99,8 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     ...(num(b.tees) > 0 ? { tees: Math.round(num(b.tees)) } : {}),
     tearOutSections: num(b.tearOutSections), tearOutGates: num(b.tearOutGates),
     extraLaborHrs: num(b.extraLaborHrs), hasSalesman: !!b.hasSalesman, priceAdjust: num(b.priceAdjust),
+    // A sent proposal: the fences whose options went out with the Price adjust (web proposal.ts sentSliderStyles).
+    ...(Array.isArray(b.sliderOn) ? { sliderOn: b.sliderOn.filter((x: unknown) => typeof x === 'string').slice(0, 40) } : {}),
     overrides,
     jobType,
     move: jobType === 'move' && b.move && typeof b.move === 'object' ? b.move : null,

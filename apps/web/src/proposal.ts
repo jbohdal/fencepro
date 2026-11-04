@@ -77,6 +77,8 @@ export interface ProposalOption {
     otherMaterial?: true
     /** An option of a style that posts a tee differently: its own post counts, which go on the quote with it when signed. */
     posts?: { corners: number; ends: number; teeLinePosts: number }
+    /** An option that is not the main one, on a quote with a Price adjust: the Price adjust it took instead (sliderTaken), which goes on the quote with it when signed. */
+    priceAdjust?: number
   }
 }
 
@@ -199,6 +201,52 @@ export const noAdjustment = { priceAdjustmentCents: undefined, showDiscountOnPro
 /** Pricing choices with the ± dollar adjustment left off. */
 export function withoutAdjustment<O extends QuoteCalcInput['overrides']>(o: O): O {
   return (o ? { ...o, ...noAdjustment } : o) as O
+}
+
+/**
+ * An option that is not the quote's main one, of the main one's own style: a move's "Move as is", a repair's "New
+ * fence instead". Neither the ± dollars nor the percent slider (Price adjust) is on it ("Yes" to "Should the slider
+ * also move only the main option?", Jonathan, Nov 3 2026).
+ */
+export function notMainInput<I extends { priceAdjust: number; overrides?: QuoteCalcInput['overrides'] }>(input: I): I {
+  return { ...input, priceAdjust: 0, overrides: withoutAdjustment(input.overrides) }
+}
+
+/** On a non-main option's snapshot: the Price adjust it took when the quote has one, so signing it puts that on the quote (portal signedPricing). */
+export function sliderTaken(quotePriceAdjust: number | undefined, took: number): { priceAdjust?: number } {
+  return (quotePriceAdjust || 0) !== took ? { priceAdjust: took } : {}
+}
+
+/**
+ * A proposal that went out with a Price adjust: the fences whose options took it (a proposal priced before Nov 3 2026
+ * says nothing on its options, and every one of them took it). Make main and every save price each option as it was
+ * sent (QuoteCalcInput.sliderOn). Undefined: no slider, or no options.
+ */
+export function sentSliderStyles(p: { options?: Array<{ fenceStyle?: string; tier?: { key?: string } | null; snapshot?: { priceAdjust?: number } | null }> | null; ownTier?: { own: number; tier: number } | null } | null | undefined, quotePriceAdjust: number | null | undefined): string[] | undefined {
+  const slider = Number(quotePriceAdjust) || 0
+  const opts = Array.isArray(p?.options) ? p!.options! : []
+  if (!slider || !opts.length) return undefined
+  const tookIt = (o: (typeof opts)[number] | undefined) => !!o?.fenceStyle && !(typeof o.snapshot?.priceAdjust === 'number' && o.snapshot.priceAdjust !== slider)
+  const out = opts.filter(tookIt).flatMap(o => [o.fenceStyle!, ...(o.tier?.key ? [`tier:${o.tier.key}`] : [])])
+  // A best price quote shown as a tier's card (the fold): the customer read that card at the quote's own price, the
+  // slider in it, so the tier keeps it after Make main.
+  const fold = p?.ownTier
+  if (fold && tookIt(opts[fold.own]) && opts[fold.tier]?.tier?.key) out.push(`tier:${opts[fold.tier]!.tier!.key}`)
+  return [...new Set(out)]
+}
+
+/**
+ * "On this option only. The other options keep their own prices." under the slider: a Price adjust, more than one
+ * option, and no option but the main one carries it (a proposal sent before Nov 3 2026 had it on every option).
+ */
+export function sliderNoteShown(priceAdjust: number, optionCount: number, sliderOn: string[] | undefined, mainName: string | undefined): boolean {
+  if (!priceAdjust || optionCount <= 1) return false
+  return !(sliderOn && sliderOn.some(n => !n.startsWith('tier:') && n !== mainName))
+}
+
+/** A move's "Move as is" option, priced with notMainInput: its snapshot says it took no Price adjust. */
+export function asNotMain(o: ProposalOption, quotePriceAdjust: number | undefined): ProposalOption {
+  return { ...o, snapshot: { ...o.snapshot, ...sliderTaken(quotePriceAdjust, 0) } }
 }
 
 /** Another material than the quote's own (Settings category): Vinyl, Chainlink, Aluminum, Wood. */
@@ -331,9 +379,14 @@ function minimumFor(input: QuoteCalcInput, q: ReturnType<typeof calculateQuote>,
 export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalOption {
   const posts = teePosts(input, style)
   const overrides = optionOverrides(input, style)
-  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides })
-  const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const other = !!input.style && input.style.name !== style.name
+  // The percent slider is the main option's only, as the ± dollars are ("Yes", Jonathan, Nov 3 2026); a tier's own
+  // Price adjust (Settings) is on its option either way.
+  // A proposal that went out: each fence as it was sent, with the slider or without it (sliderOn).
+  const takes = input.sliderOn ? !!input.sliderTier || input.sliderOn.includes(style.name) : !other
+  const priceAdjust = (takes ? input.priceAdjust || 0 : 0) + (input.tierAdjust || 0)
+  const q = calculateQuote({ ...input, ...(posts ?? {}), style, overrides, priceAdjust, sliderOn: undefined, sliderTier: undefined })
+  const filled = input.runs.map((r, i) => ({ r, i })).filter(x => x.r.ft > 0)
   const problems = other ? optionProblems(q) : null
   // The minimum job price, on every option ("The minimum job price applies to every option", Jonathan, Nov 2 2026).
   const min = minimumFor(input, q, overrides)
@@ -360,6 +413,7 @@ export function priceOption(input: QuoteCalcInput, style: QuoteStyle): ProposalO
       ...(other && q.priced.costFactor > 0 ? { costFactor: q.priced.costFactor } : {}),
       ...(otherMaterial(input.style, style) ? { otherMaterial: true as const } : {}),
       ...(posts ? { posts: { corners: posts.corners, ends: posts.ends, teeLinePosts: posts.extraLinePosts } } : {}),
+      ...(other || input.sliderOn ? sliderTaken(input.priceAdjust, priceAdjust) : {}),
     },
   }
 }

@@ -81,6 +81,19 @@ export interface QuoteCalcInput {
   extraLaborHrs: number
   hasSalesman: boolean
   priceAdjust: number
+  /**
+   * A Good, Better, Best tier's own Price adjust (Settings, as a fraction), on top of what the option takes of the
+   * quote's priceAdjust (proposal.ts priceOption: the main option only). calculateQuote does not read it.
+   */
+  tierAdjust?: number
+  /**
+   * A proposal that went out: the fences whose options took the quote's priceAdjust when it was sent
+   * (proposal.ts sentSliderStyles). Absent: the main option only. A fence not on it is priced with no slider, the main
+   * one too (Make main on a sent quote keeps every option at its sent price, review Nov 3 2026).
+   */
+  sliderOn?: string[]
+  /** A Good, Better, Best tier whose card went out with the slider (sliderOn names it `tier:<key>`): its option takes it, whichever fence it is now. */
+  sliderTier?: boolean
   pricing: PricingSettings
   overrides?: QuotePricingOverrides
   optimizer: RailOptimizerSettings
@@ -172,6 +185,12 @@ export function makeRunCost(
 /** Chain link and commercial chain link: the styles with fabric rolls (moveRepair.ts counts them the same way). */
 export const isChainLink = (style: Pick<QuoteStyle, 'category'>) => style.category === 'Chainlink' || style.category === 'Commercial'
 
+/** The quote's Price adjust as this fence takes it: none when a sent proposal's options say it went out without it (sliderOn). */
+export function sliderFor(input: Pick<QuoteCalcInput, 'priceAdjust' | 'sliderOn'>, styleName: string | undefined): number {
+  if (input.sliderOn && !(styleName && input.sliderOn.includes(styleName))) return 0
+  return input.priceAdjust || 0
+}
+
 export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
   const { style } = input
   if (style?.woodBase) return woodQuote(input, style, style.woodBase)
@@ -231,7 +250,7 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
     materialCost,
     extraLaborHrs: input.extraLaborHrs,
     hasSalesman: input.hasSalesman,
-    priceAdjust: input.priceAdjust,
+    priceAdjust: sliderFor(input, style?.name),
     style,
     pricing: input.pricing,
     overrides: input.overrides,
@@ -350,7 +369,7 @@ function woodQuote(input: QuoteCalcInput, style: QuoteStyle, base: QuoteStyle): 
   const priced0 = calculatePrice({
     sections, footage: filled.reduce((t, n) => t + n, 0), walkGates: input.walkGates, dblGates: input.dblGates,
     tearOutSections: input.tearOutSections, tearOutGates: input.tearOutGates, materialCost, extraLaborHrs: input.extraLaborHrs,
-    hasSalesman: input.hasSalesman, priceAdjust: input.priceAdjust, style: { ...base, margin: style.margin, pricePerFoot: style.pricePerFoot },
+    hasSalesman: input.hasSalesman, priceAdjust: sliderFor(input, style.name), style: { ...base, margin: style.margin, pricePerFoot: style.pricePerFoot },
     pricing: input.pricing, overrides: { ...o, laborCost: flat ? o.laborCost : round2(woodLabor + other.laborCost) },
   })
   const priced: PriceResult = flat ? priced0 : { ...priced0, laborMode: v.priced.laborMode, subRate: v.priced.subRate, notes: [...v.priced.notes, ...other.notes] }

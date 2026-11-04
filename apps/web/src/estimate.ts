@@ -24,6 +24,7 @@ import { deriveRunsFor } from './changeOrderYard'
 import type { TierSet } from './tiers'
 import { pickList, pickPrice, type PickInput, type PickList } from './changeOrderPicks'
 import { workWidth } from './moveRepair'
+import { marginCheck, fenceTargetMargin } from './quoteChecks'
 export { importedOldPrice, keepsCents } from './pricingEngine'
 
 /**
@@ -348,8 +349,10 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
     pricing: cfg.pricing, overrides: undefined, optimizer: cfg.railOptimizer!,
   })
   const p = calc.priced
-  const good = cfg.margins?.good ?? 0.34, warning = cfg.margins?.warning ?? 0.27
+  // Good at or over the fence's own Target Margin (Jonathan, Nov 3 2026), as the quote builder's warning reads it.
+  const warning = cfg.margins?.warning ?? 0.27
   const onPrice = p.price > 0 ? (p.price - p.totalCOGS) / p.price : 0
+  const atTarget = !marginCheck(onPrice, fenceTargetMargin(style, estimateOverheadPct(cfg)), p.price)
   return {
     label: 'Estimate',
     style,
@@ -367,7 +370,7 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
     grossMargin: p.grossMargin,
     gmPct: p.gmPct,
     // Graded on price less cost (before commission), as the quote builder does.
-    marginStatus: onPrice >= good ? 'good' : onPrice >= warning ? 'warning' : 'danger',
+    marginStatus: atTarget ? 'good' : onPrice >= warning ? 'warning' : 'danger',
     manHours: p.manHours,
     pullSheet: calc.materials.items,
     notes: [...held, ...calc.materials.warnings, ...p.notes],

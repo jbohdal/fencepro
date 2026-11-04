@@ -12,7 +12,7 @@ import {
   can, isFullRole, REFUSAL, businessPatchRefusal, pipelineChangeRefusal, inventoryChangeRefusal, kvChangeRefusal, sameJson,
   type Action,
 } from '../src/server/lib/permissions'
-import { roleCan, REFUSAL as WEB_REFUSAL, type Action as WebAction } from '../../web/src/permissions'
+import { roleCan, seesMargin, REFUSAL as WEB_REFUSAL, type Action as WebAction } from '../../web/src/permissions'
 import { _resetForTests, startOutbox, registerKind, enqueue, allOps, type Op, type OutboxStorage } from '../../web/src/outbox'
 import { createVersionedDoc } from '../../web/src/versionedDoc'
 
@@ -42,6 +42,14 @@ describe('the role table', () => {
     expect(can(undefined, 'quotes.change')).toBe(false)
     expect(isFullRole('manager')).toBe(true)
     expect(isFullRole('office_staff')).toBe(false)
+  })
+
+  test('margins, overhead and profit: every login that sees costs but the Salesman (Nov 2-3 2026); she keeps her costs', () => {
+    for (const r of ['super_admin', 'admin', 'manager', 'office_staff']) expect(seesMargin(r)).toBe(true)
+    expect(seesMargin('sales_rep')).toBe(false)
+    expect(roleCan('sales_rep', 'costs.view')).toBe(true)
+    expect(seesMargin('field_crew')).toBe(false)
+    expect(seesMargin(null)).toBe(false)
   })
 
   test('every refusal is one plain sentence that says who to ask', () => {

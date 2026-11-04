@@ -15,7 +15,7 @@ import { totalMaterialCost, type GateWidths, type LineItem } from './materialCal
 import { gateWidthsOf, type YardLayout } from './yardLayout'
 import { resolveTiers, tierOptions, cheapestStyle, ownTierKey, twinTierKey, optionCard, type OptionCard, type ResolvedTier, type TierPrefs, type TierSet } from './tiers'
 import { warrantySettingsOf } from './warranties'
-import { compareStyles, priceOption, workOption, gateWarnings, withoutAdjustment, costChoicesForMain, type ProposalOption } from './proposal'
+import { compareStyles, priceOption, workOption, gateWarnings, withoutAdjustment, notMainInput, sliderTaken, asNotMain, costChoicesForMain, type ProposalOption } from './proposal'
 import {
   priceMove, priceRepair, moveRepairSettings, newFenceBetter, toSavedWork,
   type JobType, type MoveInputs, type RepairInputs, type SavedWork, type WorkResult,
@@ -46,6 +46,8 @@ export interface QuoteJobRequest {
   extraLaborHrs: number
   hasSalesman: boolean
   priceAdjust: number
+  /** A sent proposal: the fences whose options took the Price adjust when it went out (QuoteCalcInput.sliderOn). */
+  sliderOn?: string[]
   overrides: QuotePricingOverrides
   jobType: JobType
   move?: MoveInputs | null
@@ -158,6 +160,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     ...(req.tees ? { tees: req.tees } : {}),
     tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates, extraLaborHrs: req.extraLaborHrs,
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
+    ...(req.jobType === 'new' && Array.isArray(req.sliderOn) ? { sliderOn: req.sliderOn } : {}),
     optimizer: cfg.railOptimizer!,
   }
   const mr = moveRepairSettings(cfg)
@@ -180,7 +183,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     if (total > moveIn.oldFt + 0.01) {
       const k = moveIn.oldFt / total
       // Another option than the main one: the quote's ± dollar adjustment is not on it (proposal.ts optionOverrides).
-      moveAsIs = priceMove({ ...workCommon, overrides: withoutAdjustment(workCommon.overrides) }, moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
+      moveAsIs = priceMove(notMainInput(workCommon), moveIn, { ...newLine, runs: newLine.runs.map(ft => Math.round(ft * k * 100) / 100) })
     }
   }
   let repairCheck: QuoteJob['repairCheck'] = null
@@ -192,7 +195,7 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
       ? damagedRuns.map(r => ({ damaged: tapped.filter(k => Number(k.split(':')[0]) === r).length, sections: runs[r] ?? 0 }))
       : runs.some(n => n > 0) ? [{ damaged: (repairIn.items.repairSection ?? 0) + (repairIn.items.replaceSection ?? 0), sections: runs.reduce((t, n) => t + n, 0) }] : []
     const runsFt = req.runs.map((r, i) => (damagedRuns.includes(i) ? r.ft : 0))
-    const nf = runsFt.some(f => f > 0) ? calculateQuote({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...withoutAdjustment(req.overrides), finalPrice: undefined } }) : null
+    const nf = runsFt.some(f => f > 0) ? calculateQuote({ ...calcInput, runs: runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: { ...withoutAdjustment(req.overrides), finalPrice: undefined }, priceAdjust: 0 }) : null
     const newFenceCents = nf ? Math.round(nf.priced.price * 100) : null
     repairCheck = { ...newFenceBetter({ repairCents: work.priceCents, newFenceCents, damagedByRun }), newFenceCents, nf, runsFt }
   }
@@ -238,14 +241,14 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     const saved = (w: WorkResult) => toSavedWork(w, req.jobType === 'move' ? { move: moveIn! } : { repair: repairIn! })
     if (req.jobType === 'move') {
       if (moveAsIs && req.offerMoveAsIs !== false) {
-        proposalOptions.push(workOption(`Move as is: ${Math.round(moveIn!.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, saved(moveAsIs), runSecs))
+        proposalOptions.push(asNotMain(workOption(`Move as is: ${Math.round(moveIn!.oldFt)} ft of your fence on the new line`, style.name, moveAsIs, saved(moveAsIs), runSecs), req.priceAdjust))
         proposalOptions.push({ ...workOption('Move plus new fence for the extra length', style.name, work, saved(work), runSecs), finalPrice: price, adjustmentCents })
       } else proposalOptions.push({ ...workOption('Move your fence to the new line', style.name, work, saved(work), runSecs), finalPrice: price, adjustmentCents })
     } else {
       proposalOptions.push({ ...workOption('Repair', style.name, work, saved(work), runSecs), finalPrice: price, adjustmentCents })
       if (req.offerNewFence && repairCheck?.nf) {
-        const o = priceOption({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0, overrides: withoutAdjustment(calcInput.overrides) }, style)
-        proposalOptions.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null } })
+        const o = priceOption(notMainInput({ ...calcInput, runs: repairCheck.runsFt.map(ft => ({ ft, rail: 'auto' as const })), tearOutSections: 0, tearOutGates: 0 }), style)
+        proposalOptions.push({ ...o, label: `New fence instead: ${o.label}`, snapshot: { ...o.snapshot, work: null, ...sliderTaken(calcInput.priceAdjust, 0) } })
       }
     }
   } else if (style) {
