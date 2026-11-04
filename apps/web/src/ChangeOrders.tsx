@@ -33,7 +33,7 @@ import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { floridaWhen } from './businessDate'
 import { wholeDollarCents } from './pricingEngine'
-import { cutFloorCents, cutUnderMinimum, cutUnderMinimumWarning, jobMinimumCents } from './discountMinimum'
+import { cutContractCents, cutFloorCents, cutFullCreditNote, cutUnderMinimum, cutUnderMinimumWarning, jobMinimumCents } from './discountMinimum'
 import { SignaturePad } from './SignaturePad'
 import { LIVE_REFRESH_EVENT } from './liveRefresh'
 import type { SavedQuote } from './QuotesPage'
@@ -155,7 +155,7 @@ export interface ChangeOrderPrefill {
    * A credit stopped at the minimum job price (changeOrderDraft.ts cutAtMinimum): the floor, the contract it was
    * counted from, and each line's full amount, for the owner to give the full credit anyway.
    */
-  cut?: { floorCents: number; contractCents: number; full: Array<{ id: string; amountCents: number }> } | null
+  cut?: { floorCents: number; contractCents: number; full: Array<{ id: string; amountCents: number }>; warning: string } | null
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
@@ -345,21 +345,40 @@ export function signedQuoteOf<T extends object>(q: T): T {
   return (signedOf.get(q) as T | undefined) ?? q
 }
 
-/**
- * What a cut's minimum job price is counted from, in cents: the price signed
- * for and every change order not voided, open or approved (the server asks
- * the same, portal lib/changeOrderMinimum.ts). `quote` may be the work now.
- */
-export function contractWithOthersCents(quote: SavedQuote, orders: ChangeOrder[] = getOrdersForQuote(quote.id)): number {
-  const signedQ = signedQuoteOf(quote)
-  return Math.round((signedQ.finalPrice || 0) * 100) + orders.filter(o => o.quoteId === signedQ.id && o.status !== 'void').reduce((s, o) => s + o.totalCents, 0)
-}
+export interface CutStanding { floorCents: number; contractCents: number }
 
-/** The floor a cut stops at, in cents (discountMinimum.ts cutFloorCents): the job's minimum with the signed quote's ± dollar adjustment. */
-export function cutFloorFor(quote: SavedQuote): number {
+/**
+ * The minimum job price a cut stops at and the contract it is counted from,
+ * in cents (discountMinimum.ts cutFloorCents, cutContractCents), from what this
+ * phone has: everything but the contract adjustments on the payment schedule,
+ * which only the server's count has (cutStandingFromServer). `quote` may be the work now.
+ */
+export function cutStandingHere(quote: SavedQuote, orders: ChangeOrder[] = getOrdersForQuote(quote.id)): CutStanding {
   const signedQ = signedQuoteOf(quote)
   const isWork = signedQ.work?.type === 'move' || signedQ.work?.type === 'repair'
-  return cutFloorCents(jobMinimumCents(getConfig(), isWork), signedQ.pricing)
+  return {
+    floorCents: cutFloorCents(jobMinimumCents(getConfig(), isWork)),
+    contractCents: cutContractCents(Math.round((signedQ.finalPrice || 0) * 100), orders.filter(o => o.quoteId === signedQ.id)),
+  }
+}
+
+/** The server's count, the one a save is held to (GET /api/change-orders/cut-floor); null when it cannot be read. */
+export async function cutStandingFromServer(quoteId: string): Promise<CutStanding | null> {
+  const r = await sendJson('GET', `/api/change-orders/cut-floor?quoteId=${encodeURIComponent(quoteId)}`)
+  const d = r.result.ok ? r.json?.data : null
+  return d && typeof d.floorCents === 'number' && typeof d.contractCents === 'number' ? { floorCents: d.floorCents, contractCents: d.contractCents } : null
+}
+
+/** The phone's count at once, then the server's when it answers. */
+export function useCutStanding(quoteId: string | null | undefined, quote: SavedQuote | null | undefined): CutStanding | null {
+  const [server, setServer] = useState<CutStanding | null>(null)
+  useEffect(() => {
+    if (!quoteId) return
+    let live = true
+    void cutStandingFromServer(quoteId).then(s => { if (live && s) setServer(s) })
+    return () => { live = false }
+  }, [quoteId])
+  return server ?? (quote ? cutStandingHere(quote) : null)
 }
 
 /* ───────── calls ───────── */
@@ -632,9 +651,10 @@ export function QuickChangeOrderModal({
   // A credit that takes the job under the minimum job price (Jonathan, Nov 3 2026, item 32): every login but the owner is
   // stopped, and the owner gives the full credit only with the box ticked (the server holds to the same). Filled in from
   // the drawing, the credit already stops at the minimum (changeOrderDraft.ts cutAtMinimum); the box puts the full credit back.
-  const quoteNow = getQuotes().find(q => q.id === quoteId)
-  const floorCents = prefill?.cut?.floorCents ?? (quoteNow ? cutFloorFor(quoteNow) : 0)
-  const contractCents = quoteNow ? contractWithOthersCents(quoteNow) : prefill?.cut?.contractCents ?? 0
+  // Counted as the save is: the server's figures once they are in (contract adjustments included), this phone's until then.
+  const standing = useCutStanding(quoteId, getQuotes().find(q => q.id === quoteId))
+  const floorCents = standing?.floorCents ?? prefill?.cut?.floorCents ?? 0
+  const contractCents = standing?.contractCents ?? prefill?.cut?.contractCents ?? 0
   const owner = can('quotes.underMinimum')
   const [fullCredit, setFullCredit] = useState(false)
   const underMinimum = cutUnderMinimum(contractCents, total, floorCents)
@@ -686,7 +706,8 @@ export function QuickChangeOrderModal({
 
         <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
           {prefill?.note && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-co-modal-no-work-note>{prefill.note}</p>}
-          {prefill?.warnings?.map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
+          {/* The cut's note follows the owner's box: with the full credit given it says what the contract becomes (review Nov 3 2026). */}
+          {prefill?.warnings?.map(w => (prefill.cut && w === prefill.cut.warning && fullCredit && underMinimum ?cutFullCreditNote(contractCents, total, floorCents) : w)).map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>{prefill.work.request.jobType === 'move' || prefill.work.request.jobType === 'repair' ? 'Once approved, the pull sheet, install packet, crew days and job costing follow this work, and the next change order starts from it.' : 'From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.'}</p>}
           <div>
             <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>
@@ -757,7 +778,8 @@ export function QuickChangeOrderModal({
           {underMinimum && !owner && <p className="w-full text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum>{cutUnderMinimumWarning(contractCents, total, floorCents, false)}</p>}
           {owner && (underMinimum || !!prefill?.cut) && (
             <div className="w-full" data-co-below-minimum>
-              <p className="text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum-text>{cutUnderMinimumWarning(contractCents, total, floorCents, true)}</p>
+              {/* Only when the amount on screen does take it under. */}
+              {underMinimum && <p className="text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum-text>{cutUnderMinimumWarning(contractCents, total, floorCents, true)}</p>}
               <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
                 <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={fullCredit} onChange={e => giveFullCredit(e.target.checked)} data-co-below-minimum-override />
                 Give the full credit (owner override)

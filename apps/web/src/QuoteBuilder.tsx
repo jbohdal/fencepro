@@ -77,7 +77,7 @@ import { bakedBackdrop } from './aerialBake'
 // A signed quote's lock: the same rules the server checks every save with.
 import { isSignedQuote, lockedChanges, keepPrices, LOCKED_MESSAGE } from '../../portal/src/server/lib/quoteLock'
 import { shapeOf, sideChanges, sideChangeWords } from '../../portal/src/server/lib/changeOrderMerge'
-import { QuickChangeOrderModal, foldedStates, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, contractWithOthersCents, type ChangeOrderPrefill } from './ChangeOrders'
+import { QuickChangeOrderModal, foldedStates, getOrdersForQuote, refreshChangeOrders, signedQuoteOf, openChangesNote, cutStandingHere, cutStandingFromServer, type ChangeOrderPrefill } from './ChangeOrders'
 import { changeOrderDraft, gatesPutIn } from './changeOrderDraft'
 import { changeBaseOf, changeOrderPrice, noWorkNote, type ChangeNow } from './changeOrderPricing'
 import { SignedDocumentLinks } from './SignedDocuments'
@@ -1591,6 +1591,15 @@ export default function QuoteBuilder({
   // A move or repair with an earlier change order whose work was not kept: said on screen (changeOrderPricing.ts noWorkNote).
   const coNoWorkNote = signedQuote && init?.id && jobType !== 'new' ? noWorkNote(getOrdersForQuote(init.id)) : null
 
+  // The contract a cut is counted from, as the server counts it for the save (contract adjustments included); this phone's count until it answers.
+  const cutContract = useRef<number | null>(null)
+  useEffect(() => {
+    if (!signedQuote || !init?.id) return
+    let live = true
+    void cutStandingFromServer(signedQuoteOf(init).id).then(s => { if (live && s) cutContract.current = s.contractCents })
+    return () => { live = false }
+  }, [signedQuote, init?.id])  // eslint-disable-line react-hooks/exhaustive-deps
+
   /** The change order, filled in from what was changed here, priced at today's costs. */
   function startChangeOrder(changedQuote?: SavedQuote) {
     const q = changedQuote ?? pending?.quote
@@ -1605,7 +1614,7 @@ export default function QuoteBuilder({
       workWords: jobType === 'repair' ? repairChangeWords(init.work?.repair, repairIn) : jobType === 'move' ? moveChangeWords(moveOpened, moveIn) : [],
       earlier: { orders: getOrdersForQuote(init.id) as never, states: foldedStates(init), sold: signedQuoteOf(init) },
       // A cut stops at the minimum job price, counted from the contract with every other change order in it (Nov 3 2026).
-      minimumCents, contractCents: contractWithOthersCents(init),
+      minimumCents, contractCents: cutContract.current ?? cutStandingHere(init).contractCents,
       gatesIn: gatesPutIn((init.layout as { yard?: YardLayout | null } | undefined)?.yard ?? null, entry === 'layout' ? yard : null),
       // Its own change side by side ("Left side 40 ft → 50 ft"), never the whole fence before and after (round 3 recheck).
       sides: entry === 'layout' && yard && (init.layout as { yard?: YardLayout | null } | undefined)?.yard
