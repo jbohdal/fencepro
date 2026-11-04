@@ -33,6 +33,7 @@ import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { floridaWhen } from './businessDate'
 import { wholeDollarCents } from './pricingEngine'
+import { cutFloorCents, cutUnderMinimum, cutUnderMinimumWarning, jobMinimumCents } from './discountMinimum'
 import { SignaturePad } from './SignaturePad'
 import { LIVE_REFRESH_EVENT } from './liveRefresh'
 import type { SavedQuote } from './QuotesPage'
@@ -150,6 +151,11 @@ export interface ChangeOrderPrefill {
   note?: string | null
   /** What the price can't settle: said to whoever is making it (changeOrderDraft.ts warningsOf), never to the customer. */
   warnings?: string[]
+  /**
+   * A credit stopped at the minimum job price (changeOrderDraft.ts cutAtMinimum): the floor, the contract it was
+   * counted from, and each line's full amount, for the owner to give the full credit anyway.
+   */
+  cut?: { floorCents: number; contractCents: number; full: Array<{ id: string; amountCents: number }> } | null
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
@@ -339,6 +345,23 @@ export function signedQuoteOf<T extends object>(q: T): T {
   return (signedOf.get(q) as T | undefined) ?? q
 }
 
+/**
+ * What a cut's minimum job price is counted from, in cents: the price signed
+ * for and every change order not voided, open or approved (the server asks
+ * the same, portal lib/changeOrderMinimum.ts). `quote` may be the work now.
+ */
+export function contractWithOthersCents(quote: SavedQuote, orders: ChangeOrder[] = getOrdersForQuote(quote.id)): number {
+  const signedQ = signedQuoteOf(quote)
+  return Math.round((signedQ.finalPrice || 0) * 100) + orders.filter(o => o.quoteId === signedQ.id && o.status !== 'void').reduce((s, o) => s + o.totalCents, 0)
+}
+
+/** The floor a cut stops at, in cents (discountMinimum.ts cutFloorCents): the job's minimum with the signed quote's ± dollar adjustment. */
+export function cutFloorFor(quote: SavedQuote): number {
+  const signedQ = signedQuoteOf(quote)
+  const isWork = signedQ.work?.type === 'move' || signedQ.work?.type === 'repair'
+  return cutFloorCents(jobMinimumCents(getConfig(), isWork), signedQ.pricing)
+}
+
 /* ───────── calls ───────── */
 
 /** After an approval: the server's word when the scheduled install no longer fits. */
@@ -347,11 +370,13 @@ function warnSchedule(json: any) {
 }
 
 /** Make one. `verbalReason`: approved now, verbally (owner and office only). */
-export async function createChangeOrder(input: { quoteId: string; reason: string; lines: ChangeOrderLine[]; scope: ChangeOrderScope | null; verbalReason?: string | null; work?: ChangeOrderWorkInput | null }): Promise<ChangeOrder | null> {
+export async function createChangeOrder(input: { quoteId: string; reason: string; lines: ChangeOrderLine[]; scope: ChangeOrderScope | null; verbalReason?: string | null; work?: ChangeOrderWorkInput | null; minimumOverride?: boolean }): Promise<ChangeOrder | null> {
   const approved = !!input.verbalReason?.trim()
   const r = await sendJson('POST', '/api/change-orders', {
     id: newId(), quoteId: input.quoteId, reason: input.reason, lines: input.lines, scope: input.scope ?? undefined,
     status: approved ? 'approved' : 'draft', ...(approved ? { verbalReason: input.verbalReason!.trim() } : {}), ...(input.work ? { work: input.work } : {}),
+    // The owner's full credit under the minimum job price (the server holds every other login to it).
+    ...(input.minimumOverride ? { minimumOverride: true } : {}),
   })
   if (!r.result.ok) { toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.'); return null }
   const row = r.json.data as ChangeOrder
@@ -604,7 +629,28 @@ export function QuickChangeOrderModal({
   const linesOk = items.some(i => i.description.trim() && (centsOf(i) !== 0 || (i.zeroOk && i.amount.trim() !== '')))
   // The reason is required (Oct 26 2026): the customer reads it under "Why" on their link, the signing sheet and the PDF.
   const reasonOk = reason.trim().length >= 3
-  const canSave = linesOk && reasonOk && !busy && !items.some(i => i.pricing)
+  // A credit that takes the job under the minimum job price (Jonathan, Nov 3 2026, item 32): every login but the owner is
+  // stopped, and the owner gives the full credit only with the box ticked (the server holds to the same). Filled in from
+  // the drawing, the credit already stops at the minimum (changeOrderDraft.ts cutAtMinimum); the box puts the full credit back.
+  const quoteNow = getQuotes().find(q => q.id === quoteId)
+  const floorCents = prefill?.cut?.floorCents ?? (quoteNow ? cutFloorFor(quoteNow) : 0)
+  const contractCents = quoteNow ? contractWithOthersCents(quoteNow) : prefill?.cut?.contractCents ?? 0
+  const owner = can('quotes.underMinimum')
+  const [fullCredit, setFullCredit] = useState(false)
+  const underMinimum = cutUnderMinimum(contractCents, total, floorCents)
+  const minimumHeld = underMinimum && !(owner && fullCredit)
+  /** The owner's box: the full credit back on each line filled in, or the credit stopped at the minimum again. */
+  function giveFullCredit(on: boolean) {
+    setFullCredit(on)
+    const cut = prefill?.cut
+    if (!cut) return
+    const amounts = new Map((on ? cut.full : prefill!.lines.map(l => ({ id: l.id, amountCents: l.amountCents }))).map(l => [l.id, l.amountCents]))
+    setItems(prev => prev.map(i => {
+      const c = amounts.get(i.id)
+      return c === undefined ? i : { ...i, ...toEdit({ id: i.id, description: i.description, amountCents: c }), ...(i.source ? { source: i.source, qty: i.qty } : {}), ...(c === 0 ? { amount: '0', zeroOk: true } : {}) }
+    }))
+  }
+  const canSave = linesOk && reasonOk && !busy && !items.some(i => i.pricing) && !minimumHeld
   const whyNot = busy || items.some(i => i.pricing) ? '' : !items.some(i => i.description.trim()) ? 'Say what changes on a line.' : !linesOk ? 'Put a price on the line (a credit is a price too).' : !reasonOk ? 'Type the reason for the change (the customer sees it).' : ''
 
   // Tapped twice before the window closes: saved once.
@@ -617,7 +663,7 @@ export function QuickChangeOrderModal({
       id: i.id, description: i.description.trim(), amountCents: centsOf(i), ...(i.source ? { qty: i.qty ?? 1, source: i.source } : {}),
       ...(prefill?.lines.some(l => l.id === i.id && l.fromChange) ? { fromChange: true } : {}),
     }))
-    const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null })
+    const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null, minimumOverride: underMinimum && owner && fullCredit })
     setBusy(false)
     if (!co) { savedOnce.current = false; return }
     toast.success(`Change order CO-${co.number} saved`, co.status === 'needs_ok' ? 'Sent to Jonathan and the office to OK. Once they OK it, the customer signs it on your phone, their link or the portal.'
@@ -708,6 +754,16 @@ export function QuickChangeOrderModal({
         <div className="px-4 md:px-6 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] border-t border-gray-200 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-white" data-co-save-bar>
           {/* In the Save bar, so a phone always sees why Save is grey (the missing reason sits above the lines). */}
           {whyNot && <p className="w-full text-xs text-amber-900" data-co-why-not>{whyNot}</p>}
+          {underMinimum && !owner && <p className="w-full text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum>{cutUnderMinimumWarning(contractCents, total, floorCents, false)}</p>}
+          {owner && (underMinimum || !!prefill?.cut) && (
+            <div className="w-full" data-co-below-minimum>
+              <p className="text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum-text>{cutUnderMinimumWarning(contractCents, total, floorCents, true)}</p>
+              <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
+                <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={fullCredit} onChange={e => giveFullCredit(e.target.checked)} data-co-below-minimum-override />
+                Give the full credit (owner override)
+              </label>
+            </div>
+          )}
           <button onClick={onClose} className="px-4 min-h-[44px] text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button onClick={() => void save(null)} disabled={!canSave}
             className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 min-h-[44px] rounded-xl text-sm" data-co-save-draft>
