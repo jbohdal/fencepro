@@ -8,7 +8,9 @@ import { describe, test, expect } from 'vitest'
 import { calculatePrice, resolveSubRate, cleanOverrides } from '../../web/src/pricingEngine'
 import type { PriceInputs, PricingSettings, StylePricing } from '../../web/src/pricingEngine'
 
+// Hourly crew named on purpose: with no labor mode at all, a quote is Subcontractor (Nov 3 2026, laborModeDefault.test.ts).
 const pricing: PricingSettings = {
+  laborMode: 'hourly',
   manHourRate: 22,
   commissionSalesman: 0.10,
   commissionNonSalesman: 0,

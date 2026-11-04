@@ -65,7 +65,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     commissionNonSalesman: 0,
     tearOutFence: 9.50,
     tearOutGate: 27.00,
-    laborMode: 'hourly',
+    laborMode: 'subcontractor',
     subUnit: 'foot',
     subRateDefault: 0,
     subRateByCategory: {},

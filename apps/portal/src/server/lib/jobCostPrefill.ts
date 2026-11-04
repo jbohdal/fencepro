@@ -6,7 +6,8 @@
  * a subcontractor bill linked to the job; the takeoff says sub (or records "Sub
  * paid $"); the takeoff has crew hours; the quote was priced with sub labor; the
  * quote was priced hourly; last, Settings' labor mode (the same fallback as a
- * new takeoff, for old quotes that saved no labor mode).
+ * new takeoff, for old quotes that saved no labor mode; subcontractor when
+ * Settings has none either).
  *
  * Labor: on a sub job the takeoff's "Sub paid $", else the sub bills linked to
  * the job, else the quote's labor $. The same payment can be in both, so the two
@@ -52,7 +53,8 @@ function kindOf(i: PrefillInput): { sub: boolean; kindWhy: string } {
   if (i.takeoff && i.takeoff.crewHours > 0) return { sub: false, kindWhy: 'the takeoff has crew hours' }
   if (i.quote.laborMode === 'subcontractor') return { sub: true, kindWhy: 'the quote was priced with sub labor' }
   if (i.quote.laborMode === 'hourly') return { sub: false, kindWhy: 'the quote was priced with crew hours' }
-  return i.settingsLaborMode === 'subcontractor'
+  // Settings with no labor type either: subcontractor (Nov 3 2026), as the quote was priced.
+  return i.settingsLaborMode !== 'hourly'
     ? { sub: true, kindWhy: 'this old quote saved no labor type, so Settings decides (subcontractor)' }
     : { sub: false, kindWhy: 'this old quote saved no labor type, so Settings decides (crew hours)' }
 }
