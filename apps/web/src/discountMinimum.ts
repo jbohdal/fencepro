@@ -131,10 +131,18 @@ export function cutUnderMinimum(contractCents: number, changeCents: number, floo
 }
 
 /** What the login is told of a credit past the floor: the same words on the screen and from the server. */
-export function cutUnderMinimumWarning(contractCents: number, changeCents: number, floorCents: number, owner: boolean): string {
+export function cutUnderMinimumWarning(contractCents: number, changeCents: number, floorCents: number, owner: boolean, doing: 'cut' | 'void' | 'approve' = 'cut'): string {
+  const floor = dollars(floorCents), after = dollars(contractCents + changeCents)
+  if (doing === 'cut') {
+    return owner
+      ? `This takes the job under the ${floor} minimum job price. As the owner you can give the full credit anyway.`
+      : `This cannot be saved. It takes the job under the ${floor} minimum job price: the contract would be ${after}. Take less off, or ask Jonathan.`
+  }
+  // Voiding an approved addition, or approving a cut that the job no longer has room for: "Take less off" is for cuts only.
+  const verb = doing === 'void' ? 'voided' : 'approved'
   return owner
-    ? `This takes the job under the ${dollars(floorCents)} minimum job price. As the owner you can give the full credit anyway.`
-    : `This cannot be saved. It takes the job under the ${dollars(floorCents)} minimum job price: the contract would be ${dollars(contractCents + changeCents)}. Take less off, or ask Jonathan.`
+    ? `This takes the job under the ${floor} minimum job price: the contract would be ${after}. As the owner you can ${doing === 'void' ? 'void' : 'approve'} it anyway.`
+    : `This cannot be ${verb}. It takes the job under the ${floor} minimum job price: the contract would be ${after}. Ask Jonathan.`
 }
 
 /** The owner's note once the box gives the full credit (in place of "the credit stops at"). */

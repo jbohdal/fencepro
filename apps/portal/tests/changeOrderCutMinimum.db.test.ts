@@ -140,17 +140,54 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     await prisma.changeOrder.update({ where: { id: add.id }, data: { status: 'approved', approvedAt: new Date() } })
     const cut = await make('office_staff', q, -99000)
     expect(cut.status).toBe(201)
-    // Voiding the approved +$500 now leaves $840 less the $990 cut: refused for the office, in the same words.
+    // Voiding the approved +$500 now leaves $840 less the $990 cut: refused for the office ("cannot be voided", never "Take less off").
     const row = await prisma.changeOrder.findUnique({ where: { id: add.id } })
-    const voidIt = (role: string) => send(role, 'PATCH', `/api/change-orders/${add.id}`, { baseVersion: row!.version, status: 'void' })
+    const voidIt = (role: string, extra: Record<string, unknown> = {}) => send(role, 'PATCH', `/api/change-orders/${add.id}`, { baseVersion: row!.version, status: 'void', ...extra })
     const refused = await voidIt('office_staff')
     expect(refused.status).toBe(409)
     expect(refused.json.code).toBe(CUT_BELOW_MINIMUM_CODE)
-    expect(refused.json.error).toBe('This cannot be saved. It takes the job under the $350 minimum job price: the contract would be −$150. Take less off, or ask Jonathan.')
+    expect(refused.json.error).toBe('This cannot be voided. It takes the job under the $350 minimum job price: the contract would be −$150. Ask Jonathan.')
     expect((await prisma.changeOrder.findUnique({ where: { id: add.id } }))!.status).toBe('approved')
-    const byOwner = await voidIt('super_admin')
+    // The owner too, until the box is ticked; then it goes through and is in the audit log.
+    const asked = await voidIt('super_admin')
+    expect(asked.status).toBe(409)
+    expect(asked.json.error).toBe('This takes the job under the $350 minimum job price: the contract would be −$150. As the owner you can void it anyway.')
+    const byOwner = await voidIt('super_admin', { minimumOverride: true })
     expect(byOwner.status).toBe(200)
     expect(byOwner.json.data.status).toBe('void')
+    expect(await prisma.crmAuditLog.count({ where: { entityId: add.id, entityType: 'ChangeOrder', action: 'discount_override' } })).toBe(1)
+  })
+
+  test('approving or signing a cut the job no longer has room for (review Nov 3 2026: the owner voided the +$500, the office approved the open cut, −$150)', async () => {
+    const q = await signed(7860)
+    const add = await make('office_staff', q, 50000)
+    await prisma.changeOrder.update({ where: { id: add.id }, data: { status: 'approved', approvedAt: new Date() } })
+    const cut = await make('office_staff', q, -801000)
+    expect(cut.status).toBe(201)
+    const addRow = await prisma.changeOrder.findUnique({ where: { id: add.id } })
+    expect((await send('super_admin', 'PATCH', `/api/change-orders/${add.id}`, { baseVersion: addRow!.version, status: 'void', minimumOverride: true })).status).toBe(200)
+    const cutRow = (await prisma.changeOrder.findUnique({ where: { id: cut.id } }))!
+    const approve = (role: string, extra: Record<string, unknown> = {}) => send(role, 'PATCH', `/api/change-orders/${cut.id}`, { baseVersion: cutRow.version, status: 'approved', verbalReason: 'Customer agreed on the phone', ...extra })
+    const office = await approve('office_staff')
+    expect(office.status).toBe(409)
+    expect(office.json.error).toBe('This cannot be approved. It takes the job under the $350 minimum job price: the contract would be −$150. Ask Jonathan.')
+    // Signed on the office's phone: refused the same way, nothing repriced.
+    const sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAAABJRU5ErkJggg=='
+    const signedHere = await send('office_staff', 'POST', `/api/change-orders/${cut.id}/sign`, { name: 'ZZ Customer', signature: sig })
+    expect(signedHere.status).toBe(409)
+    expect(signedHere.json.error).toBe(office.json.error)
+    const after = (await prisma.changeOrder.findUnique({ where: { id: cut.id } }))!
+    expect([after.status, after.totalCents, after.signedAt]).toEqual(['draft', -801000, null])
+    const owner = await approve('super_admin', { minimumOverride: true })
+    expect(owner.status).toBe(200)
+    expect(owner.json.data.totalCents).toBe(-801000)
+  })
+
+  test('two cuts sent at once on one job: one gets through, the other is refused', async () => {
+    const q = await signed(647)
+    const [a, b] = await Promise.all([make('office_staff', q, -29700), make('office_staff', q, -29700)])
+    expect([a.status, b.status].sort()).toEqual([201, 409])
+    expect(await prisma.changeOrder.count({ where: { quoteId: q, deletedAt: null } })).toBe(1)
   })
 
   test('the contract adjustments on the payment schedule count too', async () => {

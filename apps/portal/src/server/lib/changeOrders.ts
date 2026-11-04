@@ -33,6 +33,7 @@ import { Prisma } from '@prisma/client'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, signingClash, inputs, type StoredWork, type WorkInput } from './changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
+import { lockJob, checkCut, checkVoid, checkApprove, type MinimumAsk, type CutOverride } from './changeOrderMinimum.js'
 import { dataFor } from './quotePricing.js'
 
 /**
@@ -306,6 +307,9 @@ async function refuseClash(tx: any, accountId: string, cur: Row, customer = fals
 
 async function signIn(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   return prisma.$transaction(async tx => {
+    // One save at a time on this job (lib/changeOrderMinimum.ts lockJob).
+    const of = await tx.changeOrder.findUnique({ where: { id }, select: { quoteId: true } })
+    if (of) await lockJob(tx, of.quoteId)
     await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
     const cur = await tx.changeOrder.findUnique({ where: { id } })
     if (!cur || cur.accountId !== accountId) throw err(404, 'This change order is not available.')
@@ -316,6 +320,8 @@ async function signIn(accountId: string, id: string, s: CustomerSignature): Prom
     const verbal = cur.status === 'approved' // approved verbally: signed now, everything else as it was
     if (!verbal && cur.status !== 'sent' && !(cur.status === 'draft' && s.via === 'in_person')) throw err(409, 'This change order is not ready to sign yet. Please call us.')
     if (!verbal) await refuseClash(tx, accountId, cur, s.via !== 'in_person')
+    // A cut the job no longer has room for under the minimum job price: never signed past it (the owner approves it first).
+    if (!verbal) await checkApprove(tx, accountId, cur, { role: null, override: false, customer: s.via !== 'in_person' })
     const now = new Date()
     // The words they were shown are the words they sign (the signed PDF and the record keep them).
     const shown = shownLines(cur)
@@ -481,6 +487,8 @@ export interface NewChangeOrder {
   work?: WorkInput | null
   /** Approved at once, verbally (owner and office): why. */
   verbalReason?: string | null
+  /** Who is making it and whether the owner ticked the box: held to the minimum job price (lib/changeOrderMinimum.ts). */
+  minimum?: MinimumAsk | null
 }
 
 /** The verbal approval's reason: required, kept short. */
@@ -583,7 +591,7 @@ async function pickedWork(accountId: string, quoteId: string, lines: ChangeOrder
 }
 
 /** Make one on a signed quote. Approved at once (verbally, with a reason) updates the job too. */
-export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row & { notice?: string }> {
+export async function createChangeOrder(accountId: string, c: NewChangeOrder): Promise<Row & { notice?: string; minimumOverride?: CutOverride[] }> {
   if (!(await quoteIsSigned(accountId, c.quoteId))) throw err(409, 'Change orders are for signed quotes. This one is not signed: edit the quote instead.')
   if (c.id) {
     const same = await prisma.changeOrder.findUnique({ where: { id: c.id } })
@@ -598,6 +606,13 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(async tx => {
+        // One save at a time on this job, the minimum job price checked inside it (lib/changeOrderMinimum.ts).
+        await lockJob(tx, c.quoteId)
+        const overrides: CutOverride[] = []
+        if (c.minimum) {
+          const cut = await checkCut(tx, accountId, c.quoteId, totalOf(lines), c.minimum)
+          if (cut) overrides.push(cut)
+        }
         const number = await nextNumber(accountId, c.quoteId, tx)
         const now = new Date()
         const row = await tx.changeOrder.create({
@@ -609,7 +624,8 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
           },
         })
         if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx, { id: row.id, by: c.by })
-        return said((await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row)
+        const out = said((await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row)
+        return overrides.length ? Object.assign(out, { minimumOverride: overrides }) : out
       }, { timeout: 20_000 })
     } catch (e) {
       // Two made at the same moment took the same number: try the next one.
@@ -643,12 +659,17 @@ export const CHANGED_NEEDS_OK = 'Your change sends it back to Jonathan or the of
  * (an approved one can still be voided). The office approves one verbally,
  * with a reason (the customer's own signature comes later).
  */
-export async function editChangeOrder(accountId: string, id: string, baseVersion: number, edit: ChangeOrderEdit, by: string, opts: { needsOk?: boolean } = {}): Promise<{ row: Row; stale: boolean; backToOk?: boolean }> {
+export async function editChangeOrder(accountId: string, id: string, baseVersion: number, edit: ChangeOrderEdit, by: string, opts: { needsOk?: boolean; minimum?: MinimumAsk | null } = {}): Promise<{ row: Row; stale: boolean; backToOk?: boolean; minimumOverride?: CutOverride[] }> {
   return prisma.$transaction(async tx => {
+    // One save at a time on this job, the minimum job price checked inside it (lib/changeOrderMinimum.ts).
+    const of = await tx.changeOrder.findUnique({ where: { id }, select: { quoteId: true } })
+    if (of) await lockJob(tx, of.quoteId)
     await tx.$queryRaw`SELECT id FROM "ChangeOrder" WHERE id = ${id} FOR UPDATE`
     const cur = await tx.changeOrder.findUnique({ where: { id } })
     if (!cur || cur.accountId !== accountId) throw err(404, 'Change order not found')
     if (cur.version !== baseVersion) return { row: cur, stale: true }
+    const overrides: CutOverride[] = []
+    const minimum = opts.minimum ?? null
     const data: Record<string, unknown> = { version: cur.version + 1 }
     const open = cur.status === 'needs_ok' || cur.status === 'draft' || cur.status === 'sent'
     let backToOk = false
@@ -659,6 +680,9 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
         const lines = linesOf({ lines: edit.lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
         if (!lines.length) throw err(400, 'Add at least one line with a description or an amount.')
         data.lines = lines; data.totalCents = totalOf(lines)
+        // New lines that take more off: held to the minimum job price as a new one is.
+        const cut = minimum ? await checkCut(tx, accountId, cur.quoteId, totalOf(lines), minimum, { exclude: cur.id, wasCents: cur.totalCents }) : null
+        if (cut) overrides.push(cut)
         // The lines as shown (shownLines) sent back unchanged are no change either.
         changed = JSON.stringify(lines) !== JSON.stringify(linesOf(cur)) && JSON.stringify(lines) !== JSON.stringify(shownLines(cur))
         // Picked sections and gates changed: the work they leave is worked out again (a drawing's work stays as drawn).
@@ -690,6 +714,12 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
       if (to === 'draft' && cur.status !== 'needs_ok') throw err(409, 'A change order goes from draft to sent to approved.')
       if (to === 'sent' && cur.status === 'needs_ok') throw err(409, WAITING_OK)
       if (to === 'sent' || to === 'approved') await refuseClash(tx, accountId, cur)
+      // Voiding an approved addition, or approving a cut, that leaves the job under the minimum job price (a check only).
+      if (minimum) {
+        const held = to === 'void' ? await checkVoid(tx, accountId, cur, minimum)
+          : to === 'approved' ? await checkApprove(tx, accountId, { id: cur.id, quoteId: cur.quoteId, totalCents: typeof data.totalCents === 'number' ? data.totalCents : cur.totalCents }, minimum) : null
+        if (held) overrides.push(held)
+      }
       data.status = to
       if (to === 'sent') data.sentAt = new Date()
       if (to === 'approved') { const now = new Date(); Object.assign(data, { approvedAt: now, approvedBy: by, verbalBy: by, verbalAt: now, verbalReason: verbalReasonOf(edit.verbalReason) }) }
@@ -697,6 +727,6 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     }
     const row = await tx.changeOrder.update({ where: { id }, data: data as any })
     if (cur.status === 'approved' || row.status === 'approved') await applyToJob(accountId, cur.quoteId, tx, { id, by })
-    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false, backToOk: backToOk && row.status === 'needs_ok' }
+    return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false, backToOk: backToOk && row.status === 'needs_ok', ...(overrides.length ? { minimumOverride: overrides } : {}) }
   }, { timeout: 15_000 })
 }

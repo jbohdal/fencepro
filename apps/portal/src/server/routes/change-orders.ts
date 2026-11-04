@@ -33,8 +33,8 @@ import { requireCan, roleOf, can, refuse } from '../lib/permissions.js'
 import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
-import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem, linesOf, wholeDollarLine, totalOf } from '../lib/changeOrders.js'
-import { checkCutMinimum, checkVoidMinimum, cutOverrideAudit, cutStanding } from '../lib/changeOrderMinimum.js'
+import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem } from '../lib/changeOrders.js'
+import { cutOverrideAudit, cutStanding, type MinimumAsk } from '../lib/changeOrderMinimum.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit, startOfChange, effectiveWork, afterVoid, layoutNote } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
@@ -121,8 +121,8 @@ const editSchema = z.object({
   verbalReason: z.string().max(500).optional(),
 })
 
-/** The lines as a save writes them (lib/changeOrders.ts createChangeOrder): whole dollars, empty ones left out. */
-const saveLines = (lines: unknown[]) => linesOf({ lines }).map(wholeDollarLine).filter(l => l.description.trim() || l.amountCents !== 0)
+/** Who is saving, and whether the owner ticked the box to go under the minimum job price (lib/changeOrderMinimum.ts). */
+const minimumAsk = (req: any): MinimumAsk => ({ role: roleOf(req), override: req.body?.minimumOverride === true })
 
 async function who(req: any): Promise<string> {
   const u = await prisma.crmUser.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } }).catch(() => null)
@@ -143,7 +143,7 @@ async function warningFor(accountId: string, quoteId: string): Promise<string | 
 const fail = (res: any, e: unknown, what: string) => {
   if (e instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(e) }); return }
   const status = (e as any)?.status
-  if (status === 400 || status === 403 || status === 404 || status === 409) { res.status(status).json({ success: false, error: (e as Error).message }); return }
+  if (status === 400 || status === 403 || status === 404 || status === 409) { const code = (e as any)?.code; res.status(status).json({ success: false, error: (e as Error).message, ...(typeof code === 'string' && !/^P\d/.test(code) ? { code } : {}) }); return }
   console.error(`[change-orders] ${what}:`, e)
   res.status(500).json({ success: false, error: `Could not ${what}` })
 }
@@ -174,12 +174,10 @@ router.post('/', requireCan('quotes.change'), async (req: any, res) => {
     // The reason is required on a new one (a resend of one already saved is not refused).
     const noReason = known ? null : reasonProblem(body.reason)
     if (noReason) { res.status(400).json({ success: false, error: noReason }); return }
-    // A credit under the minimum job price: refused; the owner's full credit goes through and is recorded (lib/changeOrderMinimum.ts).
-    const cut = known ? { kind: 'ok' as const } : await checkCutMinimum(accountId, roleOf(req), req.body, quoteId, totalOf(saveLines(body.lines)))
-    if (cut.kind === 'refuse') { res.status(409).json({ success: false, code: cut.code, error: cut.error }); return }
-    const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason.trim(), lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null })
+    // A credit under the minimum job price: refused (409) inside the save; the owner's full credit goes through and is recorded (lib/changeOrderMinimum.ts).
+    const row = await createChangeOrder(accountId, { id: body.id, quoteId, reason: body.reason.trim(), lines: body.lines, scope: body.scope ?? null, status: needsOk ? 'needs_ok' : body.status, by, verbalReason: body.verbalReason ?? null, work: body.work ?? null, minimum: minimumAsk(req) })
     await audit(req, 'create', 'ChangeOrder', row.id, { newValues: view(row) })
-    if (cut.kind === 'override') await cutOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), row.id, cut)
+    for (const o of row.minimumOverride ?? []) await cutOverrideAudit((a, e, id, x) => audit(req, a, e, id, x), row.id, o)
     if (needsOk && !known) await askForOk(row, by)
     res.status(201).json({ success: true, data: viewFor(req, await siblingsOf(row))(row), ...(row.notice ? { notice: row.notice } : {}), ...(row.status === 'approved' ? { scheduleWarning: await warningFor(accountId, quoteId) } : {}) })
   } catch (e) { fail(res, e, 'save the change order') }
@@ -195,19 +193,13 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     if (!cur || cur.accountId !== accountId) { res.status(404).json({ success: false, error: 'Change order not found' }); return }
     // Approving, or taking an approved one back off the contract value, is billing's; so is the OK on a Salesman's.
     if ((edit.status === 'approved' || (edit.status === 'void' && cur.status === 'approved') || (edit.status === 'draft' && cur.status === 'needs_ok')) && !can(roleOf(req), 'billing.change')) { refuse(res, 'billing.change'); return }
-    // New lines that take more off: held to the minimum job price as a new one is (lib/changeOrderMinimum.ts).
-    const cut = edit.lines === undefined || !['needs_ok', 'draft', 'sent'].includes(cur.status) ? { kind: 'ok' as const }
-      : await checkCutMinimum(accountId, roleOf(req), req.body, cur.quoteId, totalOf(saveLines(edit.lines)), { exclude: cur.id, wasCents: cur.totalCents })
-    if (cut.kind === 'refuse') { res.status(409).json({ success: false, code: cut.code, error: cut.error }); return }
-    // Voiding an approved addition that leaves the contract under the minimum: the owner's call only (lib/changeOrderMinimum.ts).
-    const voiding = edit.status === 'void' && cur.status !== 'void' ? await checkVoidMinimum(accountId, roleOf(req), cur) : { kind: 'ok' as const }
-    if (voiding.kind === 'refuse') { res.status(409).json({ success: false, code: voiding.code, error: voiding.error }); return }
     const by = await who(req)
-    // A Salesman's change to an OK'd one goes back to "Waiting for OK" (lib/changeOrders.ts editChangeOrder).
-    const { row, stale, backToOk } = await editChangeOrder(accountId, cur.id, base, edit as any, by, { needsOk: !can(roleOf(req), 'billing.change') })
+    // A Salesman's change to an OK'd one goes back to "Waiting for OK" (lib/changeOrders.ts editChangeOrder). New lines that take
+    // more off, voiding an approved addition and approving a cut are held to the minimum job price inside the save (lib/changeOrderMinimum.ts).
+    const { row, stale, backToOk, minimumOverride } = await editChangeOrder(accountId, cur.id, base, edit as any, by, { needsOk: !can(roleOf(req), 'billing.change'), minimum: minimumAsk(req) })
     if (stale) { refuseStale(res, view(row), row.version); return }
     await audit(req, 'update', 'ChangeOrder', row.id, { oldValues: view(cur), newValues: view(row) })
-    if (cut.kind === 'override') await cutOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), row.id, cut)
+    for (const o of minimumOverride ?? []) await cutOverrideAudit((a, e, id, x) => audit(req, a, e, id, x), row.id, o)
     if (backToOk) await askForOk(row, by, true)
     // The OK (or a void before it): the "to OK" notices are cleared and the maker is told (lib/changeOrderNotices.ts).
     if (cur.status === 'needs_ok' && row.status !== 'needs_ok') await okGiven(row, by, row.status === 'void', roleOf(req))
