@@ -72,7 +72,8 @@ export function newlyUnderMinimum(after: MinimumQuote, saved: MinimumQuote | nul
   })
 }
 
-const dollars = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`
+// A contract taken below nothing keeps its minus sign (review Nov 3 2026: "it would be $650" for −$650).
+const dollars = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`
 const listed = (a: string[]) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`)
 
 /** What the login is told: the same words on the screen and from the server. */
@@ -81,4 +82,73 @@ export function underMinimumWarning(under: UnderMinimum[], minimumCents: number,
   return owner
     ? `${prices}, under the ${dollars(minimumCents)} minimum job price. As the owner you can save it anyway.`
     : `This cannot be saved. ${prices}, under the ${dollars(minimumCents)} minimum job price. Take less off, or ask Jonathan.`
+}
+
+/**
+ * A change order that takes work off a job stops at the minimum job price
+ * (Jonathan, Nov 3 2026, item 32: "yes, a cut stops at $350. Owner can
+ * override."). The floor is the minimum job price itself, to the whole dollar,
+ * never moved by the quote's own dollar discount (review Nov 3 2026: a repair
+ * signed with $146 off was held only to $204); 0 when there is no minimum.
+ * The minimum is the one the quote's prices are held to (jobMinimumCents):
+ * moves and repairs always, a new fence when Settings apply it to new fences.
+ */
+export function cutFloorCents(minimumCents: number): number {
+  return minimumCents > 0 ? Math.floor(minimumCents / 100) * 100 : 0
+}
+
+/** A change order as a cut's contract counts it. */
+export interface CutOrder { status: string; totalCents: number; signedAt?: unknown; deletedAt?: unknown }
+
+/**
+ * The contract a cut is counted from, in cents: the price signed for, the
+ * contract adjustments on the payment schedule, every cut not voided (open or
+ * approved) and each addition only once it is approved or signed (review Nov 3
+ * 2026: an unsigned +$500 counted, was voided after, and the cut left $340).
+ * The screen and the server (portal lib/changeOrderMinimum.ts) count the same way.
+ */
+export function cutContractCents(signedCents: number, orders: CutOrder[], adjustmentsCents = 0): number {
+  return signedCents + adjustmentsCents + orders
+    .filter(o => o.status !== 'void' && !o.deletedAt && (o.totalCents < 0 || o.status === 'approved' || !!o.signedAt))
+    .reduce((t, o) => t + o.totalCents, 0)
+}
+
+/**
+ * The most a change order can take off, in cents (a negative amount, or 0):
+ * down to the floor, and no credit at all on a contract already at or under
+ * it. Null when the change is no credit or there is no floor. `contractCents`:
+ * the contract as cutContractCents counts it.
+ */
+export function cutLimitCents(contractCents: number, changeCents: number, floorCents: number): number | null {
+  if (!(floorCents > 0) || !(changeCents < 0)) return null
+  return Math.min(0, floorCents - contractCents)
+}
+
+/** A credit past the floor: the screen and the server (portal lib/changeOrderMinimum.ts) ask the same. */
+export function cutUnderMinimum(contractCents: number, changeCents: number, floorCents: number): boolean {
+  const limit = cutLimitCents(contractCents, changeCents, floorCents)
+  return limit !== null && changeCents < limit
+}
+
+/** What the login is told of a credit past the floor: the same words on the screen and from the server. */
+export function cutUnderMinimumWarning(contractCents: number, changeCents: number, floorCents: number, owner: boolean, doing: 'cut' | 'void' | 'approve' = 'cut', withOpen = false): string {
+  const floor = dollars(floorCents), after = dollars(contractCents + changeCents)
+  if (doing === 'cut') {
+    return owner
+      ? `This takes the job under the ${floor} minimum job price. As the owner you can give the full credit anyway.`
+      : `This cannot be saved. It takes the job under the ${floor} minimum job price: the contract would be ${after}. Take less off, or ask Jonathan.`
+  }
+  // Voiding an approved addition, or approving a cut that the job no longer has room for: "Take less off" is for cuts only.
+  // With open change orders counted, it says so (review Nov 3 2026): the job is under only once they are signed too.
+  const why = withOpen
+    ? `${doing === 'void' ? 'Voiding' : 'Approving'} this, with the open change orders, takes the job under the ${floor} minimum job price: the contract would be ${after}.`
+    : `It takes the job under the ${floor} minimum job price: the contract would be ${after}.`
+  return owner
+    ? `${withOpen ? why : `This takes the job under the ${floor} minimum job price: the contract would be ${after}.`} As the owner you can ${doing === 'void' ? 'void' : 'approve'} it anyway.`
+    : `This cannot be ${doing === 'void' ? 'voided' : 'approved'}. ${why} Ask Jonathan.`
+}
+
+/** The owner's note once the box gives the full credit (in place of "the credit stops at"). */
+export function cutFullCreditNote(contractCents: number, changeCents: number, floorCents: number): string {
+  return `Full credit given: the contract becomes ${dollars(contractCents + changeCents)}, under the ${dollars(floorCents)} minimum.`
 }

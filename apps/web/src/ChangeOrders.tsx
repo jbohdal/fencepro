@@ -33,6 +33,7 @@ import { smsLink } from './appointmentLogic'
 import { getConfig } from './configStore'
 import { floridaWhen } from './businessDate'
 import { wholeDollarCents } from './pricingEngine'
+import { cutContractCents, cutFloorCents, cutFullCreditNote, cutUnderMinimum, cutUnderMinimumWarning, jobMinimumCents } from './discountMinimum'
 import { SignaturePad } from './SignaturePad'
 import { LIVE_REFRESH_EVENT } from './liveRefresh'
 import type { SavedQuote } from './QuotesPage'
@@ -150,9 +151,16 @@ export interface ChangeOrderPrefill {
   note?: string | null
   /** What the price can't settle: said to whoever is making it (changeOrderDraft.ts warningsOf), never to the customer. */
   warnings?: string[]
+  /**
+   * A credit stopped at the minimum job price (changeOrderDraft.ts cutAtMinimum): the floor, the contract it was
+   * counted from, and each line's full amount, for the owner to give the full credit anyway.
+   */
+  cut?: { floorCents: number; contractCents: number; full: Array<{ id: string; amountCents: number }>; warning: string } | null
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
+/** The server's code for a change under the minimum job price (portal lib/changeOrderMinimum.ts). */
+const CUT_BELOW_MINIMUM = 'CHANGE_ORDER_BELOW_MINIMUM'
 // A draft has its OK: the owner or office made it, or OK'd a Salesman's (only they make drafts). "Draft" read as not OK'd yet (review, Oct 27 2026).
 const STATUS_WORDS: Record<ChangeOrderStatus, string> = { needs_ok: 'Waiting for OK', draft: "OK'd, not sent yet", sent: 'Sent', approved: 'Approved', void: 'Void' }
 
@@ -339,6 +347,42 @@ export function signedQuoteOf<T extends object>(q: T): T {
   return (signedOf.get(q) as T | undefined) ?? q
 }
 
+export interface CutStanding { floorCents: number; contractCents: number }
+
+/**
+ * The minimum job price a cut stops at and the contract it is counted from,
+ * in cents (discountMinimum.ts cutFloorCents, cutContractCents), from what this
+ * phone has: everything but the contract adjustments on the payment schedule,
+ * which only the server's count has (cutStandingFromServer). `quote` may be the work now.
+ */
+export function cutStandingHere(quote: SavedQuote, orders: ChangeOrder[] = getOrdersForQuote(quote.id)): CutStanding {
+  const signedQ = signedQuoteOf(quote)
+  const isWork = signedQ.work?.type === 'move' || signedQ.work?.type === 'repair'
+  return {
+    floorCents: cutFloorCents(jobMinimumCents(getConfig(), isWork)),
+    contractCents: cutContractCents(Math.round((signedQ.finalPrice || 0) * 100), orders.filter(o => o.quoteId === signedQ.id)),
+  }
+}
+
+/** The server's count, the one a save is held to (GET /api/change-orders/cut-floor); null when it cannot be read. */
+export async function cutStandingFromServer(quoteId: string): Promise<CutStanding | null> {
+  const r = await sendJson('GET', `/api/change-orders/cut-floor?quoteId=${encodeURIComponent(quoteId)}`)
+  const d = r.result.ok ? r.json?.data : null
+  return d && typeof d.floorCents === 'number' && typeof d.contractCents === 'number' ? { floorCents: d.floorCents, contractCents: d.contractCents } : null
+}
+
+/** The phone's count at once, then the server's when it answers. */
+export function useCutStanding(quoteId: string | null | undefined, quote: SavedQuote | null | undefined): CutStanding | null {
+  const [server, setServer] = useState<CutStanding | null>(null)
+  useEffect(() => {
+    if (!quoteId) return
+    let live = true
+    void cutStandingFromServer(quoteId).then(s => { if (live && s) setServer(s) })
+    return () => { live = false }
+  }, [quoteId])
+  return server ?? (quote ? cutStandingHere(quote) : null)
+}
+
 /* ───────── calls ───────── */
 
 /** After an approval: the server's word when the scheduled install no longer fits. */
@@ -347,11 +391,13 @@ function warnSchedule(json: any) {
 }
 
 /** Make one. `verbalReason`: approved now, verbally (owner and office only). */
-export async function createChangeOrder(input: { quoteId: string; reason: string; lines: ChangeOrderLine[]; scope: ChangeOrderScope | null; verbalReason?: string | null; work?: ChangeOrderWorkInput | null }): Promise<ChangeOrder | null> {
+export async function createChangeOrder(input: { quoteId: string; reason: string; lines: ChangeOrderLine[]; scope: ChangeOrderScope | null; verbalReason?: string | null; work?: ChangeOrderWorkInput | null; minimumOverride?: boolean }): Promise<ChangeOrder | null> {
   const approved = !!input.verbalReason?.trim()
   const r = await sendJson('POST', '/api/change-orders', {
     id: newId(), quoteId: input.quoteId, reason: input.reason, lines: input.lines, scope: input.scope ?? undefined,
     status: approved ? 'approved' : 'draft', ...(approved ? { verbalReason: input.verbalReason!.trim() } : {}), ...(input.work ? { work: input.work } : {}),
+    // The owner's full credit under the minimum job price (the server holds every other login to it).
+    ...(input.minimumOverride ? { minimumOverride: true } : {}),
   })
   if (!r.result.ok) { toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.'); return null }
   const row = r.json.data as ChangeOrder
@@ -363,10 +409,12 @@ export async function createChangeOrder(input: { quoteId: string; reason: string
 }
 
 /** Send, approve (verbally, with a reason) or void one (built on the version on screen). */
-export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string): Promise<ChangeOrder | null> {
-  const r = await sendJson('PATCH', `/api/change-orders/${encodeURIComponent(co.id)}`, { baseVersion: co.version, status, ...(verbalReason ? { verbalReason } : {}) })
+export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string, opts: { minimumOverride?: boolean; onBelowMinimum?: (words: string) => void } = {}): Promise<ChangeOrder | null> {
+  const r = await sendJson('PATCH', `/api/change-orders/${encodeURIComponent(co.id)}`, { baseVersion: co.version, status, ...(verbalReason ? { verbalReason } : {}), ...(opts.minimumOverride ? { minimumOverride: true } : {}) })
   if (!r.result.ok) {
     if (r.status === 409 && r.json?.code === 'STALE_VERSION' && r.json?.data) { put(r.json.data as ChangeOrder); toast.warning('Changed on another phone', 'This change order was changed somewhere else. It shows as it is now; try again.'); return null }
+    // Under the minimum job price, the owner is asked on the change order itself (their box); everyone else is told why.
+    if (r.status === 409 && r.json?.code === CUT_BELOW_MINIMUM && opts.onBelowMinimum && can('quotes.underMinimum')) { opts.onBelowMinimum(String(r.json?.error ?? '')); return null }
     toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.')
     return null
   }
@@ -604,7 +652,29 @@ export function QuickChangeOrderModal({
   const linesOk = items.some(i => i.description.trim() && (centsOf(i) !== 0 || (i.zeroOk && i.amount.trim() !== '')))
   // The reason is required (Oct 26 2026): the customer reads it under "Why" on their link, the signing sheet and the PDF.
   const reasonOk = reason.trim().length >= 3
-  const canSave = linesOk && reasonOk && !busy && !items.some(i => i.pricing)
+  // A credit that takes the job under the minimum job price (Jonathan, Nov 3 2026, item 32): every login but the owner is
+  // stopped, and the owner gives the full credit only with the box ticked (the server holds to the same). Filled in from
+  // the drawing, the credit already stops at the minimum (changeOrderDraft.ts cutAtMinimum); the box puts the full credit back.
+  // Counted as the save is: the server's figures once they are in (contract adjustments included), this phone's until then.
+  const standing = useCutStanding(quoteId, getQuotes().find(q => q.id === quoteId))
+  const floorCents = standing?.floorCents ?? prefill?.cut?.floorCents ?? 0
+  const contractCents = standing?.contractCents ?? prefill?.cut?.contractCents ?? 0
+  const owner = can('quotes.underMinimum')
+  const [fullCredit, setFullCredit] = useState(false)
+  const underMinimum = cutUnderMinimum(contractCents, total, floorCents)
+  const minimumHeld = underMinimum && !(owner && fullCredit)
+  /** The owner's box: the full credit back on each line filled in, or the credit stopped at the minimum again. */
+  function giveFullCredit(on: boolean) {
+    setFullCredit(on)
+    const cut = prefill?.cut
+    if (!cut) return
+    const amounts = new Map((on ? cut.full : prefill!.lines.map(l => ({ id: l.id, amountCents: l.amountCents }))).map(l => [l.id, l.amountCents]))
+    setItems(prev => prev.map(i => {
+      const c = amounts.get(i.id)
+      return c === undefined ? i : { ...i, ...toEdit({ id: i.id, description: i.description, amountCents: c }), ...(i.source ? { source: i.source, qty: i.qty } : {}), ...(c === 0 ? { amount: '0', zeroOk: true } : {}) }
+    }))
+  }
+  const canSave = linesOk && reasonOk && !busy && !items.some(i => i.pricing) && !minimumHeld
   const whyNot = busy || items.some(i => i.pricing) ? '' : !items.some(i => i.description.trim()) ? 'Say what changes on a line.' : !linesOk ? 'Put a price on the line (a credit is a price too).' : !reasonOk ? 'Type the reason for the change (the customer sees it).' : ''
 
   // Tapped twice before the window closes: saved once.
@@ -617,7 +687,7 @@ export function QuickChangeOrderModal({
       id: i.id, description: i.description.trim(), amountCents: centsOf(i), ...(i.source ? { qty: i.qty ?? 1, source: i.source } : {}),
       ...(prefill?.lines.some(l => l.id === i.id && l.fromChange) ? { fromChange: true } : {}),
     }))
-    const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null })
+    const co = await createChangeOrder({ quoteId, reason: reason.trim(), lines, scope: prefill?.scope ?? null, verbalReason, work: prefill?.work ?? null, minimumOverride: underMinimum && owner && fullCredit })
     setBusy(false)
     if (!co) { savedOnce.current = false; return }
     toast.success(`Change order CO-${co.number} saved`, co.status === 'needs_ok' ? 'Sent to Jonathan and the office to OK. Once they OK it, the customer signs it on your phone, their link or the portal.'
@@ -640,7 +710,8 @@ export function QuickChangeOrderModal({
 
         <div className="px-4 md:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto overscroll-contain" data-co-modal-body>
           {prefill?.note && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-co-modal-no-work-note>{prefill.note}</p>}
-          {prefill?.warnings?.map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
+          {/* The cut's note follows the owner's box: with the full credit given it says what the contract becomes (review Nov 3 2026). */}
+          {prefill?.warnings?.map(w => (prefill.cut && w === prefill.cut.warning && fullCredit && underMinimum ?cutFullCreditNote(contractCents, total, floorCents) : w)).map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
           {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>{prefill.work.request.jobType === 'move' || prefill.work.request.jobType === 'repair' ? 'Once approved, the pull sheet, install packet, crew days and job costing follow this work, and the next change order starts from it.' : 'From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.'}</p>}
           <div>
             <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>
@@ -708,6 +779,17 @@ export function QuickChangeOrderModal({
         <div className="px-4 md:px-6 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] border-t border-gray-200 flex flex-wrap items-center justify-end gap-2 shrink-0 bg-white" data-co-save-bar>
           {/* In the Save bar, so a phone always sees why Save is grey (the missing reason sits above the lines). */}
           {whyNot && <p className="w-full text-xs text-amber-900" data-co-why-not>{whyNot}</p>}
+          {underMinimum && !owner && <p className="w-full text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum>{cutUnderMinimumWarning(contractCents, total, floorCents, false)}</p>}
+          {owner && (underMinimum || !!prefill?.cut) && (
+            <div className="w-full" data-co-below-minimum>
+              {/* Only when the amount on screen does take it under. */}
+              {underMinimum && <p className="text-xs font-semibold text-red-700 leading-snug" data-co-below-minimum-text>{cutUnderMinimumWarning(contractCents, total, floorCents, true)}</p>}
+              <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
+                <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={fullCredit} onChange={e => giveFullCredit(e.target.checked)} data-co-below-minimum-override />
+                Give the full credit (owner override)
+              </label>
+            </div>
+          )}
           <button onClick={onClose} className="px-4 min-h-[44px] text-sm text-gray-600 hover:text-gray-800">Cancel</button>
           <button onClick={() => void save(null)} disabled={!canSave}
             className="bg-gray-900 hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold px-5 min-h-[44px] rounded-xl text-sm" data-co-save-draft>
@@ -887,10 +969,13 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
     requestAnimationFrame(() => document.querySelector(`[data-co-id="${CSS.escape(want)}"]`)?.scrollIntoView({ block: 'center' }))
   }, [want, loaded, orders])
 
-  async function setStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string) {
+  /** A void or approval the server held to the minimum job price, for the owner to tick through (their box). */
+  const [held, setHeld] = useState<{ id: string; status: ChangeOrderStatus; verbalReason?: string; words: string; ticked: boolean } | null>(null)
+  async function setStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string, minimumOverride = false) {
     setBusy(co.id)
-    const row = await setChangeOrderStatus(co, status, verbalReason)
+    const row = await setChangeOrderStatus(co, status, verbalReason, { minimumOverride, onBelowMinimum: words => setHeld({ id: co.id, status, verbalReason, words, ticked: false }) })
     setBusy(null)
+    if (row) setHeld(null)
     if (row && status === 'approved') { setVerbalFor(null); toast.success(`Change order CO-${row.number} approved verbally`, `Contract rev ${row.contractRev ?? ''}. The customer can still sign it.`) }
     if (row && status === 'draft' && co.status === 'needs_ok') toast.success(`Change order CO-${row.number} OK'd`, 'It can go to the customer now: signed on a phone, their link or the portal.')
   }
@@ -985,6 +1070,19 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
                   <div className="flex gap-2">
                     <button disabled={busy === co.id || verbalFor.reason.trim().length < 3} onClick={() => void setStatus(co, 'approved', verbalFor.reason.trim())} className="text-xs bg-green-600 text-white font-semibold px-3 min-h-[44px] rounded-lg disabled:opacity-50" data-co-verbal-save>Approve verbally</button>
                     <button onClick={() => setVerbalFor(null)} className="text-xs text-gray-600 px-3 min-h-[44px]">Cancel</button>
+                  </div>
+                </div>
+              )}
+              {held?.id === co.id && (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 space-y-1" data-co-held-minimum>
+                  <p className="text-xs font-semibold text-red-700 leading-snug" data-co-held-minimum-text>{held.words}</p>
+                  <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
+                    <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={held.ticked} onChange={e => setHeld({ ...held, ticked: e.target.checked })} data-co-held-minimum-override />
+                    {held.status === 'void' ? 'Void it anyway (owner override)' : 'Approve it anyway (owner override)'}
+                  </label>
+                  <div className="flex gap-2">
+                    <button disabled={!held.ticked || busy === co.id} onClick={() => void setStatus(co, held.status, held.verbalReason, true)} className="text-xs bg-gray-900 text-white font-semibold px-3 min-h-[44px] rounded-lg disabled:opacity-50" data-co-held-minimum-go>{held.status === 'void' ? 'Void' : 'Approve'}</button>
+                    <button onClick={() => setHeld(null)} className="text-xs text-gray-600 px-3 min-h-[44px]">Cancel</button>
                   </div>
                 </div>
               )}
