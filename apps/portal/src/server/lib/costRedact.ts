@@ -39,7 +39,7 @@ export const COST_KEYS: ReadonlySet<string> = new Set([
   'commission', 'commissionAmt', 'commissionAmount', 'commissionPct', 'costFactor', 'profit', 'profitPct',
   // Settings → Pricing, Fence styles, Moves and repairs
   'margin', 'margins', 'targetProfitPct', 'colorTargetProfitPct', 'targetMarginPct', 'targetMargin', 'marginFrom',
-  'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate',
+  'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate', 'subExtraHourRate',
   // Target Profit % and sub rates set on a material or a choice, and what a fence follows (web fenceRates.ts)
   'rateDefaults', 'followed', 'ownProfitPct',
   'manHourRate', 'wage', 'wages', 'hourlyWage', 'overheadPct', 'overheadHistory', 'liveOverhead',
@@ -170,7 +170,7 @@ export function withMoneyBack(text: string, saved: string): string {
  */
 export const MARGIN_KEYS: ReadonlySet<string> = new Set([
   'costFactor', 'gmPct', 'rateDefaults', 'followed', 'ownProfitPct', 'liveOverhead', 'overheadHistory', 'liveOverheadPct',
-  'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate',
+  'subRate', 'subRateDefault', 'subRateByCategory', 'subWalkGate', 'subDblGate', 'subTearOutSection', 'subTearOutGate', 'subExtraHourRate',
   'commissionPct', 'commissionSalesman', 'commissionNonSalesman',
 ])
 /** Any field whose name says it is a margin, a profit, the overhead or a commission (targetMarginPct, grossMargin, targetProfitPct, overheadPct, commissionMode, commissionCents, ...). */

@@ -62,6 +62,8 @@ export interface PricingSettings {
   subDblGate?: number
   subTearOutSection?: number
   subTearOutGate?: number
+  /** Dollars per extra hour on a Subcontractor quote (Settings "Sub extra labor, per hour"). Blank: the man hour rate (extraHourRate). */
+  subExtraHourRate?: number
   priceMethod?: PriceMethod
   commissionMode?: CommissionMode
   /** Men on a crew and hours in a crew day, for crew time on a quote. */
@@ -138,7 +140,7 @@ export interface PriceInputs {
   tearOutSections: number
   tearOutGates: number
   materialCost: number
-  /** Extra hours on top of calculated labor, always billed at the man hour rate. */
+  /** Extra hours on top of calculated labor: the man hour rate, or on a Subcontractor quote the sub extra labor rate (extraHourRate). */
   extraLaborHrs: number
   hasSalesman: boolean
   /** Slider adjustment, e.g. 0.05 = +5%. Ignored when finalPrice is set. */
@@ -368,6 +370,25 @@ export function keepsOwnSubUnit(o: Pick<QuotePricingOverrides, 'subUnitPicked' |
   return o?.subUnitPicked === true || pos(o?.subRate) !== undefined
 }
 
+/**
+ * What one extra hour on a quote costs. Hourly crew: the man hour rate, as
+ * always. Subcontractor: Settings' "Sub extra labor, per hour" (Nov 3 2026),
+ * so a sub quote is not charged the crew's hourly rate; while that is blank,
+ * the man hour rate as before, and fellBack says so (the quote shows
+ * extraHoursFellBackNote).
+ */
+export function extraHourRate(mode: LaborMode | 'flat', pricing: Pick<PricingSettings, 'manHourRate' | 'subExtraHourRate'>): { rate: number; fellBack: boolean } {
+  const manHourRate = num(pricing.manHourRate)
+  if (mode !== 'subcontractor') return { rate: manHourRate, fellBack: false }
+  const sub = pos(pricing.subExtraHourRate)
+  return sub !== undefined ? { rate: sub, fellBack: false } : { rate: manHourRate, fellBack: true }
+}
+
+/** What a Subcontractor quote with extra hours says while Settings has no sub extra labor rate. */
+export function extraHoursFellBackNote(rate: number): string {
+  return `No sub extra labor rate is set in Settings → Pricing, so the extra hours are charged at the man hour rate ($${Number.isInteger(rate) ? rate : rate.toFixed(2)}/hr).`
+}
+
 export function calculatePrice(input: PriceInputs): PriceResult {
   const { style, pricing } = input
   const o = input.overrides ?? {}
@@ -427,13 +448,16 @@ export function calculatePrice(input: PriceInputs): PriceResult {
     if (missing.length > 0) {
       notes.push(`No subcontractor rate per ${missing.join(', per ')} is set, so that labor is $0. Set it in Settings → Pricing, or switch this quote to Hourly crew.`)
     }
+    // Extra hours at the sub extra labor rate; Settings blank: the man hour rate, as before, and the quote says so.
+    const extra = extraHourRate('subcontractor', pricing)
+    if (extraLaborHrs !== 0 && extra.fellBack) notes.push(extraHoursFellBackNote(extra.rate))
     const units = subUnit === 'section' ? sections : footage
     laborCost = units * subRate
       + walkGates * walkRate
       + dblGates * dblRate
       + tearOutSections * num(pricing.subTearOutSection)
       + tearOutGates * num(pricing.subTearOutGate)
-      + extraLaborHrs * manHourRate
+      + extraLaborHrs * extra.rate
   } else {
     laborCost = manHours * manHourRate
   }

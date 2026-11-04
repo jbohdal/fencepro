@@ -4,7 +4,7 @@ import { splitOnLastSpace } from './personName'
 import { Camera, ChevronLeft } from 'lucide-react'
 import { totalMaterialCost } from './materialCalculator'
 import type { LineItem, MaterialResult } from './materialCalculator'
-import { resolveSubRate, subUnitOf, subUnitOnOpen, subUnitRateMissing, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
+import { extraHourRate, resolveSubRate, subUnitOf, subUnitOnOpen, subUnitRateMissing, cleanOverrides, importedOldPrice, keepsCents, crewTime } from './pricingEngine'
 import type { LaborMode, SubUnit, PriceMethod, QuotePricingOverrides } from './pricingEngine'
 import { INVENTORY_UPDATED_EVENT, getInventory } from './inventoryStore'
 import { normalizeItemName } from './materialCalculator'
@@ -2052,7 +2052,7 @@ export default function QuoteBuilder({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Extra hours (at ${cfg.pricing.manHourRate}/hr)</label>
+                  <label className="text-xs text-gray-400 mb-1 block" data-extra-hours-rate>Extra hours (at ${extraHourRate(laborMode, cfg.pricing).rate}/hr{laborMode === 'subcontractor' ? (extraHourRate(laborMode, cfg.pricing).fellBack ? ', man hour rate' : ', sub extra labor') : ''})</label>
                   <input type="number" min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="0" value={adjLaborHrs} onChange={e => setAdjLaborHrs(e.target.value)} />
                 </div>
                 <div>
