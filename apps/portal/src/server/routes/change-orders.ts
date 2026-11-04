@@ -9,6 +9,7 @@
  *   GET   /timeline?jobId=       the job's timeline (contract, change orders, billing lines, pull sheet revisions) and a schedule warning
  *   GET   /pick-list?quoteId= | ?jobId=   the Repair price list and the Inventory catalog priced for the job's style (prices only)
  *   GET   /pick-price?quoteId=&source=&qty=   one picked item at a quantity
+ *   GET   /cut-floor?quoteId=          the minimum a cut stops at and the contract it counts from (lib/changeOrderMinimum.ts)
  *
  * Approving (at once, or a sent one) is "approved verbally" with a reason:
  * the customer's copy stays "not signed by you yet" until they sign. A change
@@ -33,7 +34,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { audit } from '../lib/auditLog.js'
 import { baseVersionOf, refuseStale, refuseUnversioned } from '../lib/versioned.js'
 import { createChangeOrder, creditAfterVoid, editChangeOrder, importFromKv, view, quoteOfJob, linkFor, signByCustomer, CO_STATUSES, contractAround, alsoInDrawing, alsoInDrawingWords, reasonProblem, linesOf, wholeDollarLine, totalOf } from '../lib/changeOrders.js'
-import { checkCutMinimum, cutOverrideAudit } from '../lib/changeOrderMinimum.js'
+import { checkCutMinimum, checkVoidMinimum, cutOverrideAudit, cutStanding } from '../lib/changeOrderMinimum.js'
 import { hidesCosts } from '../lib/costRedact.js'
 import { scheduleFit, startOfChange, effectiveWork, afterVoid, layoutNote } from '../lib/changeOrderWork.js'
 import { shapeOf, sameShape, ownChangeWords } from '../lib/changeOrderMerge.js'
@@ -64,7 +65,7 @@ router.use(async (req: any, res, next) => {
     const q = (k: string) => (typeof req.query[k] === 'string' && req.query[k] ? String(req.query[k]) : null)
     const b = (k: string) => (typeof req.body?.[k] === 'string' && req.body[k] ? String(req.body[k]) : null)
     if (await refusedOutsideSalesScope(req, res, { quotes: [q('quoteId'), b('quoteId')], jobs: [q('jobId'), b('jobId')] })) return
-    if (first && !['start', 'pick-list', 'pick-price'].includes(first)) {
+    if (first && !['start', 'pick-list', 'pick-price', 'cut-floor'].includes(first)) {
       const co = await prisma.changeOrder.findFirst({ where: { id: first, accountId: req.user.crmAccountId }, select: { quoteId: true } })
       if (co && await refusedOutsideSalesScope(req, res, { quotes: co.quoteId })) return
     }
@@ -198,6 +199,9 @@ router.patch('/:id', requireCan('quotes.change'), async (req: any, res) => {
     const cut = edit.lines === undefined || !['needs_ok', 'draft', 'sent'].includes(cur.status) ? { kind: 'ok' as const }
       : await checkCutMinimum(accountId, roleOf(req), req.body, cur.quoteId, totalOf(saveLines(edit.lines)), { exclude: cur.id, wasCents: cur.totalCents })
     if (cut.kind === 'refuse') { res.status(409).json({ success: false, code: cut.code, error: cut.error }); return }
+    // Voiding an approved addition that leaves the contract under the minimum: the owner's call only (lib/changeOrderMinimum.ts).
+    const voiding = edit.status === 'void' && cur.status !== 'void' ? await checkVoidMinimum(accountId, roleOf(req), cur) : { kind: 'ok' as const }
+    if (voiding.kind === 'refuse') { res.status(409).json({ success: false, code: voiding.code, error: voiding.error }); return }
     const by = await who(req)
     // A Salesman's change to an OK'd one goes back to "Waiting for OK" (lib/changeOrders.ts editChangeOrder).
     const { row, stale, backToOk } = await editChangeOrder(accountId, cur.id, base, edit as any, by, { needsOk: !can(roleOf(req), 'billing.change') })
@@ -301,6 +305,16 @@ router.get('/start', requireCan('quotes.change'), async (req: any, res) => {
       states: start.steps.map(s => ({ number: s.row.number, state: s.shape })),
     } })
   } catch (e) { fail(res, e, 'load the drawing') }
+})
+
+// The minimum job price a cut stops at and the contract it is counted from (lib/changeOrderMinimum.ts): the screen asks here, so it counts as the save does.
+router.get('/cut-floor', requireCan('quotes.change'), async (req: any, res) => {
+  try {
+    const quoteId = typeof req.query.quoteId === 'string' ? req.query.quoteId : ''
+    const s = quoteId ? await cutStanding(req.user.crmAccountId, quoteId) : null
+    if (!s) { res.status(404).json({ success: false, error: 'Quote not found' }); return }
+    res.json({ success: true, data: s })
+  } catch (e) { fail(res, e, 'load the minimum job price') }
 })
 
 router.get('/pick-list', requireCan('quotes.change'), async (req: any, res) => {

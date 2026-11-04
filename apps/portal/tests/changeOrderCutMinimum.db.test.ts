@@ -23,7 +23,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
   const { CUT_BELOW_MINIMUM_CODE } = await import('../src/server/lib/changeOrderMinimum.js')
 
   const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
-  const quotes: string[] = [], orders: string[] = []
+  const quotes: string[] = [], orders: string[] = [], jobs: string[] = [], adjustments: string[] = []
   let accountId = '', ownerId = '', base = '', server: any, floor = 0
   const tokens: Record<string, string> = {}
 
@@ -52,6 +52,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
       await prisma.crmAuditLog.deleteMany({ where: { entityId: id, entityType: 'ChangeOrder' } })
       await prisma.changeOrder.deleteMany({ where: { id, accountId } })
     }
+    for (const id of adjustments) await prisma.contractAdjustment.deleteMany({ where: { id, accountId } })
+    for (const id of jobs) await prisma.savedJob.deleteMany({ where: { id, accountId } })
     for (const id of quotes) await prisma.savedQuote.deleteMany({ where: { id, accountId } })
   })
 
@@ -60,10 +62,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     return { status: r.status, json: await r.json().catch(() => ({})) as any }
   }
   /** A signed new fence for $647, written directly (no job). */
-  async function signed(price = 647) {
+  async function signed(price = 647, extra: Record<string, unknown> = {}) {
     const id = crypto.randomUUID()
     quotes.push(id)
-    await prisma.savedQuote.create({ data: { id, accountId, ownerId, customerName: 'ZZ Test Cut Minimum', fenceStyle: "WV-ND 6'x8' Privacy", runs: [20], sections: 3, corners: 0, ends: 2, finalPrice: price, totalCOGS: 300, gmPct: 0.3, status: 'SOLD', soldAt: new Date(), pullSheet: [] } as any })
+    await prisma.savedQuote.create({ data: { id, accountId, ownerId, customerName: 'ZZ Test Cut Minimum', fenceStyle: "WV-ND 6'x8' Privacy", runs: [20], sections: 3, corners: 0, ends: 2, finalPrice: price, totalCOGS: 300, gmPct: 0.3, status: 'SOLD', soldAt: new Date(), pullSheet: [], ...extra } as any })
     return id
   }
   const make = (role: string, quoteId: string, cents: number, extra: Record<string, unknown> = {}) => {
@@ -116,6 +118,51 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a cut under the minimum job pric
     expect(more.json.code).toBe(CUT_BELOW_MINIMUM_CODE)
     const same = await send('office_staff', 'PATCH', `/api/change-orders/${made.id}`, { baseVersion: made.json.data.version, lines: [{ id: crypto.randomUUID(), description: 'Remove 12 ft of fence (corrected words)', amountCents: -29700 }] })
     expect(same.status).toBe(200)
+  })
+
+  test('a quote signed with dollars off is held to $350 itself (review Nov 3 2026: repair R, $427 with $146 off, cut to $250)', async () => {
+    const q = await signed(427, { pricing: { priceAdjustmentCents: -14600 }, work: { type: 'repair' } })
+    const r = await make('office_staff', q, -17700)
+    expect(r.status).toBe(409)
+    expect(r.json.error).toBe('This cannot be saved. It takes the job under the $350 minimum job price: the contract would be $250. Take less off, or ask Jonathan.')
+    expect((await make('office_staff', q, -7700)).status).toBe(201)
+    expect((await send('office_staff', 'GET', `/api/change-orders/cut-floor?quoteId=${q}`, undefined)).json.data).toEqual({ floorCents: 35000, contractCents: 35000 })
+  })
+
+  test('an addition counts once approved or signed; voiding an approved one that leaves the job under the minimum is the owner\'s call', async () => {
+    // The review's steps: $840 signed, +$500 saved but not signed; a $7,520 cut was allowed against $1,340.
+    const q = await signed(840)
+    const add = await make('office_staff', q, 50000)
+    expect(add.status).toBe(201)
+    expect((await make('office_staff', q, -752000)).status).toBe(409)
+    expect((await send('office_staff', 'GET', `/api/change-orders/cut-floor?quoteId=${q}`, undefined)).json.data.contractCents).toBe(84000)
+    // Approved (written directly: no job here), it counts: $1,340, and a cut to $350 saves.
+    await prisma.changeOrder.update({ where: { id: add.id }, data: { status: 'approved', approvedAt: new Date() } })
+    const cut = await make('office_staff', q, -99000)
+    expect(cut.status).toBe(201)
+    // Voiding the approved +$500 now leaves $840 less the $990 cut: refused for the office, in the same words.
+    const row = await prisma.changeOrder.findUnique({ where: { id: add.id } })
+    const voidIt = (role: string) => send(role, 'PATCH', `/api/change-orders/${add.id}`, { baseVersion: row!.version, status: 'void' })
+    const refused = await voidIt('office_staff')
+    expect(refused.status).toBe(409)
+    expect(refused.json.code).toBe(CUT_BELOW_MINIMUM_CODE)
+    expect(refused.json.error).toBe('This cannot be saved. It takes the job under the $350 minimum job price: the contract would be −$150. Take less off, or ask Jonathan.')
+    expect((await prisma.changeOrder.findUnique({ where: { id: add.id } }))!.status).toBe('approved')
+    const byOwner = await voidIt('super_admin')
+    expect(byOwner.status).toBe(200)
+    expect(byOwner.json.data.status).toBe('void')
+  })
+
+  test('the contract adjustments on the payment schedule count too', async () => {
+    const q = await signed(647)
+    const jobId = crypto.randomUUID()
+    jobs.push(jobId)
+    await prisma.savedJob.create({ data: { id: jobId, accountId, quoteId: q, customerName: 'ZZ Test Cut Minimum', quotePrice: 647, contractValue: 547 } as any })
+    const adj = await prisma.contractAdjustment.create({ data: { accountId, jobId, amountCents: -10000, reason: 'ZZ test' } })
+    adjustments.push(adj.id)
+    expect((await send('office_staff', 'GET', `/api/change-orders/cut-floor?quoteId=${q}`, undefined)).json.data.contractCents).toBe(54700)
+    expect((await make('office_staff', q, -29700)).status).toBe(409)
+    expect((await make('office_staff', q, -19700)).status).toBe(201)
   })
 
   test('a job signed above the minimum with a cut that stays above it: saved as made', async () => {
