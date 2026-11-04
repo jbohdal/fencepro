@@ -16,7 +16,6 @@
 
 import { moveRepairSettings, type MoveRepairSettings } from './moveRepair'
 import { plainFence } from './sentReprice'
-import { adjustedPrice, type QuotePricingOverrides } from './pricingEngine'
 
 /** A repair's option of a new fence: the minimum does not lift it (the job is a repair), so it is not held to it. */
 const NEW_FENCE_INSTEAD = 'New fence instead'
@@ -73,7 +72,8 @@ export function newlyUnderMinimum(after: MinimumQuote, saved: MinimumQuote | nul
   })
 }
 
-const dollars = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`
+// A contract taken below nothing keeps its minus sign (review Nov 3 2026: "it would be $650" for −$650).
+const dollars = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`
 const listed = (a: string[]) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`)
 
 /** What the login is told: the same words on the screen and from the server. */
@@ -87,23 +87,37 @@ export function underMinimumWarning(under: UnderMinimum[], minimumCents: number,
 /**
  * A change order that takes work off a job stops at the minimum job price
  * (Jonathan, Nov 3 2026, item 32: "yes, a cut stops at $350. Owner can
- * override."). The floor is the minimum to the whole dollar with the quote's
- * own ± dollar adjustment, as a job signed at the minimum is held to
- * (changeOrderDraft.ts atMinimum); 0 when there is no minimum. The minimum is
- * the one the quote's prices are held to (jobMinimumCents): moves and repairs
- * always, a new fence when Settings apply it to new fences.
+ * override."). The floor is the minimum job price itself, to the whole dollar,
+ * never moved by the quote's own dollar discount (review Nov 3 2026: a repair
+ * signed with $146 off was held only to $204); 0 when there is no minimum.
+ * The minimum is the one the quote's prices are held to (jobMinimumCents):
+ * moves and repairs always, a new fence when Settings apply it to new fences.
  */
-export function cutFloorCents(minimumCents: number, overrides: QuotePricingOverrides | null | undefined): number {
-  if (!(minimumCents > 0)) return 0
-  const { finalPrice, ...o } = (overrides ?? {}) as QuotePricingOverrides & { finalPrice?: unknown }; void finalPrice
-  return adjustedPrice(minimumCents, { ...o, wholeDollar: true }, 0).priceCents
+export function cutFloorCents(minimumCents: number): number {
+  return minimumCents > 0 ? Math.floor(minimumCents / 100) * 100 : 0
+}
+
+/** A change order as a cut's contract counts it. */
+export interface CutOrder { status: string; totalCents: number; signedAt?: unknown; deletedAt?: unknown }
+
+/**
+ * The contract a cut is counted from, in cents: the price signed for, the
+ * contract adjustments on the payment schedule, every cut not voided (open or
+ * approved) and each addition only once it is approved or signed (review Nov 3
+ * 2026: an unsigned +$500 counted, was voided after, and the cut left $340).
+ * The screen and the server (portal lib/changeOrderMinimum.ts) count the same way.
+ */
+export function cutContractCents(signedCents: number, orders: CutOrder[], adjustmentsCents = 0): number {
+  return signedCents + adjustmentsCents + orders
+    .filter(o => o.status !== 'void' && !o.deletedAt && (o.totalCents < 0 || o.status === 'approved' || !!o.signedAt))
+    .reduce((t, o) => t + o.totalCents, 0)
 }
 
 /**
  * The most a change order can take off, in cents (a negative amount, or 0):
  * down to the floor, and no credit at all on a contract already at or under
  * it. Null when the change is no credit or there is no floor. `contractCents`:
- * the contract with every other change order not voided in it.
+ * the contract as cutContractCents counts it.
  */
 export function cutLimitCents(contractCents: number, changeCents: number, floorCents: number): number | null {
   if (!(floorCents > 0) || !(changeCents < 0)) return null
@@ -121,4 +135,9 @@ export function cutUnderMinimumWarning(contractCents: number, changeCents: numbe
   return owner
     ? `This takes the job under the ${dollars(floorCents)} minimum job price. As the owner you can give the full credit anyway.`
     : `This cannot be saved. It takes the job under the ${dollars(floorCents)} minimum job price: the contract would be ${dollars(contractCents + changeCents)}. Take less off, or ask Jonathan.`
+}
+
+/** The owner's note once the box gives the full credit (in place of "the credit stops at"). */
+export function cutFullCreditNote(contractCents: number, changeCents: number, floorCents: number): string {
+  return `Full credit given: the contract becomes ${dollars(contractCents + changeCents)}, under the ${dollars(floorCents)} minimum.`
 }

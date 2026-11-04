@@ -97,7 +97,7 @@ export interface DraftInput {
   earlier?: (JobHistory & { sold: SavedQuote }) | null
   /** The minimum job price the job is held to (discountMinimum.ts jobMinimumCents); without it, `current.minimumCents`. */
   minimumCents?: number
-  /** The contract with every other change order not voided in it, in cents (ChangeOrders.tsx contractWithOthersCents); without it, the signed price. */
+  /** The contract a cut is counted from, in cents (discountMinimum.ts cutContractCents; the server's count, ChangeOrders.tsx cutStanding); without it, the signed price. */
   contractCents?: number
 }
 
@@ -205,7 +205,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   // The reason is typed by whoever makes it (required, Oct 26 2026), never a generic sentence.
   // A credit that would take the job under the minimum job price stops at it (cutAtMinimum).
   const done = (lines: ChangeOrderLine[], warnings: string[] = [], held = false): ChangeOrderPrefill => {
-    const cut = held ? null : cutAtMinimum(lines, cutFloorCents(d.minimumCents ?? cur.minimumCents ?? 0, cur.overrides), d.contractCents ?? Math.round(s.finalPrice * 100))
+    const cut = held ? null : cutAtMinimum(lines, cutFloorCents(d.minimumCents ?? cur.minimumCents ?? 0), d.contractCents ?? Math.round(s.finalPrice * 100))
     const said = cut ? [cut.warning, ...warnings] : warnings
     return { reason: '', lines, scope: Object.keys(scope).length ? scope : null, ...(said.length ? { warnings: said } : {}), ...(cut ? { cut: cut.cut } : {}) }
   }
@@ -348,10 +348,12 @@ function cutAtMinimum(lines: ChangeOrderLine[], floorCents: number, contractCent
   const full = lines.map(l => ({ id: l.id, amountCents: l.amountCents }))
   toTotal(lines, limit)
   const floor = dollars(floorCents)
+  // A contract keeps its sign: a credit past nothing is "−$650", never "$650" (review Nov 3 2026).
+  const contract = (c: number) => `${c < 0 ? '−' : ''}${dollars(c)}`
   const warning = limit < 0
-    ? `This takes the job under the ${floor} minimum job price, so the credit stops at ${dollars(limit)} and the contract becomes ${dollars(contractCents + limit)}. With the full ${dollars(total)} credit it would be ${dollars(contractCents + total)}.`
-    : `The contract is ${dollars(contractCents)}, already at or under the ${floor} minimum job price, so this change gives no credit. With the full ${dollars(total)} credit it would be ${dollars(contractCents + total)}.`
-  return { warning, cut: { floorCents, contractCents, full } }
+    ? `This takes the job under the ${floor} minimum job price, so the credit stops at ${dollars(limit)} and the contract becomes ${contract(contractCents + limit)}. With the full ${dollars(total)} credit it would be ${contract(contractCents + total)}.`
+    : `The contract is ${contract(contractCents)}, already at or under the ${floor} minimum job price, so this change gives no credit. With the full ${dollars(total)} credit it would be ${contract(contractCents + total)}.`
+  return { warning, cut: { floorCents, contractCents, full, warning } }
 }
 
 /**

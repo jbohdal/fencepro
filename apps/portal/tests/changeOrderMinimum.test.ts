@@ -15,7 +15,7 @@ import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from '../../web/
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { changeOrderDraft } from '../../web/src/changeOrderDraft'
-import { cutFloorCents, cutUnderMinimum, cutUnderMinimumWarning } from '../../web/src/discountMinimum'
+import { cutContractCents, cutFloorCents, cutFullCreditNote, cutUnderMinimum, cutUnderMinimumWarning } from '../../web/src/discountMinimum'
 
 const prices = JSON.parse(fs.readFileSync(new URL('./fixtures/inventory-prices-2026-10-14.json', import.meta.url), 'utf8'))
 beforeAll(() => setMaterialPriceSource(priceSourceFromMap(prices)))
@@ -143,7 +143,7 @@ describe('a cut stops at the minimum job price', () => {
     expect(d.lines[0].amountCents).toBe(-29700)
     expect(64700 + total(d)).toBe(35000)
     expect(d.warnings).toEqual(['This takes the job under the $350 minimum job price, so the credit stops at $297 and the contract becomes $350. With the full $479 credit it would be $168.'])
-    expect(d.cut).toEqual({ floorCents: 35000, contractCents: 64700, full: [{ id: d.lines[0].id, amountCents: -47900 }] })
+    expect(d.cut).toEqual({ floorCents: 35000, contractCents: 64700, full: [{ id: d.lines[0].id, amountCents: -47900 }], warning: d.warnings![0] })
     expect(d.warnings!.join(' ')).not.toMatch(/[—–-]/)
   })
 
@@ -184,9 +184,44 @@ describe('a cut stops at the minimum job price', () => {
     expect(d.warnings?.[0]).toBe('The contract is $340, already at or under the $350 minimum job price, so this change gives no credit. With the full $240 credit it would be $100.')
   })
 
-  test('the quote\'s own $20 off lowers the floor to $330, as for a job signed at the minimum', () => {
-    const d = draft(input([20], { ...MIN, overrides: { wholeDollar: true, priceAdjustmentCents: -2000 } }), 647, input([8], { ...MIN, overrides: { wholeDollar: true, priceAdjustmentCents: -2000 } }))
-    expect(64700 + total(d)).toBe(33000)
+  test('a quote signed with dollars off is still held to $350, never $350 less its discount (review Nov 3 2026)', () => {
+    // Repair R: $427 signed with $146 off was held only to $204, so a cut to $250 went through with no warning.
+    const off = { wholeDollar: true, priceAdjustmentCents: -14600 }
+    const d = draft(input([20], { ...MIN, overrides: off }), 427, input([8], { ...MIN, overrides: off }))
+    expect(42700 + total(d)).toBe(35000)
+    expect(d.warnings?.[0]).toMatch(/^This takes the job under the \$350 minimum job price, so the credit stops at \$77 and the contract becomes \$350\./)
+    const r = changeOrderDraft({ signed: signedAs(input([20]), 427), current: input([8], { overrides: off }), signedOverrides: off, styles: [style], priceNow: 250, sectionsNow: 1, simple: true, minimumCents: 35000 })
+    expect(42700 + total(r)).toBe(35000)
+    expect(cutFloorCents(35050)).toBe(35000)
+  })
+
+  test('a contract taken below nothing keeps its minus sign, and the full credit figure is the real contract', () => {
+    // A $647 job with $800 of approved credits since: $−153 now, no credit, and "−$632" with the full one.
+    const d = changeOrderDraft({ signed: signedAs(input([20]), 647), current: input([8], MIN), signedOverrides: {}, styles: [style], priceNow: 311, sectionsNow: 1, simple: false, contractCents: -15300 })
+    expect(total(d)).toBe(0)
+    expect(d.warnings?.[0]).toBe('The contract is −$153, already at or under the $350 minimum job price, so this change gives no credit. With the full $479 credit it would be −$632.')
+    expect(cutUnderMinimumWarning(20000, -85000, 35000, false)).toBe('This cannot be saved. It takes the job under the $350 minimum job price: the contract would be −$650. Take less off, or ask Jonathan.')
+    // An earlier typed addition not signed yet is not in the contract, so it is not in the figure either.
+    const contract = cutContractCents(64700, [{ status: 'draft', totalCents: 50000 }])
+    const e = changeOrderDraft({ signed: signedAs(input([20]), 647), current: input([8], MIN), signedOverrides: {}, styles: [style], priceNow: 311, sectionsNow: 1, simple: false, contractCents: contract })
+    expect(e.warnings?.[0]).toBe('This takes the job under the $350 minimum job price, so the credit stops at $297 and the contract becomes $350. With the full $479 credit it would be $168.')
+    expect(cutFullCreditNote(64700, -47900, 35000)).toBe('Full credit given: the contract becomes $168, under the $350 minimum.')
+  })
+
+  test('the contract a cut counts from: additions once approved or signed, every cut not voided, the adjustments', () => {
+    const orders = [
+      { status: 'sent', totalCents: 50000 },                      // an addition not signed: not yet
+      { status: 'sent', totalCents: 20000, signedAt: '2026-11-03' }, // signed: counts
+      { status: 'approved', totalCents: 10000 },                  // approved: counts
+      { status: 'draft', totalCents: -30000 },                    // an open cut: counts
+      { status: 'needs_ok', totalCents: -5000 },                  // a Salesman's cut waiting for the OK: counts
+      { status: 'void', totalCents: -40000 },                     // void: never
+      { status: 'approved', totalCents: -1000, deletedAt: '2026-11-02' },
+    ]
+    expect(cutContractCents(84000, orders)).toBe(84000 + 20000 + 10000 - 30000 - 5000)
+    expect(cutContractCents(84000, orders, -2500)).toBe(84000 + 20000 + 10000 - 30000 - 5000 - 2500)
+    // The review's steps: $840 with an unsigned +$500; a $7,520 cut is held against $840, not $1,340.
+    expect(cutUnderMinimum(cutContractCents(84000, [{ status: 'draft', totalCents: 50000 }]), -752000, 35000)).toBe(true)
   })
 
   test('a move or repair (minimum always on): the one price difference line stops at the minimum', () => {
@@ -198,8 +233,8 @@ describe('a cut stops at the minimum job price', () => {
   })
 
   test('the screen and the server ask the same question', () => {
-    expect(cutFloorCents(35050, { wholeDollar: true })).toBe(35000)
-    expect(cutFloorCents(0, null)).toBe(0)
+    expect(cutFloorCents(35050)).toBe(35000)
+    expect(cutFloorCents(0)).toBe(0)
     expect(cutUnderMinimum(64700, -29700, 35000)).toBe(false)
     expect(cutUnderMinimum(64700, -29800, 35000)).toBe(true)
     expect(cutUnderMinimum(34000, 0, 35000)).toBe(false)
