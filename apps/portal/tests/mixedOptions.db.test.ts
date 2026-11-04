@@ -200,7 +200,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
   test('a gate width with no parts list of its own is said to staff, on a style picked for the quote', () => {
     const j = job(request(CHAIN, setOf('Chainlink'), { off: [], swap: { good: ALUM } }, { gateWidths: { walk: [5], dbl: [10] } }))
     expect(j.tierCards.good.gates.join(' ')).toMatch(/5 ft walk gate/)
-    expect(j.tierCards.good.gates.join(' ')).toMatch(/10 ft double gate/)
+    // Aluminum Emily builds a 10 ft double gate from two 4' x 5' leaves (Jonathan, Nov 3 2026, item 25): nothing to say.
+    expect(j.tierCards.good.gates.join(' ')).not.toMatch(/10 ft double gate/)
   })
 
   test('signedPricing: an option of another style brings its margin; an old option changes nothing but the rounding', () => {

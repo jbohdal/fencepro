@@ -156,3 +156,8 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - Discount minimum, from its review: the server's check skips a $0 or non-numeric option price (apps/web/src/discountMinimum.ts pricesUnderMinimum, `c > 0`). Only a hand-crafted save by office, admin or manager reaches it; the screen cannot. Counting $0 risks blocking quotes with an unpriced option, so it needs its own look. Also: the audit log's type filter has no "SavedQuote" (AuditLogPage.tsx:31), and an override row shows the quote id, not the customer.
 - WebKit page crash, seen by three reviewers on Nov 2: the second reload of /quotes in the same page crashes Playwright WebKit, on main as well (dbcde4c). Going to the address again never crashes. May belong with iPhone #17.
 
+
+## From the Nov 3 nightly
+
+- Payment photo in a test copy under `.claude/worktrees/`: GET /api/payments/:id/photo answers 404 there, because Express `sendFile` refuses a path through a dot folder (`dotfiles: 'ignore'`). Live (`~/ezbiz/apps/portal/uploads`) and the main folder are not affected; contractBilling.db.test.ts passes there. `sendFile(file, { dotfiles: 'allow' })` in routes/payments.ts would make the test copies match, if wanted.
+- Aluminum Emily 5 ft walk gate: Inventory has a 4' x 5' Emily gate (al-g-45, now used for the leaves of a 10 ft double gate), but a 5 ft walk gate is still priced and pulled as a 4 ft gate with the staff note. Question for Jonathan before changing it: should a 5 ft walk gate on aluminum use the 4' x 5' gate?
