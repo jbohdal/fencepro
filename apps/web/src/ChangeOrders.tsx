@@ -159,6 +159,8 @@ export interface ChangeOrderPrefill {
 }
 
 export const CO_EVENT = 'ezbiz:changeorders:updated'
+/** The server's code for a change under the minimum job price (portal lib/changeOrderMinimum.ts). */
+const CUT_BELOW_MINIMUM = 'CHANGE_ORDER_BELOW_MINIMUM'
 // A draft has its OK: the owner or office made it, or OK'd a Salesman's (only they make drafts). "Draft" read as not OK'd yet (review, Oct 27 2026).
 const STATUS_WORDS: Record<ChangeOrderStatus, string> = { needs_ok: 'Waiting for OK', draft: "OK'd, not sent yet", sent: 'Sent', approved: 'Approved', void: 'Void' }
 
@@ -407,10 +409,12 @@ export async function createChangeOrder(input: { quoteId: string; reason: string
 }
 
 /** Send, approve (verbally, with a reason) or void one (built on the version on screen). */
-export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string): Promise<ChangeOrder | null> {
-  const r = await sendJson('PATCH', `/api/change-orders/${encodeURIComponent(co.id)}`, { baseVersion: co.version, status, ...(verbalReason ? { verbalReason } : {}) })
+export async function setChangeOrderStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string, opts: { minimumOverride?: boolean; onBelowMinimum?: (words: string) => void } = {}): Promise<ChangeOrder | null> {
+  const r = await sendJson('PATCH', `/api/change-orders/${encodeURIComponent(co.id)}`, { baseVersion: co.version, status, ...(verbalReason ? { verbalReason } : {}), ...(opts.minimumOverride ? { minimumOverride: true } : {}) })
   if (!r.result.ok) {
     if (r.status === 409 && r.json?.code === 'STALE_VERSION' && r.json?.data) { put(r.json.data as ChangeOrder); toast.warning('Changed on another phone', 'This change order was changed somewhere else. It shows as it is now; try again.'); return null }
+    // Under the minimum job price, the owner is asked on the change order itself (their box); everyone else is told why.
+    if (r.status === 409 && r.json?.code === CUT_BELOW_MINIMUM && opts.onBelowMinimum && can('quotes.underMinimum')) { opts.onBelowMinimum(String(r.json?.error ?? '')); return null }
     toast.error('Change order not saved', r.json?.error || 'Check the signal and try again.')
     return null
   }
@@ -965,10 +969,13 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
     requestAnimationFrame(() => document.querySelector(`[data-co-id="${CSS.escape(want)}"]`)?.scrollIntoView({ block: 'center' }))
   }, [want, loaded, orders])
 
-  async function setStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string) {
+  /** A void or approval the server held to the minimum job price, for the owner to tick through (their box). */
+  const [held, setHeld] = useState<{ id: string; status: ChangeOrderStatus; verbalReason?: string; words: string; ticked: boolean } | null>(null)
+  async function setStatus(co: ChangeOrder, status: ChangeOrderStatus, verbalReason?: string, minimumOverride = false) {
     setBusy(co.id)
-    const row = await setChangeOrderStatus(co, status, verbalReason)
+    const row = await setChangeOrderStatus(co, status, verbalReason, { minimumOverride, onBelowMinimum: words => setHeld({ id: co.id, status, verbalReason, words, ticked: false }) })
     setBusy(null)
+    if (row) setHeld(null)
     if (row && status === 'approved') { setVerbalFor(null); toast.success(`Change order CO-${row.number} approved verbally`, `Contract rev ${row.contractRev ?? ''}. The customer can still sign it.`) }
     if (row && status === 'draft' && co.status === 'needs_ok') toast.success(`Change order CO-${row.number} OK'd`, 'It can go to the customer now: signed on a phone, their link or the portal.')
   }
@@ -1063,6 +1070,19 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
                   <div className="flex gap-2">
                     <button disabled={busy === co.id || verbalFor.reason.trim().length < 3} onClick={() => void setStatus(co, 'approved', verbalFor.reason.trim())} className="text-xs bg-green-600 text-white font-semibold px-3 min-h-[44px] rounded-lg disabled:opacity-50" data-co-verbal-save>Approve verbally</button>
                     <button onClick={() => setVerbalFor(null)} className="text-xs text-gray-600 px-3 min-h-[44px]">Cancel</button>
+                  </div>
+                </div>
+              )}
+              {held?.id === co.id && (
+                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 space-y-1" data-co-held-minimum>
+                  <p className="text-xs font-semibold text-red-700 leading-snug" data-co-held-minimum-text>{held.words}</p>
+                  <label className="flex items-center gap-2 min-h-[44px] text-sm font-semibold text-gray-800">
+                    <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={held.ticked} onChange={e => setHeld({ ...held, ticked: e.target.checked })} data-co-held-minimum-override />
+                    {held.status === 'void' ? 'Void it anyway (owner override)' : 'Approve it anyway (owner override)'}
+                  </label>
+                  <div className="flex gap-2">
+                    <button disabled={!held.ticked || busy === co.id} onClick={() => void setStatus(co, held.status, held.verbalReason, true)} className="text-xs bg-gray-900 text-white font-semibold px-3 min-h-[44px] rounded-lg disabled:opacity-50" data-co-held-minimum-go>{held.status === 'void' ? 'Void' : 'Approve'}</button>
+                    <button onClick={() => setHeld(null)} className="text-xs text-gray-600 px-3 min-h-[44px]">Cancel</button>
                   </div>
                 </div>
               )}
