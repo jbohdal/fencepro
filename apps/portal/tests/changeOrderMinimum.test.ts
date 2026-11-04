@@ -15,6 +15,7 @@ import { calculateQuote, type QuoteCalcInput, type QuoteStyle } from '../../web/
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { changeOrderDraft } from '../../web/src/changeOrderDraft'
+import { cutFloorCents, cutUnderMinimum, cutUnderMinimumWarning } from '../../web/src/discountMinimum'
 
 const prices = JSON.parse(fs.readFileSync(new URL('./fixtures/inventory-prices-2026-10-14.json', import.meta.url), 'utf8'))
 beforeAll(() => setMaterialPriceSource(priceSourceFromMap(prices)))
@@ -107,9 +108,11 @@ describe('a job signed at the minimum: the change counts from the price signed f
     }
   })
 
-  test('a job over the minimum cut to under it: today\'s credit stands (only a job signed at the minimum counts from it)', () => {
+  test('a job over the minimum cut to under it: the credit stops at the minimum (Nov 3 2026, item 32)', () => {
+    // Today's credit was $240, a $311 contract; now it stops at $201, a $350 contract.
     const d = draft(input([16], MIN), 551, input([6], MIN))
-    expect(total(d)).toBe(-24000)
+    expect(total(d)).toBe(-20100)
+    expect(d.cut?.full.reduce((t, l) => t + l.amountCents, 0)).toBe(-24000)
   })
 
   test('a move or repair (one price difference line) already counts from the contract, the minimum in the new price', () => {
@@ -117,5 +120,92 @@ describe('a job signed at the minimum: the change counts from the price signed f
     const d = (priceNow: number) => changeOrderDraft({ signed: signedAs(was, 350), current: input([16], MIN), signedOverrides: was.overrides, styles: [style], priceNow, sectionsNow: 2, simple: true })
     expect(total(d(551))).toBe(20100)
     expect(total(d(350))).toBe(0)
+  })
+})
+
+/**
+ * A cut stops at the minimum job price (Jonathan, Nov 3 2026, item 32: "yes, a
+ * cut stops at $350. Owner can override."). His example: $647 cut to 8 ft left
+ * $319. Here 20 ft signed at $647 (the test catalog prices 20 ft at $790 today
+ * and 8 ft at $311), cut to 8 ft: the full credit is $479, a $168 contract; it
+ * stops at $297 and a $350 contract.
+ */
+describe('a cut stops at the minimum job price', () => {
+  test('the catalog: 20 ft at $790, 8 ft at $311', () => {
+    expect(price(input([20]))).toBe(79000)
+    expect(price(input([8]))).toBe(31100)
+  })
+
+  test('$647 cut to 8 ft: the credit is $297 and the contract $350, the line kept, the full credit kept for the owner', () => {
+    const d = draft(input([20], MIN), 647, input([8], MIN))
+    expect(d.lines).toHaveLength(1)
+    expect(d.lines[0].description).toMatch(/^Remove 12 ft of fence/)
+    expect(d.lines[0].amountCents).toBe(-29700)
+    expect(64700 + total(d)).toBe(35000)
+    expect(d.warnings).toEqual(['This takes the job under the $350 minimum job price, so the credit stops at $297 and the contract becomes $350. With the full $479 credit it would be $168.'])
+    expect(d.cut).toEqual({ floorCents: 35000, contractCents: 64700, full: [{ id: d.lines[0].id, amountCents: -47900 }] })
+    expect(d.warnings!.join(' ')).not.toMatch(/[—–-]/)
+  })
+
+  test('a cut that stays above the minimum is unchanged', () => {
+    const d = draft(input([20], MIN), 790, input([16], MIN))
+    const none = draft(input([20]), 790, input([16]))
+    expect(total(d)).toBe(-23900)
+    expect(d.lines.map(l => [l.description, l.amountCents])).toEqual(none.lines.map(l => [l.description, l.amountCents]))
+    expect(d.warnings).toBeUndefined()
+    expect(d.cut).toBeUndefined()
+  })
+
+  test('no minimum on the job (Settings do not apply it to new fences): the full credit', () => {
+    const d = changeOrderDraft({ signed: signedAs(input([20]), 647), current: input([8], MIN), signedOverrides: {}, styles: [style], priceNow: 311, sectionsNow: 1, simple: false, minimumCents: 0 })
+    expect(total(d)).toBe(-47900)
+    expect(d.cut).toBeUndefined()
+  })
+
+  test('a job signed at the minimum keeps its own rule: no credit, never the cut warning', () => {
+    const min = { minimumCents: 60000 }
+    const d = draft(input([16], min), 600, input([6], min))
+    expect(total(d)).toBe(0)
+    expect(d.cut).toBeUndefined()
+    expect(d.warnings).toEqual(['Signed at the $600 minimum job price, and still under it with this change: no charge and no credit. The contract stays $600.'])
+  })
+
+  test('counted from the contract with the other change orders in it', () => {
+    // A $647 job with $200 of change orders added since: $847, so the credit stops at $497.
+    const d = changeOrderDraft({ signed: signedAs(input([20]), 647), current: input([8], MIN), signedOverrides: {}, styles: [style], priceNow: 311, sectionsNow: 1, simple: false, contractCents: 84700 })
+    expect(total(d)).toBe(-47900)
+    const e = changeOrderDraft({ signed: signedAs(input([20]), 647), current: input([8], MIN), signedOverrides: {}, styles: [style], priceNow: 311, sectionsNow: 1, simple: false, contractCents: 74700 })
+    expect(total(e)).toBe(-39700)
+  })
+
+  test('a contract already under the minimum (the owner let it through): no credit at all', () => {
+    const d = draft(input([16], MIN), 340, input([8], MIN))
+    expect(total(d)).toBe(0)
+    expect(d.warnings?.[0]).toBe('The contract is $340, already at or under the $350 minimum job price, so this change gives no credit. With the full $240 credit it would be $100.')
+  })
+
+  test('the quote\'s own $20 off lowers the floor to $330, as for a job signed at the minimum', () => {
+    const d = draft(input([20], { ...MIN, overrides: { wholeDollar: true, priceAdjustmentCents: -2000 } }), 647, input([8], { ...MIN, overrides: { wholeDollar: true, priceAdjustmentCents: -2000 } }))
+    expect(64700 + total(d)).toBe(33000)
+  })
+
+  test('a move or repair (minimum always on): the one price difference line stops at the minimum', () => {
+    const was = input([20])
+    const d = changeOrderDraft({ signed: signedAs(was, 647), current: input([8]), signedOverrides: {}, styles: [style], priceNow: 168, sectionsNow: 1, simple: true, minimumCents: 35000 })
+    // The change in words at $0, then the price difference, which carries the credit.
+    expect(d.lines.map(l => l.amountCents)).toEqual([0, -29700])
+    expect(d.cut?.full.map(l => l.amountCents)).toEqual([0, -47900])
+  })
+
+  test('the screen and the server ask the same question', () => {
+    expect(cutFloorCents(35050, { wholeDollar: true })).toBe(35000)
+    expect(cutFloorCents(0, null)).toBe(0)
+    expect(cutUnderMinimum(64700, -29700, 35000)).toBe(false)
+    expect(cutUnderMinimum(64700, -29800, 35000)).toBe(true)
+    expect(cutUnderMinimum(34000, 0, 35000)).toBe(false)
+    expect(cutUnderMinimum(34000, 5000, 35000)).toBe(false)
+    expect(cutUnderMinimum(34000, -100, 35000)).toBe(true)
+    expect(cutUnderMinimumWarning(64700, -47900, 35000, false)).toBe('This cannot be saved. It takes the job under the $350 minimum job price: the contract would be $168. Take less off, or ask Jonathan.')
+    expect(cutUnderMinimumWarning(64700, -47900, 35000, true)).toBe('This takes the job under the $350 minimum job price. As the owner you can give the full credit anyway.')
   })
 })

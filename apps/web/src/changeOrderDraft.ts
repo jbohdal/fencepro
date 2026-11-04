@@ -35,6 +35,7 @@
 import { calculateQuote, type QuoteCalcInput } from './quoteCalc'
 import { backToState, changeBaseOf, changeOrderInput, fabricFeet, gateChange, gateOpeningFt, gatesGoing, gatesOnJob, jobSteps, noWorkCents, voidGaps, CHANGES_LINE, DIFFERENCE_LINE, type ChangeBase, type ChangeNow, type GateOnJob, type JobHistory, type JobStep, type WorkState } from './changeOrderPricing'
 import { adjustedPrice, wholeDollarCents } from './pricingEngine'
+import { cutFloorCents, cutLimitCents } from './discountMinimum'
 import type { SavedQuote } from './QuotesPage'
 import type { ChangeOrderLine, ChangeOrderPrefill, ChangeOrderScope } from './ChangeOrders'
 import { styleLabel } from './fenceCatalog'
@@ -94,6 +95,10 @@ export interface DraftInput {
   now?: ChangeNow | null
   /** The quote as sold and the job's change orders, when `signed` is the work now (ChangeOrders.tsx quoteWithChanges). */
   earlier?: (JobHistory & { sold: SavedQuote }) | null
+  /** The minimum job price the job is held to (discountMinimum.ts jobMinimumCents); without it, `current.minimumCents`. */
+  minimumCents?: number
+  /** The contract with every other change order not voided in it, in cents (ChangeOrders.tsx contractWithOthersCents); without it, the signed price. */
+  contractCents?: number
 }
 
 /** "1 walk gate and 1 double gate". */
@@ -198,7 +203,12 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const sectionsDelta = d.sectionsNow - s.sections
   if (sectionsDelta) scope.sections = sectionsDelta
   // The reason is typed by whoever makes it (required, Oct 26 2026), never a generic sentence.
-  const done = (lines: ChangeOrderLine[], warnings: string[] = []): ChangeOrderPrefill => ({ reason: '', lines, scope: Object.keys(scope).length ? scope : null, ...(warnings.length ? { warnings } : {}) })
+  // A credit that would take the job under the minimum job price stops at it (cutAtMinimum).
+  const done = (lines: ChangeOrderLine[], warnings: string[] = [], held = false): ChangeOrderPrefill => {
+    const cut = held ? null : cutAtMinimum(lines, cutFloorCents(d.minimumCents ?? cur.minimumCents ?? 0, cur.overrides), d.contractCents ?? Math.round(s.finalPrice * 100))
+    const said = cut ? [cut.warning, ...warnings] : warnings
+    return { reason: '', lines, scope: Object.keys(scope).length ? scope : null, ...(said.length ? { warnings: said } : {}), ...(cut ? { cut: cut.cut } : {}) }
+  }
 
   if (d.simple || !signedStyle) {
     const said = [...words.filter(w => w.text !== 'Other price changes').map(w => w.text), ...(d.workWords ?? [])]
@@ -268,7 +278,7 @@ export function changeOrderDraft(d: DraftInput): ChangeOrderPrefill {
   const minimum = back === null ? atMinimum(lines, s, cur, signedToday, was) : null
   const charged = minimum === null && going.length === 1 && going[0].cents !== null && going[0].cents % 100 === 0 && going[0].whole ? going[0].cents : null
   if (back === null && charged !== null && gateLine && Math.abs(gateCents + charged) <= 100) { gateLine.amountCents -= gateCents + charged; gateCents = -charged }
-  return done(lines.map(l => ({ ...l, fromChange: true })), [...(minimum ? [minimum] : []), ...warningsOf(steps, s, d, { back, walkOut, dblOut, feetNow: ftNow, feetWas: ftWas, openingOut, gateCents: feetBack && ownFt > 0 ? 0 : gateCents, going })])
+  return done(lines.map(l => ({ ...l, fromChange: true })), [...(minimum ? [minimum] : []), ...warningsOf(steps, s, d, { back, walkOut, dblOut, feetNow: ftNow, feetWas: ftWas, openingOut, gateCents: feetBack && ownFt > 0 ? 0 : gateCents, going })], minimum !== null)
 }
 
 /**
@@ -296,22 +306,52 @@ function atMinimum(lines: ChangeOrderLine[], s: SavedQuote, cur: QuoteCalcInput,
   if (!(signedToday.beforeCents < minimumCents) || signedCents > floorCents) return null
   const under = now.beforeCents < minimumCents
   const target = under ? 0 : wholeDollarCents(now.cents - signedCents).cents
-  let off = target - lines.reduce((t, l) => t + l.amountCents, 0)
-  if (off) {
-    const carrier = [...lines].reverse().find(l => l.amountCents * (l.amountCents + off) > 0)
-    if (carrier) { carrier.amountCents += off; off = 0 }
-    // None: each line toward $0 from the last, then what is left on the last.
-    for (const l of [...lines].reverse()) {
-      if (!off) break
-      const take = off < 0 ? Math.max(off, -Math.max(0, l.amountCents)) : Math.min(off, Math.max(0, -l.amountCents))
-      l.amountCents += take; off -= take
-    }
-    if (off) lines[lines.length - 1].amountCents += off
-  }
+  toTotal(lines, target)
   const signed = dollars(signedCents)
   return under
     ? `Signed at the ${dollars(floorCents)} minimum job price, and still under it with this change: no charge and no credit. The contract stays ${signed}.`
     : `Signed at the ${dollars(floorCents)} minimum job price: this change is counted from the ${signed} signed for. The new work prices at ${dollars(now.cents)}, so the contract becomes ${dollars(now.cents)}.`
+}
+
+/**
+ * The lines brought to add up to `target` cents. The amounts change, never the
+ * lines: the difference goes on the last line it leaves pointing the same way,
+ * else off the lines from the last, each toward $0, then what is left on the last.
+ */
+function toTotal(lines: ChangeOrderLine[], target: number): void {
+  let off = target - lines.reduce((t, l) => t + l.amountCents, 0)
+  if (!off) return
+  const carrier = [...lines].reverse().find(l => l.amountCents * (l.amountCents + off) > 0)
+  if (carrier) { carrier.amountCents += off; off = 0 }
+  for (const l of [...lines].reverse()) {
+    if (!off) break
+    const take = off < 0 ? Math.max(off, -Math.max(0, l.amountCents)) : Math.min(off, Math.max(0, -l.amountCents))
+    l.amountCents += take; off -= take
+  }
+  if (off) lines[lines.length - 1].amountCents += off
+}
+
+/**
+ * A cut that would take a job under the minimum job price stops at it
+ * (Jonathan, Nov 3 2026, item 32: "yes, a cut stops at $350. Owner can
+ * override."): $647 cut to 8 ft is a $297 credit and a $350 contract, never
+ * $328 and $319. A contract already at or under the minimum gets no credit.
+ * For any job but one signed at the minimum (atMinimum has those). The lines
+ * are changed as atMinimum changes them; `cut` keeps the full amounts, for the
+ * owner to give the full credit anyway (ChangeOrders.tsx). Null: no such cut.
+ */
+function cutAtMinimum(lines: ChangeOrderLine[], floorCents: number, contractCents: number): { warning: string; cut: NonNullable<ChangeOrderPrefill['cut']> } | null {
+  if (!lines.length) return null
+  const total = lines.reduce((t, l) => t + l.amountCents, 0)
+  const limit = cutLimitCents(contractCents, total, floorCents)
+  if (limit === null || total >= limit) return null
+  const full = lines.map(l => ({ id: l.id, amountCents: l.amountCents }))
+  toTotal(lines, limit)
+  const floor = dollars(floorCents)
+  const warning = limit < 0
+    ? `This takes the job under the ${floor} minimum job price, so the credit stops at ${dollars(limit)} and the contract becomes ${dollars(contractCents + limit)}. With the full ${dollars(total)} credit it would be ${dollars(contractCents + total)}.`
+    : `The contract is ${dollars(contractCents)}, already at or under the ${floor} minimum job price, so this change gives no credit. With the full ${dollars(total)} credit it would be ${dollars(contractCents + total)}.`
+  return { warning, cut: { floorCents, contractCents, full } }
 }
 
 /**
