@@ -49,13 +49,13 @@ export { planTanAutoDs } from './tanAutoDs'
 export { planTanAutoNd } from './tanAutoNd'
 // The server's farm fence seed (lib/farmSeed.ts).
 export { planFarm, planFarmGates } from './farm'
-import { planTwoTone as planTwoToneRaw } from './twoTone'
+import { planTwoTone as planTwoToneRaw, twoToneOf, oneColorFence } from './twoTone'
 /**
  * Two tone vinyl in step with a company's colors (twoTone.ts planTwoTone; the server's lib/twoToneSeed.ts): the
  * two tone material and a fence per pair, size and method, copying the frame fence's labor and the Target Profit it
  * follows now. Pure: returns the Settings changed.
  */
-export function planTwoToneFor(saved: Partial<AppConfig>): { config: Partial<AppConfig>; added: string[]; catalog: boolean } {
+export function planTwoToneFor(saved: Partial<AppConfig>): { config: Partial<AppConfig>; added: string[]; catalog: boolean; cleaned: boolean } {
   const catalog = JSON.parse(JSON.stringify(catalogOf(saved as AppConfig)))
   const styles = (saved.fenceStyles ?? []) as FenceStyle[]
   const followed = followedRatesByStyle(saved)
@@ -63,7 +63,7 @@ export function planTwoToneFor(saved: Partial<AppConfig>): { config: Partial<App
     const f = followed[s.name]?.targetProfitPct?.value
     return typeof s.targetProfitPct === 'number' && (s as { ownProfit?: boolean }).ownProfit ? s.targetProfitPct : typeof f === 'number' ? f : s.targetProfitPct
   })
-  return { config: { ...saved, fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog }, added: plan.added, catalog: plan.catalog }
+  return { config: { ...saved, fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog }, added: plan.added, catalog: plan.catalog, cleaned: plan.cleaned }
 }
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
@@ -198,6 +198,23 @@ export function followedRatesByStyle(saved: Partial<AppConfig> | null): Record<s
     const sc = styleChoicesOf(s)
     const f = sc ? followedRates(materialOf(catalog, sc.material), sc.choices, false) : {}
     if (Object.keys(f).length) out[s.name] = f
+  }
+  // Two tone: the frame color's fence's numbers (its own, else what it follows), unless set on the two tone fence.
+  const styles = (saved?.fenceStyles ?? []) as FenceStyle[]
+  for (const s of styles) {
+    const t = s.material === 'twotone' ? twoToneOf(s.name) : null
+    const frame = t ? oneColorFence(styles, t.frame, t.install, t.width, x => styleChoicesOf(x)) : undefined
+    if (!frame) continue
+    const ff = out[frame.name] ?? {}
+    const mine: FollowedRates = {}
+    for (const k of ['subRate', 'subWalkGate', 'subDblGate'] as const) {
+      if (typeof s[k] === 'number') continue
+      const v = typeof frame[k] === 'number' && (frame[k] as number) > 0 ? { value: frame[k] as number, from: frame.name } : ff[k]
+      if (v) mine[k] = v
+    }
+    const p = typeof frame.ownProfitPct === 'number' ? { value: frame.ownProfitPct, from: frame.name } : ff.targetProfitPct
+    if (p && typeof s.ownProfitPct !== 'number') mine.targetProfitPct = p
+    if (Object.keys(mine).length) out[s.name] = mine; else delete out[s.name]
   }
   return out
 }

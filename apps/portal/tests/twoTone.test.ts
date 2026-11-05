@@ -8,7 +8,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'fs'
-import { estimateConfig, planTwoToneFor } from '../../web/src/estimate'
+import { estimateConfig, planTwoToneFor, followedRatesByStyle } from '../../web/src/estimate'
 import { calculateQuote } from '../../web/src/quoteCalc'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { kitSetFor, setSavedKitSets, type KitSet } from '../../web/src/materialKits'
@@ -43,10 +43,44 @@ describe('two tone vinyl', () => {
     // Run again: nothing more.
     const again = planTwoToneFor(cfg)
     expect([again.added, again.catalog]).toEqual([[], false])
-    // Labor and Target Profit from the frame color's fence.
+    // Nothing copied that should follow: no Target Profit or sub rate of its own.
     const s = cfg.fenceStyles.find((x: any) => x.name === 'twotone/6/tan/white/ds/6')
-    const frame = cfg.fenceStyles.find((x: any) => x.name === "TV-DS 6'x6' Privacy")
-    expect([s.sectionsPerMH, s.mhPerWalkGate, s.margin, s.madeFrom]).toEqual([frame.sectionsPerMH, frame.mhPerWalkGate, frame.margin, frame.name])
+    expect([s.targetProfitPct, s.subRate, s.madeFrom]).toEqual([undefined, undefined, "TV-DS 6'x6' Privacy"])
+  })
+
+  test('labor and Target Profit follow the frame fence as it is now, unless set on the two tone fence', () => {
+    const cfg = made().config as any
+    const set = (name: string, patch: object) => { cfg.fenceStyles = cfg.fenceStyles.map((x: any) => (x.name === name ? { ...x, ...patch } : x)) }
+    // The frame fence changes: its own Target Profit 17%, a sub rate of $9.50 a foot, more man hours.
+    set("TV-DS 6'x6' Privacy", { ownProfitPct: 17, subRate: 9.5, sectionsPerMH: 0.7 })
+    let r = resolved(cfg)
+    const two = () => r.find(x => x.name === 'twotone/6/tan/white/ds/6')!
+    const frame = () => r.find(x => x.name === "TV-DS 6'x6' Privacy")!
+    expect(two().followed?.targetProfitPct?.value).toBe(17)
+    expect(two().followed?.subRate?.value).toBe(9.5)
+    expect(two().sectionsPerMH).toBe(0.7)
+    expect(estimateConfig(cfg).fenceStyles.find(x => x.name === 'twotone/6/tan/white/ds/6')!.margin).toBe(estimateConfig(cfg).fenceStyles.find(x => x.name === "TV-DS 6'x6' Privacy")!.margin)
+    // Its own number on the two tone fence wins: Target Profit 20%, sub $11.
+    set('twotone/6/tan/white/ds/6', { ownProfitPct: 20, subRate: 11 })
+    r = resolved(cfg)
+    expect(two().ownProfitPct).toBe(20)
+    expect(two().subRate).toBe(11)
+    expect(two().followed?.subRate).toBeUndefined()
+    expect(frame().subRate).toBe(9.5)
+    // The server's job costing reads the same numbers.
+    const byStyle = followedRatesByStyle(cfg)
+    expect(byStyle['twotone/6/tan/white/ds/6']?.subRate).toBeUndefined()
+    expect(byStyle['twotone/6/tan/white/ds/8']?.subRate?.value ?? null).toBe(cfg.fenceStyles.find((x: any) => x.name === "TV-DS 6'x8' Privacy").subRate ?? byStyle["TV-DS 6'x8' Privacy"]?.subRate?.value ?? null)
+  })
+
+  test('copies left on fences made before they followed are taken off; a different number stays', () => {
+    const cfg = made().config as any
+    cfg.fenceStyles = cfg.fenceStyles.map((x: any) => x.name === 'twotone/6/white/tan/nd/8' ? { ...x, targetProfitPct: 14 } : x.name === 'twotone/6/white/tan/nd/6' ? { ...x, subRate: 99 } : x)
+    const again = planTwoToneFor(cfg)
+    expect(again.cleaned).toBe(true)
+    const after = (again.config as any).fenceStyles
+    expect(after.find((x: any) => x.name === 'twotone/6/white/tan/nd/8').targetProfitPct).toBeUndefined()
+    expect(after.find((x: any) => x.name === 'twotone/6/white/tan/nd/6').subRate).toBe(99)
   })
 
   test('White frame, Tan infill: posts, caps, rails, uprights and gate caps White; pickets and U trim Tan; same quantities', () => {

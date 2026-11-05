@@ -15,15 +15,17 @@
  * picket stiffeners) swapped for the same lines of the infill color's fence of
  * the same size and method. So the quantities, hardware, pipe, concrete,
  * donuts and gates are the one color fence's, and a kit edited in Material
- * Kits flows through. Labor and Target Profit are copied from the frame
- * color's fence when the two tone fence is made (he can change them in Fence
- * Styles). Held, saying which parts, until every part has a price.
+ * Kits flows through. Labor and Target Profit follow the frame color's fence
+ * as it is now (fenceCatalog.ts resolveFenceStyles), unless the two tone fence
+ * has its own: its own Target Profit, or a sub rate typed on it. Held, saying
+ * which of its colors' parts, until every one has a price.
  *
  *   twotone/6/{frame}/{infill}/{nd|ds}/{6|8|auto}
  *   "Two Tone Vinyl Privacy, White frame, Tan pickets, 6 ft tall, 8 ft sections, No dig"
  *
  * The server keeps the choices and fences in step with the colors at every
- * start (lib/twoToneSeed.ts: planTwoTone).
+ * start and with every Vinyl Colors save (lib/twoToneSeed.ts: planTwoTone);
+ * Undo takes away what the color's adding made there too.
  */
 
 import type { FenceStyle } from './configStore'
@@ -114,14 +116,16 @@ export interface TwoToneState { fenceStyles: FenceStyle[]; fenceCatalog: FenceCa
  * Two tone in step with the colors: the material (its frame and infill
  * choices the per piece colors on for quoting; one no longer so is archived,
  * its fences kept), and a fence for every frame and infill pair (two colors)
- * and size and method where both one color fences exist, copying the frame
- * fence's labor and Target Profit. A fence already there is left as it is.
- * `profitOf` is the Target Profit a fence follows now (Settings → Fence Styles).
+ * and size and method where both one color fences exist. Labor and Target
+ * Profit are not copied: they follow the frame fence when Settings are read;
+ * a copy left on a fence made before (Nov 5 2026), the same as the frame
+ * fence's own number, is taken off so it follows. A number Jonathan set on a
+ * two tone fence (its own Target Profit, a different sub rate) stays.
  */
-export function planTwoTone(st0: TwoToneState, choicesOf: (s: FenceStyle) => { material: string; choices: Record<string, string> } | null, profitOf: (s: FenceStyle) => number | undefined): { state: TwoToneState; added: string[]; catalog: boolean } {
+export function planTwoTone(st0: TwoToneState, choicesOf: (s: FenceStyle) => { material: string; choices: Record<string, string> } | null, profitOf: (s: FenceStyle) => number | undefined): { state: TwoToneState; added: string[]; catalog: boolean; cleaned: boolean } {
   const st: TwoToneState = JSON.parse(JSON.stringify(st0))
   const vinyl = st.fenceCatalog.materials.find(m => m.key === 'vinyl')
-  if (!vinyl) return { state: st, added: [], catalog: false }
+  if (!vinyl) return { state: st, added: [], catalog: false, cleaned: false }
   const colors = twoToneColors(vinyl)
   const at = st.fenceCatalog.materials.findIndex(m => m.key === TWO_TONE)
   const was = at >= 0 ? st.fenceCatalog.materials[at] : undefined
@@ -138,17 +142,24 @@ export function planTwoTone(st0: TwoToneState, choicesOf: (s: FenceStyle) => { m
       const frame = oneColorFence(st.fenceStyles, f.key, install, width, choicesOf)
       const infill = oneColorFence(st.fenceStyles, i.key, install, width, choicesOf)
       if (!frame || !infill) continue
-      const profit = profitOf(frame)
+      void profitOf
       st.fenceStyles.push({
         id: `fs_${name.replace(/\W+/g, '_')}`, name, category: 'Vinyl', margin: frame.margin,
-        ...(typeof profit === 'number' ? { targetProfitPct: profit } : {}),
         sectionsPerMH: frame.sectionsPerMH, panelWidth: frame.panelWidth, mhPerWalkGate: frame.mhPerWalkGate, mhPerDblGate: frame.mhPerDblGate,
-        ...(frame.subRate !== undefined ? { subRate: frame.subRate } : {}),
         ...(frame.autoRailMix ? { autoRailMix: true, installMethod: frame.installMethod, colorFamily: frame.colorFamily, kitKey: name } : {}),
         isActive: true, material: TWO_TONE, choices: { height: '6', frame: f.key, infill: i.key, install, width }, madeFrom: frame.name,
       })
       added.push(name)
     }
   }
-  return { state: st, added, catalog }
+  // Copies left on fences made before they followed: taken off, so they follow the frame fence.
+  let cleaned = false
+  for (const s of st.fenceStyles) {
+    const t = s.material === TWO_TONE ? twoToneOf(s.name) : null
+    if (!t) continue
+    const frame = oneColorFence(st.fenceStyles, t.frame, t.install, t.width, choicesOf)
+    if (typeof s.targetProfitPct === 'number' && s.ownProfitPct === undefined) { delete s.targetProfitPct; cleaned = true }
+    for (const k of ['subRate', 'subWalkGate', 'subDblGate'] as const) if (s[k] !== undefined && frame && s[k] === frame[k]) { delete s[k]; cleaned = true }
+  }
+  return { state: st, added, catalog, cleaned }
 }

@@ -36,7 +36,8 @@ import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPa
 import { WOOD_MATERIAL } from './wood'
 import { FARM_MATERIAL } from './farm'
 import { oneColorFence, setTwoTonePairs, twoToneOf, TWO_TONE } from './twoTone'
-import { followedRates, type RateDefaults } from './fenceRates'
+import { followedRates, ownsProfit, validRate, type FollowedRates, type RateDefaults } from './fenceRates'
+import { earnedProfitPct } from './targetMargin'
 
 // ── The tree ─────────────────────────────────────────────────────────────────
 
@@ -677,6 +678,30 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
     if (why.length) s.held = why.join('; ')
     return s
   })
+  // Two tone (Jonathan, Nov 5 2026): labor and Target Profit follow the frame color's one color fence, read now,
+  // unless the two tone fence has its own (its own Target Profit; a sub rate typed on it).
+  const byName = new Map(out.map(s => [s.name, s]))
+  for (const s of out) {
+    const pair = s.material === TWO_TONE ? pairs.get(s.name) : undefined
+    const f = pair ? byName.get(pair.frame) : undefined
+    if (!f) continue
+    s.sectionsPerMH = f.sectionsPerMH; s.mhPerWalkGate = f.mhPerWalkGate; s.mhPerDblGate = f.mhPerDblGate
+    const fol: FollowedRates = { ...(s.followed ?? {}) }
+    const from = f.label || f.name
+    if (!ownsProfit(s)) {
+      s.margin = f.margin
+      if (typeof f.targetProfitPct === 'number') s.targetProfitPct = f.targetProfitPct; else delete s.targetProfitPct
+      if (typeof f.colorTargetProfitPct === 'number') s.colorTargetProfitPct = f.colorTargetProfitPct; else delete s.colorTargetProfitPct
+      const p = earnedProfitPct(f)
+      if (typeof p === 'number') fol.targetProfitPct = { value: p, from }; else delete fol.targetProfitPct
+    }
+    for (const k of ['subRate', 'subWalkGate', 'subDblGate'] as const) {
+      if (validRate(k, s[k])) continue
+      const v = validRate(k, f[k]) ? { value: f[k] as number, from } : f.followed?.[k]
+      if (v) fol[k] = v; else delete fol[k]
+    }
+    if (Object.keys(fol).length) s.followed = fol; else delete s.followed
+  }
   labels = next
   return out
 }

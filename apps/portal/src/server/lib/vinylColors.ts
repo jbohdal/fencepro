@@ -30,6 +30,7 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { lockAccountState } from './lockState.js'
 import { sameJson } from './permissions.js'
+import { ensureTwoTone, undoTwoTone } from './twoToneSeed.js'
 
 export const COLOR_FORM_SOURCE = 'color_form'
 export const UNDO_HOURS = 24
@@ -109,6 +110,8 @@ export interface ColorRecord {
   edits?: Array<{ at: string; by: string; renamed?: { from: string; to: string }; priced: Array<{ name: string; cents: number; prevCents: number | null }>; priceHistoryIds: string[]; added: string[]; archived: string[] }>
   archivedAt?: string | null
   undoneAt?: string | null
+  /** Two tone vinyl (lib/twoToneSeed.ts): its material before this color was added (null: none; absent: a record from before two tone) and the fences its saves added. Undo puts them back. */
+  twoTone?: { before?: unknown; added: string[] }
 }
 
 /** Add a vinyl color from the form (or, with `key`, save the form again for one it made). */
@@ -124,6 +127,8 @@ export async function saveVinylColor(actor: ColorActor, input: unknown, key?: st
     } catch (err) { throw new ColorError(400, (err as Error).message) }
     await saveState(tx, actor.accountId, cfg, plan.state, { items, kits }, key && (plan.priced.length || plan.created.items.length) ? plan.key : undefined)
     const historyIds = await writeHistory(tx, actor, day, plan.priced, items)
+    // Two tone vinyl in step with the colors at once: a color new or now per piece gets its pairs (lib/twoToneSeed.ts).
+    const tt = await ensureTwoTone(actor.accountId, tx)
     const now = new Date()
     const rk = recordKey(plan.key)
     const old = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId: actor.accountId, key: rk } } })
@@ -135,6 +140,7 @@ export async function saveVinylColor(actor: ColorActor, input: unknown, key?: st
         catalogWasSaved: !!cfg.fenceCatalog,
         created: { ...plan.created, priceHistoryIds: historyIds },
         archivedAt: null, undoneAt: null,
+        twoTone: { before: tt ? tt.before : null, added: tt?.added ?? [] },
       }
     } else {
       const was = (old?.value ?? null) as ColorRecord | null
@@ -153,6 +159,8 @@ export async function saveVinylColor(actor: ColorActor, input: unknown, key?: st
         },
         edits: [...(was.edits ?? []), { at: now.toISOString(), by: actor.name, ...(plan.renamed ? { renamed: plan.renamed } : {}), priced: plan.priced.map((p: any) => ({ name: p.name, cents: p.cents, prevCents: p.prevCents })), priceHistoryIds: historyIds, added: plan.created.styles.map((s: any) => s.name), archived: plan.archived }],
         archivedAt: null,
+        // The two tone fences this edit added (a color switched to per piece) are the color's too; the material before stays the first one.
+        twoTone: { ...(was.twoTone && 'before' in was.twoTone ? { before: was.twoTone.before } : {}), added: [...(was.twoTone?.added ?? []), ...(tt?.added ?? [])] },
       }
     }
     if (old) await tx.accountKeyValue.update({ where: { accountId_key: { accountId: actor.accountId, key: rk } }, data: { value: record as any, version: { increment: 1 }, updatedBy: actor.userId } })
@@ -199,15 +207,18 @@ export async function undoVinylColor(actor: ColorActor, key: string, now = new D
     if (!record || record.undoneAt) throw new ColorError(404, 'There is nothing to undo for that color.')
     if (now.getTime() > Date.parse(record.undoUntil)) throw new ColorError(409, `Undo was open for ${UNDO_HOURS} hours after ${record.label} was added. Use Remove instead: it archives the color.`)
     const { cfg, items, kits } = await lockedState(tx, actor.accountId)
-    const styles = stylesOfColor(cfg, key)
+    // Its two tone fences go with it, so a quote on one of them holds Undo back too.
+    const styles = [...stylesOfColor(cfg, key), ...arr(cfg.fenceStyles).filter((s: any) => s?.material === 'twotone' && (s.choices?.frame === key || s.choices?.infill === key)).map((s: any) => s.name)]
     const used = await quotesUsing(tx, actor.accountId, styles, false)
     if (used.length) throw new ColorError(409, `${record.label} cannot be undone: ${used.map(u => u.what).join(', ')} uses it. Use Remove instead: it archives the color and those keep working.`, { usedBy: used })
     let plan: any
     try { plan = m.planUndoVinylColor({ fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items, kits }, key) } catch (err) { throw new ColorError(400, (err as Error).message) }
     await saveState(tx, actor.accountId, cfg, plan.state, { items, kits })
+    // Two tone: what this color's adding made there taken away, the material as it was before (lib/twoToneSeed.ts).
+    await undoTwoTone(tx, actor.accountId, key, record.twoTone)
     // Settings that had no saved choice tree before go back to having none, if nothing else changed it since.
-    if (!record.catalogWasSaved && sameJson(plan.state.fenceCatalog, m.DEFAULT_FENCE_CATALOG)) {
-      const b = await tx.businessState.findUnique({ where: { accountId: actor.accountId }, select: { config: true } })
+    const b = await tx.businessState.findUnique({ where: { accountId: actor.accountId }, select: { config: true } })
+    if (!record.catalogWasSaved && sameJson(obj(b?.config).fenceCatalog, m.DEFAULT_FENCE_CATALOG)) {
       const { fenceCatalog: _drop, ...rest } = obj(b.config)
       await tx.businessState.update({ where: { accountId: actor.accountId }, data: { config: rest as any } })
     }
@@ -280,6 +291,8 @@ export async function archiveVinylColor(actor: ColorActor, key: string, archive:
     let plan: any
     try { plan = m.planArchiveVinylColor({ fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items, kits }, key, archive) } catch (err) { throw new ColorError(400, (err as Error).message) }
     await saveState(tx, actor.accountId, cfg, plan.state, { items, kits })
+    // Two tone in step: an archived color's choice archived (its two tone fences held), a color back offered again.
+    await ensureTwoTone(actor.accountId, tx)
     const rk = recordKey(key)
     const row = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId: actor.accountId, key: rk } } })
     if (row) await tx.accountKeyValue.update({ where: { accountId_key: { accountId: actor.accountId, key: rk } }, data: { value: { ...(row.value as any), archivedAt: archive ? new Date().toISOString() : null } as any, version: { increment: 1 }, updatedBy: actor.userId } })
