@@ -79,7 +79,10 @@ function FullChoices({ styles, catalog, value, onChange, isOk }: {
       const st = pickerState(styles, catalog, mat, out, isOk)[i]
       const have = st.options.find(x => x.opt.key === out[m.dims[i].key])
       if (!have || have.state !== 'ok') {
-        const first = st.options.find(x => x.state === 'ok')
+        // Section width starts at the best price mix (6 or 8 ft per run) for every login, so the same yard prices the
+        // same for the owner, the office and the Salesman (Jonathan, Nov 5 2026); 6 ft or 8 ft only when tapped.
+        const best = m.dims[i].key === 'width' ? st.options.find(x => x.opt.key === 'auto' && x.state === 'ok') : undefined
+        const first = best ?? st.options.find(x => x.state === 'ok')
         if (first) out[m.dims[i].key] = first.opt.key
         else delete out[m.dims[i].key]
         // A choice made before (not the one just tapped) that changed: say so.
