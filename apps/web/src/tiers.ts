@@ -179,7 +179,10 @@ export function tierStyles<S extends QuoteStyle & { isActive?: boolean; quotable
   }
   const p = styleParts(own.name, own as Parameters<typeof styleParts>[1])
   if (!p) return { reason: `This quote's style (${own.name}) is not one tiers can be built from. Pick a specific style for this tier in Settings → Good Better Best.` }
-  const color = spec.color === 'same' ? p.color : spec.color
+  // Farm fence with no wire (4 board): a tier never adds wire, it takes only the tier's post size (Jonathan, Nov 5 2026).
+  const color = spec.color === 'same' ? p.color
+    : p.family === 'farm' && p.color?.startsWith('none-') && /^[a-z]+-\d+$/.test(spec.color) ? `none-${spec.color.split('-')[1]}`
+      : spec.color
   const install = spec.install === 'same' ? p.install : spec.install
   if (p.color === null && spec.color !== 'same') return { reason: `${cap(describe({ ...p, color: null, install: null, width: null }))} has no color choice; set this tier's color to Same as the quote.` }
   if (p.install === null && spec.install !== 'same') return { reason: `Chain link has no ${spec.install === 'no-dig' ? 'no dig' : 'dig set'} choice; set this tier's install to Same as the quote.` }

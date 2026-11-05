@@ -131,26 +131,46 @@ describe('adding farm fence (planFarm)', () => {
     const again = planFarm(plan.state)
     expect([again.styles, again.kits, again.items, again.catalog]).toEqual([[], [], [], false])
   })
-  test('held until every part of its kit is priced; plain names read Farm Fence, style, posts, wire', () => {
+  test('held until every part of its kit is priced and a sub rate per foot is set (no price without labor); plain names read Farm Fence, style, posts, wire', () => {
     const plan = planFarm(base())
     const price = (zero: boolean) => (n: string) => { const i = plan.state.items.find(x => x.name.toLowerCase().replace(/\s+/g, '') === n.toLowerCase().replace(/\s+/g, '')); return i ? (zero ? i.unitCost : i.unitCost || 1) : undefined }
     const kitOf = (n: string) => plan.state.kits.find(k => k.styleName === n) ?? null
     const held = resolveFenceStyles(plan.state.fenceStyles, plan.state.fenceCatalog!, price(true), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!
     expect(held.held).toMatch(/Farm fence is waiting for prices on \d+ parts in Inventory/)
-    const ok = resolveFenceStyles(plan.state.fenceStyles, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!
-    expect(ok.held).toBeUndefined()
+    // Every part priced, no sub rate: still held, for labor.
+    const noSub = resolveFenceStyles(plan.state.fenceStyles, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!
+    expect(noSub.held).toBe('its sub rate per foot is not set (Settings → Fence Styles → Farm fence)')
+    // A sub rate per foot on the fence, on the Farm material or on a farm choice: available for quoting.
+    const onFence = plan.state.fenceStyles.map(s => (s.name === 'farm/nc3/6/redbrand' ? { ...s, subRate: 4.5 } : s))
+    expect(resolveFenceStyles(onFence, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!.held).toBeUndefined()
+    const cat = JSON.parse(JSON.stringify(plan.state.fenceCatalog))
+    cat.materials.find((m: any) => m.key === 'farm').rateDefaults = { subRate: 4 }
+    const all = resolveFenceStyles(plan.state.fenceStyles, cat, price(false), kitOf).filter(s => s.name.startsWith('farm/'))
+    expect(all.length).toBe(18)
+    expect(all.every(s => !s.held)).toBe(true)
+    const cat2 = JSON.parse(JSON.stringify(plan.state.fenceCatalog))
+    cat2.materials.find((m: any) => m.key === 'farm').dims.find((d: any) => d.key === 'style').options.find((o: any) => o.key === 'xb').rateDefaults = { subRate: 5 }
+    const byChoice = resolveFenceStyles(plan.state.fenceStyles, cat2, price(false), kitOf).filter(s => s.name.startsWith('farm/'))
+    expect(byChoice.filter(s => !s.held).map(s => s.name).sort()).toEqual(['farm/xb/5/hutch', 'farm/xb/5/redbrand', 'farm/xb/6/hutch', 'farm/xb/6/redbrand'])
     expect(plainName(plan.state.fenceCatalog!, { material: 'farm', choices: { style: 'xb', post: '5', wire: 'hutch' } })).toBe('Farm Fence, Crossbuck + No Climb, 5" round posts, Hutchison Western no climb')
   })
 })
 
 describe('Good and Better (the Farm tier set)', () => {
-  test('Good = Hutchison + 5", Better = Red Brand + 6", the same style; a 4 board with no wire gets the wired grades', () => {
+  test('Good = Hutchison + 5", Better = Red Brand + 6", the same style', () => {
     const all = FARM_COMBOS.map(c => style(c.style.key, c.post.key, c.wire.key))
-    for (const s of ['nc1', 'nc3', 'xb', 'b4']) {
-      const own = style(s, '6', s === 'b4' ? 'none' : 'redbrand')
-      const [good, better] = FARM_STARTER.map(t => tierStyles(t, own, all))
+    for (const [s, wire] of [['nc1', 'redbrand'], ['nc3', 'hutch'], ['xb', 'redbrand'], ['b4', 'redbrand'], ['b4', 'hutch']]) {
+      const [good, better] = FARM_STARTER.map(t => tierStyles(t, style(s, '6', wire), all))
       expect('styles' in good && good.styles.map(x => x.name)).toEqual([farmStyleName(s, '5', 'hutch')])
       expect('styles' in better && better.styles.map(x => x.name)).toEqual([farmStyleName(s, '6', 'redbrand')])
+    }
+  })
+  test('4 board with no wire: Good and Better never add wire, they differ by post size only (Jonathan, Nov 5 2026)', () => {
+    const all = FARM_COMBOS.map(c => style(c.style.key, c.post.key, c.wire.key))
+    for (const post of ['5', '6']) {
+      const [good, better] = FARM_STARTER.map(t => tierStyles(t, style('b4', post, 'none'), all))
+      expect('styles' in good && good.styles.map(x => x.name)).toEqual(['farm/b4/5/none'])
+      expect('styles' in better && better.styles.map(x => x.name)).toEqual(['farm/b4/6/none'])
     }
   })
 })
