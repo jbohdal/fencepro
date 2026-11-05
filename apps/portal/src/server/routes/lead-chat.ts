@@ -11,7 +11,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import crypto from 'crypto'
 import { z } from 'zod'
 import prisma from '../lib/prisma.js'
-import { quickEstimate, estimateStyleList, isNotQuotable, notQuotableMessage, NOT_QUOTABLE_MESSAGE } from '../lib/estimates.js'
+import { quickEstimate, estimateStyleList, isNotQuotable, notQuotableMessage, NOT_QUOTABLE_MESSAGE, offWebsite, OFF_WEBSITE_MESSAGE } from '../lib/estimates.js'
 import { scoreLead, leadPriority } from '../lib/leadScoring.js'
 import { sendLeadConfirmation } from '../lib/sms.js'
 import { scheduleFollowUps } from '../lib/followUpScheduler.js'
@@ -51,7 +51,7 @@ async function loadKnowledgeBase(): Promise<string> {
 // ── Build the system prompt with live pricing data ──
 async function buildSystemPrompt(): Promise<string> {
   // Get real per-foot pricing from the quote engine
-  const styles = await estimateStyleList().catch(() => [] as Array<{ name: string; category: string }>)
+  const styles = await estimateStyleList({ website: true }).catch(() => [] as Array<{ name: string; category: string }>)
   const samplePricing: string[] = []
 
   const samplesToRun = [
@@ -203,6 +203,8 @@ async function handleToolCall(name: string, input: Record<string, unknown>, sess
       const footage = input.linearFootage as number
       const walkGates = (input.walkGates as number) || 1
       const dblGates = (input.dblGates as number) || 0
+      // Not offered on the website (farm fence until switched on): the answer for a style on hold.
+      if (await offWebsite(style)) return JSON.stringify({ answer: OFF_WEBSITE_MESSAGE })
 
       const quote = await quickEstimate(style, footage, walkGates, dblGates)
 

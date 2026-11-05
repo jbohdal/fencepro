@@ -96,6 +96,7 @@ import { ensureChainGateKitsAll } from './lib/chainGateKits.js'
 import { ensureGreenFollowsBlackAll } from './lib/greenChainLinkFollow.js'
 import { ensureTanAutoDsAll } from './lib/tanAutoDsSeed.js'
 import { ensureTanAutoNdAll } from './lib/tanAutoNdSeed.js'
+import { ensureFarmAll } from './lib/farmSeed.js'
 import { ensureTallVinylPartsAll } from './lib/tallVinylParts.js'
 import { ensureTanTallAll } from './lib/tanTallSeed.js'
 import { backfillEverSoldAll } from './lib/everSold.js'
@@ -533,6 +534,9 @@ if (!isVercel) {
       // Tan no dig, 6 or 8 ft sections (best price), TV-Auto ND Privacy: once per company (lib/tanAutoNdSeed.ts).
       // TAN_AUTO_ND_SEED=off skips it (a test server on the shared dev copy must not change its Settings).
       if (process.env.TAN_AUTO_ND_SEED !== 'off') await ensureTanAutoNdAll().catch(err => console.error('[tan no dig] 6/8 ft mix check failed:', err))
+      // Farm fence (Nov 5 2026): the material, its styles, kits and parts: once per company (lib/farmSeed.ts).
+      // FARM_SEED=off skips it (a test server on the shared dev copy must not change its Settings).
+      if (process.env.FARM_SEED !== 'off') await ensureFarmAll().catch(err => console.error('[farm fence] check failed:', err))
       // 8 ft tall vinyl section parts (4 ft pickets, 4 ft U channels, mid rails) at $0, included in the section price: once per company (lib/tallVinylParts.ts).
       await ensureTallVinylPartsAll().catch(err => console.error('[8 ft tall vinyl] section parts check failed:', err))
       // Tan 8 ft tall vinyl, TV-ND / TV-DS 8'x6' and 8'x8', held until priced, with their $0 section parts: once per company (lib/tanTallSeed.ts).

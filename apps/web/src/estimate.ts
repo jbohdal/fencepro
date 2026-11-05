@@ -47,6 +47,8 @@ export { planChainDigSet, planChainDigSetPipesAndTies, planChainGateKits } from 
 export { planTanAutoDs } from './tanAutoDs'
 // The server's tan no dig auto mix seed (lib/tanAutoNdSeed.ts).
 export { planTanAutoNd } from './tanAutoNd'
+// The server's farm fence seed (lib/farmSeed.ts).
+export { planFarm } from './farm'
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
 // Tan 8 ft tall vinyl, the four styles (lib/tanTallSeed.ts).
@@ -296,6 +298,18 @@ export function widgetQuoteFor(data: EstimateData, yard: YardLayout, fenceStyle:
 export function estimateStyles(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): FenceStyle[] {
   useData(data)
   return estimateConfig(saved).fenceStyles.filter(isQuotable)
+}
+
+/**
+ * The styles the website offers (instant quote, its chat): available for
+ * quoting, of a material not kept off the website (MaterialDef.website false:
+ * farm fence until Jonathan switches it on, Nov 5 2026).
+ */
+export function websiteStyles(saved: Partial<AppConfig> | null, data?: Pick<EstimateData, 'inventory' | 'kits'>): FenceStyle[] {
+  useData(data)
+  const cfg = estimateConfig(saved)
+  const off = new Set(catalogOf(cfg).materials.filter(m => m.website === false).map(m => m.key))
+  return cfg.fenceStyles.filter(s => isQuotable(s) && !off.has(styleChoicesOf(s)?.material ?? ''))
 }
 
 /** Styles turned on but not available for quoting (commercial and industrial, on hold), and the phone to call instead. */

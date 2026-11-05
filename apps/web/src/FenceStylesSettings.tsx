@@ -168,6 +168,7 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
       {catalog.materials.map(m => (
         <MaterialCard key={m.key} m={m} config={config} views={views}
           onToggleMaterial={() => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key === m.key ? { ...x, quotable: x.quotable === false ? undefined : false } : x)) })}
+          onToggleWebsite={() => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key === m.key ? { ...x, website: x.website === false } : x)) })}
           onToggleOption={(dim, key) => setCatalog({ ...catalog, materials: catalog.materials.map(x => (x.key !== m.key ? x : { ...x, dims: x.dims.map(d => (d.key !== dim ? d : { ...d, options: d.options.map(o => (o.key !== key ? o : { ...o, quotable: o.quotable === false ? undefined : false })) })) })) })}
           // Vinyl colors are added and edited in Settings → Price List → Vinyl Colors (one form, VinylColorsSettings.tsx).
           onAddColor={under => (m.key === 'vinyl' ? navigate('/settings?tab=price_list&add=vinyl-color') : setWizard({ material: m.key, under }))}
@@ -198,10 +199,11 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
 
 // ── One material ─────────────────────────────────────────────────────────────
 
-function MaterialCard({ m, config, views, onToggleMaterial, onToggleOption, onAddColor, onEditColor, onAddChoice, onEditChoice, onLevelRate, updateStyle }: {
+function MaterialCard({ m, config, views, onToggleMaterial, onToggleOption, onToggleWebsite, onAddColor, onEditColor, onAddChoice, onEditChoice, onLevelRate, updateStyle }: {
   m: MaterialDef; config: AppConfig; views: Views
   onToggleMaterial: () => void
   onToggleOption: (dim: string, key: string) => void
+  onToggleWebsite: () => void
   onAddColor: (under?: { dim: string; key: string }) => void
   onEditColor: (key: string) => void
   onAddChoice: (dim: string) => void
@@ -227,6 +229,14 @@ function MaterialCard({ m, config, views, onToggleMaterial, onToggleOption, onAd
           <Switch on={sw.on} onClick={onToggleMaterial} label={`${m.label} available for quoting`} data-tree-switch={`material:${m.key}`} />
         </div>
         <SwitchWords sw={sw} name={`material:${m.key}`} offText={`Switched off: no ${m.label.toLowerCase()} fence is quoted.`} />
+        {/* Farm fence (Nov 5 2026): quoted in the app, kept off the website instant quote until switched on here. */}
+        {typeof m.website === 'boolean' && (
+          <div className="flex items-center gap-3 mt-2">
+            <span className={`flex-1 ${small}`}>{m.website ? `Offered on the website instant quote (and in the website chat).` : `Not on the website instant quote: quoted in the app only.`}</span>
+            <span className={small}>On the website</span>
+            <Switch on={m.website} onClick={onToggleWebsite} label={`${m.label} on the website instant quote`} data-tree-website={m.key} />
+          </div>
+        )}
       </div>
       <LevelRates m={m} dim={null} config={config} views={views} fences={live} onSet={(rate, v) => onLevelRate(null, null, rate, v)} />
       {m.dims.map(d => (

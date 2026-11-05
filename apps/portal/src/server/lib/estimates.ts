@@ -74,6 +74,7 @@ interface EstimateModule {
   proposalStamp(p: unknown): string
   addsPastLimit(after: unknown, before: unknown, quote: unknown, styleOf?: unknown): number | null
   estimateStyles(config: unknown, data?: unknown): Array<StyleListItem>
+  websiteStyles(config: unknown, data?: unknown): Array<StyleListItem>
   /** web/src/estimate.ts: the sub rates and Target Profit % each fence follows from its material and choices (fenceRates.ts). */
   followedRatesByStyle(config: unknown): Record<string, any>
   /** web/src/estimate.ts: fences whose Target Margin is over the most allowed, by plain name. */
@@ -210,12 +211,24 @@ export interface StyleListItem {
 }
 
 /** The fence styles customers can ask about (turned on and available for quoting in Settings). */
-export async function estimateStyleList(): Promise<StyleListItem[]> {
+export async function estimateStyleList(opts: { website?: boolean } = {}): Promise<StyleListItem[]> {
   const [m, data] = await Promise.all([pricing(), estimateData()])
-  return m.estimateStyles(data.config, data).map(s => ({
+  // The website (instant quote, its chat): not a material kept off it (farm fence until switched on, Nov 5 2026).
+  return (opts.website ? m.websiteStyles(data.config, data) : m.estimateStyles(data.config, data)).map(s => ({
     name: s.name, category: s.category, label: s.label || s.name,
     ...(s.madeFrom ? { material: s.material, choices: s.choices, madeFrom: s.madeFrom, panelWidth: s.panelWidth, autoRailMix: !!s.autoRailMix } : {}),
   }))
+}
+
+/**
+ * A fence the app quotes but the website does not offer (its material kept
+ * off the website: farm fence until Jonathan switches it on, Nov 5 2026). The
+ * public doors (website estimate, its chat) answer as for a style on hold.
+ */
+export const OFF_WEBSITE_MESSAGE = 'Call us for a farm fence quote'
+export async function offWebsite(name: string): Promise<boolean> {
+  const [all, site] = await Promise.all([estimateStyleList(), estimateStyleList({ website: true })])
+  return all.some(s => s.name === name) && !site.some(s => s.name === name)
 }
 
 /**

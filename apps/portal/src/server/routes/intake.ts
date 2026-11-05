@@ -28,7 +28,7 @@ import { parseCallbackTime } from '../lib/appointments.js'
 import { recordIntake, resolveIntakeAccountId, digits } from '../lib/intake.js'
 import { verifyRetellSignature, summarizeRetellCall } from '../lib/retell.js'
 import { plainZod } from '../lib/plainZod.js'
-import { estimateJob, estimateStyleList, widgetCatalog, isNotQuotable, notQuotableMessage } from '../lib/estimates.js'
+import { estimateJob, estimateStyleList, widgetCatalog, isNotQuotable, notQuotableMessage, offWebsite, OFF_WEBSITE_MESSAGE } from '../lib/estimates.js'
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads'
 const money = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
@@ -82,7 +82,7 @@ quotingRouter.use(requireWidgetToken)
 // exactly as it does today while its completed quotes land in the CRM.
 quotingRouter.get('/config', readLimiter, async (_req, res) => {
   // The widget's choices, each tied to an app style; prices come from /estimate.
-  const pricing = await estimateStyleList().then(widgetCatalog).catch(err => { console.error('[quoting] config error:', err); return [] })
+  const pricing = await estimateStyleList({ website: true }).then(widgetCatalog).catch(err => { console.error('[quoting] config error:', err); return [] })
   res.json({ pricing, theme: null, quoteRange: null })
 })
 
@@ -90,7 +90,7 @@ quotingRouter.get('/config', readLimiter, async (_req, res) => {
 // costs, Settings), so the website shows the same number the builder would.
 // Customer facing: the price only, never costs or margins.
 quotingRouter.get('/styles', readLimiter, async (_req, res) => {
-  try { res.json({ success: true, styles: await estimateStyleList() }) }
+  try { res.json({ success: true, styles: await estimateStyleList({ website: true }) }) }
   catch (err) { console.error('[quoting] styles error:', err); res.status(500).json({ success: false, error: 'Could not list styles' }) }
 })
 
@@ -110,6 +110,8 @@ const estimateLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeader
 quotingRouter.post('/estimate', estimateLimiter, async (req, res) => {
   try {
     const job = estimateSchema.parse(req.body)
+    // Not offered on the website (farm fence until switched on): answered as a style on hold.
+    if (await offWebsite(job.fenceStyle)) { res.json({ success: false, notQuotable: true, error: OFF_WEBSITE_MESSAGE, message: OFF_WEBSITE_MESSAGE }); return }
     const e = await estimateJob(job)
     res.json({
       success: true, label: 'Estimate', fenceStyle: e.style.name, totalFootage: e.totalFootage, sections: e.sections,
@@ -131,6 +133,7 @@ quotingRouter.post('/estimate', estimateLimiter, async (req, res) => {
 async function builderEstimate(data: { fenceStyle?: unknown; runs?: Array<{ lengthFeet?: number }>; layout?: { corners?: number; ends?: number }; gateConfig?: { walkGates?: number; doubleGates?: number } }): Promise<number | null> {
   const runs = (data.runs ?? []).map(r => Number(r.lengthFeet)).filter(n => n > 0)
   if (typeof data.fenceStyle !== 'string' || !data.fenceStyle || !runs.length) return null
+  if (await offWebsite(data.fenceStyle).catch(() => true)) return null
   try {
     const e = await estimateJob({ fenceStyle: data.fenceStyle, runs, corners: data.layout?.corners ?? 0, ends: data.layout?.ends ?? 0, walkGates: data.gateConfig?.walkGates ?? 0, dblGates: data.gateConfig?.doubleGates ?? 0 })
     return Math.round(e.price)
