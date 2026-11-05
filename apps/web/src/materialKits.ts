@@ -40,7 +40,7 @@ import {
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
 
 export const KIT_KINDS = [
-  'corner', 'end', 'line', 'blank', 'gatePost', 'section', 'section8', 'perFoot', 'perJob', 'walkGate', 'dblGate',
+  'corner', 'end', 'line', 'blank', 'gatePost', 'section', 'section8', 'sectionPair', 'perFoot', 'perJob', 'walkGate', 'dblGate',
   'walkGate5', 'walkGate6', 'dblGate10', 'dblGate12', 'anyGate', 'anyWalkGate', 'anyDblGate',
 ] as const
 export type KitKind = typeof KIT_KINDS[number]
@@ -86,6 +86,7 @@ export const KIT_LABEL: Record<KitKind, string> = {
   gatePost: 'Gate post (each side of a gate, used in place of an end post)',
   section: 'Section',
   section8: 'Section on an 8 ft rail run',
+  sectionPair: 'Every 2 sections of a run (a 16 ft board covers 2; per run, rounded up)',
   perFoot: 'Per foot of fence',
   perJob: 'Once per job',
   walkGate: 'Walk gate (one leaf; 4 ft wide, or width not known)',
@@ -383,9 +384,27 @@ export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
   return [...totals].map(([part, t]) => {
     const exact = Math.round(t.qty * 1e6) / 1e6
     if (!up.has(part)) return { part, qty: exact, fallbackCost: t.cost }
+    // Wire rolls with clean corners (farm fence): a new roll at every corner, each run rounded up.
+    const byRun = cleanCornerRolls(set, part, counts)
+    if (byRun !== null) return { part, qty: byRun, fallbackCost: t.cost }
     const byFoot = fabricByFoot(set, part, counts)
     return { part, qty: byFoot === null ? Math.ceil(exact) : Math.round((Math.ceil(Math.round((exact - byFoot) * 1e6) / 1e6) + byFoot) * 1e6) / 1e6, fallbackCost: t.cost }
   })
+}
+
+/**
+ * Clean corners (KitCounts.rollJoin 'clean', farm fence): a per foot part
+ * rounded up to whole rolls, run by run (sum of ceil(run × rolls a foot)),
+ * plus anything other kits add. Null when splicing (the job's feet rounded up
+ * once), or for a part with no per foot kit line.
+ */
+function cleanCornerRolls(set: Pick<KitSet, 'kits'>, part: string, counts: KitCounts): number | null {
+  if (counts.rollJoin !== 'clean' || !counts.perFootRuns?.length || counts.exact) return null
+  const perFt = (set.kits.perFoot ?? []).filter(p => p.part === part).reduce((t, p) => t + p.qty, 0)
+  if (!perFt) return null
+  const rolls = counts.perFootRuns.reduce((t, ft) => t + Math.ceil(Math.round(ft * perFt * 1e6) / 1e6), 0)
+  const other = KIT_KINDS.filter(k => k !== 'perFoot').reduce((t, k) => t + (counts[k] ?? 0) * kitParts(set, k).filter(p => p.part === part).reduce((a, p) => a + p.qty, 0), 0)
+  return rolls + Math.ceil(Math.round(other * 1e6) / 1e6)
 }
 
 /**
@@ -405,7 +424,7 @@ export const isFabricPart = (part: string) => /\bfabric\b/i.test(part)
 
 /** Which piece price pays for each kind of kit on a job lot color (per foot and per job parts never are). */
 export const PIECE_OF_KIT: Record<KitKind, keyof StyleJobLot['covers'] | null> = {
-  section: 'section', section8: 'section', corner: 'post', end: 'post', line: 'post', blank: 'post', gatePost: 'post',
+  section: 'section', section8: 'section', sectionPair: 'section', corner: 'post', end: 'post', line: 'post', blank: 'post', gatePost: 'post',
   walkGate: 'walkGate', dblGate: 'dblGate', perFoot: null, perJob: null,
   walkGate5: 'walkGate', walkGate6: 'walkGate', dblGate10: 'dblGate', dblGate12: 'dblGate',
   anyGate: null, anyWalkGate: null, anyDblGate: null,
@@ -537,7 +556,10 @@ export function countsFor(styleName: string, runs: number[], j: { corners: numbe
     if (eight) section8 += sec; else section += sec
   })
   const line = calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0)
-  return { section, section8, line, corner: j.corners, end: j.ends, blank: j.dblGates, ...gateCounts(j.walkGates, j.dblGates, j.gateWidths), perFoot: runs.reduce((t, f) => t + (f > 0 ? f : 0), 0), perJob: 1 }
+  // Farm fence boards: ceil(sections ÷ 2) a run (a 16 ft board covers 2 spans), summed.
+  const sectionPair = perRun.reduce((t, n) => t + Math.ceil(n / 2), 0)
+  const feet = runs.filter(f => f > 0)
+  return { section, section8, sectionPair, line, corner: j.corners, end: j.ends, blank: j.dblGates, ...gateCounts(j.walkGates, j.dblGates, j.gateWidths), perFoot: feet.reduce((t, f) => t + f, 0), perFootRuns: feet, perJob: 1 }
 }
 
 // ── Which set a style uses ────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ import { mergeSavedConfig } from './configDefaults'
 import { withTargetMargins, typedOverheadPct, MAX_TARGET_MARGIN_PCT } from './targetMargin'
 import { calculateQuote, type QuoteCalc } from './quoteCalc'
 import { subUnitRateMissing, type QuotePricingOverrides } from './pricingEngine'
-import { setMaterialPriceSource, inventoryPriceSource, type LineItem, type GateWidths } from './materialCalculator'
+import { setMaterialPriceSource, inventoryPriceSource, setQtyBreakSource, inventoryQtyBreakSource, type LineItem, type GateWidths } from './materialCalculator'
 import { setSavedKitSets, type KitSet } from './materialKits'
 import type { AppConfig, FenceStyle } from './configStore'
 import { isQuotable, isOnHold, NOT_QUOTABLE_MESSAGE } from './styleAvailability'
@@ -145,6 +145,7 @@ export interface Estimate {
 function useData(data: Pick<EstimateData, 'inventory' | 'kits'> | undefined) {
   if (!data) return
   setMaterialPriceSource(data.inventory.length ? inventoryPriceSource(data.inventory) : null)
+  setQtyBreakSource(data.inventory.length ? inventoryQtyBreakSource(data.inventory) : null)
   setSavedKitSets(() => data.kits)
 }
 

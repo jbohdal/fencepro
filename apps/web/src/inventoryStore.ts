@@ -10,7 +10,7 @@ import { inventorySummaryOf, type InventorySummary } from './inventorySummary'
 import { isSignedIn, fetchWithAuth } from './crmAuth'
 import { createVersionedFlusher, versionedSave } from './syncGuard'
 import { notePricingPart, registerPricingReload } from './pricingFreshness'
-import { setMaterialPriceSource, inventoryPriceSource } from './materialCalculator'
+import { setMaterialPriceSource, inventoryPriceSource, setQtyBreakSource, inventoryQtyBreakSource, type QtyBreak, type QtyBreakSource } from './materialCalculator'
 import { cloudStorage } from './cloudStorage'
 import { LOCAL_API_ORIGIN } from './apiOrigin'
 import { stampPriceChanges, confirmPrices as confirmPricesIn, followBorrowedPrices, borrowedPrice } from './priceAge'
@@ -170,6 +170,10 @@ export interface InventoryItem {
   priceImported?: boolean
   /** Priced from another part until it has its own (priceAge.ts borrowedPrice): green chain link parts at the black part's price. */
   priceFrom?: { part: string; cents: number; on: string; words: string }
+  /** A quantity break: this many or more on one job, each this much percent less (Nov 5 2026; materialCalculator QtyBreak). */
+  qtyBreak?: QtyBreak | null
+  /** The supplier's item number (Tractor Supply's for farm fence parts). */
+  vendorItemNumber?: string
   // Stock tracking
   qtyOnHand?: number
   reorderPoint?: number
@@ -529,6 +533,15 @@ export function getInventoryUnitCost(itemName: string): number | undefined {
 }
 
 setMaterialPriceSource(getInventoryUnitCost)
+
+// Quantity breaks (Nov 5 2026), the same rule the server's estimates use (materialCalculator.inventoryQtyBreakSource).
+let breakIndexFor: InventoryItem[] | null = null
+let breakIndex: QtyBreakSource = () => undefined
+setQtyBreakSource((itemName: string) => {
+  const inv = getInventory()
+  if (inv !== breakIndexFor) { breakIndex = inventoryQtyBreakSource(inv); breakIndexFor = inv }
+  return breakIndex(itemName)
+})
 
 /* ═══════════════════════════════════════════════
    STOCK LEVELS, TRANSACTIONS, LOCATIONS, SUPPLIERS

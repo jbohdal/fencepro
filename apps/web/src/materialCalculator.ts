@@ -21,6 +21,31 @@ export function setMaterialPriceSource(fn: MaterialPriceSource | null): void {
   priceSource = fn
 }
 
+/**
+ * A quantity break on an Inventory part (Jonathan, Nov 5 2026: 6" farm posts,
+ * 25 or more on a job, 5% off each): when a job's pull sheet takes at least
+ * `minQty` of the part, each one costs `pctOff` percent less, to the cent.
+ */
+export interface QtyBreak { minQty: number; pctOff: number }
+export type QtyBreakSource = (itemName: string) => QtyBreak | undefined
+let qtyBreakSource: QtyBreakSource | null = null
+/** Register (or clear) where quantity breaks come from (inventoryStore, the server's estimates). */
+export function setQtyBreakSource(fn: QtyBreakSource | null): void { qtyBreakSource = fn }
+export const isQtyBreak = (b: unknown): b is QtyBreak => !!b && typeof b === 'object'
+  && Number.isInteger((b as QtyBreak).minQty) && (b as QtyBreak).minQty > 1
+  && typeof (b as QtyBreak).pctOff === 'number' && (b as QtyBreak).pctOff > 0 && (b as QtyBreak).pctOff < 100
+/** The quantity breaks of Inventory items, by name (archived and inactive parts have none). */
+export function inventoryQtyBreakSource(items: ReadonlyArray<{ name: string; status?: string; qtyBreak?: unknown }>): QtyBreakSource {
+  const index = new Map<string, QtyBreak>()
+  for (const item of items) if (item.status !== 'inactive' && item.status !== 'discontinued' && isQtyBreak(item.qtyBreak)) index.set(normalizeItemName(item.name), item.qtyBreak)
+  return (itemName: string) => index.get(normalizeItemName(itemName))
+}
+/** A unit cost after a quantity break, to the cent ($29.99 less 5% = $28.49); the cost itself when the job takes fewer. */
+export function brokenUnitCost(unitCost: number, qty: number, b: QtyBreak | undefined): number {
+  if (!b || !(qty >= b.minQty)) return unitCost
+  return Math.round(Math.round(unitCost * 100) * (100 - b.pctOff) / 100) / 100
+}
+
 /** Part names are matched ignoring case and whitespace, because the price
  *  book has names like "V , W, Privacy Gate 8 x 4" and trailing spaces. */
 export function normalizeItemName(name: string): string {
@@ -92,6 +117,19 @@ export interface KitCounts {
   anyDblGate?: number
   perFoot: number
   perJob: number
+  /**
+   * Farm fence boards (Nov 5 2026): a 16 ft board covers two spans, so each
+   * run takes ceil(its sections ÷ 2) boards per row, counted per run and summed.
+   */
+  sectionPair?: number
+  /** Each run's feet, in order (farm fence wire rolls with clean corners: rounded up run by run). */
+  perFootRuns?: number[]
+  /**
+   * Wire rolls (farm fence, a choice on the quote): 'splice' (the default)
+   * rounds the job's feet up to whole rolls; 'clean' starts a new roll at every
+   * corner, rounding each run up.
+   */
+  rollJoin?: 'splice' | 'clean'
   /** Gate widths the takeoff sheet has no row for (priced as the 4 ft / 8 ft gate), named on the quote. */
   gateNotes?: string[]
   /**
@@ -233,7 +271,10 @@ function makeCollector(): Collector {
     if (!(qty > 0)) return
     const inv = priceSource ? priceSource(item) : undefined
     const fromInventory = typeof inv === 'number' && Number.isFinite(inv)
-    const unitCost = fromInventory ? (inv as number) : fallbackCost
+    const fullCost = fromInventory ? (inv as number) : fallbackCost
+    // A quantity break on the part (Inventory), when the job takes enough.
+    const br = fromInventory && qtyBreakSource ? qtyBreakSource(item) : undefined
+    const unitCost = brokenUnitCost(fullCost, qty, br)
     if (priceSource) {
       // Live mode: keep every part on the pull sheet even at $0 so the crew
       // still pulls it, and say why the cost is off.
@@ -248,6 +289,7 @@ function makeCollector(): Collector {
       unitCost,
       total: round2(qty * unitCost),
       costSource: fromInventory ? 'inventory' : 'builtin',
+      ...(unitCost !== fullCost && br ? { qtyBreak: { ...br, fullUnitCost: fullCost } } : {}),
     })
   }
 
@@ -294,6 +336,8 @@ export interface JobInputs {
   addedTo?: AddedTo | null
   /** A change order's price only: KitCounts.fabricFromFt. */
   fabricFromFt?: number | null
+  /** Farm fence wire rolls: KitCounts.rollJoin (the quote's choice; absent: splice). */
+  rollJoin?: 'splice' | 'clean'
 }
 
 /**
@@ -371,6 +415,8 @@ export interface LineItem {
   costSource?: 'inventory' | 'builtin' | 'jobLot' | 'wood'
   /** A job lot piece price line (section, post, gate): money only, not a part to pull or order. */
   jobLotPiece?: boolean
+  /** Priced with the part's quantity break (Inventory): the break and the cost without it. */
+  qtyBreak?: QtyBreak & { fullUnitCost: number }
   /** Money only, not a part to pull or order: the material of a move or repair on a wood style with no wood kit in use (the Oct 19 privacy rows: white vinyl × the Wood factor, moveRepair.ts woodWork), and quotes saved before Oct 30 2026. Parts named for the crew there are listed at $0 ('wood'). */
   moneyOnly?: boolean
 }
@@ -604,10 +650,15 @@ export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
   const { fenceStyle: s, runs, corners, ends, walkGates, dblGates } = inputs
   const w = inputs.sectionWidth
   const perRun = w ? runs.map(ft => sectionsForRun(ft, w)) : null
+  // Farm fence boards and wire rolls (Nov 5 2026): per run.
+  const runSecs = perRun ?? runs.map(ft => sectionsPerRun(ft, s))
+  const feet = runs.filter(ft => ft > 0)
   const counts: KitCounts = addedCounts({
     section: perRun ? perRun.reduce((t, n) => t + n, 0) : totalSections(runs, s), section8: 0,
     line: (perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s)) + extraLines(inputs.extraLinePosts), corner: corners, end: ends,
     blank: dblGates, ...gateCounts(walkGates, dblGates, inputs.gateWidths), perFoot: totalFt(runs), perJob: 1,
+    sectionPair: runSecs.reduce((t, n) => t + Math.ceil(n / 2), 0), perFootRuns: feet,
+    ...(inputs.rollJoin ? { rollJoin: inputs.rollJoin } : {}),
     ...(typeof inputs.fabricFromFt === 'number' ? { fabricFromFt: inputs.fabricFromFt } : {}),
   }, inputs.addedTo)
   return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)

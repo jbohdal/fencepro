@@ -34,6 +34,7 @@ import type { FenceStyle } from './configStore'
 import { inventoryCost, isVinylPostPart, normalizeItemName, sectionWidthForStyle, type StyleJobLot } from './materialCalculator'
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { WOOD_MATERIAL } from './wood'
+import { FARM_MATERIAL } from './farm'
 import { followedRates, type RateDefaults } from './fenceRates'
 
 // ── The tree ─────────────────────────────────────────────────────────────────
@@ -166,6 +167,8 @@ export interface MaterialDef {
   /** The plain name: {dimension key} is replaced by the option's name text. */
   nameTemplate: string
   quotable?: boolean
+  /** false: not offered by the website instant quote (farm fence until Jonathan switches it on, Nov 5 2026). Absent: offered. */
+  website?: boolean
   /** Target Profit % and sub rates for every fence of this material (fenceRates.ts). */
   rateDefaults?: RateDefaults
   /** In the order they are chosen. */
@@ -222,6 +225,7 @@ export const DEFAULT_CATALOG: FenceCatalog = {
       ],
     },
     WOOD_MATERIAL,
+    FARM_MATERIAL,
     {
       key: 'other', label: 'Other', category: 'Other',
       nameTemplate: '{product}',
@@ -616,10 +620,10 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
       const set = kitOf(s.name)
       if (!set || set === 'archived') why.push('it has no material kit')
     }
-    // Wood (wood.ts, Oct 30 2026): priced from its own wood parts, so held
-    // until every part of its kit has an Inventory price; then it quotes by
-    // itself. No kit in use: held.
-    if (sc.material === 'wood') {
+    // Wood (wood.ts, Oct 30 2026) and farm fence (farm.ts, Nov 5 2026): priced
+    // from their own parts, so held until every part of the kit has an
+    // Inventory price; then it quotes by itself. No kit in use: held.
+    if (sc.material === 'wood' || sc.material === 'farm') {
       const set = kitOf(s.name)
       if (!set || set === 'archived') { if (!s.madeFrom) why.push('it has no material kit') }
       else {
