@@ -154,6 +154,8 @@ export function quoteStyles(cfg: AppConfig, keep?: string | null): FenceStyle[] 
 export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct: number, tierSets?: Array<Pick<TierSet, 'category' | 'tiers'>> | null): QuoteJob {
   const styles = quoteStyles(cfg, req.keepStyle ?? req.fenceStyle)
   const style = styles.find(s => s.name === req.fenceStyle)
+  // Farm fence: no price without labor or with a part unpriced (Jonathan, Nov 5 2026), even when a request names a held one.
+  if (style?.material === 'farm' && !isQuotable(style)) throw Object.assign(new Error('Call us for a price on this fence'), { code: 'not_quotable', held: style.held || 'not available for quoting' })
   if (req.mainFrom && req.mainFrom !== req.fenceStyle) req = { ...req, overrides: costChoicesForMain(req.overrides, cfg.fenceStyles.find(s => s.name === req.mainFrom), style) }
   const calcInput: QuoteCalcInput = {
     style, runs: req.runs, corners: req.corners, ends: req.ends, walkGates: req.walkGates, dblGates: req.dblGates,

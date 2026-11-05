@@ -14,6 +14,7 @@ import { Router } from 'express'
 import { requireUser, requireAccount } from './saved-quotes.js'
 import { quoteViewFor } from '../lib/quotePricing.js'
 import { currentPricingStamp } from '../lib/pricingStamp.js'
+import { isNotQuotable, notQuotableReason } from '../lib/estimates.js'
 
 const router = Router()
 
@@ -42,6 +43,8 @@ router.post('/', requireUser, requireAccount, async (req: any, res) => {
     const quoteId = typeof req.body?.quoteId === 'string' ? req.body.quoteId : null
     res.json({ success: true, data: await quoteViewFor(req.user.crmAccountId, request, quoteId) })
   } catch (err) {
+    // A held farm fence (no sub rate, or a part unpriced): said, not priced.
+    if (isNotQuotable(err)) { res.status(400).json({ success: false, notQuotable: true, error: `Not available for quoting: ${notQuotableReason(err)}` }); return }
     console.error('[quote-pricing] error:', err)
     res.status(500).json({ success: false, error: 'Could not price this quote. Try again.' })
   }

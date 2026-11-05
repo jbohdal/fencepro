@@ -375,6 +375,15 @@ export function styleWords(style: QuoteStyle & { material?: string }, sets: Arra
 }
 
 /**
+ * A farm fence with no wire (4 board) under a farm grade tier: the tier took only its post size (tierStyles), so its
+ * words must not promise the grade's wire (review Nov 5 2026: "Red Brand no climb wire on 6" posts" on a no-wire fence).
+ */
+function farmNoWireWords(style: QuoteStyle & { material?: string; choices?: Record<string, string> }, spec: TierSpec): string | null {
+  if (style.material !== 'farm' || style.choices?.wire !== 'none' || spec.color === 'same') return null
+  return `${style.choices.post}" round treated posts, no wire.`
+}
+
+/**
  * Tier options as they go on the proposal: name, text, badge and the tier's own photo. A style swapped in by hand has
  * none of the tier's words (a wood option must not read "Steel pipe driven deep"): its name stays a plain rank (Good)
  * or becomes its material, its words and photo come from styleWords, else the style's photo (buildProposal).
@@ -389,7 +398,7 @@ export function tierOptions(tiers: ResolvedTier[], photoIds: Record<string, stri
       tier: {
         key: t.spec.key,
         label: own ? (!t.added && RANK_NAME.test(t.spec.name.trim()) ? t.spec.name : materialWord(t.style)) : t.spec.name,
-        blurb: own ? words!.blurb : t.spec.text,
+        blurb: own ? words!.blurb : farmNoWireWords(t.style!, t.spec) ?? t.spec.text,
         ...(own ? { swapped: true as const } : {}),
       },
       badge: t.popular ? 'Most popular' : undefined,

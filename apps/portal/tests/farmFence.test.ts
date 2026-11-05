@@ -12,7 +12,7 @@ import { calculateQuote, type QuoteStyle } from '../../web/src/quoteCalc'
 import { setMaterialPriceSource, priceSourceFromMap, setQtyBreakSource, inventoryQtyBreakSource } from '../../web/src/materialCalculator'
 import { setSavedKitSets } from '../../web/src/materialKits'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
-import { estimateConfig } from '../../web/src/estimate'
+import { estimateConfig, quoteJobFor } from '../../web/src/estimate'
 import { DEFAULT_CATALOG, plainName, resolveFenceStyles } from '../../web/src/fenceCatalog'
 import { tierStyles } from '../../web/src/tiers'
 import { FARM_STARTER } from '../src/server/lib/tierStarters'
@@ -172,5 +172,35 @@ describe('Good and Better (the Farm tier set)', () => {
       expect('styles' in good && good.styles.map(x => x.name)).toEqual(['farm/b4/5/none'])
       expect('styles' in better && better.styles.map(x => x.name)).toEqual(['farm/b4/6/none'])
     }
+  })
+})
+
+describe('the server prices a farm fence only when it is available for quoting (Jonathan, Nov 5 2026)', () => {
+  const company = (subRate?: number) => {
+    const cfg = estimateConfig({})
+    const plan = planFarm({ fenceStyles: cfg.fenceStyles.map(s => { const c = { ...s }; delete c.label; delete c.held; delete c.jobLot; return c }), fenceCatalog: JSON.parse(JSON.stringify({ ...DEFAULT_CATALOG, materials: DEFAULT_CATALOG.materials.filter(m => m.key !== 'farm') })), items: [], kits: [] })
+    const items = plan.state.items.map(i => ({ ...i, unitCost: i.unitCost || 1 }))
+    const catalog = JSON.parse(JSON.stringify(plan.state.fenceCatalog))
+    if (subRate) catalog.materials.find((m: any) => m.key === 'farm').rateDefaults = { subRate }
+    return { config: { ...cfg, fenceStyles: plan.state.fenceStyles, fenceCatalog: catalog } as any, inventory: items, kits: plan.state.kits, tierSets: [{ category: 'Farm', tiers: FARM_STARTER }] as any }
+  }
+  const req = (fenceStyle: string) => ({ fenceStyle, runs: [{ ft: 100, rail: 'auto' as const }], corners: 0, ends: 2, walkGates: 0, dblGates: 0, tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, overrides: {}, jobType: 'new' as const, tierSet: { category: 'Farm', tiers: FARM_STARTER, popular: null } as any })
+  afterAll(() => { setMaterialPriceSource(priceSourceFromMap(shelf)); setQtyBreakSource(null); setSavedKitSets(() => kits) })
+  test('no sub rate per foot: refused, even named directly (the Salesman\'s server pricing)', () => {
+    let err: any = null
+    try { quoteJobFor(company(), req('farm/b4/6/none'), 30) } catch (e) { err = e }
+    expect(err?.code).toBe('not_quotable')
+    expect(err?.held).toMatch(/sub rate per foot is not set/)
+  })
+  test('a 4 board with no wire: Good and Better read posts and no wire, never a wire', () => {
+    const job = quoteJobFor(company(4), req('farm/b4/6/none'), 30)
+    const byKey = Object.fromEntries(job.proposalOptions.filter(o => o.tier).map(o => [o.tier!.key, o]))
+    expect(byKey.good.fenceStyle).toBe('farm/b4/5/none')
+    expect(byKey.better.fenceStyle).toBe('farm/b4/6/none')
+    expect(byKey.good.tier!.blurb).toBe('5" round treated posts, no wire.')
+    expect(byKey.better.tier!.blurb).toBe('6" round treated posts, no wire.')
+    // A fence with wire keeps the tier's words.
+    const wired = quoteJobFor(company(4), req('farm/nc3/6/redbrand'), 30)
+    expect(wired.proposalOptions.find(o => o.tier?.key === 'good')!.tier!.blurb).toBe('Hutchison Western no climb wire on 5" round treated posts.')
   })
 })
