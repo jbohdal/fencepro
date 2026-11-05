@@ -648,7 +648,11 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
       const set = kitOf(s.name)
       if (!t || !set || set === 'archived') why.push('its frame or infill color has no one color fence on for quoting at this size and set method')
       else {
-        const left = partsWaitingForPrice(s.name, price, kitOf)
+        // A color part with no price (Jonathan: "if a color is missing a part price, say which"); shared hardware
+        // (truss, hex bolts, gate hardware) prices as it does on the one color fences.
+        const vinyl = materialOf(catalog, 'vinyl'), cdim = colorDimOf(vinyl)
+        const words = new Set([t.frame, t.infill].flatMap(k => { const o = cdim && vinyl ? optionOf(vinyl, cdim.key, k) : undefined; return [...(o?.color?.words ?? []), ...(o?.color?.form?.partName ? [o.color.form.partName] : []), ...(o ? [o.label] : [])] }).map(w => w.trim().toLowerCase()))
+        const left = partsWaitingForPrice(s.name, price, kitOf).filter(p => words.has((p.split(',')[1] ?? '').trim().toLowerCase()))
         if (left.length) why.push(`waiting for prices on ${left.join('; ')}`)
       }
       const other = (key: string) => styles.find(x => x.name === key)
