@@ -33,7 +33,6 @@ if (APPLY) {
 // Key order inside a saved object is the database's own; what is in it is compared.
 const canon = (v: unknown): unknown => Array.isArray(v) ? v.map(canon) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v as object).sort().map(k => [k, canon((v as any)[k])])) : v
 const same = (a: unknown, b: unknown) => JSON.stringify(canon(a)) === JSON.stringify(canon(b))
-const noStamp = (kits: any[]) => kits.map(k => ({ ...k, updatedAt: null }))
 
 async function main() {
   const prisma = (await import('../src/server/lib/prisma.js')).default
@@ -57,14 +56,24 @@ async function main() {
   console.log(`Quotes and jobs on ${FROM}: ${used.map(u => u.what).join('; ') || 'none'}`)
   const input = { ...m.inputFromColor(st, KEY), name: TO }
   const plan = m.planVinylColor(st, input, { today: new Date().toISOString().slice(0, 10), newId: (p: string) => `${p}_dry`, key: KEY })
-  const ok = same(plan.state.items, st.items) && same(noStamp(plan.state.kits), noStamp(st.kits)) && same(plan.state.fenceStyles, st.fenceStyles) && plan.priced.length === 0 && plan.tallPrices.length === 0
+  // Kits: the same parts in the same counts, kit by kit (a re-save may list White's rail insert back where White's kit has it).
+  const norm = (n: string) => n.toLowerCase().replace(/\s+/g, '')
+  const bag = (kits: any[]) => kits.map(k => ({ ...k, updatedAt: null, kits: Object.fromEntries(Object.entries(k.kits ?? {}).map(([kind, ls]: any) => [kind, (ls as any[]).map(l => `${norm(l.part)}×${l.qty}`).sort()])) }))
+  // Prices: every fence of the color, 100 ft with a walk and a double gate, to the cent before and after.
+  const data = (await import('../src/server/lib/quotePricing.js')).dataFor
+  const d0 = await data(accountId)
+  const priceOf = (kits: any[], fence: string) => { try { return Math.round(m.estimate({ ...d0, kits }, { fenceStyle: fence, runs: [100], corners: 0, ends: 2, walkGates: 1, dblGates: 1 }).price * 100) } catch (e) { return `error ${String(e).slice(0, 80)}` } }
+  const prices = styles.map((f: string) => [priceOf(st.kits, f), priceOf(plan.state.kits, f)])
+  const samePrices = prices.every(([a, z]: any) => typeof a === 'number' && a === z)
+  for (const [i, f] of styles.entries()) console.log(`  ${f}: ${prices[i][0]} → ${prices[i][1]} cents`)
+  const ok = same(plan.state.items, st.items) && same(bag(plan.state.kits), bag(st.kits)) && same(plan.state.fenceStyles, st.fenceStyles) && plan.priced.length === 0 && plan.tallPrices.length === 0 && samePrices
   const labels = m.styleLabels({ ...cfg, fenceCatalog: plan.state.fenceCatalog }, { inventory: st.items, kits: st.kits }) as Record<string, string>
   console.log(`Rename ${FROM} → ${TO}. Fences will read:`)
   for (const s of styles) console.log(`  ${labels[s]}`)
   console.log(`Parts, kits, fences and costs unchanged: ${ok ? 'yes' : 'NO'}`)
   if (!ok) {
     const diff = (what: string, a: any[], b: any[]) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if (!same(a[i], b[i])) console.log(`  ${what} differs: ${JSON.stringify(b[i])?.slice(0, 300)}\n    was: ${JSON.stringify(a[i])?.slice(0, 300)}`) }
-    diff('part', st.items, plan.state.items); diff('kit', noStamp(st.kits), noStamp(plan.state.kits)); diff('fence', st.fenceStyles, plan.state.fenceStyles)
+    diff('part', st.items, plan.state.items); diff('kit', bag(st.kits), bag(plan.state.kits)); diff('fence', st.fenceStyles, plan.state.fenceStyles)
     if (plan.priced.length) console.log(`  costs: ${JSON.stringify(plan.priced)}`)
   }
   if (!ok) { console.error('The save would change more than the name. Nothing was changed.'); process.exit(2) }
