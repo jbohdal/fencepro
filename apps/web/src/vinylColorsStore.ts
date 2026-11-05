@@ -24,7 +24,7 @@ export interface ColorRecord {
     kits: Array<{ id: string; styleName: string; lines: Record<string, number> }>
     option: { key: string; label: string }
   }
-  edits?: Array<{ at: string; by: string; priced: Array<{ name: string; cents: number; prevCents: number | null }>; added: string[]; archived: string[] }>
+  edits?: Array<{ at: string; by: string; renamed?: { from: string; to: string }; priced: Array<{ name: string; cents: number; prevCents: number | null }>; added: string[]; archived: string[] }>
   archivedAt?: string | null
 }
 

@@ -97,6 +97,12 @@ export interface VinylColorFormSpec {
   samePostPrice: boolean
   /** Per section mode: what each section kit includes, by size ("6x8"). */
   contents?: Record<string, { pickets: number; rails: number; railFt: number; picketStiffeners: number; railStiffeners: number; uChannels: number }>
+  /**
+   * The name the color's parts carry ("*Vinyl, {partName}, Picket"), when the
+   * color was renamed since (Jonathan, Nov 5, 2026): its parts keep their names.
+   * Absent: the color's own name.
+   */
+  partName?: string
   /** Stiffeners priced on their own, counts by size and per gate leaf (vinylColorForm.ts StiffenerInput). Absent: as the kits had them. */
   stiffeners?: { picket?: StiffenerCounts | null; rail?: StiffenerCounts | null }
   /** The catalog items the form prices, by what they are ("cap", "upright", "section:6x8", "post:6:all:78", ...): item names. */

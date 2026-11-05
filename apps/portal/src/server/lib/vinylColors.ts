@@ -106,7 +106,7 @@ export interface ColorRecord {
     kits: Array<{ id: string; styleName: string; lines: Record<string, number> }>
     option: { key: string; label: string }
   }
-  edits?: Array<{ at: string; by: string; priced: Array<{ name: string; cents: number; prevCents: number | null }>; priceHistoryIds: string[]; added: string[]; archived: string[] }>
+  edits?: Array<{ at: string; by: string; renamed?: { from: string; to: string }; priced: Array<{ name: string; cents: number; prevCents: number | null }>; priceHistoryIds: string[]; added: string[]; archived: string[] }>
   archivedAt?: string | null
   undoneAt?: string | null
 }
@@ -142,6 +142,8 @@ export async function saveVinylColor(actor: ColorActor, input: unknown, key?: st
       // What an edit adds (a new size or method) is the color's too: Undo takes it away with the rest.
       record = {
         ...was,
+        // Renamed (Nov 5, 2026): the record carries the name the color has now.
+        label: plan.label,
         created: {
           ...was.created,
           items: [...was.created.items, ...plan.created.items],
@@ -149,7 +151,7 @@ export async function saveVinylColor(actor: ColorActor, input: unknown, key?: st
           kits: [...was.created.kits, ...plan.created.kits],
           priceHistoryIds: [...was.created.priceHistoryIds, ...historyIds],
         },
-        edits: [...(was.edits ?? []), { at: now.toISOString(), by: actor.name, priced: plan.priced.map((p: any) => ({ name: p.name, cents: p.cents, prevCents: p.prevCents })), priceHistoryIds: historyIds, added: plan.created.styles.map((s: any) => s.name), archived: plan.archived }],
+        edits: [...(was.edits ?? []), { at: now.toISOString(), by: actor.name, ...(plan.renamed ? { renamed: plan.renamed } : {}), priced: plan.priced.map((p: any) => ({ name: p.name, cents: p.cents, prevCents: p.prevCents })), priceHistoryIds: historyIds, added: plan.created.styles.map((s: any) => s.name), archived: plan.archived }],
         archivedAt: null,
       }
     }

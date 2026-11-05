@@ -33,6 +33,12 @@
  * a 6 ft rail it is the color's own "Rail Stiffener". A color saved before
  * Nov 5 has its stiffeners in its kits as they were (inputFromColor reads them).
  *
+ * Rename (Jonathan, Nov 5, 2026): an edit may change the color's name. The
+ * new name is what quotes, the website and the quote builder show; the
+ * color's Inventory parts keep the names they were made with (form.partName),
+ * so no part, kit or price history changes and a part never takes the name
+ * of another color's (an archived "Dark Gray"'s, say).
+ *
  * Gate leaves: White builds each gate leaf from one 6 ft section's parts. A
  * color sold by the section builds each leaf from one section kit: its 6x6
  * when it has one, else the fence's own section (Chai Gray: a 6x8). Its parts
@@ -99,6 +105,8 @@ export interface VinylColorInput {
   sections: Partial<Record<SizeKey, { costCents: number | null } & Partial<SectionContents>>>
   /** Per piece, 6 ft tall. */
   pieces?: { picketCents?: number | null; rail6Cents?: number | null; rail8Cents?: number | null; uTrimCents?: number | null }
+  /** Read only (an edit): the name the color's parts carry, when it was renamed. */
+  partName?: string
   /** Stiffeners priced on their own (absent: the kits keep what the section contents say). */
   stiffeners?: { picket?: StiffenerInput | null; rail?: StiffenerInput | null }
   /** Rivets of another color in place of White's (Chai Gray takes black; about 5 times White's cost). Absent: White's, shared. */
@@ -297,6 +305,8 @@ export interface VinylColorPlan {
   state: CatalogState
   key: string
   label: string
+  /** An edit that changed the color's name (its parts keep theirs). */
+  renamed: { from: string; to: string } | null
   /** Made by this save (an edit: only what is new). */
   created: CreatedList
   /** Every catalog item whose cost this save set or changed: a price history row each. */
@@ -357,12 +367,16 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   if (opts.key) {
     opt = optionOf(m, dim.key, opts.key)
     if (!opt?.color?.form) throw new Error('That color was not made by the Vinyl Colors form.')
-    input.name = opt.label
+    // Blank: the name it has. Another name: a rename.
+    if (!input.name?.trim()) input.name = opt.label
   }
+  const oldLabel = opt?.label ?? null
   const taken = dim.options.filter(o => !o.archived && o.key !== opts.key).map(o => o.label)
   const problems = formProblems(input, { taken })
   if (problems.length) throw new Error(problems.join(' '))
-  const color = input.name.trim()
+  const label = input.name.trim()
+  // The name the color's parts carry: the one it was made with, kept through a rename.
+  const color = opt ? (opt.color!.form!.partName ?? opt.label) : label
   const sizes = SIZE_KEYS.filter(s => input.sizes.includes(s))
   const methods = (['nd', 'ds'] as const).filter(x => input.methods.includes(x))
   const heights = [...new Set(sizes.map(heightOf))]
@@ -491,7 +505,11 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
       if (input.stiffeners && h === '6' && (isSectionKit || leaves)) {
         const kitSize = auto ? (kind === 'section8' ? '6x8' : '6x6') : size as SizeKey
         const railFt = isSectionKit ? sizeRailFt(input, kitSize) : leafRailFt(input)
+        // Listed where the kit had its stiffeners (else at the end), White's rail insert at the fallback cost it had.
+        const at = out.findIndex(p => isStiffenerPart(color, p.part))
+        const was = out.find(p => normalizeItemName(p.part) === normalizeItemName(RAIL_INSERT_8))
         const kept = out.filter(p => !isStiffenerPart(color, p.part))
+        const added: KitPart[] = []
         for (const which of ['picket', 'rail'] as const) {
           const sf = input.stiffeners[which]
           if (!sf) continue
@@ -499,10 +517,11 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
           if (!(qty > 0)) continue
           const part = stiffenerPart(color, which, railFt)
           // White's rail insert is shared: priced in Inventory, not by the form.
-          if (part === RAIL_INSERT_8) { kept.push({ part, qty, fallbackCost: 0 }); continue }
+          if (part === RAIL_INSERT_8) { added.push({ part: was?.part ?? part, qty, fallbackCost: was?.fallbackCost ?? 0 }); continue }
           const role = which === 'picket' ? 'stiffener:picket' : 'stiffener:rail'
-          kept.push({ part: want(role, part, sf.cents ?? null, which === 'picket' ? 'Picket stiffener' : 'Rail stiffener, 6 ft rail'), qty, fallbackCost: (sf.cents ?? 0) / 100 })
+          added.push({ part: want(role, part, sf.cents ?? null, which === 'picket' ? 'Picket stiffener' : 'Rail stiffener, 6 ft rail'), qty, fallbackCost: (sf.cents ?? 0) / 100 })
         }
+        if (at >= 0) kept.splice(at, 0, ...added); else kept.push(...added)
         out.length = 0; out.push(...kept)
       }
       kits[kind] = out
@@ -577,6 +596,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
     mode: input.mode, sizes: [...sizes], methods: [...methods], samePostPrice: !!input.samePostPrice,
     ...(input.mode === 'section' ? { contents: Object.fromEntries(sizes.filter(s => heightOf(s) === '6').map(s => { const c = input.sections[s]!; return [s, { pickets: c.pickets!, rails: c.rails!, railFt: c.railFt!, picketStiffeners: c.picketStiffeners!, railStiffeners: c.railStiffeners!, uChannels: c.uChannels! }] })) } : {}),
     ...(input.stiffeners ? { stiffeners: { picket: countsOf(input.stiffeners.picket), rail: countsOf(input.stiffeners.rail) } } : opt?.color?.form?.stiffeners ? { stiffeners: opt.color.form.stiffeners } : {}),
+    ...(color !== label ? { partName: color } : {}),
     items: Object.fromEntries([...items.values()].map(i => [i.role, i.name])),
     madeOn: opt?.color?.form?.madeOn ?? opts.today,
   }
@@ -589,18 +609,19 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
     ...(typeof opt?.color?.targetProfitPct === 'number' ? { targetProfitPct: opt.color.targetProfitPct } : {}),
     ...(opt?.color?.readyOn ? { readyOn: opt.color.readyOn } : {}),
   }
-  if (opt) { opt.color = spec; delete opt.archived }
-  else dim.options.push({ key, label: color, copiedFrom: 'white', color: spec })
+  if (opt) { opt.color = spec; opt.label = label; delete opt.archived }
+  else dim.options.push({ key, label, copiedFrom: 'white', color: spec })
 
   for (const s of madeStyles) s.label = plainName(st.fenceCatalog, { material: 'vinyl', choices: st.fenceStyles.find(x => x.name === s.name)!.choices! })
   const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`
   const tallNote = tallPrices.length ? `, 8 ft tall section and post prices set on ${n(tallPrices.length, 'fence')}` : ''
+  const renamed = oldLabel && oldLabel !== label ? { from: oldLabel, to: label } : null
   const message = opt
-    ? `${color} saved: ${n(priced.length, 'cost')} changed${tallNote}${madeStyles.length ? `, ${n(madeStyles.length, 'fence')} added` : ''}${archived.length ? `, ${n(archived.length, 'fence')} switched off` : ''}. Saved quotes keep the prices they were priced with.`
-    : `${color} added: ${n(madeItems.length, 'catalog item')}, ${n(madeStyles.length, 'fence')}, ${n(madeKits.length, 'material kit set')}${tallNote}. It is in the quote builder now.`
+    ? `${renamed ? `${renamed.from} renamed ${label}. ` : ''}${label} saved: ${n(priced.length, 'cost')} changed${tallNote}${madeStyles.length ? `, ${n(madeStyles.length, 'fence')} added` : ''}${archived.length ? `, ${n(archived.length, 'fence')} switched off` : ''}. Saved quotes keep the prices they were priced with.`
+    : `${label} added: ${n(madeItems.length, 'catalog item')}, ${n(madeStyles.length, 'fence')}, ${n(madeKits.length, 'material kit set')}${tallNote}. It is in the quote builder now.`
   return {
-    state: st, key, label: color, priced, tallPrices, archived, reactivated, styles: allStyles, message,
-    created: { items: madeItems, styles: madeStyles, kits: madeKits, option: { key, label: color } },
+    state: st, key, label, renamed, priced, tallPrices, archived, reactivated, styles: allStyles, message,
+    created: { items: madeItems, styles: madeStyles, kits: madeKits, option: { key, label } },
   }
 }
 
@@ -692,13 +713,14 @@ export function inputFromColor(st: CatalogState, key: string): VinylColorInput |
   }
   const sections: VinylColorInput['sections'] = {}
   for (const s of f.sizes as SizeKey[]) sections[s] = heightOf(s) === '8' ? { costCents: tallPrice('section', widthOf(s)) } : { costCents: cost(`section:${s}`), ...(f.contents?.[s] ?? {}) }
-  const stiffeners = stiffenersOfColor(st, key, opt.label, f, cost)
+  const stiffeners = stiffenersOfColor(st, key, f.partName ?? opt.label, f, cost)
   return {
     name: opt.label, mode: f.mode, sizes: f.sizes as SizeKey[], methods: f.methods as SetMethod[], samePostPrice: f.samePostPrice,
     posts, capCents: cost('cap'), uprightCents: cost('upright'), gate8Cents: cost('gate8'), sections,
     pieces: { picketCents: cost('piece:picket'), rail6Cents: cost('piece:rail:6'), rail8Cents: cost('piece:rail:8'), uTrimCents: cost('piece:uTrim') },
     rivets: f.items.rivet ? { color: f.items.rivet.replace(/^\*Vinyl, (.+), Rivet, 1"$/, '$1'), cents: cost('rivet') } : null,
     stiffeners,
+    ...(f.partName ? { partName: f.partName } : {}),
   }
 }
 

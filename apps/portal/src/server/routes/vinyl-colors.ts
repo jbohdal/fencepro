@@ -90,7 +90,7 @@ router.put('/:key', ...changers, async (req: any, res) => {
     const out = await saveVinylColor(await actorOf(req), req.body?.input, key)
     const edit = out.record.edits?.[out.record.edits.length - 1]
     await audit(req, 'update', 'VinylColor', key, { newValues: { label: out.record.label, edit } })
-    await auditSettingChange(req, `vinyl-colors/${key}`, null, { changedCosts: edit?.priced.map(p => `${p.name}: ${p.prevCents == null ? '(none)' : `$${(p.prevCents / 100).toFixed(2)}`} → $${(p.cents / 100).toFixed(2)}`) ?? [], added: edit?.added ?? [], switchedOff: edit?.archived ?? [] })
+    await auditSettingChange(req, `vinyl-colors/${key}`, null, { ...(edit?.renamed ? { renamed: `${edit.renamed.from} → ${edit.renamed.to}` } : {}), changedCosts: edit?.priced.map(p => `${p.name}: ${p.prevCents == null ? '(none)' : `$${(p.prevCents / 100).toFixed(2)}`} → $${(p.cents / 100).toFixed(2)}`) ?? [], added: edit?.added ?? [], switchedOff: edit?.archived ?? [] })
     res.json({ success: true, data: out })
   } catch (err) { fail(res, err, 'save the color') }
 })

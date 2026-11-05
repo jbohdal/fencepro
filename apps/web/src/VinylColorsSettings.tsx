@@ -273,7 +273,7 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
     setError('')
     const i = input()
     const taken = (colorDimOf(materialOf(catalogOf(getConfig()), 'vinyl'))?.options ?? []).filter(o => !o.archived && o.key !== editKey).map(o => o.label)
-    const problems = formProblems(i, { taken: editKey ? [] : taken })
+    const problems = formProblems(i, { taken })
     if (problems.length) { setError(problems.join(' ')); return }
     setSaving(true)
     const r = editKey ? await saveVinylColor(editKey, i) : await addVinylColor(i)
@@ -305,8 +305,11 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
       </>}>
       <div className="space-y-5" data-vc-form>
         <label className="block text-sm font-semibold text-gray-900">Color name
-          <input className={inputCls + ' mt-1'} value={name} onChange={e => setName(e.target.value)} placeholder="Chai Gray" disabled={!!editKey} autoFocus={!editKey} data-vc-name />
+          <input className={inputCls + ' mt-1'} value={name} onChange={e => setName(e.target.value)} placeholder="Chai Gray" autoFocus={!editKey} data-vc-name />
           {name.trim() && <span className="block mt-1 text-xs font-normal text-gray-500">Fences will read like “{name.trim()} Vinyl Privacy, 6 ft tall, 8 ft sections, No dig”.</span>}
+          {editKey && start && name.trim() && name.trim() !== start.name && (
+            <span className="block mt-1 text-xs font-normal text-amber-800" data-vc-rename-note>Rename: {start.name} becomes {name.trim()} in the quote builder, on quotes and on the website. Its Inventory parts keep their names (“{start.partName ?? start.name}”); no price changes.</span>
+          )}
         </label>
 
         <fieldset className="space-y-2">
@@ -492,6 +495,7 @@ function Created({ record, message, edit, busy, onClose, onUndo }: { record: Col
           <div>
             <p className="font-semibold text-gray-900">Costs changed ({last.priced.length})</p>
             <ul className="mt-1 space-y-0.5">{last.priced.map(p => <li key={p.name} className="text-gray-700" data-vc-created-item>{p.name.replace(/^\*+/, '')}: {p.prevCents == null ? 'none' : dollars(p.prevCents)} → {dollars(p.cents)}</li>)}</ul>
+            {last.renamed && <p className="text-gray-800" data-vc-created-renamed>Renamed: {last.renamed.from} → {last.renamed.to}. Its Inventory parts keep their names.</p>}
             {(last.added.length > 0 || last.archived.length > 0) && <p className={small}>{last.added.length ? `Fences added: ${last.added.join(', ')}. ` : ''}{last.archived.length ? `Fences switched off: ${last.archived.join(', ')}.` : ''}</p>}
           </div>
         )}
