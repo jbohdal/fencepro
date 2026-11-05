@@ -180,7 +180,9 @@ try {
   check('owner: the payment schedule is that price', Number(plan.split('|')[0]) === p0.good * 100, plan)
   const inv = sql(`select coalesce(string_agg("amountCents"::text, ','), '') from "ContractInvoice" where "quoteId" = '${q.id}'`)
   const pct = Number(plan.split('|')[1]) || 0
-  check('owner: the deposit is the share of that price', pct === 0 ? true : inv.split(',').map(Number).includes(Math.round(p0.good * 100 * pct / 100)), `deposit ${pct}%, invoices ${inv}, page ${deposit}`)
+  // Whole dollars (Oct 29 2026): the deposit is its share down to the dollar, the balance the rest, together the price.
+  const invs = inv.split(',').filter(Boolean).map(Number)
+  check('owner: the deposit is the share of that price', pct === 0 ? true : invs.includes(Math.floor(p0.good * pct / 100) * 100) && invs.reduce((a, b) => a + b, 0) === p0.good * 100, `deposit ${pct}%, invoices ${inv}, page ${deposit}`)
   const order = sql(`select count(*) from "BusinessState", jsonb_array_elements(coalesce("pendingOrders", '[]'::jsonb)) o where o->>'quoteId' = '${q.id}'`)
   check('owner: a Sales Order for it', Number(order) >= 1, order)
   const doc = sql(`select count(*) from "SignedDocument" where "quoteId" = '${q.id}'`)

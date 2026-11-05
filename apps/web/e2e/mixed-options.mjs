@@ -272,7 +272,8 @@ try {
   check('heading: not "Two options" with three on', !(await b.locator('[data-tiers-title]').textContent()).startsWith('Two options'), await b.locator('[data-tiers-title]').textContent())
   const taken = await card(b, 'good').locator('[data-tier-swap] option[disabled]').allTextContents()
   check('a style on another card cannot be picked again', taken.some(t => /Aluminum Emily.*No dig/.test(t)) && taken.some(t => /Black Chain Link, 4 ft/.test(t)), taken.join(' / '))
-  check('an odd gate says so on the option with no parts list', /10 ft double gate/.test(await card(b, 'better').textContent()) && /two 4 ft leaves/.test(await card(b, 'better').textContent()))
+  // Aluminum Emily builds a 10 ft double gate from two 4' x 5' leaves (Jonathan, Nov 3 2026, item 25): nothing to say.
+  check('aluminum: a 10 ft double gate needs no note since item 25', !/10 ft double gate/.test(await card(b, 'better').textContent()), (await card(b, 'better').textContent()).match(/.{0,40}double gate.{0,40}/)?.[0] ?? 'no note')
   // The Salesman never sees margin (Jonathan, Nov 2 2026): no margin line on any option.
   check('the Salesman sees no margin on any option', (await b.locator('[data-tier-margin]').count()) === 0 && !/margin/i.test(await b.locator('[data-tiers]').textContent()))
   await b.locator('[data-tier-popular]').first().evaluate(() => {})

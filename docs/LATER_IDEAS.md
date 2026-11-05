@@ -162,3 +162,11 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - Payment photo in a test copy under `.claude/worktrees/`: GET /api/payments/:id/photo answers 404 there, because Express `sendFile` refuses a path through a dot folder (`dotfiles: 'ignore'`). Live (`~/ezbiz/apps/portal/uploads`) and the main folder are not affected; contractBilling.db.test.ts passes there. `sendFile(file, { dotfiles: 'allow' })` in routes/payments.ts would make the test copies match, if wanted.
 - Aluminum Emily 5 ft walk gate: Inventory has a 4' x 5' Emily gate (al-g-45, now used for the leaves of a 10 ft double gate), but a 5 ft walk gate is still priced and pulled as a 4 ft gate with the staff note. Question for Jonathan before changing it: should a 5 ft walk gate on aluminum use the 4' x 5' gate?
 - Change orders: a resent create (same id, the phone resending) writes another "create" entry in the audit log each time (3 sends, 3 entries), though only one change order exists. Older than item 32; harmless. Reviewer, Nov 4.
+
+
+## From the Nov 4 nightly
+
+- The dev copy on port 4001 was serving a web build from Nov 2, 22:03, older than the Salesman picker, so the iPhone check failed at the style step. Rebuilt from main; 133 of 133 passed after that. Rebuild apps/web (and the portal client) in the main folder whenever main moves, before an iPhone or browser check against 4001.
+- Eight browser suites (address-salesman, material-kits, possible-match, quote-steps, tall-vinyl-prices, warranty, widget-fit, plus the Salesman cookie ones) refuse any port but 4001 or 4090 to 4099, so the nightly's own copy on 4021 skips them. Move the nightly copy to a 409x port, or let those suites take 4021.
+- Live overhead moves as test suites sign jobs (installed revenue, last 12 months), so a copy running beside the suites can price a Draft a few dollars off a minute later (widget-price-match on 4021: $21,301 vs $21,226). It passed on 4001. Nothing customer facing; the tests should pin the overhead or read it once.
+- save-conflicts "the next quote is saved and its card moved on" and mybudgetquote-import "First Contact … file's order" failed again, as on Nov 3 (see above). sales-orders AUD Web Chainlink still needs its own test job (Nov 2 note).
