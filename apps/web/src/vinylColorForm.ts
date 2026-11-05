@@ -24,6 +24,15 @@
  * Everything shared (concrete, donuts, pipe, screws, rivets, hex bolts, H beam,
  * P channel, hinges, latches, handles, braces) stays exactly White's.
  *
+ * Stiffeners (Jonathan, Nov 5, 2026): picket and rail stiffeners are each
+ * optional, ticked on the form with a price and how many go in each 6 ft tall
+ * section (6x6, 6x8) and each gate leaf. Ticked, they are lines of their own
+ * in the color's section and gate kits, priced (not $0 in the section kit),
+ * so they show on the pull sheet and in the cost. A rail stiffener in an 8 ft
+ * rail is White's rail insert, shared, priced in Inventory (Oct 21 rule); in
+ * a 6 ft rail it is the color's own "Rail Stiffener". A color saved before
+ * Nov 5 has its stiffeners in its kits as they were (inputFromColor reads them).
+ *
  * Gate leaves: White builds each gate leaf from one 6 ft section's parts. A
  * color sold by the section builds each leaf from one section kit: its 6x6
  * when it has one, else the fence's own section (Chai Gray: a 6x8). Its parts
@@ -53,7 +62,7 @@ import { normalizeItemName, TALL_PART_NAME } from './materialCalculator'
 import { KIT_KINDS, kitSetFor, type KitKind, type KitPart, type KitSet } from './materialKits'
 import {
   colorDimOf, generatedName, madeForTag, materialOf, optionOf, plainName, slug, styleChoicesOf, stylesOfOption,
-  type CatalogState, type ChoiceOption, type JobLotQuote, type VinylColorFormSpec,
+  type CatalogState, type ChoiceOption, type JobLotQuote, type StiffenerCounts, type VinylColorFormSpec,
 } from './fenceCatalog'
 import type { FenceStyle } from './configStore'
 
@@ -67,6 +76,8 @@ export type PostType = typeof POST_TYPES[number]
 const POST_WORD: Record<PostType, string> = { corner: 'Corner', end: 'End', line: 'Line', blank: 'Blank' }
 
 export interface SectionContents { pickets: number; rails: number; railFt: number; picketStiffeners: number; railStiffeners: number; uChannels: number }
+/** A stiffener ticked on the form: its price (the rail's: the color's own 6 ft rail stiffener) and counts. */
+export interface StiffenerInput extends StiffenerCounts { cents: number | null }
 export interface PostCosts { allCents?: number | null; cornerCents?: number | null; endCents?: number | null; lineCents?: number | null; blankCents?: number | null }
 
 export interface VinylColorInput {
@@ -88,6 +99,8 @@ export interface VinylColorInput {
   sections: Partial<Record<SizeKey, { costCents: number | null } & Partial<SectionContents>>>
   /** Per piece, 6 ft tall. */
   pieces?: { picketCents?: number | null; rail6Cents?: number | null; rail8Cents?: number | null; uTrimCents?: number | null }
+  /** Stiffeners priced on their own (absent: the kits keep what the section contents say). */
+  stiffeners?: { picket?: StiffenerInput | null; rail?: StiffenerInput | null }
   /** Rivets of another color in place of White's (Chai Gray takes black; about 5 times White's cost). Absent: White's, shared. */
   rivets?: { color: string; cents: number | null } | null
 }
@@ -175,6 +188,33 @@ export const PIECE_PART_NAME = {
 /** One catalog item the form makes: its name, its cost (null: included in a section kit, $0) and what it is. */
 export interface FormItem { role: string; name: string; cents: number | null; includedIn?: string; what: string }
 
+// ── Stiffeners ───────────────────────────────────────────────────────────────
+
+/** The rail length of each 6 ft tall section size's rails (per section: what it includes; per piece: White's). */
+const sizeRailFt = (input: VinylColorInput, size: string): number => {
+  const ft = input.mode === 'section' ? input.sections[size as SizeKey]?.railFt : undefined
+  return typeof ft === 'number' && ft > 0 ? ft : Number(widthOf(size))
+}
+/** A gate leaf's rail length: per section, the section kit the leaf is built from (its 6x6 when it has one); per piece, 6 ft as White's. */
+export const leafRailFt = (input: VinylColorInput): number => {
+  if (input.mode !== 'section') return 6
+  const leaf = input.sizes.includes('6x6') ? '6x6' : input.sizes.includes('6x8') ? '6x8' : null
+  return leaf ? sizeRailFt(input, leaf) : 6
+}
+/** The rail lengths the ticked rail stiffener goes in. */
+function stiffRailFts(input: VinylColorInput): number[] {
+  const st = input.stiffeners?.rail
+  if (!st) return []
+  const fts = input.sizes.filter(z => heightOf(z) === '6' && (st.perSection?.[z] ?? 0) > 0).map(z => sizeRailFt(input, z))
+  if (st.perLeaf > 0) fts.push(leafRailFt(input))
+  return fts
+}
+/** The part a stiffener is in a kit: the color's picket stiffener; the rail's by rail length (8 ft: White's rail insert). */
+export const stiffenerPart = (color: string, which: 'picket' | 'rail', railFt: number): string =>
+  which === 'picket' ? KIT_PART_NAME.picketStiffener(color) : railFt === 8 ? RAIL_INSERT_8 : KIT_PART_NAME.railStiffener(color)
+const isStiffenerPart = (color: string, part: string) =>
+  [KIT_PART_NAME.picketStiffener(color), KIT_PART_NAME.railStiffener(color), RAIL_INSERT_8].some(n => normalizeItemName(n) === normalizeItemName(part))
+
 // ── Checking the form ────────────────────────────────────────────────────────
 
 /** What is missing or wrong on the form, in plain words (empty: it can be saved). */
@@ -219,6 +259,19 @@ export function formProblems(input: VinylColorInput, opts: { taken?: string[] } 
   }
   if (heights.includes('6')) money(input.uprightCents, 'gate upright cost')
   if (heights.includes('8')) money(input.gate8Cents, '8 ft tall walk gate cost')
+  if (heights.includes('6')) for (const which of ['picket', 'rail'] as const) {
+    const st = input.stiffeners?.[which]
+    if (!st) continue
+    const word = which === 'picket' ? 'Picket stiffener' : 'Rail stiffener'
+    const six = sizes.filter(z => heightOf(z) === '6')
+    for (const z of six) { const v = st.perSection?.[z]; if (!(typeof v === 'number' && Number.isInteger(v) && v >= 0)) out.push(`${word}: enter how many in a ${z} section (0 if none).`) }
+    if (!(Number.isInteger(st.perLeaf) && st.perLeaf >= 0)) out.push(`${word}: enter how many in a gate leaf (0 if none).`)
+    const used = six.some(z => (st.perSection?.[z] ?? 0) > 0) || st.perLeaf > 0
+    if (!used) out.push(`${word} is ticked but none go in a section or a gate leaf: enter a count, or untick it.`)
+    // The rail stiffener's price is the color's own, for 6 ft rails; an 8 ft rail takes White's rail insert (priced in Inventory).
+    const needsPrice = which === 'picket' || stiffRailFts(input).some(ft => ft !== 8)
+    if (needsPrice) money(st.cents, which === 'picket' ? 'picket stiffener price' : 'rail stiffener price (6 ft rail)')
+  }
   if (input.mode === 'piece' && heights.includes('6')) {
     const p = input.pieces ?? {}
     money(p.picketCents, 'picket cost'); money(p.uTrimCents, 'U trim cost'); money(p.rail6Cents, '6 ft rail cost')
@@ -295,6 +348,8 @@ export function whiteTemplate(st: CatalogState, size: BuildSize, method: SetMeth
 export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts: PlanOpts): VinylColorPlan {
   const st = clone(st0)
   const input = clone(input0)
+  // Stiffeners on the form are lines of their own; the section kit no longer includes any.
+  if (input.stiffeners) for (const sec of Object.values(input.sections)) if (sec) { sec.picketStiffeners = 0; sec.railStiffeners = 0 }
   const m = materialOf(st.fenceCatalog, 'vinyl')
   const dim = colorDimOf(m)
   if (!m || !dim) throw new Error('Vinyl has no colors in Settings.')
@@ -432,6 +487,24 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
         const swapped = swapPart(r, h, p)
         out.push(swapped ?? { ...p })
       }
+      // Stiffeners ticked on the form (6 ft tall): their own priced lines, at the form's counts.
+      if (input.stiffeners && h === '6' && (isSectionKit || leaves)) {
+        const kitSize = auto ? (kind === 'section8' ? '6x8' : '6x6') : size as SizeKey
+        const railFt = isSectionKit ? sizeRailFt(input, kitSize) : leafRailFt(input)
+        const kept = out.filter(p => !isStiffenerPart(color, p.part))
+        for (const which of ['picket', 'rail'] as const) {
+          const sf = input.stiffeners[which]
+          if (!sf) continue
+          const qty = isSectionKit ? (sf.perSection?.[kitSize] ?? 0) : sf.perLeaf * leaves
+          if (!(qty > 0)) continue
+          const part = stiffenerPart(color, which, railFt)
+          // White's rail insert is shared: priced in Inventory, not by the form.
+          if (part === RAIL_INSERT_8) { kept.push({ part, qty, fallbackCost: 0 }); continue }
+          const role = which === 'picket' ? 'stiffener:picket' : 'stiffener:rail'
+          kept.push({ part: want(role, part, sf.cents ?? null, which === 'picket' ? 'Picket stiffener' : 'Rail stiffener, 6 ft rail'), qty, fallbackCost: (sf.cents ?? 0) / 100 })
+        }
+        out.length = 0; out.push(...kept)
+      }
       kits[kind] = out
     }
     if (input.mode === 'section' && h === '6' && (kits.walkGate || kits.dblGate)) leafWidth[h] = widthOf(leafSize)
@@ -488,6 +561,8 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
       st.items.push(item); byName.set(normalizeItemName(it.name), item)
       madeItems.push({ id: item.id, name: it.name, cents: it.cents, ...(it.includedIn ? { includedIn: it.includedIn } : {}) })
     } else if (item.status === 'archived') item.status = 'active'
+    // A stiffener priced on the form is no longer "included in" the section kit at $0.
+    if (it.role.startsWith('stiffener:') && item.includedIn) delete item.includedIn
     if (it.cents == null) continue
     const prev = Number.isFinite(item.unitCost) && item.unitCost > 0 ? Math.round(item.unitCost * 100) : null
     if (prev === it.cents && item.priceUpdatedAt) continue
@@ -501,6 +576,7 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   const form: VinylColorFormSpec = {
     mode: input.mode, sizes: [...sizes], methods: [...methods], samePostPrice: !!input.samePostPrice,
     ...(input.mode === 'section' ? { contents: Object.fromEntries(sizes.filter(s => heightOf(s) === '6').map(s => { const c = input.sections[s]!; return [s, { pickets: c.pickets!, rails: c.rails!, railFt: c.railFt!, picketStiffeners: c.picketStiffeners!, railStiffeners: c.railStiffeners!, uChannels: c.uChannels! }] })) } : {}),
+    ...(input.stiffeners ? { stiffeners: { picket: countsOf(input.stiffeners.picket), rail: countsOf(input.stiffeners.rail) } } : opt?.color?.form?.stiffeners ? { stiffeners: opt.color.form.stiffeners } : {}),
     items: Object.fromEntries([...items.values()].map(i => [i.role, i.name])),
     madeOn: opt?.color?.form?.madeOn ?? opts.today,
   }
@@ -527,6 +603,9 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
     created: { items: madeItems, styles: madeStyles, kits: madeKits, option: { key, label: color } },
   }
 }
+
+const countsOf = (sf: StiffenerInput | null | undefined): StiffenerCounts | null =>
+  sf ? { perSection: Object.fromEntries(Object.entries(sf.perSection ?? {}).filter(([, v]) => typeof v === 'number')), perLeaf: sf.perLeaf } : null
 
 /** Archive a color made by the form (Remove), or bring it back: its fences off or on, its catalog items archived or active. */
 export function planArchiveVinylColor(st0: CatalogState, key: string, archive: boolean): { state: CatalogState; styles: string[]; items: string[] } {
@@ -600,12 +679,50 @@ export function inputFromColor(st: CatalogState, key: string): VinylColorInput |
   }
   const sections: VinylColorInput['sections'] = {}
   for (const s of f.sizes as SizeKey[]) sections[s] = heightOf(s) === '8' ? { costCents: tallPrice('section', widthOf(s)) } : { costCents: cost(`section:${s}`), ...(f.contents?.[s] ?? {}) }
+  const stiffeners = stiffenersOfColor(st, key, opt.label, f, cost)
   return {
     name: opt.label, mode: f.mode, sizes: f.sizes as SizeKey[], methods: f.methods as SetMethod[], samePostPrice: f.samePostPrice,
     posts, capCents: cost('cap'), uprightCents: cost('upright'), gate8Cents: cost('gate8'), sections,
     pieces: { picketCents: cost('piece:picket'), rail6Cents: cost('piece:rail:6'), rail8Cents: cost('piece:rail:8'), uTrimCents: cost('piece:uTrim') },
     rivets: f.items.rivet ? { color: f.items.rivet.replace(/^\*Vinyl, (.+), Rivet, 1"$/, '$1'), cents: cost('rivet') } : null,
+    stiffeners,
   }
+}
+
+/**
+ * A color's stiffeners for the form: as saved by the form (Nov 5, 2026 on),
+ * else read from its kits as they are (Chai Gray's 3 picket stiffeners and
+ * White's rail insert per 6x8 section, a copy of White's rail insert in a per
+ * piece color's 6x8), so the form shows and edits what the kits hold.
+ */
+function stiffenersOfColor(st: CatalogState, key: string, color: string, f: VinylColorFormSpec, cost: (role: string) => number | null): NonNullable<VinylColorInput['stiffeners']> {
+  const priceOf = (name: string): number | null => { const it = st.items.find(i => normalizeItemName(i.name) === normalizeItemName(name)); return it && it.unitCost > 0 ? Math.round(it.unitCost * 100) : null }
+  const picketCents = cost('stiffener:picket') ?? priceOf(KIT_PART_NAME.picketStiffener(color))
+  const railCents = cost('stiffener:rail') ?? priceOf(KIT_PART_NAME.railStiffener(color))
+  if (f.stiffeners) {
+    const one = (c: StiffenerCounts | null | undefined, cents: number | null): StiffenerInput | null => c ? { perSection: { ...c.perSection }, perLeaf: c.perLeaf, cents } : null
+    return { picket: one(f.stiffeners.picket, picketCents), rail: one(f.stiffeners.rail, railCents) }
+  }
+  const m = materialOf(st.fenceCatalog, 'vinyl')
+  const styles = stylesOfOption(st.fenceStyles, 'vinyl', colorDimOf(m)?.key ?? '', key).filter(s => s.choices?.height === '6' && s.isActive !== false)
+  const qtyIn = (parts: KitPart[] | undefined, which: 'picket' | 'rail') => (parts ?? []).filter(p => which === 'picket'
+    ? normalizeItemName(p.part) === normalizeItemName(KIT_PART_NAME.picketStiffener(color))
+    : [KIT_PART_NAME.railStiffener(color), RAIL_INSERT_8].some(n => normalizeItemName(n) === normalizeItemName(p.part))).reduce((t, p) => t + p.qty, 0)
+  const read = (which: 'picket' | 'rail'): StiffenerInput | null => {
+    const perSection: Record<string, number> = {}
+    let perLeaf = 0
+    for (const s of styles) {
+      const k = kitSetFor(s.name, st.kits)
+      if (!k || k === 'archived') continue
+      const w = s.choices?.width
+      if (w === 'auto') { perSection['6x6'] ??= qtyIn(k.kits.section, which); perSection['6x8'] ??= qtyIn(k.kits.section8, which) }
+      else if (w === '6' || w === '8') perSection[`6x${w}`] ??= qtyIn(k.kits.section, which)
+      perLeaf = Math.max(perLeaf, qtyIn(k.kits.walkGate, which))
+    }
+    for (const z of f.sizes) if (heightOf(z) === '6') perSection[z] ??= 0
+    return Object.values(perSection).some(v => v > 0) || perLeaf > 0 ? { perSection, perLeaf, cents: which === 'picket' ? picketCents : railCents } : null
+  }
+  return { picket: read('picket'), rail: read('rail') }
 }
 
 /** The kit section counts used by the tests and the confirmation screen: lines per kit of a kit set. */

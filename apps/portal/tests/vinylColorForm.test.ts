@@ -332,7 +332,8 @@ describe('an 8 ft tall color (Jonathan, Oct 21, 2026): the same shape as White, 
     setMaterialPriceSource(null); setSavedKitSets(() => [])
 
     // The edit form reads the prices back; a changed price is set on both fences, dated.
-    const filled = inputFromColor(plan.state, plan.key)!
+    // (Saved without the stiffener fields, as before Nov 5: the kits keep what the section contents say; vinylColorStiffeners.test.ts.)
+    const { stiffeners: _s, ...filled } = inputFromColor(plan.state, plan.key)!
     expect(filled.posts['8']).toEqual({ allCents: 6500 })
     expect(filled.sections['8x8']).toEqual({ costCents: 41250 })
     const edit = planVinylColor(plan.state, { ...filled, sections: { ...filled.sections, '8x8': { costCents: 43000 } } }, { ...opts, today: '2026-11-02', key: plan.key })
@@ -357,7 +358,8 @@ describe('undo, edit, remove (pure)', () => {
 
   test('an edit writes new costs only for what changed, keeps the fences, and the form fills in from the color', () => {
     const plan = planVinylColor(baseState(), CHAI_GRAY, opts)
-    const filled = inputFromColor(plan.state, plan.key)!
+    // Without the stiffener fields (the form before Nov 5); stiffeners: vinylColorStiffeners.test.ts.
+    const { stiffeners: _s, ...filled } = inputFromColor(plan.state, plan.key)!
     expect(filled).toMatchObject({ name: 'Chai Gray', mode: 'section', sizes: ['6x8'], methods: ['nd', 'ds'], samePostPrice: true, capCents: 386, uprightCents: 1336 })
     expect(filled.posts['6']!.allCents).toBe(3892)
     expect(filled.sections['6x8']).toMatchObject({ costCents: 18400, pickets: 15, picketStiffeners: 3 })

@@ -6,12 +6,17 @@
 //
 // Dev only (4001). The form is filled in as Jonathan's Chai Gray was, under a
 // test name (E2E Clay) so the real Chai Gray on dev is left alone: per
-// section, 6x8, $184.00 a section with 15 pickets, 2 rails at 8 ft, 3 picket
-// stiffeners, 1 rail stiffener and 2 U channels, one post price ($38.92), cap
-// $3.86, upright $13.36, ND and DS. Saved: the confirmation lists what it
-// made; the color is in the quote builder's choices; a quote on it prices
-// with the section kit (the section once per section, its parts at $0). Then
-// Undo, and Settings, Inventory, kits and price history are as before.
+// section, 6x8, $184.00 a section with 15 pickets, 2 rails at 8 ft and 2 U
+// channels, one post price ($38.92), cap $3.86, upright $13.36, ND and DS.
+// Stiffeners (Nov 5, 2026) in the Pieces part of the form: picket stiffener
+// ticked at $5.85, 3 a section and 3 a gate leaf; rail stiffener ticked, 1 and
+// 1 (an 8 ft rail's: White's rail insert, priced in Inventory). Saved: the
+// confirmation lists what it made; the color is in the quote builder's
+// choices; a quote on it prices with the section kit (the section once per
+// section, its parts at $0, the stiffeners priced lines); Edit opens with the
+// stiffeners as saved. The real Chai Gray's Edit shows the stiffeners its kits
+// hold (not saved). Then Undo, and Settings, Inventory, kits and price history
+// are as before.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium, webkit } from 'playwright'
@@ -66,10 +71,20 @@ async function run(engine, name, phone) {
     await tap('[data-vc-mode="section"]')
     await tap('[data-vc-size="6x8"]'); await sleep(200)
     const start = {}
-    for (const k of ['pickets', 'rails', 'railFt', 'picketStiffeners', 'railStiffeners', 'uChannels']) start[k] = await page.locator(`[data-vc-count="6x8:${k}"]`).inputValue()
-    check(`${name}: the section's contents start at White's 6x8 section (15 pickets, 2 rails at 8 ft, 1 rail stiffener, 2 U channel)`, JSON.stringify(start) === JSON.stringify({ pickets: '15', rails: '2', railFt: '8', picketStiffeners: '0', railStiffeners: '1', uChannels: '2' }), JSON.stringify(start))
+    for (const k of ['pickets', 'rails', 'railFt', 'uChannels']) start[k] = await page.locator(`[data-vc-count="6x8:${k}"]`).inputValue()
+    check(`${name}: the section's contents start at White's 6x8 section (15 pickets, 2 rails at 8 ft, 2 U channel)`, JSON.stringify(start) === JSON.stringify({ pickets: '15', rails: '2', railFt: '8', uChannels: '2' }), JSON.stringify(start))
+    check(`${name}: stiffeners are not in the section's contents any more`, await page.locator('[data-vc-count="6x8:picketStiffeners"], [data-vc-count="6x8:railStiffeners"]').count() === 0)
     await fill('[data-vc-money="section:6x8"]', '184.00')
-    await fill('[data-vc-count="6x8:picketStiffeners"]', '3')
+    // ── Stiffeners: in Pieces, each ticked with a price and counts ──
+    check(`${name}: Pieces has a picket and a rail stiffener, not ticked`, await page.locator('[data-vc-stiffener-on="picket"]').count() === 1 && await page.locator('[data-vc-stiffener-on="rail"]').count() === 1 && !(await page.locator('[data-vc-stiffener-on="picket"]').isChecked()))
+    await tap('[data-vc-stiffener-on="picket"]'); await sleep(150)
+    await fill('[data-vc-stiffener-price="picket"]', '5.85')
+    await fill('[data-vc-stiffener-count="picket:6x8"]', '3')
+    await fill('[data-vc-stiffener-count="picket:leaf"]', '3')
+    await tap('[data-vc-stiffener-on="rail"]'); await sleep(150)
+    check(`${name}: an 8 ft rail's stiffener is White's rail insert: no price to type, the shared part named`, await page.locator('[data-vc-stiffener-price="rail"]').count() === 0 && /White’s Rail Insert/.test(await page.locator('[data-vc-stiffener="rail"]').textContent()))
+    await fill('[data-vc-stiffener-count="rail:6x8"]', '1')
+    await fill('[data-vc-stiffener-count="rail:leaf"]', '1')
     check(`${name}: one post price unless "same price for all post types" is unticked`, await page.locator('[data-vc-same-post]').isChecked() && await page.locator('[data-vc-money="post:6:all"]').count() === 1)
     await tap('[data-vc-same-post]'); await sleep(150)
     check(`${name}: unticked: four post prices`, await page.locator('[data-vc-money^="post:6:"]').count() === 4)
@@ -94,14 +109,32 @@ async function run(engine, name, phone) {
     const kits = await page.locator('[data-vc-created-kit]').count()
     // 10: the rail stiffener is White's rail insert, already in Inventory (Jonathan, Oct 21).
     check(`${name}: the confirmation lists every catalog item (10), both fences and both kit sets`, listed.length === 10 && styles.join('|') === `${ND}|${DS}` && kits === 2, `${listed.length} items, ${styles.join(', ')}, ${kits} kits`)
-    check(`${name}: …with the section at $184.00 and its parts at $0 (in the section kit)`, listed.some(t => t.includes('Section, 6x8') && t.includes('$184.00')) && listed.filter(t => t.includes('$0 (in the section kit)')).length === 4)
+    check(`${name}: …with the section at $184.00, its parts at $0 (in the section kit) and the picket stiffener at $5.85`, listed.some(t => t.includes('Section, 6x8') && t.includes('$184.00')) && listed.filter(t => t.includes('$0 (in the section kit)')).length === 3 && listed.some(t => t.includes('Picket Stiffener') && t.includes('$5.85')), listed.join(' / '))
     check(`${name}: …and Undo for 24 hours`, await page.locator('[data-vc-created-undo]').count() === 1)
     if (SHOTS) await page.locator('[data-sheet="vinyl-color-created"] > div').screenshot({ path: `${SHOTS}/${phone ? 'e2e-color-created-phone' : 'e2e-color-created'}.png` })
     const s = await snapshot()
     const made = s.bs.config.fenceStyles.filter(x => x.material === 'vinyl' && x.choices?.color === KEY)
     const history = (await api(`/api/vinyl-colors`)).records?.find(r => r.key === KEY)
-    check(`${name}: saved on the server: 2 fences, 2 kit sets, 10 catalog items, 6 dated costs`, made.length === 2 && (s.inv.kits ?? []).filter(k => k.madeFor === TAG).length === 2 && s.inv.items.filter(i => i.madeFor === TAG).length === 10 && history?.created.priceHistoryIds.length === 6)
+    check(`${name}: saved on the server: 2 fences, 2 kit sets, 10 catalog items, 7 dated costs`, made.length === 2 && (s.inv.kits ?? []).filter(k => k.madeFor === TAG).length === 2 && s.inv.items.filter(i => i.madeFor === TAG).length === 10 && history?.created.priceHistoryIds.length === 7, `${history?.created.priceHistoryIds.length} dated costs`)
+    const insertCost = s.inv.items.find(i => i.name.trim() === "Vinyl, Rail Insert, 8'")?.unitCost
     await tap('[data-vc-created-done]'); await sleep(300)
+
+    // ── Edit opens with the stiffeners as saved ──
+    await tap(`[data-vc-edit="${KEY}"]`); await page.waitForSelector('[data-vc-form]')
+    const got = {}
+    for (const k of ['picket:6x8', 'picket:leaf', 'rail:6x8', 'rail:leaf']) got[k] = await page.locator(`[data-vc-stiffener-count="${k}"]`).inputValue()
+    check(`${name}: Edit: both stiffeners ticked, $5.85, 3 and 3, 1 and 1`, await page.locator('[data-vc-stiffener-on="picket"]').isChecked() && await page.locator('[data-vc-stiffener-on="rail"]').isChecked() && await page.locator('[data-vc-stiffener-price="picket"]').inputValue() === '5.85' && JSON.stringify(got) === JSON.stringify({ 'picket:6x8': '3', 'picket:leaf': '3', 'rail:6x8': '1', 'rail:leaf': '1' }), JSON.stringify(got))
+    if (SHOTS) { await page.locator('[data-vc-pieces]').scrollIntoViewIfNeeded(); await page.locator('[data-sheet="vinyl-color-form"] > div').screenshot({ path: `${SHOTS}/${phone ? 'e2e-color-stiffeners-phone' : 'e2e-color-stiffeners'}.png` }) }
+    await tap('[data-sheet-close]'); await sleep(300)
+
+    // ── The real Chai Gray (made before Nov 5): Edit shows what its kits hold; nothing is saved ──
+    if (await page.locator('[data-vc-edit="chai-gray"]').count()) {
+      await tap('[data-vc-edit="chai-gray"]'); await page.waitForSelector('[data-vc-form]')
+      const cg = {}
+      for (const k of ['picket:6x8', 'picket:leaf', 'rail:6x8', 'rail:leaf']) cg[k] = await page.locator(`[data-vc-stiffener-count="${k}"]`).inputValue().catch(() => '')
+      check(`${name}: Chai Gray's Edit shows its 3 picket stiffeners and 1 rail insert, a section and a leaf, and says saving charges them`, await page.locator('[data-vc-stiffener-on="picket"]').isChecked() && JSON.stringify(cg) === JSON.stringify({ 'picket:6x8': '3', 'picket:leaf': '3', 'rail:6x8': '1', 'rail:leaf': '1' }) && /saving charges it/.test(await page.locator('[data-vc-stiffener="picket"]').textContent()), JSON.stringify(cg))
+      await tap('[data-sheet-close]'); await sleep(300)
+    }
 
     // ── In the quote builder now ──
     await page.goto(`${APP}/quotes?quote=new`); await page.waitForSelector('[data-quote-builder]', { timeout: 60000 }); await sleep(800)
@@ -120,9 +153,11 @@ async function run(engine, name, phone) {
     const line = n => (est.pullSheet ?? []).find(l => l.item === n)
     const sec = line(SECTION)
     check(`${name}: the quote prices: 15 section kits (14 sections + the gate leaf) at $184.00, once`, est.price > 0 && sec?.qty === 15 && sec?.unitCost === 184 && (est.pullSheet ?? []).filter(l => l.item === SECTION).length === 1, JSON.stringify(sec))
-    // The rail stiffener in an 8 ft rail is White's rail insert, shared by every color (Jonathan, Oct 21): $0 inside the kit.
-    const kit = [...['Picket', "Rail, 8'", 'Picket Stiffener'].map(p => line(`*Vinyl, ${COLOR}, ${p}`)), line("Vinyl, Rail Insert, 8'"), line(`*Vinyl, ${COLOR}, U Channel`)]
-    check(`${name}: the kit's parts itemized at $0 (225 pickets, 30 rails, 45 picket stiffeners, 15 rail inserts, 30 U channel)`, kit.map(l => l?.qty).join(',') === '225,30,45,15,30' && kit.every(l => l?.total === 0), kit.map(l => `${l?.qty}@${l?.unitCost}`).join(' '))
+    const kit = [...['Picket', "Rail, 8'"].map(p => line(`*Vinyl, ${COLOR}, ${p}`)), line(`*Vinyl, ${COLOR}, U Channel`)]
+    check(`${name}: the kit's parts itemized at $0 (225 pickets, 30 rails, 30 U channel)`, kit.map(l => l?.qty).join(',') === '225,30,30' && kit.every(l => l?.total === 0), kit.map(l => `${l?.qty}@${l?.unitCost}`).join(' '))
+    // Stiffeners: priced lines, 3 and 1 in each of the 15 section kits. The rail insert (White's, shared) at its Inventory price.
+    const ps = line(`*Vinyl, ${COLOR}, Picket Stiffener`), ri = (est.pullSheet ?? []).find(l => l.item.trim() === "Vinyl, Rail Insert, 8'")
+    check(`${name}: 45 picket stiffeners at $5.85 and 15 rail inserts at Inventory's $${insertCost}, priced`, ps?.qty === 45 && ps?.unitCost === 5.85 && ri?.qty === 15 && ri?.unitCost === insertCost && insertCost > 0, `${ps?.qty}@${ps?.unitCost} ${ri?.qty}@${ri?.unitCost}`)
 
     // ── Undo ──
     await page.goto(`${APP}/settings?tab=price_list`); await page.waitForSelector('[data-vinyl-colors]', { timeout: 60000 }); await sleep(600)

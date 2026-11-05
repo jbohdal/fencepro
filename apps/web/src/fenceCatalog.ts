@@ -87,6 +87,9 @@ export interface JobLotQuote {
  * Inventory items' costs, with price history). Its parts, kits and fences
  * are made from it; editing the color fills the form from it.
  */
+/** How many of a stiffener go in each 6 ft tall section ("6x6", "6x8") and in each gate leaf. */
+export interface StiffenerCounts { perSection: Partial<Record<string, number>>; perLeaf: number }
+
 export interface VinylColorFormSpec {
   mode: 'piece' | 'section'
   sizes: string[]
@@ -94,6 +97,8 @@ export interface VinylColorFormSpec {
   samePostPrice: boolean
   /** Per section mode: what each section kit includes, by size ("6x8"). */
   contents?: Record<string, { pickets: number; rails: number; railFt: number; picketStiffeners: number; railStiffeners: number; uChannels: number }>
+  /** Stiffeners priced on their own, counts by size and per gate leaf (vinylColorForm.ts StiffenerInput). Absent: as the kits had them. */
+  stiffeners?: { picket?: StiffenerCounts | null; rail?: StiffenerCounts | null }
   /** The catalog items the form prices, by what they are ("cap", "upright", "section:6x8", "post:6:all:78", ...): item names. */
   items: Record<string, string>
   /** YYYY-MM-DD the color was made. */

@@ -16,8 +16,8 @@ import { BUSINESS_STATE_UPDATED_EVENT } from './businessStateStore'
 import { getInventory, getKitSets, INVENTORY_UPDATED_EVENT } from './inventoryStore'
 import { catalogOf, colorDimOf, colorStatus, materialOf, stylesOfOption, type CatalogState, type ChoiceOption, type InvItem } from './fenceCatalog'
 import {
-  formProblems, inputFromColor, POST_TYPES, SET_METHOD_LABEL, SIZE_KEYS, WHITE_SECTION,
-  type SetMethod, type SizeKey, type VinylColorInput,
+  formProblems, inputFromColor, leafRailFt, POST_TYPES, RAIL_INSERT_8, SET_METHOD_LABEL, SIZE_KEYS, WHITE_SECTION,
+  type SetMethod, type SizeKey, type StiffenerInput, type VinylColorInput,
 } from './vinylColorForm'
 import { TALL_VINYL_SECTION } from './materialCalculator'
 import { addVinylColor, loadColorRecords, removeVinylColor, restoreVinylColor, saveVinylColor, undoVinylColor, type ColorRecord } from './vinylColorsStore'
@@ -187,6 +187,16 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
     }
     return out
   })
+  // Stiffeners: ticked, a price and how many per 6 ft tall section and per gate leaf (Jonathan, Nov 5, 2026).
+  type Stiff = { on: boolean; price: string; counts: Record<string, string> }
+  const stiffStart = (sf: StiffenerInput | null | undefined): Stiff => ({
+    on: !!sf, price: c(sf?.cents),
+    counts: { '6x6': String(sf?.perSection?.['6x6'] ?? ''), '6x8': String(sf?.perSection?.['6x8'] ?? ''), leaf: sf ? String(sf.perLeaf) : '' },
+  })
+  const [stiff, setStiff] = useState<Record<'picket' | 'rail', Stiff>>(() => ({ picket: stiffStart(start?.stiffeners?.picket), rail: stiffStart(start?.stiffeners?.rail) }))
+  // Saved before Nov 5: a per section color's stiffeners were in the section kit at $0.
+  const wasIncluded = useMemo(() => !!editKey && start?.mode === 'section' && !colorDimOf(materialOf(catalogOf(getConfig()), 'vinyl'))?.options.find(o => o.key === editKey)?.color?.form?.stiffeners, [editKey, start])
+  const insertCost = useMemo(() => { const it = getInventory().find(i => i.name.trim() === RAIL_INSERT_8); return it && it.unitCost > 0 ? `$${it.unitCost.toFixed(2)}` : 'no cost yet' }, [])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const heights = [...new Set(sizes.map(s => s.split('x')[0]))].sort()
@@ -198,12 +208,21 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
     const sections: VinylColorInput['sections'] = {}
     for (const s of sizes) {
       const n = (k: string) => toWhole(counts[`${s}:${k}`] ?? '')
-      sections[s] = { costCents: toCents(money[`section:${s}`] ?? ''), ...(mode === 'section' && s.startsWith('6') ? { pickets: n('pickets')!, rails: n('rails')!, railFt: n('railFt')!, picketStiffeners: n('picketStiffeners')!, railStiffeners: n('railStiffeners')!, uChannels: n('uChannels')! } : {}) }
+      // Stiffeners are their own lines now (below): the section kit includes none.
+      sections[s] = { costCents: toCents(money[`section:${s}`] ?? ''), ...(mode === 'section' && s.startsWith('6') ? { pickets: n('pickets')!, rails: n('rails')!, railFt: n('railFt')!, picketStiffeners: 0, railStiffeners: 0, uChannels: n('uChannels')! } : {}) }
+    }
+    const stiffOf = (k: 'picket' | 'rail'): StiffenerInput | null => {
+      const v = stiff[k]
+      if (!v.on) return null
+      const perSection: Record<string, number> = {}
+      for (const z of sizes) if (z.startsWith('6')) { const w = toWhole(v.counts[z] ?? ''); if (w != null) perSection[z] = w }
+      return { cents: toCents(v.price), perSection, perLeaf: toWhole(v.counts.leaf ?? '') ?? NaN }
     }
     return {
       name: name.trim(), mode, sizes: SIZE_KEYS.filter(s => sizes.includes(s)), methods, samePostPrice: same, posts, sections,
       rivets: rivetColor.trim() ? { color: rivetColor.trim(), cents: toCents(money.rivet ?? '') } : null,
       capCents: toCents(money.cap ?? ''), uprightCents: toCents(money.upright ?? ''), gate8Cents: toCents(money.gate8 ?? ''),
+      ...(heights.includes('6') ? { stiffeners: { picket: stiffOf('picket'), rail: stiffOf('rail') } } : {}),
       ...(mode === 'piece' ? { pieces: { picketCents: toCents(money['piece:picket'] ?? ''), rail6Cents: toCents(money['piece:rail6'] ?? ''), rail8Cents: toCents(money['piece:rail8'] ?? ''), uTrimCents: toCents(money['piece:uTrim'] ?? '') } } : {}),
     }
   }
@@ -292,8 +311,6 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
                   {countField(s, 'pickets', 'Pickets')}
                   {countField(s, 'rails', 'Rails')}
                   {countField(s, 'railFt', 'Rail length (ft)')}
-                  {countField(s, 'picketStiffeners', 'Picket stiffeners')}
-                  {countField(s, 'railStiffeners', 'Rail stiffeners')}
                   {countField(s, 'uChannels', 'U channels')}
                 </div>
                 <p className="text-[11px] text-gray-500">Listed on the pull sheet at $0 so the crew loads the right pieces. A gate leaf takes one section kit{sizes.includes('6x6') && s.startsWith('6') ? ' (a 6 × 6)' : ''}.</p>
@@ -302,15 +319,55 @@ function ColorForm({ editKey, onClose, onSaved }: { editKey?: string; onClose: (
           )
         })}
 
-        {mode === 'piece' && heights.includes('6') && (
+        {heights.includes('6') && (
           <div className="rounded-xl border border-gray-200 p-3 space-y-3" data-vc-pieces>
             <p className="text-sm font-semibold text-gray-900">Pieces (6 ft tall)</p>
-            <div className="grid grid-cols-2 gap-3">
-              {moneyField('piece:picket', 'Picket')}
-              {moneyField('piece:uTrim', 'U trim')}
-              {moneyField('piece:rail6', 'Rail, 6 ft', 'Also every gate leaf')}
-              {sizes.includes('6x8') && moneyField('piece:rail8', 'Rail, 8 ft')}
-            </div>
+            {mode === 'piece' && (
+              <div className="grid grid-cols-2 gap-3">
+                {moneyField('piece:picket', 'Picket')}
+                {moneyField('piece:uTrim', 'U trim')}
+                {moneyField('piece:rail6', 'Rail, 6 ft', 'Also every gate leaf')}
+                {sizes.includes('6x8') && moneyField('piece:rail8', 'Rail, 8 ft')}
+              </div>
+            )}
+            {(['picket', 'rail'] as const).map(k => {
+              const v = stiff[k]
+              const set = (next: Partial<Stiff>) => setStiff(x => ({ ...x, [k]: { ...x[k], ...next } }))
+              const six = SIZE_KEYS.filter(z => sizes.includes(z) && z.startsWith('6'))
+              const leafFt = leafRailFt({ mode, sizes, sections: Object.fromEntries(six.map(z => [z, { costCents: null, railFt: toWhole(counts[`${z}:railFt`] ?? '') ?? undefined }])) } as VinylColorInput)
+              const railFtOf = (z: string) => (mode === 'section' ? toWhole(counts[`${z}:railFt`] ?? '') : null) ?? Number(z.split('x')[1])
+              const anySix = k === 'rail' && (six.some(z => railFtOf(z) !== 8) || leafFt !== 8)
+              const anyEight = k === 'rail' && (six.some(z => railFtOf(z) === 8) || leafFt === 8)
+              return (
+                <div key={k} className="rounded-lg border border-gray-100 p-2 space-y-2" data-vc-stiffener={k}>
+                  <label className="flex items-center gap-3 min-h-[44px] text-sm text-gray-800">
+                    <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={v.on} onChange={e => set({ on: e.target.checked })} data-vc-stiffener-on={k} />
+                    {k === 'picket' ? 'Picket stiffener' : 'Rail stiffener'}
+                  </label>
+                  {v.on && (<>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(k === 'picket' || anySix) && (
+                        <label className="block text-xs text-gray-600">{k === 'picket' ? 'Price, each' : 'Price, each (6 ft rail)'}
+                          <span className="mt-1 flex items-center gap-1"><span className="text-gray-500">$</span>
+                            <input className={inputCls} inputMode="decimal" value={v.price} placeholder="0.00" onChange={e => set({ price: e.target.value })} data-vc-stiffener-price={k} />
+                          </span>
+                        </label>
+                      )}
+                      {six.map(z => (
+                        <label key={z} className="block text-xs text-gray-600">Per {z.replace('x', ' × ')} section
+                          <input className={inputCls + ' mt-1'} inputMode="numeric" value={v.counts[z] ?? ''} onChange={e => set({ counts: { ...v.counts, [z]: e.target.value } })} data-vc-stiffener-count={`${k}:${z}`} />
+                        </label>
+                      ))}
+                      <label className="block text-xs text-gray-600">Per gate leaf
+                        <input className={inputCls + ' mt-1'} inputMode="numeric" value={v.counts.leaf ?? ''} onChange={e => set({ counts: { ...v.counts, leaf: e.target.value } })} data-vc-stiffener-count={`${k}:leaf`} />
+                      </label>
+                    </div>
+                    {anyEight && <p className="text-[11px] text-gray-500">In an 8 ft rail it is White’s Rail Insert, 8 ft ({insertCost} each in Inventory, the same part for every color).</p>}
+                    <p className="text-[11px] text-gray-500">Its own line on the pull sheet and in the cost, at these counts.{wasIncluded ? ' Until now it was in the section kit at $0: saving charges it at this price.' : ''}</p>
+                  </>)}
+                </div>
+              )
+            })}
           </div>
         )}
 
