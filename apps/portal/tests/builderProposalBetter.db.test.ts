@@ -29,10 +29,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('builder Better = proposal Better
   const runs = [12, 50, 112, 50, 12]
   const STYLE = 'WV-Auto ND Privacy'
 
+  // Good and Better at "whichever width prices lower", as these checks were written: Jonathan set them to 8 ft
+  // on Nov 2 2026 (Settings → Good / Better / Best), so they read the set that way instead of as saved
+  // (tests/mixedOptions.db.test.ts checks the set as saved).
+  const cheapestWidths = (s: any) => (s ? { ...s, tiers: s.tiers.map((t: any) => (t.key === 'best' ? t : { ...t, width: 'cheapest' })) } : s)
+
   async function setup() {
     const { m, data } = await pricingWithData()
     const sets = (await prisma.proposalTierSet.findMany({})).map(r => ({ category: r.category, tiers: r.tiers as any[], popular: r.popular }))
-    const tierSet = sets.find(s => s.category.trim().toLowerCase() === 'vinyl') ?? null
+    const tierSet = cheapestWidths(sets.find(s => s.category.trim().toLowerCase() === 'vinyl') ?? null)
     const req = {
       fenceStyle: STYLE, runs: runs.map(ft => ({ ft, rail: 'auto' as const })), corners: runs.length - 1, ends: 2, walkGates: 1, dblGates: 0,
       tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: true, priceAdjust: 0, overrides: {}, jobType: 'new' as const,

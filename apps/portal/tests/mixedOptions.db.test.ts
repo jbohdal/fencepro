@@ -34,7 +34,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
   const ALUM = 'Alum - ND - Emily - 48', CHAIN = "CL - 4' Galv", VINYL = 'WV-Auto ND Privacy', WOOD = 'wood/stockade/6/pine/ds/8'
   const RUNS = [25, 33, 57, 14]
   let accountId = '', data: any, m: any, sets: any[] = []
-  const setOf = (c: string) => sets.find(s => s.category === c)
+  // Vinyl's Good and Better at "whichever width prices lower", as the vinyl checks were written (Jonathan set them
+  // to 8 ft on Nov 2 2026; the set as saved is checked on its own below).
+  const setOf = (c: string) => { const s = sets.find(x => x.category === c); return c === 'Vinyl' && s ? { ...s, tiers: s.tiers.map((t: any) => (t.key === 'best' ? t : { ...t, width: 'cheapest' })) } : s }
+  const savedSetOf = (c: string) => sets.find(s => s.category === c)
 
   const request = (fenceStyle: string, tierSet: any, tierPrefs: any = { off: [], swap: {} }, extra: any = {}) => ({
     fenceStyle, runs: RUNS.map(ft => ({ ft, rail: 'auto' as const })), corners: 2, ends: 4, walkGates: 1, dblGates: 1, gateWidths: { walk: [4], dbl: [8] },
@@ -209,6 +212,24 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(signedPricing(q, { costFactor: 0.6, otherMaterial: true, roundingCents: 12 })).toEqual({ pricing: { costFactor: 0.6, overheadPct: 30, wholeDollar: true, roundingCents: 12 } })
     expect(signedPricing(q, { roundingCents: 12 })).toEqual({ pricing: { ...q.pricing, wholeDollar: true, roundingCents: 12 } })
     expect(signedPricing({ pricing: q.pricing }, {})).toEqual({})
+  })
+
+  test('Vinyl Good / Better / Best as saved: a tier at a fixed width is that width\'s fence at its own price; a best price quote keeps its own card', () => {
+    const saved = savedSetOf('Vinyl')
+    expect(saved, 'the dev database has a vinyl Good / Better / Best').toBeTruthy()
+    const j = job(request(VINYL, saved))
+    for (const t of saved!.tiers as any[]) {
+      if (!/^\d+$/.test(String(t.width))) continue
+      const card = cardOf(j, t.key)
+      expect(card.fenceStyle, t.key).toMatch(new RegExp(`${t.install === 'dig-set' ? 'DS' : 'ND'} 6'x${t.width}'`))
+      // Its price is that fence priced on its own for the same yard.
+      expect(Math.round(card.finalPrice * 100), t.key).toBe(Math.round(job(request(card.fenceStyle, null)).totals.price * 100))
+    }
+    // The quote's own best price fence is none of them: it stays its own card at the quote's price.
+    if (!(saved!.tiers as any[]).some(t => t.width === 'cheapest' && t.install === 'no-dig')) {
+      expect(j.ownTierKey).toBeNull()
+      expect(j.proposalOptions.some((o: any) => !o.tier && o.fenceStyle === VINYL)).toBe(true)
+    }
   })
 
   test('the minimum job price lifts every option, on the server, and nothing above it moves', () => {

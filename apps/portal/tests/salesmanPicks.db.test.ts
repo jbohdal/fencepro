@@ -17,6 +17,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s picks, priced on
   const { redactCosts, hideFor } = await import('../src/server/lib/costRedact.js')
 
   const runs = [20, 95, 128, 95, 20]
+
+  // Good and Better at "whichever width prices lower", as these checks were written: Jonathan set them to 8 ft
+  // on Nov 2 2026 (Settings → Good / Better / Best), so they read the set that way instead of as saved
+  // (tests/mixedOptions.db.test.ts checks the set as saved).
+  const cheapestWidths = (s: any) => (s ? { ...s, tiers: s.tiers.map((t: any) => (t.key === 'best' ? t : { ...t, width: 'cheapest' })) } : s)
   const request = (fenceStyle: string, extra: Record<string, unknown> = {}) => ({
     fenceStyle, runs: runs.map(ft => ({ ft, rail: 'auto' as const })), corners: 4, ends: 2, walkGates: 1, dblGates: 1,
     tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: true, priceAdjust: 0, overrides: {}, jobType: 'new' as const, ...extra,
@@ -25,7 +30,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s picks, priced on
   test('the cheapest width of her fence is Better\'s fence at Better\'s price; each fence once in her lists', async () => {
     const { m, data } = await pricingWithData()
     const sets = (await prisma.proposalTierSet.findMany({})).map(r => ({ category: r.category, tiers: r.tiers as any[], popular: r.popular }))
-    const tierSet = sets.find(s => s.category.trim().toLowerCase() === 'vinyl') ?? null
+    const tierSet = cheapestWidths(sets.find(s => s.category.trim().toLowerCase() === 'vinyl') ?? null)
     const ways = ['WV-Auto ND Privacy', "WV-ND 6'x6' Privacy", "WV-ND 6'x8' Privacy"]
     const first = m.quoteView(m.quoteJobFor(data, request(ways[0], { widthWays: ways, oneWidth: true, tierSet, tierPrefs: { off: [], swap: {} } })))
     expect(ways).toContain(first.cheapest)

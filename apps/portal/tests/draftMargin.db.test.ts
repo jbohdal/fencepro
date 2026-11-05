@@ -13,6 +13,7 @@
 import 'dotenv/config'
 import { describe, test, expect } from 'vitest'
 import { estimateConfig, draftMarginFor } from '../../web/src/estimate'
+import { earnedProfitPct } from '../../web/src/targetMargin'
 import { calculateQuote } from '../../web/src/quoteCalc'
 import { keepsCents } from '../../web/src/pricingEngine'
 import { setMaterialPriceSource, inventoryPriceSource } from '../../web/src/materialCalculator'
@@ -82,8 +83,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('unsent drafts take today’s Tar
       console.log(`[draft margin] Dig set Target Profit ${dsNow}% → ${tryPct}% (in memory): ${rows.length} drafts would price differently on open:\n${rows.join('\n')}`)
       console.log(`[draft margin] ${unsent.length} unsent drafts: ${stampable.length} saved before the rule at today's Settings margin (they would follow once saved again, or stamped); ${keep.length} keep their own (typed, another price method, a move or repair, or a margin Settings no longer gives).`)
       console.log(`[draft margin] if those ${stampable.length} were stamped, Dig set ${dsNow}% → ${tryPct}% would change ${stampRows.length}:\n${stampRows.join('\n')}`)
-      // Settings as saved: only an overhead change since a draft was saved moves it (overhead follows, Nov 3 2026).
-      expect(today.filter((q: any) => { const d = draftMarginFor(business.config, q)!; return d.profitPct !== d.wasProfitPct }).map((q: any) => q.id)).toEqual([])
+      // Settings as saved: a draft takes another Target Profit only when Settings give its fence another one now
+      // (Jonathan changed No dig 14% → 17% on Nov 5 2026: 18 drafts saved before it); never a sent, signed or sold quote.
+      const moved = today.filter((q: any) => { const d = draftMarginFor(business.config, q)!; return d.profitPct !== d.wasProfitPct })
+      console.log(`[draft margin] Settings as saved: ${moved.length} unsent drafts take today's Target Profit on open`)
+      for (const q of moved) {
+        const d = draftMarginFor(business.config, q)!
+        expect(isUnsentDraft(q), q.id).toBe(true)
+        expect(d.profitPct, q.id).toBe(earnedProfitPct(styleNow(q)!))
+        expect(d.wasProfitPct, q.id).not.toBe(d.profitPct)
+      }
       expect(rows.every(r => r.split(' | ')[1] === 'DRAFT')).toBe(true)
     } finally {
       setMaterialPriceSource(null)
