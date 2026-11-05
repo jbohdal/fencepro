@@ -143,6 +143,8 @@ export function styleParts(name: string, style?: { material?: string; choices?: 
   const install = c.install === 'nd' ? 'no-dig' : c.install === 'ds' ? 'dig-set' : null
   // Wood (wood.ts) is made from choices, never from a code: style is the model, the picket grade the "color".
   if (style.material === 'wood') return { family: 'wood', color: c.picket ?? null, install, height: c.height ?? '', width: c.width ? Number(c.width) : null, model: c.style }
+  // Two tone vinyl (twoTone.ts): a vinyl fence of its own model; frame and infill together its "color".
+  if (style.material === 'twotone') return { family: 'vinyl', color: c.frame && c.infill ? `${c.frame}+${c.infill}` : null, install, height: c.height ?? '6', width: c.width === 'auto' ? 'auto' : Number(c.width), model: 'twotone' }
   // Farm fence (farm.ts, Nov 5 2026): the style is the model; wire and post together are its "color" (a grade:
   // hutch-5, redbrand-6), so a tier swaps both (Good = Hutchison + 5", Better = Red Brand + 6").
   if (style.material === 'farm') return { family: 'farm', color: c.wire && c.post ? `${c.wire}-${c.post}` : null, install: null, height: '', width: null, model: c.style }

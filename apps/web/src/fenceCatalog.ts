@@ -35,6 +35,7 @@ import { inventoryCost, isVinylPostPart, normalizeItemName, sectionWidthForStyle
 import { kitSetFor, KIT_KINDS, KIT_LABEL, PIECE_OF_KIT, type KitKind, type KitPart, type KitSet } from './materialKits'
 import { WOOD_MATERIAL } from './wood'
 import { FARM_MATERIAL } from './farm'
+import { oneColorFence, setTwoTonePairs, twoToneOf, TWO_TONE } from './twoTone'
 import { followedRates, type RateDefaults } from './fenceRates'
 
 // ── The tree ─────────────────────────────────────────────────────────────────
@@ -576,6 +577,16 @@ export function partsWaitingForPrice(styleName: string, price: PriceFn = invento
  * priced yet), its color's Target Profit % and job lot prices.
  */
 export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, price: PriceFn = inventoryCost, kitOf: KitFn = n => kitSetFor(n)): FenceStyle[] {
+  // Two tone vinyl: each fence's frame and infill one color fence, so its kit is read from theirs (twoTone.ts).
+  const pairs = new Map<string, { frame: string; infill: string }>()
+  for (const s of styles) {
+    const t = s.material === TWO_TONE ? twoToneOf(s.name) : null
+    if (!t) continue
+    const f = oneColorFence(styles, t.frame, t.install, t.width, x => styleChoicesOf(x))
+    const i = oneColorFence(styles, t.infill, t.install, t.width, x => styleChoicesOf(x))
+    if (f && i) pairs.set(s.name, { frame: f.name, infill: i.name })
+  }
+  setTwoTonePairs(pairs)
   const next = new Map<string, string>()
   const statusCache = new Map<string, ColorStatus>()
   const out = styles.map(raw => {
@@ -630,6 +641,18 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
         const left = partsWaitingForPrice(s.name, price, kitOf)
         if (left.length) why.push(`${m.label} is waiting for prices on ${left.length} part${left.length === 1 ? '' : 's'} in Inventory`)
       }
+    }
+    // Two tone vinyl (Nov 5 2026): held until both its colors' fences are on and every part has a price, saying which.
+    if (sc.material === TWO_TONE) {
+      const t = twoToneOf(s.name)
+      const set = kitOf(s.name)
+      if (!t || !set || set === 'archived') why.push('its frame or infill color has no one color fence on for quoting at this size and set method')
+      else {
+        const left = partsWaitingForPrice(s.name, price, kitOf)
+        if (left.length) why.push(`waiting for prices on ${left.join('; ')}`)
+      }
+      const other = (key: string) => styles.find(x => x.name === key)
+      for (const n of Object.values(t ? (pairs.get(s.name) ?? {}) : {})) { const o = other(n as string); if (o && o.quotable === false) why.push(`${o.label || o.name} is switched off`) }
     }
     // Farm fence: no price without labor (Jonathan, Nov 5 2026): held until a sub rate per foot is set in Fence
     // Styles, on the fence itself or on the Farm material or one of its choices.

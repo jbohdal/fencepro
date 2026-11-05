@@ -49,6 +49,22 @@ export { planTanAutoDs } from './tanAutoDs'
 export { planTanAutoNd } from './tanAutoNd'
 // The server's farm fence seed (lib/farmSeed.ts).
 export { planFarm, planFarmGates } from './farm'
+import { planTwoTone as planTwoToneRaw } from './twoTone'
+/**
+ * Two tone vinyl in step with a company's colors (twoTone.ts planTwoTone; the server's lib/twoToneSeed.ts): the
+ * two tone material and a fence per pair, size and method, copying the frame fence's labor and the Target Profit it
+ * follows now. Pure: returns the Settings changed.
+ */
+export function planTwoToneFor(saved: Partial<AppConfig>): { config: Partial<AppConfig>; added: string[]; catalog: boolean } {
+  const catalog = JSON.parse(JSON.stringify(catalogOf(saved as AppConfig)))
+  const styles = (saved.fenceStyles ?? []) as FenceStyle[]
+  const followed = followedRatesByStyle(saved)
+  const plan = planTwoToneRaw({ fenceStyles: styles, fenceCatalog: catalog }, s => styleChoicesOf(s), s => {
+    const f = followed[s.name]?.targetProfitPct?.value
+    return typeof s.targetProfitPct === 'number' && (s as { ownProfit?: boolean }).ownProfit ? s.targetProfitPct : typeof f === 'number' ? f : s.targetProfitPct
+  })
+  return { config: { ...saved, fenceStyles: plan.state.fenceStyles, fenceCatalog: plan.state.fenceCatalog }, added: plan.added, catalog: plan.catalog }
+}
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
 // Tan 8 ft tall vinyl, the four styles (lib/tanTallSeed.ts).

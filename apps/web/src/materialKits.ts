@@ -39,6 +39,7 @@ import {
 } from './materialCalculator'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
 import { farmGates, packWireRolls, rollPlanText } from './farm'
+import { twoTonePair, twoToneKitSet } from './twoTone'
 
 export const KIT_KINDS = [
   'corner', 'end', 'line', 'blank', 'gatePost', 'section', 'section8', 'sectionPair', 'perFoot', 'perJob', 'walkGate', 'dblGate',
@@ -589,6 +590,13 @@ export function kitSetFor(styleName: string, sets: KitSet[] = saved()): KitSet |
   const active = mine.find(s => !s.archived)
   if (active) return active
   if (mine.length) return 'archived'
+  // Two tone vinyl (twoTone.ts): the frame fence's kit with the infill fence's pickets, U trim and picket stiffeners, read live.
+  const pair = twoTonePair(styleName)
+  if (pair) {
+    const frame = kitSetFor(pair.frame, sets), infill = kitSetFor(pair.infill, sets)
+    if (!frame || frame === 'archived' || frame.mismatch || !infill || infill === 'archived' || infill.mismatch) return null
+    return twoToneKitSet(styleName, frame, infill)
+  }
   return builtInKitSet(styleName)
 }
 
