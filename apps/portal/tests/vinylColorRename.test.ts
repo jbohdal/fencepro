@@ -78,4 +78,16 @@ describe('rename a color', () => {
     expect(() => planVinylColor(made.state, { ...input, name: 'White' }, { ...opts, key: 'slate-p' })).toThrow(/already a vinyl color/)
     expect(planVinylColor(made.state, { ...input, name: '' }, { ...opts, key: 'slate-p' }).renamed).toBeNull()
   })
+
+  test('after the rename: the old Dark Gray cannot be brought back beside it, and no new color takes a name parts carry', () => {
+    const made = live()
+    const renamed = planVinylColor(made.state, { ...inputFromColor(made.state, 'dark-gray-p')!, name: 'Dark Gray' }, { ...opts, key: 'dark-gray-p' }).state
+    expect(() => planArchiveVinylColor(renamed, 'dark-gray', false)).toThrow(/Another color is called Dark Gray now/)
+    // "Dark Gray p" is still the name the renamed color's parts carry; "Dark Gray" is taken (in use).
+    expect(() => planVinylColor(renamed, piece('Dark Gray p'), opts)).toThrow(/is the name Dark Gray's parts carry/)
+    expect(() => planVinylColor(renamed, piece('Dark Gray'), opts)).toThrow(/There is already a vinyl color called Dark Gray/)
+    // Before any rename, an archived color's name: its parts carry it.
+    const old = planArchiveVinylColor(planVinylColor(baseState(), piece('Slate'), opts).state, 'slate', true).state
+    expect(() => planVinylColor(old, piece('Slate'), opts)).toThrow(/the archived Slate's parts carry/)
+  })
 })

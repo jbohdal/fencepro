@@ -373,6 +373,12 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
   const oldLabel = opt?.label ?? null
   const taken = dim.options.filter(o => !o.archived && o.key !== opts.key).map(o => o.label)
   const problems = formProblems(input, { taken })
+  // A new color makes its parts from its name: never a name another color's parts carry (an archived one's, or a renamed one's first name).
+  if (!opt) {
+    const nm = input.name.trim().toLowerCase()
+    const holder = dim.options.find(o => o.color?.form && (o.color.form.partName ?? o.label).trim().toLowerCase() === nm)
+    if (holder && !taken.some(t => t.trim().toLowerCase() === nm)) problems.push(`${input.name.trim()} is the name ${holder.archived ? `the archived ${holder.label}'s` : `${holder.label}'s`} parts carry in Inventory. ${holder.archived ? 'Bring it back instead, or pick another name.' : 'Pick another name.'}`)
+  }
   if (problems.length) throw new Error(problems.join(' '))
   const label = input.name.trim()
   // The name the color's parts carry: the one it was made with, kept through a rename.
@@ -642,6 +648,8 @@ export function planArchiveVinylColor(st0: CatalogState, key: string, archive: b
   if (!m || !dim || !opt?.color?.form) throw new Error('That color was not made by the Vinyl Colors form.')
   const tag = madeForTag('vinyl', dim.key, key)
   const form = opt.color.form
+  // Bring back: not while another color in use has its name (two "Dark Gray"s in the quote builder).
+  if (!archive && dim.options.some(o => o.key !== key && !o.archived && o.label.trim().toLowerCase() === opt.label.trim().toLowerCase())) throw new Error(`Another color is called ${opt.label} now. Rename one of them first.`)
   if (archive) opt.archived = true; else delete opt.archived
   const styles: string[] = []
   for (const s of stylesOfOption(st.fenceStyles, 'vinyl', dim.key, key)) {
