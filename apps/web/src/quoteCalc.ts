@@ -79,8 +79,6 @@ export interface QuoteCalcInput {
   dblGates: number
   /** Each gate's width in feet, from the drawing (yardLayout.ts gateWidthsOf): chain link gate leaves go by width. */
   gateWidths?: GateWidths | null
-  /** Farm fence wire rolls (Nov 5 2026): 'splice' (default) or 'clean' corners (a new roll at each corner). */
-  rollJoin?: 'splice' | 'clean' | null
   tearOutSections: number
   tearOutGates: number
   extraLaborHrs: number
@@ -241,8 +239,6 @@ export function calculateQuote(input: QuoteCalcInput): QuoteCalc {
           ...(input.gateWidths ? { gateWidths: input.gateWidths } : {}),
           // A style made in Settings, and farm fence (its target spacing, 8 or 7.5 ft): its kits are counted at its own section width (old styles: by their code, as always).
           ...(style.madeFrom || style.material === 'farm' ? { sectionWidth: width } : {}),
-          // Farm fence wire rolls: splice (default) or clean corners, the quote's choice.
-          ...(style.material === 'farm' && input.rollJoin === 'clean' ? { rollJoin: 'clean' as const } : {}),
         })
   }
   const materialCost = totalMaterialCost(materials.items)

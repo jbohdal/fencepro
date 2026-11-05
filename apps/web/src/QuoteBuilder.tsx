@@ -584,8 +584,6 @@ export default function QuoteBuilder({
   const [dblGates, setDblGates]         = useState(init?.dblGates ?? 0)
   // The typed run list's gate widths in feet: kept from the drawing when "Advanced: type runs" is opened
   // (a 10 ft double gate stays two 5 ft leaves), or as the saved typed quote kept them. Absent: 4 ft / 8 ft.
-  // Farm fence wire rolls (Nov 5 2026): spliced (default) or clean corners, kept with the quote's layout.
-  const [rollJoin, setRollJoin] = useState<'splice' | 'clean'>(() => ((init?.layout as { rollJoin?: string } | null | undefined)?.rollJoin === 'clean' ? 'clean' : 'splice'))
   const [typedGateWidths, setTypedGateWidths] = useState<{ walk: number[]; dbl: number[] }>(() =>
     !init?.layout?.yard && init?.layout?.gateWidths ? fitGateWidths(init.layout.gateWidths, init.walkGates ?? 0, init.dblGates ?? 0) : { walk: [], dbl: [] })
   const [tearOutSec, setTearOutSec]     = useState(init?.tearOutSections ?? 0)
@@ -813,7 +811,6 @@ export default function QuoteBuilder({
     ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     ...(effTees ? { tees: effTees } : {}),
-    ...(rollJoin === 'clean' ? { rollJoin } : {}),
     // Every option is lifted to the minimum job price (proposal.ts priceOption).
     ...(jobType === 'new' && mr.minimumAppliesToNew && mr.minimumJobCents > 0 ? { minimumCents: mr.minimumJobCents } : {}),
     tearOutSections: tearOutSec, tearOutGates,
@@ -875,7 +872,6 @@ export default function QuoteBuilder({
     ...(effGateWidths ? { gateWidths: effGateWidths } : {}),
     ...(effTeeLines ? { extraLinePosts: effTeeLines } : {}),
     ...(effTees ? { tees: effTees } : {}),
-    ...(rollJoin === 'clean' ? { rollJoin } : {}),
     tearOutSections: tearOutSec, tearOutGates, extraLaborHrs: parseFloat(adjLaborHrs) || 0, hasSalesman, priceAdjust,
     ...(sentSlider ? { sliderOn: sentSlider } : {}),
     overrides: pricingOverrides, jobType,
@@ -1352,7 +1348,7 @@ export default function QuoteBuilder({
         : undefined,
       // The yard as drawn, and each run's sections, so the quote redraws and
       // the crew sees post spacing exactly as priced.
-      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}), ...(rollJoin === 'clean' ? { rollJoin } : {}) },
+      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}) },
       corners: effCorners,
       ends: effEnds,
       walkGates: effWalk,
@@ -2365,7 +2361,7 @@ export default function QuoteBuilder({
               {seesMargin && !heldSaved && <DollarPickets price={adjPrice} materials={materialCost} labor={laborCost + tearOutCost} commission={showCommission ? commAmt : 0} overheadPct={overheadNow} roundingCents={roundingCents} adjustmentCents={adjApplied} category={style?.category ?? null} />}
 
               {/* Farm fence: each run's spans and spacing, wire rolls, the crossbuck X helper (staff only; FarmRunsPanel.tsx). */}
-              {jobType === 'new' && <FarmRunsPanel style={style} runs={effRuns.map(r => r.ft)} rollJoin={rollJoin} onRollJoin={setRollJoin} />}
+              {jobType === 'new' && <FarmRunsPanel style={style} runs={effRuns.map(r => r.ft)} />}
 
               {quoteWarnings.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5">
@@ -2679,6 +2675,7 @@ export default function QuoteBuilder({
                     <div key={i} className="flex items-start justify-between text-xs py-1.5 border-b border-gray-100 last:border-0">
                       <div className="flex-1 pr-2">
                         <p className="text-gray-800 font-medium leading-tight">{partWithPair(item.item)}</p>
+                        {item.note && <p className="text-xs text-gray-500 leading-snug" data-pull-note>{item.note}</p>}
                         <p className="text-gray-400 mt-0.5">{!internal ? `${item.qty}` : `${item.qty} × ${fmt(item.unitCost)}`}</p>
                       </div>
                       {internal && <span className="text-gray-900 font-semibold whitespace-nowrap">{fmt(item.total)}</span>}

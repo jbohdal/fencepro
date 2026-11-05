@@ -38,6 +38,7 @@ import {
   type StyleJobLot,
 } from './materialCalculator'
 import { sectionsForRun, calculateLinePostsPerRun } from './sectionCount'
+import { farmGates, packWireRolls, rollPlanText } from './farm'
 
 export const KIT_KINDS = [
   'corner', 'end', 'line', 'blank', 'gatePost', 'section', 'section8', 'sectionPair', 'perFoot', 'perJob', 'walkGate', 'dblGate',
@@ -368,15 +369,29 @@ export function kitStyleNote(sets: Array<Pick<KitSet, 'archived'>>): string {
 }
 
 /** Each kit times how many the job has, added up per part; rounded up once per job where the set says so. */
+/** A farm fence kit set (farm.ts): its wire is fitted run by run and its gates go by opening width. */
+export const isFarmSet = (set: Pick<KitSet, 'madeFor' | 'styleName'>) => set.madeFor === 'farm' || /^farm\//.test(set.styleName ?? '')
+const GATE_KINDS_ALL: KitKind[] = ['walkGate', 'dblGate', 'walkGate5', 'walkGate6', 'dblGate10', 'dblGate12']
+
 export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
   const counts = withGatePosts(set, counts0)
+  const farm = isFarmSet(set)
   const totals = new Map<string, { qty: number; cost: number }>()
   for (const kind of KIT_KINDS) {
     const n = counts[kind]
     if (!n) continue
+    // Farm fence gates are not kit lines: below, by each opening's width.
+    if (farm && GATE_KINDS_ALL.includes(kind)) continue
     for (const p of withoutBellStandIns(set, kitParts(set, kind))) {
       const was = totals.get(p.part)
       totals.set(p.part, { qty: (was?.qty ?? 0) + p.qty * n, cost: was?.cost || p.fallbackCost })
+    }
+  }
+  // Farm fence gates (Jonathan, Nov 5 2026): one tube gate of the full opening width, wider than the widest a double.
+  if (farm && counts.gateOpenings?.length) {
+    for (const g of farmGates(counts.gateOpenings, p => inventoryCost(p) !== undefined).lines) {
+      const was = totals.get(g.part)
+      totals.set(g.part, { qty: (was?.qty ?? 0) + g.qty, cost: was?.cost || 0 })
     }
   }
   // Pieces added to a sold job (counts.exact): nothing rounded up, the share these pieces use.
@@ -384,27 +399,27 @@ export function linesFromKitSet(set: KitSet, counts0: KitCounts): KitLine[] {
   return [...totals].map(([part, t]) => {
     const exact = Math.round(t.qty * 1e6) / 1e6
     if (!up.has(part)) return { part, qty: exact, fallbackCost: t.cost }
-    // Wire rolls with clean corners (farm fence): a new roll at every corner, each run rounded up.
-    const byRun = cleanCornerRolls(set, part, counts)
-    if (byRun !== null) return { part, qty: byRun, fallbackCost: t.cost }
+    // Farm fence wire: every run one piece, fitted into the fewest rolls; the pull sheet says which runs come from which roll.
+    const byRun = farm ? farmWireRolls(set, part, counts) : null
+    if (byRun !== null) return { part, qty: byRun.qty, fallbackCost: t.cost, note: byRun.note }
     const byFoot = fabricByFoot(set, part, counts)
     return { part, qty: byFoot === null ? Math.ceil(exact) : Math.round((Math.ceil(Math.round((exact - byFoot) * 1e6) / 1e6) + byFoot) * 1e6) / 1e6, fallbackCost: t.cost }
   })
 }
 
 /**
- * Clean corners (KitCounts.rollJoin 'clean', farm fence): a per foot part
- * rounded up to whole rolls, run by run (sum of ceil(run × rolls a foot)),
- * plus anything other kits add. Null when splicing (the job's feet rounded up
- * once), or for a part with no per foot kit line.
+ * Farm fence wire (Jonathan, Nov 5 2026): a per foot part sold in rolls (its
+ * per foot quantity is 1 ÷ the roll length), each run one continuous piece,
+ * fitted into the fewest rolls (farm.ts packWireRolls), plus anything other
+ * kits add; and the pull sheet's words. Null for a part with no per foot line.
  */
-function cleanCornerRolls(set: Pick<KitSet, 'kits'>, part: string, counts: KitCounts): number | null {
-  if (counts.rollJoin !== 'clean' || !counts.perFootRuns?.length || counts.exact) return null
+function farmWireRolls(set: Pick<KitSet, 'kits'>, part: string, counts: KitCounts): { qty: number; note: string } | null {
+  if (!counts.perFootRuns?.length || counts.exact) return null
   const perFt = (set.kits.perFoot ?? []).filter(p => p.part === part).reduce((t, p) => t + p.qty, 0)
-  if (!perFt) return null
-  const rolls = counts.perFootRuns.reduce((t, ft) => t + Math.ceil(Math.round(ft * perFt * 1e6) / 1e6), 0)
+  if (!(perFt > 0)) return null
+  const plan = packWireRolls(counts.perFootRuns, Math.round(1 / perFt * 100) / 100)
   const other = KIT_KINDS.filter(k => k !== 'perFoot').reduce((t, k) => t + (counts[k] ?? 0) * kitParts(set, k).filter(p => p.part === part).reduce((a, p) => a + p.qty, 0), 0)
-  return rolls + Math.ceil(Math.round(other * 1e6) / 1e6)
+  return { qty: plan.rolls.length + Math.ceil(Math.round(other * 1e6) / 1e6), note: rollPlanText(plan) }
 }
 
 /**
@@ -602,8 +617,11 @@ setKitEngine((styleKey, counts, notes, jobLot) => {
   if (set === 'archived') return { lines: [], warnings: [`"${styleKey}" has no material kit in use (its kits are archived in Inventory > Material Kits), so no fence material is included.`] }
   if (set.mismatch) return null
   // A gate width the takeoff sheet has no row for, on a style whose gates go by width (chain link).
-  const gateNote = counts.gateNotes?.length && WIDTH_KINDS.some(k => set.kits[k]?.length)
-    ? [`No takeoff sheet row for ${counts.gateNotes.join('; ')}. Check the gate parts.`] : []
+  // Farm fence gates go by any width (farmGates): only an opening too wide for two of the widest gates is said.
+  const farm = isFarmSet(set)
+  const gateNote = farm ? (counts.gateOpenings?.length ? farmGates(counts.gateOpenings, p => inventoryCost(p) !== undefined).notes : [])
+    : counts.gateNotes?.length && WIDTH_KINDS.some(k => set.kits[k]?.length)
+      ? [`No takeoff sheet row for ${counts.gateNotes.join('; ')}. Check the gate parts.`] : []
   if (jobLot) return { lines: linesFromKitSetJobLot(set, counts, jobLot), warnings: gateNote }
   // Notes about new or unconfirmed parts lists stay until a kit is saved (checked) by Jonathan.
   return { lines: linesFromKitSet(set, counts), warnings: [...(set.builtIn ? notes() : []), ...gateNote] }

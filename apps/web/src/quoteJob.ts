@@ -41,8 +41,6 @@ export interface QuoteJobRequest {
   gateWidths?: GateWidths | null
   /** The saved drawing, when the request comes from a saved quote: its gate widths are read from it when `gateWidths` is not sent. */
   yard?: YardLayout | null
-  /** Farm fence wire rolls: 'clean' corners (a new roll at each corner); absent: spliced. */
-  rollJoin?: 'splice' | 'clean' | null
   tearOutSections: number
   tearOutGates: number
   extraLaborHrs: number
@@ -162,7 +160,6 @@ export function priceQuoteJob(cfg: AppConfig, req: QuoteJobRequest, overheadPct:
     gateWidths: req.gateWidths ?? gateWidthsOf(req.yard),
     ...(req.extraLinePosts ? { extraLinePosts: req.extraLinePosts } : {}),
     ...(req.tees ? { tees: req.tees } : {}),
-    ...(req.rollJoin === 'clean' ? { rollJoin: 'clean' as const } : {}),
     tearOutSections: req.tearOutSections, tearOutGates: req.tearOutGates, extraLaborHrs: req.extraLaborHrs,
     hasSalesman: req.hasSalesman, priceAdjust: req.priceAdjust, pricing: cfg.pricing, overrides: req.overrides,
     ...(req.jobType === 'new' && Array.isArray(req.sliderOn) ? { sliderOn: req.sliderOn } : {}),

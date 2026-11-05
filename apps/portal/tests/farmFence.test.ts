@@ -3,8 +3,10 @@
  * cent: materials only, at shelf price (no tax, no discount), 6" posts $29.99,
  * boards $19.99, Red Brand $414.99, through the quote builder's own math
  * (calculateQuote, the farm kits). Parts he has not priced are $0 here.
- * Then the quantity break, clean corners, the run math the staff see, the
- * X spacing helper, and the one-time step that adds farm fence.
+ * Test E's wire follows his second rule (Nov 5 2026: every run one piece,
+ * fitted into the fewest rolls, no splice mode): 6 rolls, 2 splices. Then the
+ * quantity break, the roll packing, gates by opening width, the run math the
+ * staff see, the X spacing helper, and the one-time steps that add farm fence.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
@@ -17,8 +19,8 @@ import { DEFAULT_CATALOG, plainName, resolveFenceStyles } from '../../web/src/fe
 import { tierStyles } from '../../web/src/tiers'
 import { FARM_STARTER } from '../src/server/lib/tierStarters'
 import {
-  FARM_COMBOS, FARM_STYLE_NAMES, farmKitSet, farmStyleName, planFarm, farmRuns, farmRolls, crossbuckGap, feetInches,
-  POST_6, BOARD, X_BOARD, WIRE_RB, STAPLE, FARM_PARTS, withEstTax,
+  FARM_COMBOS, FARM_STYLE_NAMES, farmKitSet, farmStyleName, planFarm, planFarmGates, farmRuns, packWireRolls, rollPlanText, farmGates, crossbuckGap, feetInches,
+  POST_6, BOARD, X_BOARD, WIRE_RB, STAPLE, FARM_PARTS, withEstTax, TUBE_GATES, GATE_HINGE, GATE_LATCH,
 } from '../../web/src/farm'
 
 const kits = FARM_COMBOS.map(c => farmKitSet(c.style, c.post, c.wire))
@@ -27,11 +29,11 @@ const pricing = { manHourRate: 22, commissionSalesman: 0, commissionNonSalesman:
 const style = (s: string, post = '6', wire = 'redbrand'): QuoteStyle => ({ name: farmStyleName(s, post, wire), category: 'Farm', margin: 0.6, sectionsPerMH: 1, mhPerWalkGate: 2, mhPerDblGate: 4, panelWidth: s === 'xb' ? 7.5 : 8, material: 'farm', choices: { style: s, post, wire } } as QuoteStyle)
 const cents = (n: number) => Math.round(n * 100)
 
-function quote(s: QuoteStyle, runs: number[], corners: number, ends: number, rollJoin?: 'clean') {
+function quote(s: QuoteStyle, runs: number[], corners: number, ends: number, gates?: { walk: number[]; dbl: number[] }) {
   const q = calculateQuote({
-    style: s, runs: runs.map(ft => ({ ft, rail: 'auto' as const })), corners, ends, walkGates: 0, dblGates: 0,
+    style: s, runs: runs.map(ft => ({ ft, rail: 'auto' as const })), corners, ends, walkGates: gates?.walk.length ?? 0, dblGates: gates?.dbl.length ?? 0,
+    ...(gates ? { gateWidths: gates } : {}),
     tearOutSections: 0, tearOutGates: 0, extraLaborHrs: 0, hasSalesman: false, priceAdjust: 0, pricing, optimizer: DEFAULT_RAIL_OPTIMIZER_SETTINGS,
-    ...(rollJoin ? { rollJoin } : {}),
   })
   const line = (part: string) => q.materials.items.find(i => i.item === part)
   return { q, line, total: cents(q.materials.items.reduce((t, i) => t + i.total, 0)) }
@@ -72,19 +74,19 @@ describe("Jonathan's tests, to the cent (shelf prices, no tax, no discount)", ()
     expect(line(WIRE_RB)).toMatchObject({ qty: 1, total: 414.99 })
     expect(total).toBe(142456)
   })
-  test('E. Crossbuck, closed, 165/305/165/305, splice: 126 spans and posts, 128 rail, 126 X, 5 rolls = $10,931.15; clean corners 6 rolls', () => {
+  test('E. Crossbuck, closed, 165/305/165/305: 126 spans and posts, 128 rail, 126 X; every run one piece: 6 rolls, 2 splices = $11,346.14', () => {
     const runs = [165, 305, 165, 305]
     const { line, total, q } = quote(style('xb'), runs, 4, 0)
     expect(q.perRunSections).toEqual([22, 41, 22, 41])
     expect(line(POST_6)).toMatchObject({ qty: 126, total: 3778.74 })
     expect(line(BOARD)).toMatchObject({ qty: 128, total: 2558.72 })
     expect(line(X_BOARD)).toMatchObject({ qty: 126, total: 2518.74 })
-    expect(line(WIRE_RB)).toMatchObject({ qty: 5, total: 2074.95 })
-    expect(total).toBe(1093115)
+    // His first answer spliced 5 rolls ($10,931.15); the rule now: each 305 ft run takes a full roll and 105 ft from
+    // another (one splice each); 165, 165, 105 and 105 cannot share a roll whole: 6 rolls.
+    expect(line(WIRE_RB)).toMatchObject({ qty: 6, total: 2489.94 })
+    expect(total).toBe(1134614)
+    expect(line(WIRE_RB)!.note).toBe('Roll 1: run 2 200 ft. Roll 2: run 4 200 ft. Roll 3: run 1 165 ft (35 ft left). Roll 4: run 3 165 ft (35 ft left). Roll 5: run 2 105 ft (95 ft left). Roll 6: run 4 105 ft (95 ft left). 2 splices: run 2, run 4 (longer than a roll).')
     expect(farmRuns(runs, 7.5).map(r => r.spacingText)).toEqual([`7' 6"`, `7' 5"`, `7' 6"`, `7' 5"`])
-    const clean = quote(style('xb'), runs, 4, 0, 'clean')
-    expect(clean.line(WIRE_RB)).toMatchObject({ qty: 6, total: 2489.94 })
-    expect(clean.total - total).toBe(41499)
     // The quantity break: 25 or more 6" posts on a job, 5% off each ($29.99 → $28.49): about $189 here.
     setQtyBreakSource(inventoryQtyBreakSource(FARM_PARTS.filter(p => p.qtyBreak).map(p => ({ name: p.part, qtyBreak: p.qtyBreak }))))
     try {
@@ -101,8 +103,51 @@ describe('the run math the staff see', () => {
   test('spans, actual spacing never wider than the target, boards per row; rolls both ways and the feet left', () => {
     expect(farmRuns([100], 8)).toEqual([{ ft: 100, spans: 13, spacingFt: 100 / 13, spacingText: `7' 8"`, boardsPerRow: 7 }])
     for (const r of farmRuns([165, 305, 7, 8, 8.01, 1000], 7.5)) expect(r.spacingFt).toBeLessThanOrEqual(7.5)
-    expect(farmRolls([165, 305, 165, 305])).toEqual({ splice: 5, clean: 6, spliceLeftFt: 60, cleanLeftFt: 260 })
     expect(feetInches(7.99)).toBe(`8' 0"`)
+  })
+  test('wire rolls: every run one piece, a run on a leftover only whole, splices only in a run longer than a roll, the fewest rolls', () => {
+    const p = (runs: number[]) => { const r = packWireRolls(runs, 200); return { rolls: r.rolls.length, splices: r.splices.map(x => x.run), left: r.leftFt } }
+    expect(p([165, 305, 165, 305])).toEqual({ rolls: 6, splices: [2, 4], left: 260 })
+    // Short runs share a roll only when each fits whole: 120 + 80 and 150 + 50.
+    expect(p([120, 150, 80, 50])).toEqual({ rolls: 2, splices: [], left: 0 })
+    // The review's yard: 30, 13, 165, 305, 165, 30 and 13 ft: 4 rolls (not 7), one splice in the 305.
+    expect(p([30, 13, 165, 305, 165, 30, 13])).toEqual({ rolls: 4, splices: [4], left: 79 })
+    // 450 ft: two full rolls and 50 ft spliced on, from the roll the 150 ft run is cut from.
+    expect(p([450, 150])).toEqual({ rolls: 3, splices: [1, 1], left: 0 })
+    expect(p([400])).toEqual({ rolls: 2, splices: [1], left: 0 })
+    expect(p([201])).toEqual({ rolls: 2, splices: [1], left: 199 })
+    expect(p([])).toEqual({ rolls: 0, splices: [], left: 0 })
+    // First fit decreasing past 18 pieces still keeps every run whole.
+    const many = Array.from({ length: 25 }, (_, i) => 40 + i * 5)
+    const big = packWireRolls(many, 200)
+    expect(big.rolls.every(r => r.pieces.reduce((t, x) => t + x.ft, 0) <= 200)).toBe(true)
+    expect(big.rolls.flatMap(r => r.pieces.map(x => x.run)).sort((a, b) => a - b)).toEqual(many.map((_, i) => i + 1))
+    expect(rollPlanText(packWireRolls([120, 80], 200))).toBe('Roll 1: run 1 120 ft + run 2 80 ft. No splices.')
+  })
+  test('gates: one tube gate of the full opening width, up to the widest in Inventory; wider, a double', () => {
+    const has = (n: string) => TUBE_GATES.some(g => g.part === n)
+    const out = farmGates([4, 7, 12, 30, 50], has)
+    const q = (part: string) => out.lines.find(l => l.part === part)?.qty
+    expect(q(TUBE_GATES.find(g => g.ft === 4)!.part)).toBe(1)
+    expect(q(TUBE_GATES.find(g => g.ft === 8)!.part)).toBe(1)   // 7 ft: the 8 ft gate
+    expect(q(TUBE_GATES.find(g => g.ft === 12)!.part)).toBe(1)
+    expect(q(TUBE_GATES.find(g => g.ft === 16)!.part)).toBe(2)  // 30 ft: two 16 ft leaves
+    expect(q(TUBE_GATES.find(g => g.ft === 20)!.part)).toBe(2)  // 50 ft: two 20 ft, said
+    expect([q(GATE_HINGE), q(GATE_LATCH)]).toEqual([7, 5])
+    expect(out.notes[0]).toMatch(/50 ft opening is wider than two 20 ft gates/)
+    // Only gates that are in Inventory: with 4 to 12 ft, a 14 ft opening is two 8 ft leaves.
+    const upTo12 = farmGates([14], n => TUBE_GATES.some(g => g.part === n && g.ft <= 12))
+    expect(upTo12.lines).toEqual([{ part: TUBE_GATES.find(g => g.ft === 8)!.part, qty: 2 }, { part: GATE_HINGE, qty: 2 }, { part: GATE_LATCH, qty: 1 }])
+  })
+  test('on a quote: a 12 ft walk gate drawn is one 12 ft tube gate; a 10 ft double opening one 10 ft gate; a typed walk gate 4 ft', () => {
+    setMaterialPriceSource(priceSourceFromMap({ ...shelf, ...Object.fromEntries(TUBE_GATES.map(g => [g.part, 100 + g.ft])) }))
+    try {
+      const { line } = quote(style('nc3'), [50, 50], 0, 4, { walk: [12], dbl: [10] })
+      expect(line(TUBE_GATES.find(g => g.ft === 12)!.part)?.qty).toBe(1)
+      expect(line(TUBE_GATES.find(g => g.ft === 10)!.part)?.qty).toBe(1)
+      expect(line(TUBE_GATES.find(g => g.ft === 4)!.part)).toBeUndefined()
+      expect([line(GATE_HINGE)?.qty, line(GATE_LATCH)?.qty]).toEqual([2, 2])
+    } finally { setMaterialPriceSource(priceSourceFromMap(shelf)) }
   })
   test('the crossbuck X helper: 36" → 89", 42" → 86", 48" → 83" clear; on centers + the post', () => {
     expect([36, 42, 48].map(o => Math.round(crossbuckGap(o, 6)!.clearIn))).toEqual([89, 86, 83])
@@ -130,6 +175,12 @@ describe('adding farm fence (planFarm)', () => {
     expect(item(STAPLE)).toMatchObject({ unitCost: 0 })
     const again = planFarm(plan.state)
     expect([again.styles, again.kits, again.items, again.catalog]).toEqual([[], [], [], false])
+    // A farm kit saved with the old gate lines loses them (gates go by width now); other kits are not touched.
+    const old = plan.state.kits.map(k => (k.madeFor === 'farm' ? { ...k, kits: { ...k.kits, walkGate: [{ part: 'x', qty: 1, fallbackCost: 0 }] } } : k))
+    const g = planFarmGates([...old, { id: 'v', name: 'v', styleName: 'WV', kits: { walkGate: [{ part: 'y', qty: 1, fallbackCost: 0 }] }, roundUp: [] }])
+    expect(g.changed.length).toBe(18)
+    expect(g.kits.filter(k => k.madeFor === 'farm').every(k => !k.kits.walkGate)).toBe(true)
+    expect(g.kits.find(k => k.id === 'v')!.kits.walkGate).toEqual([{ part: 'y', qty: 1, fallbackCost: 0 }])
   })
   test('held until every part of its kit is priced and a sub rate per foot is set (no price without labor); plain names read Farm Fence, style, posts, wire', () => {
     const plan = planFarm(base())

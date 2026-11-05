@@ -24,11 +24,19 @@
  *   boards     a 16 ft board covers 2 spans: ceil(spans ÷ 2) a run per row
  *              (KitCounts.sectionPair), times the rows
  *   X boards   one 16 ft board cut in half makes the X of one span: one a span
- *   wire       per foot, in whole rolls: splice (default) rounds the job's feet
- *              up, clean corners rounds each run up (KitCounts.rollJoin)
+ *   wire       (Nov 5 2026, his second answer) every run is ONE continuous
+ *              piece, never joined mid run; runs end at corners, ends and gate
+ *              posts. A short run may be cut from what is left on a roll only
+ *              if the whole run fits there; a run longer than a roll is the
+ *              only place two rolls meet (one splice each). The runs are
+ *              fitted into the fewest rolls (packWireRolls), and the pull
+ *              sheet says which runs come from which roll and where the
+ *              splices are. No splice mode.
  *   H braces   one at every corner, end and gate post (their post kits)
- *   gates      the agricultural tube gates in Inventory by width, a hinge set
- *              a leaf and a latch a gate
+ *   gates      one tube gate of the full opening width (the smallest tube gate
+ *              in Inventory at least that wide), up to the widest in Inventory;
+ *              wider than that, two leaves (farmGates). A hinge set a leaf and
+ *              a latch a gate.
  *
  * Staples, board screws, brace parts, the hinge set and a 5 ft gate start at
  * $0 for Jonathan to price; a style is held until every part of its kit has a
@@ -74,6 +82,14 @@ export const GATE_4 = "Ag, Tube Gate, Galv, 4' x 4' (6GG4)"
 export const GATE_5 = "Ag, Tube Gate, Galv, 4' x 5'"
 export const GATE_6 = "Ag, Tube Gate, Galv, 4' x 6' (6GG6)"
 export const GATE_LATCH = 'Ag, Gate, Hardware, 2 Way Latch'
+/** The agricultural tube gates (4 ft tall), by width in feet, as named in Inventory. */
+export const TUBE_GATES: Array<{ ft: number; part: string }> = [
+  { ft: 4, part: GATE_4 }, { ft: 5, part: GATE_5 }, { ft: 6, part: GATE_6 },
+  { ft: 8, part: "Ag, Tube Gate, Galv, 4' x 8' (6GG8)" }, { ft: 10, part: "Ag, Tube Gate, Galv, 4' x 10' (6GG10)" },
+  { ft: 12, part: "Ag, Tube Gate, Galv, 4' x 12' (6GG12)" }, { ft: 14, part: "Ag, Tube Gate, Galv, 4' x 14' (6GG14)" },
+  { ft: 16, part: "Ag, Tube Gate, Galv,  4' x 16' (6GG16)" }, { ft: 18, part: "Ag, Tube Gate, Galv, 4' x 18' (6GG18)" },
+  { ft: 20, part: "Ag, Tube Gate, Galv, 4' x 20' (6GG20)" },
+]
 /** Wire roll length in feet (both wires come in 200 ft rolls). */
 export const ROLL_FT = 200
 
@@ -118,22 +134,21 @@ type KitSpec = Partial<Record<KitKind, Line[]>>
  *                                    pins and a brace wire
  *   every 2 spans of a run           a board per row, 6 screws a board
  *   every span (Crossbuck)           a board cut in half for the X, 4 screws
- *   per foot                         wire at 1 roll per 200 ft, whole rolls
- *   gates                            a tube gate a leaf (4, 5 or 6 ft), a
- *                                    hinge set a leaf, a latch a gate
+ *   per foot                         wire at 1 roll per 200 ft, fitted
+ *                                    run by run into whole rolls (packWireRolls)
+ *   gates (not kit lines)            by opening width (farmGates): a tube
+ *                                    gate a leaf, a hinge set a leaf, a latch
  */
 export function farmKit(style: typeof FARM_STYLES[number], post: typeof FARM_POSTS[number], wire: typeof FARM_WIRES[number]): KitSpec {
   const staples = wire.part ? [{ part: STAPLE, qty: 8 }] : []
   const line = [{ part: post.part, qty: 1 }, ...staples]
   const braced = [...line, { part: BRACE_RAIL, qty: 1 }, { part: BRACE_PIN, qty: 2 }, { part: BRACE_WIRE, qty: 1 }]
-  const gate = (leaves: number, leaf: string) => [{ part: leaf, qty: leaves }, { part: GATE_HINGE, qty: leaves }, { part: GATE_LATCH, qty: 1 }]
   return {
     line, corner: braced, end: braced, gatePost: braced,
     sectionPair: [{ part: BOARD, qty: style.rows }, { part: BOARD_SCREW, qty: 6 * style.rows }],
     ...(style.x ? { section: [{ part: X_BOARD, qty: 1 }, { part: BOARD_SCREW, qty: 4 }] } : {}),
     ...(wire.part ? { perFoot: [{ part: wire.part, qty: 1 / ROLL_FT }] } : {}),
-    walkGate: gate(1, GATE_4), walkGate5: gate(1, GATE_5), walkGate6: gate(1, GATE_6),
-    dblGate: gate(2, GATE_4), dblGate10: gate(2, GATE_5), dblGate12: gate(2, GATE_6),
+    // Gates are not kit lines: each opening's tube gate, hinge sets and latch come from its width (farmGates).
   }
 }
 
@@ -223,6 +238,27 @@ export function planFarm(st0: FarmState, now = new Date().toISOString()): FarmPl
   return out
 }
 
+/**
+ * Farm kits saved before the gate rule (Nov 5 2026) carry gate kit lines (a
+ * 4, 5 or 6 ft tube gate a leaf); gates now go by the opening's width
+ * (farmGates) and those lines are not read. They are taken off the farm kits
+ * so Material Kits shows what prices. Other kits are not touched.
+ */
+export function planFarmGates(kits0: KitSet[], now = new Date().toISOString()): { kits: KitSet[]; changed: string[] } {
+  const kits: KitSet[] = JSON.parse(JSON.stringify(kits0))
+  const changed: string[] = []
+  const gateKinds: KitKind[] = ['walkGate', 'dblGate', 'walkGate5', 'walkGate6', 'dblGate10', 'dblGate12']
+  for (const k of kits) {
+    if (k.madeFor !== FARM_TAG) continue
+    const had = gateKinds.filter(g => k.kits[g])
+    if (!had.length) continue
+    for (const g of had) delete k.kits[g]
+    k.updatedAt = now
+    changed.push(k.styleName ?? k.name)
+  }
+  return { kits, changed }
+}
+
 // ── The run math the quote builder shows the staff ───────────────────────────
 
 /** The farm style (style key, post, wire) of a fence style, or null. */
@@ -251,13 +287,101 @@ export function farmRuns(runs: number[], targetFt: number): FarmRun[] {
   })
 }
 
-/** Wire rolls both ways, and the feet left on the last rolls. */
-export function farmRolls(runs: number[], rollFt = ROLL_FT): { splice: number; clean: number; spliceLeftFt: number; cleanLeftFt: number } {
-  const ft = runs.filter(x => x > 0)
-  const total = ft.reduce((t, x) => t + x, 0)
-  const splice = Math.ceil(total / rollFt - 1e-9)
-  const clean = ft.reduce((t, x) => t + Math.ceil(x / rollFt - 1e-9), 0)
-  return { splice, clean, spliceLeftFt: Math.round((splice * rollFt - total) * 100) / 100, cleanLeftFt: Math.round((clean * rollFt - total) * 100) / 100 }
+export interface RollPlan {
+  /** Each roll: the pieces cut from it (run number from 1, in drawing order, and feet) and the feet left. */
+  rolls: Array<{ pieces: Array<{ run: number; ft: number }>; leftFt: number }>
+  /** Where two rolls meet: only inside a run longer than a roll, one per extra roll it takes. */
+  splices: Array<{ run: number }>
+  leftFt: number
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * The fewest wire rolls for these runs (Jonathan, Nov 5 2026): every run one
+ * continuous piece; a run fits on a roll's leftover only whole; a run longer
+ * than a roll takes full rolls and the rest from one more roll, spliced (the
+ * only splices). The pieces (short runs and long runs' last parts) are packed
+ * exactly for up to 18 pieces (branch and bound), first fit decreasing above.
+ */
+export function packWireRolls(runs: number[], rollFt = ROLL_FT): RollPlan {
+  const eps = 1e-6
+  const rolls: RollPlan['rolls'] = []
+  const splices: RollPlan['splices'] = []
+  const pieces: Array<{ run: number; ft: number }> = []
+  runs.filter(x => x > 0).forEach((ft, i) => {
+    const run = i + 1
+    let left = ft
+    // A run longer than a roll: whole rolls, then the rest spliced on.
+    while (left > rollFt + eps) { rolls.push({ pieces: [{ run, ft: rollFt }], leftFt: 0 }); left = r2(left - rollFt); splices.push({ run }) }
+    pieces.push({ run, ft: r2(left) })
+  })
+  const order = [...pieces].sort((a, b) => b.ft - a.ft || a.run - b.run)
+  let best: number[][] | null = null
+  if (order.length <= 18) {
+    const lower = Math.ceil(order.reduce((t, p) => t + p.ft, 0) / rollFt - eps)
+    const bins: number[][] = [], room: number[] = []
+    const dfs = (k: number) => {
+      if (best && bins.length >= best.length) return
+      if (k === order.length) { best = bins.map(b => [...b]); return }
+      const seen = new Set<number>()
+      for (let b = 0; b < bins.length; b++) {
+        if (room[b] + eps < order[k].ft || seen.has(room[b])) continue
+        seen.add(room[b])
+        bins[b].push(k); room[b] = r2(room[b] - order[k].ft)
+        dfs(k + 1)
+        bins[b].pop(); room[b] = r2(room[b] + order[k].ft)
+        if (best && best.length === Math.max(lower, 1)) return
+      }
+      bins.push([k]); room.push(r2(rollFt - order[k].ft))
+      dfs(k + 1)
+      bins.pop(); room.pop()
+    }
+    dfs(0)
+  } else {
+    const bins: number[][] = [], room: number[] = []
+    order.forEach((p, k) => { const b = room.findIndex(r => r + eps >= p.ft); if (b >= 0) { bins[b].push(k); room[b] = r2(room[b] - p.ft) } else { bins.push([k]); room.push(r2(rollFt - p.ft)) } })
+    best = bins
+  }
+  for (const b of (best ?? []) as number[][]) {
+    const ps = b.map(k => order[k]).sort((x, y) => x.run - y.run)
+    rolls.push({ pieces: ps, leftFt: r2(rollFt - ps.reduce((t, p) => t + p.ft, 0)) })
+  }
+  return { rolls, splices, leftFt: r2(rolls.reduce((t, r) => t + r.leftFt, 0)) }
+}
+
+/** The pull sheet's words: which runs come from which roll, and the splices. */
+export function rollPlanText(plan: RollPlan): string {
+  const ft = (n: number) => `${r2(n)} ft`
+  const rolls = plan.rolls.map((r, i) => `Roll ${i + 1}: ${r.pieces.map(p => `run ${p.run} ${ft(p.ft)}`).join(' + ')}${r.leftFt > 0 ? ` (${ft(r.leftFt)} left)` : ''}`)
+  const runs = [...new Set(plan.splices.map(s => s.run))]
+  const sp = plan.splices.length ? ` ${plan.splices.length} splice${plan.splices.length === 1 ? '' : 's'}: ${runs.map(r => `run ${r}${plan.splices.filter(s => s.run === r).length > 1 ? ` (${plan.splices.filter(s => s.run === r).length})` : ''}`).join(', ')} (longer than a roll).` : ' No splices.'
+  return `${rolls.join('. ')}.${sp}`
+}
+
+/**
+ * The gates of a farm fence (Jonathan, Nov 5 2026): each opening one tube gate
+ * of its full width (the smallest one in Inventory at least that wide), up to
+ * the widest in Inventory; wider than that, two leaves, each the smallest one
+ * at least half the opening. `has` says whether a part is in Inventory. A
+ * hinge set a leaf, a latch a gate.
+ */
+export function farmGates(openingsFt: number[], has: (part: string) => boolean): { lines: Array<{ part: string; qty: number }>; notes: string[] } {
+  const gates = TUBE_GATES.filter(g => has(g.part))
+  const out = new Map<string, number>(), notes: string[] = []
+  const add = (part: string, n: number) => out.set(part, (out.get(part) ?? 0) + n)
+  if (!gates.length) return { lines: [], notes: openingsFt.length ? ['No tube gates in Inventory: the gates are not priced.'] : [] }
+  const widest = gates[gates.length - 1]
+  const fit = (ft: number) => gates.find(g => g.ft + 1e-9 >= ft)
+  for (const w of openingsFt) {
+    if (!(w > 0)) continue
+    const one = fit(w)
+    if (one) { add(one.part, 1); add(GATE_HINGE, 1); add(GATE_LATCH, 1); continue }
+    const leaf = fit(w / 2) ?? widest
+    if (!fit(w / 2)) notes.push(`A ${r2(w)} ft opening is wider than two ${widest.ft} ft gates: priced as two ${widest.ft} ft leaves. Check the gate.`)
+    add(leaf.part, 2); add(GATE_HINGE, 2); add(GATE_LATCH, 1)
+  }
+  return { lines: [...out].map(([part, qty]) => ({ part, qty })), notes }
 }
 
 /**

@@ -122,14 +122,10 @@ export interface KitCounts {
    * run takes ceil(its sections ÷ 2) boards per row, counted per run and summed.
    */
   sectionPair?: number
-  /** Each run's feet, in order (farm fence wire rolls with clean corners: rounded up run by run). */
+  /** Each run's feet, in order (farm fence wire: each run one piece, fitted into rolls; farm.ts packWireRolls). */
   perFootRuns?: number[]
-  /**
-   * Wire rolls (farm fence, a choice on the quote): 'splice' (the default)
-   * rounds the job's feet up to whole rolls; 'clean' starts a new roll at every
-   * corner, rounding each run up.
-   */
-  rollJoin?: 'splice' | 'clean'
+  /** Each gate's opening in feet (the drawing's; a typed walk gate 4 ft, a typed double 8 ft): farm fence gates go by it (farm.ts farmGates). */
+  gateOpenings?: number[]
   /** Gate widths the takeoff sheet has no row for (priced as the 4 ft / 8 ft gate), named on the quote. */
   gateNotes?: string[]
   /**
@@ -148,6 +144,8 @@ export interface KitCounts {
 }
 export interface KitLine {
   part: string; qty: number; fallbackCost: number
+  /** Words for the crew on the pull sheet (farm fence wire: which runs come from which roll). */
+  note?: string
   /** Job lot colors only: the cost per unit is set (0 for a part a piece price covers), not read from Inventory. */
   unitCost?: number
   /** Job lot colors only: a piece price line (section, post, gate), not a part to pull or order. */
@@ -222,7 +220,7 @@ function fromKits(styleKey: string, counts: KitCounts, tearOutSections: number, 
   col.add('Tear Out Haul-Away Gate', tearOutGates, 27.00)
   for (const l of r.lines) {
     if (l.unitCost !== undefined) col.addSet(l.part, l.qty, l.unitCost, !!l.piece)
-    else col.add(l.part, l.qty, l.fallbackCost)
+    else col.add(l.part, l.qty, l.fallbackCost, l.note)
   }
   col.warnings.push(...r.warnings)
   return col.finish()
@@ -255,7 +253,7 @@ export interface MaterialResult {
 interface Collector {
   items: LineItem[]
   warnings: string[]
-  add: (item: string, qty: number, fallbackCost?: number) => void
+  add: (item: string, qty: number, fallbackCost?: number, note?: string) => void
   /** Job lot colors: a line whose cost is set, not read from Inventory. */
   addSet: (item: string, qty: number, unitCost: number, piece: boolean) => void
   finish: () => MaterialResult
@@ -267,7 +265,7 @@ function makeCollector(): Collector {
   const missing = new Set<string>()
   const zero = new Set<string>()
 
-  function add(item: string, qty: number, fallbackCost = 0) {
+  function add(item: string, qty: number, fallbackCost = 0, note?: string) {
     if (!(qty > 0)) return
     const inv = priceSource ? priceSource(item) : undefined
     const fromInventory = typeof inv === 'number' && Number.isFinite(inv)
@@ -290,6 +288,7 @@ function makeCollector(): Collector {
       total: round2(qty * unitCost),
       costSource: fromInventory ? 'inventory' : 'builtin',
       ...(unitCost !== fullCost && br ? { qtyBreak: { ...br, fullUnitCost: fullCost } } : {}),
+      ...(note ? { note } : {}),
     })
   }
 
@@ -336,8 +335,7 @@ export interface JobInputs {
   addedTo?: AddedTo | null
   /** A change order's price only: KitCounts.fabricFromFt. */
   fabricFromFt?: number | null
-  /** Farm fence wire rolls: KitCounts.rollJoin (the quote's choice; absent: splice). */
-  rollJoin?: 'splice' | 'clean'
+
 }
 
 /**
@@ -395,9 +393,14 @@ export function gateSizes(walkGates: number, dblGates: number, widths?: GateWidt
 }
 
 /** The gate part of a job's kit counts: gates by width, and the once per job flags. */
-export function gateCounts(walkGates: number, dblGates: number, widths?: GateWidths | null): Pick<KitCounts, 'walkGate' | 'dblGate' | 'walkGate5' | 'walkGate6' | 'dblGate10' | 'dblGate12' | 'anyGate' | 'anyWalkGate' | 'anyDblGate' | 'gateNotes'> {
+export function gateCounts(walkGates: number, dblGates: number, widths?: GateWidths | null): Pick<KitCounts, 'walkGate' | 'dblGate' | 'walkGate5' | 'walkGate6' | 'dblGate10' | 'dblGate12' | 'anyGate' | 'anyWalkGate' | 'anyDblGate' | 'gateNotes' | 'gateOpenings'> {
   const g = gateSizes(walkGates, dblGates, widths)
+  // Each opening's width (farm fence gates go by it): the drawing's, or a typed walk gate 4 ft and double 8 ft.
+  const ok = (a: unknown, n: number): a is number[] => Array.isArray(a) && a.length === n && a.every(x => typeof x === 'number' && x > 0)
+  const gateOpenings = widths && ok(widths.walk, walkGates) && ok(widths.dbl, dblGates) ? [...widths.walk, ...widths.dbl]
+    : [...Array(Math.max(0, walkGates)).fill(4), ...Array(Math.max(0, dblGates)).fill(8)]
   return {
+    ...(gateOpenings.length ? { gateOpenings } : {}),
     walkGate: g.walk4, dblGate: g.dbl8, walkGate5: g.walk5, walkGate6: g.walk6, dblGate10: g.dbl10, dblGate12: g.dbl12,
     anyGate: walkGates + dblGates > 0 ? 1 : 0, anyWalkGate: walkGates > 0 ? 1 : 0, anyDblGate: dblGates > 0 ? 1 : 0,
     ...(g.notes.length ? { gateNotes: g.notes } : {}),
@@ -417,6 +420,8 @@ export interface LineItem {
   jobLotPiece?: boolean
   /** Priced with the part's quantity break (Inventory): the break and the cost without it. */
   qtyBreak?: QtyBreak & { fullUnitCost: number }
+  /** Words for the crew on the pull sheet (farm fence wire: which runs come from which roll, and the splices). */
+  note?: string
   /** Money only, not a part to pull or order: the material of a move or repair on a wood style with no wood kit in use (the Oct 19 privacy rows: white vinyl × the Wood factor, moveRepair.ts woodWork), and quotes saved before Oct 30 2026. Parts named for the crew there are listed at $0 ('wood'). */
   moneyOnly?: boolean
 }
@@ -658,7 +663,6 @@ export function calculateMaterialsDetailed(inputs: JobInputs): MaterialResult {
     line: (perRun ? calculateLinePostsPerRun(perRun).reduce((t, n) => t + n, 0) : totalLinePosts(runs, s)) + extraLines(inputs.extraLinePosts), corner: corners, end: ends,
     blank: dblGates, ...gateCounts(walkGates, dblGates, inputs.gateWidths), perFoot: totalFt(runs), perJob: 1,
     sectionPair: runSecs.reduce((t, n) => t + Math.ceil(n / 2), 0), perFootRuns: feet,
-    ...(inputs.rollJoin ? { rollJoin: inputs.rollJoin } : {}),
     ...(typeof inputs.fabricFromFt === 'number' ? { fabricFromFt: inputs.fabricFromFt } : {}),
   }, inputs.addedTo)
   return fromKits(s, counts, inputs.tearOutSections, inputs.tearOutGates, () => legacyNotes(() => legacyCalculateMaterialsDetailed(inputs)), inputs.jobLot)

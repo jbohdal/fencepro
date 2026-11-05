@@ -510,7 +510,7 @@ packetPublic.get('/:token', async (req, res) => {
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
     </section>
     ${workLines.length ? `<section class="notes" data-packet-work-steps><h2>Work on this job</h2><ul>${workLines.map(i => `<li>${esc(workStepText(i.item, i.qty))}</li>`).join('')}</ul></section>` : ''}
-    ${parts.length ? `<section><h2>Pull sheet</h2><table><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>${parts.map(i => `<tr><td>${esc(partWithPair(i.item))}</td><td>${esc(i.qty)}</td></tr>`).join('')}</tbody></table></section>` : ''}
+    ${parts.length ? `<section><h2>Pull sheet</h2><table><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>${parts.map(i => `<tr><td>${esc(partWithPair(i.item))}${(i as { note?: unknown }).note ? `<br><small data-packet-note>${esc(String((i as { note?: unknown }).note))}</small>` : ''}</td><td>${esc(i.qty)}</td></tr>`).join('')}</tbody></table></section>` : ''}
     <section><h2>Photos and video</h2>
       ${items.length ? `<div class="media">${items.map(m => {
         const src = fix(m.markupUrl ?? m.url)

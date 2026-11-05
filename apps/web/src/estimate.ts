@@ -48,7 +48,7 @@ export { planTanAutoDs } from './tanAutoDs'
 // The server's tan no dig auto mix seed (lib/tanAutoNdSeed.ts).
 export { planTanAutoNd } from './tanAutoNd'
 // The server's farm fence seed (lib/farmSeed.ts).
-export { planFarm } from './farm'
+export { planFarm, planFarmGates } from './farm'
 // 8 ft tall vinyl section parts as $0 catalog items (lib/tallVinylParts.ts).
 export { planTallVinylParts } from './tallVinylParts'
 // Tan 8 ft tall vinyl, the four styles (lib/tanTallSeed.ts).

@@ -214,7 +214,7 @@ function PullSheetView({ entry: e, costs, customerId, onChanged, onClose, scroll
                 <tbody>
                   {lines.map((l, i) => (
                     <tr key={i} className={`border-b border-gray-50 ${changedBy.has(l.item) ? 'bg-amber-50' : ''}`} {...(changedBy.has(l.item) ? { 'data-pull-sheet-changed': l.item } : {})}>
-                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{partWithPair(l.item)}{l.moneyOnly && <span className="text-xs text-gray-500"> (money only, not pulled)</span>}{changedBy.has(l.item) && <span className="text-xs font-semibold text-amber-900"> {changedBy.get(l.item)!.was ? `(was ${qtyText(changedBy.get(l.item)!.was)})` : '(new)'}</span>}</td>
+                      <td className="px-2 py-1.5 [overflow-wrap:anywhere]">{partWithPair(l.item)}{l.moneyOnly && <span className="text-xs text-gray-500"> (money only, not pulled)</span>}{'note' in l && (l as { note?: string }).note && <span className="block text-xs text-gray-500" data-pull-note>{(l as { note?: string }).note}</span>}{changedBy.has(l.item) && <span className="text-xs font-semibold text-amber-900"> {changedBy.get(l.item)!.was ? `(was ${qtyText(changedBy.get(l.item)!.was)})` : '(new)'}</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{qtyText(l.qty)}</td>
                       {costs && <td className="px-2 py-1.5 text-right tabular-nums">{usd(l.unitCostCents)}</td>}
                       {costs && <td className="px-2 py-1.5 text-right tabular-nums font-medium">{usd(l.totalCostCents)}</td>}

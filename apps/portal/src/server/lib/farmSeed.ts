@@ -57,6 +57,24 @@ export async function ensureFarm(accountId: string): Promise<{ styles: string[];
   }, { timeout: 30_000 })
 }
 
+export const FARM_GATES_KEY = 'migration:farm-gates-2026-11'
+
+/** Once per company: the gate kit lines taken off farm kits (gates go by opening width, Nov 5 2026; web farm.ts planFarmGates). */
+export async function ensureFarmGates(accountId: string): Promise<string[] | null> {
+  const m = await pricingModule() as any
+  return prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'farm-gates:' + accountId}))`
+    if (await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: FARM_GATES_KEY } } })) return null
+    await lockAccountState(tx, accountId)
+    const inv = await tx.inventoryState.findUnique({ where: { accountId }, select: { kits: true } })
+    if (!inv) return null
+    const plan = m.planFarmGates(Array.isArray(inv.kits) ? inv.kits : [])
+    if (plan.changed.length) await tx.inventoryState.update({ where: { accountId }, data: { kits: plan.kits as any, version: { increment: 1 } } })
+    await tx.accountKeyValue.create({ data: { accountId, key: FARM_GATES_KEY, value: { at: new Date().toISOString(), kits: plan.changed } as any } })
+    return plan.changed
+  }, { timeout: 20_000 })
+}
+
 /** At server start: every company with saved settings. */
 export async function ensureFarmAll(): Promise<void> {
   const rows = await prisma.businessState.findMany({ select: { accountId: true } })
@@ -65,5 +83,9 @@ export async function ensureFarmAll(): Promise<void> {
       const out = await ensureFarm(r.accountId)
       if (out && (out.styles.length || out.items.length)) console.log(`[farm fence] added for ${r.accountId}: ${out.styles.length} styles, ${out.kits.length} kits, ${out.items.length} parts`)
     } catch (err) { console.error('[farm fence] could not add farm fence:', err) }
+    try {
+      const gates = await ensureFarmGates(r.accountId)
+      if (gates?.length) console.log(`[farm fence] gate kit lines taken off ${gates.length} farm kits for ${r.accountId} (gates go by opening width)`)
+    } catch (err) { console.error('[farm fence] could not update the farm gate kits:', err) }
   }
 }

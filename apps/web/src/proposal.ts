@@ -320,6 +320,8 @@ const GATE_WIDTH_KIT: Array<{ side: 'walk' | 'dbl'; ft: number; kit: 'walkGate5'
 export function gateWarnings(style: Pick<QuoteStyle, 'name'>, gateWidths: QuoteCalcInput['gateWidths'], walkGates = 0, dblGates = 0): string[] {
   const kit = kitSetFor(style.name)
   if (!kit || kit === 'archived') return []
+  // Farm fence gates go by any opening width, one tube gate up to the widest (farm.ts farmGates): nothing to say here.
+  if (/^farm\//.test(style.name)) return []
   const walk = ((gateWidths?.walk ?? []) as number[]).slice(0, walkGates || undefined), dbl = ((gateWidths?.dbl ?? []) as number[]).slice(0, dblGates || undefined)
   const out: string[] = []
   // 6 ft tall vinyl privacy: a 5 ft leaf is built the same as from a 6 ft wide section, as the standard leaf is (Jonathan,

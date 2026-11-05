@@ -97,8 +97,6 @@ export function requestFrom(body: Json, existing: Json | null, importedOldPrice:
     // Vinyl tees counted as line posts (yardLayout.ts VINYL_TEE_POST).
     ...(num(b.extraLinePosts) > 0 ? { extraLinePosts: Math.round(num(b.extraLinePosts)) } : {}),
     ...(num(b.tees) > 0 ? { tees: Math.round(num(b.tees)) } : {}),
-    // Farm fence wire rolls: clean corners when the quote builder says so, else as the saved quote has it (its layout).
-    ...((b.rollJoin ?? existing?.layout?.rollJoin) === 'clean' ? { rollJoin: 'clean' } : {}),
     tearOutSections: num(b.tearOutSections), tearOutGates: num(b.tearOutGates),
     extraLaborHrs: num(b.extraLaborHrs), hasSalesman: !!b.hasSalesman, priceAdjust: num(b.priceAdjust),
     // A sent proposal: the fences whose options went out with the Price adjust (web proposal.ts sentSliderStyles).
