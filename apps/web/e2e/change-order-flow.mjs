@@ -79,7 +79,8 @@ const call = async (method, p, body) => {
       const text = await r.text()
       let json = {}; try { json = JSON.parse(text) } catch { /* html */ }
       const out = { status: r.status, json, text }
-      if (method !== 'GET' || r.status < 500 || i >= 30) return out
+      // A 429 (the API's per person limit, 600 a minute) was never handled, so any call waits and tries again.
+      if (r.status !== 429 && (method !== 'GET' || r.status < 500) || i >= 30) return out
     } catch (e) { if (i >= 30) throw e }
     await sleep(2000)
   }
