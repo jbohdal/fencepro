@@ -194,11 +194,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the customer portal shows only w
   test('no answer holds a pull sheet, cost, internal note, internal or crew photo, crew packet, follow up or call log', async () => {
     const forbiddenValues = [...Object.values(SECRET), ids.media_internal, ids.media_crew, ids.internalDoc, ids.staffPhoto, made.cardId, '1111.11', '999.99', '2591.76', '777.77', '3369.53', '9.87']
     const fieldRe = new RegExp(`"(${FORBIDDEN_FIELDS.join('|')})"\\s*:`)
+    // A number counts only standing alone: an upload time like 20:35:19.871Z is not the 9.87 sub rate.
+    const holds = (text: string, v: string) => /^[\d.]+$/.test(v) ? new RegExp(`(?<![\\d.])${v.replace('.', '\\.')}(?![\\d])`).test(text) : text.includes(v)
     for (const door of ['/api/portal', '/p/portal/api']) {
       for (const p of READS) {
         const r = await get(door + p, door === '/api/portal' ? cookie : doorCookie)
         expect(r.status, door + p).toBe(200)
-        for (const v of forbiddenValues) expect(r.text.includes(v), `${door}${p} holds ${v}`).toBe(false)
+        for (const v of forbiddenValues) expect(holds(r.text, v), `${door}${p} holds ${v}`).toBe(false)
         expect(r.text.match(fieldRe)?.[1] ?? null, `${door}${p} field`).toBeNull()
       }
     }
@@ -206,7 +208,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the customer portal shows only w
     for (const p of [`/site-plans/${ids.sent}.svg`, `/contracts/${ids.sold}.pdf`, `/certificates/${made.job}.pdf`]) {
       const r = await get('/api/portal' + p)
       expect(r.status, p).toBe(200)
-      for (const v of forbiddenValues) expect(r.text.includes(v), `${p} holds ${v}`).toBe(false)
+      for (const v of forbiddenValues) expect(holds(r.text, v), `${p} holds ${v}`).toBe(false)
     }
   })
 
