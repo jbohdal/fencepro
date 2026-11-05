@@ -188,7 +188,10 @@ try {
   check('salesman: the quote shows its cost breakdown but no margin', !/margin/i.test(sd) && /Material cost/.test(sd) && (await s.page.locator('[data-quote-drawer] [data-quote-margin], [data-quote-drawer] [data-quote-gross-margin]').count()) === 0, sd.match(/.{0,40}margin.{0,20}/i)?.[0] ?? sd.slice(0, 80))
   check('salesman: her copy of the quote carries no margin (gmPct)', !!sq && !('gmPct' in sq) && sq.totalCOGS === costed.totalCOGS, JSON.stringify({ gmPct: sq?.gmPct, cogs: sq?.totalCOGS }))
   // Her Dashboard (Nov 3 2026): no Gross margin, no margin % on her recent quotes, no Target Margin, overhead or profit.
+  // She starts her day on Today (Oct 25 2026), so the Dashboard is opened as she opens it: More, then Dashboard.
   await go(s.page, '/')
+  await s.page.locator('[data-tabbar] [data-popup-trigger="nav-drawer"]').click().catch(() => {})
+  await s.page.getByRole('button', { name: 'Dashboard', exact: true }).first().click().catch(() => {})
   await s.page.getByText('Recent quotes').first().waitFor({ timeout: 15000 }).catch(() => {})
   const sdash = await s.page.locator('main, body').first().innerText().catch(() => '')
   check('salesman: her Dashboard shows no margin, overhead or profit', /Recent quotes/.test(sdash) && !/margin|overhead|profit/i.test(sdash) && !/\d+\.\d%/.test(sdash.split('Recent quotes')[1]?.split('This month at a glance')[0] ?? ''), sdash.match(/.{0,40}(margin|overhead|profit).{0,20}/i)?.[0] ?? '')
