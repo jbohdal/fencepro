@@ -258,6 +258,8 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   const out: ResolvedTier[] = []
   // Tiers that picked "whichever width prices lower", by place: the quote's own fence among their choices, priced.
   const widthTiers = new Map<number, { s: S; o: ProposalOption } | null>()
+  // Each tier's own price input (its Price adjust), by place: the quote's own fence put on a card is priced with it.
+  const tierInputs = new Map<number, QuoteCalcInput>()
   const added = (prefs.added ?? []).filter(a => a?.key && a.style && !set.tiers.some(t => t.key === a.key)).slice(0, MAX_TIERS)
   const specs: TierSpec[] = [...set.tiers, ...added.map(a => ({ key: a.key, name: 'Option', install: 'same' as const, width: 'same' as const, color: 'same', style: a.style, text: '' }))]
   // The Most popular pick on this quote (null: none), else the tier set's; one at most.
@@ -277,6 +279,7 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
       out.push({ ...base, swapped: true, ownWords: !same, style: swapStyle, option: priceOption(tierInput, swapStyle) })
       continue
     }
+    tierInputs.set(out.length, tierInput)
     const r = tierStyles(spec, own, styles, opts)
     const swapOff = swapName && !isAdded ? { swapOff: swapName } : {}
     if ('reason' in r) { out.push({ ...base, ...swapOff, swapped: false, reason: r.reason }); continue }
@@ -296,11 +299,39 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   // the first tier that picks a width among fences of the quote's own install and color is the quote's own fence at
   // the quote's price, never a card of its own (Jonathan, Nov 2 2026: "make the main quote price equal Better";
   // review Nov 3 2026: all 8 ft forced made a fourth card). A tier naming the quote's fence itself (Best, all 6 ft) keeps it.
+  // Jonathan, Nov 5 2026: "the quote's own fence IS the Better option": Better at a fixed width (8 ft) of the same
+  // fence family, color, install and height is the quote's own fence (best price) at the quote's price, so the proposal
+  // shows Good, Better, Best only. Else the first tier picking a width as above; else any card of the same fence.
   if (!opts.ownCardAsSent && !out.some(t => !t.off && t.style?.name === own.name)) {
-    for (const [i, mine] of widthTiers) {
-      if (!mine || out[i].off) continue
-      out[i] = { ...out[i], style: mine.s, option: mine.o, widthFt: null, otherWidth: null, otherWidthHeld: undefined }
-      break
+    const ownParts = styleParts(own.name, own as Parameters<typeof styleParts>[1])
+    const sameFence = (t: ResolvedTier) => {
+      if (t.off || t.swapped || t.added || !t.style || !ownParts) return false
+      const p = styleParts(t.style.name, t.style as Parameters<typeof styleParts>[1])
+      return !!p && p.family === ownParts.family && p.color === ownParts.color && p.install === ownParts.install && p.height === ownParts.height && (p.model ?? null) === (ownParts.model ?? null)
+    }
+    const put = (i: number) => {
+      const o = priceOption(tierInputs.get(i) ?? input, own)
+      out[i] = { ...out[i], style: own as unknown as S, option: o, widthFt: null, otherWidth: null, otherWidthHeld: undefined }
+    }
+    const better = out.findIndex(t => t.spec.key === 'better' && sameFence(t))
+    const width = [...widthTiers].find(([i, mine]) => mine && !out[i].off)
+    if (better >= 0) put(better)
+    else if (width) { const [i, mine] = width; out[i] = { ...out[i], style: mine!.s, option: mine!.o, widthFt: null, otherWidth: null, otherWidthHeld: undefined } }
+    else { const any = out.findIndex(sameFence); if (any >= 0) put(any) }
+  }
+  // Better at a fixed width on a quote of another fence (a dig set quote, the website's Good picked): Better is the best
+  // price fence of its own kind when there is one, as on a best price quote, so the card reads the same whichever option
+  // is the main one (the website's Better = the opened draft's Better).
+  if (!opts.ownCardAsSent) {
+    const bi = out.findIndex(t => t.spec.key === 'better' && !t.off && !t.swapped && !t.added && t.style && t.style.name !== own.name && /^\d+$/.test(String(t.spec.width)))
+    const b = bi >= 0 ? out[bi] : null
+    const bp = b?.style ? styleParts(b.style.name, b.style as Parameters<typeof styleParts>[1]) : null
+    if (b && bp && !(b.style as { autoRailMix?: boolean }).autoRailMix) {
+      const mix = styles.find(x => x.isActive !== false && isQuotable(x) && (x as { autoRailMix?: boolean }).autoRailMix && x.name !== b.style!.name && (() => {
+        const xp = styleParts(x.name, x as Parameters<typeof styleParts>[1])
+        return !!xp && xp.family === bp.family && xp.color === bp.color && xp.install === bp.install && xp.height === bp.height && (xp.model ?? null) === (bp.model ?? null)
+      })())
+      if (mix) out[bi] = { ...b, style: mix, option: priceOption(tierInputs.get(bi) ?? input, mix), widthFt: null, otherWidth: null, otherWidthHeld: undefined }
     }
   }
   for (let i = 0; i < out.length; i++) {

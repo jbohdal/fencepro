@@ -72,6 +72,26 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
     expect(own[1].option!.finalPrice).toBe(priceOption(input(byName("WV-ND 6'x6' Privacy")), byName("WV-ND 6'x6' Privacy")).finalPrice)
   })
 
+  test('Good and Better at 8 ft (Jonathan, Nov 2 2026): a best price quote IS the Better card, at its own price; Good, Better, Best only', () => {
+    const EIGHT: TierSet = { ...VINYL, tiers: VINYL_STARTER.map(t => (t.key === 'best' ? t : { ...t, width: '8' as const })) }
+    const auto = byName('WV-Auto ND Privacy')
+    const t = resolveTiers(input(auto), STYLES, EIGHT)
+    expect(t.map(x => [x.spec.key, x.style!.name])).toEqual([['good', "WV-DS 6'x8' Privacy"], ['better', 'WV-Auto ND Privacy'], ['best', "WV-ND 6'x6' Privacy"]])
+    expect(t[1].option!.finalPrice).toBe(priceOption(input(auto), auto).finalPrice)
+    expect(tierOptions(t).length).toBe(3)
+    // A plain 8 ft no dig quote: Better is that fence, as set.
+    expect(resolveTiers(input(byName("WV-ND 6'x8' Privacy")), STYLES, EIGHT)[1].style!.name).toBe("WV-ND 6'x8' Privacy")
+    // A dig set best price quote is not Better's fence (no dig): it goes on Good, the dig set card; Better is the no dig
+    // best price fence, as on a no dig quote (the website's Better is the opened draft's whichever option was picked).
+    const ds = { ...st('WV-Auto DS Privacy', 0.6, 0.8), autoRailMix: true }
+    const t2 = resolveTiers(input(ds), [...STYLES, ds], EIGHT)
+    expect(t2.map(x => x.style!.name)).toEqual(['WV-Auto DS Privacy', 'WV-Auto ND Privacy', "WV-ND 6'x6' Privacy"])
+    // A plain dig set 8 ft quote: Good is it, Better the no dig best price fence.
+    const t3 = resolveTiers(input(byName("WV-DS 6'x8' Privacy")), STYLES, EIGHT)
+    expect(t3.map(x => x.style!.name)).toEqual(["WV-DS 6'x8' Privacy", 'WV-Auto ND Privacy', "WV-ND 6'x6' Privacy"])
+    expect(t3[1].option!.finalPrice).toBe(priceOption(input(byName("WV-DS 6'x8' Privacy")), byName('WV-Auto ND Privacy')).finalPrice)
+  })
+
   test('every price is the quote math for that style', () => {
     for (const t of tiers) expect(t.option!.finalPrice).toBe(priceOption(input(t.style!), t.style!).finalPrice)
   })

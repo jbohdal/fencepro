@@ -214,22 +214,27 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(signedPricing({ pricing: q.pricing }, {})).toEqual({})
   })
 
-  test('Vinyl Good / Better / Best as saved: a tier at a fixed width is that width\'s fence at its own price; a best price quote keeps its own card', () => {
+  test('Vinyl Good / Better / Best as saved: a tier at a fixed width is that width\'s fence at its own price; a best price quote is the Better card, no fourth', () => {
     const saved = savedSetOf('Vinyl')
     expect(saved, 'the dev database has a vinyl Good / Better / Best').toBeTruthy()
     const j = job(request(VINYL, saved))
     for (const t of saved!.tiers as any[]) {
       if (!/^\d+$/.test(String(t.width))) continue
       const card = cardOf(j, t.key)
+      // Better of the quote's own fence (no dig, white) is the quote's own best price fence (Jonathan, Nov 5 2026:
+      // "the quote's own fence IS the Better option"), at the quote's price.
+      if (t.key === 'better' && t.install === 'no-dig') {
+        expect(card.fenceStyle).toBe(VINYL)
+        expect(Math.round(card.finalPrice * 100)).toBe(Math.round(j.totals.price * 100))
+        continue
+      }
       expect(card.fenceStyle, t.key).toMatch(new RegExp(`${t.install === 'dig-set' ? 'DS' : 'ND'} 6'x${t.width}'`))
       // Its price is that fence priced on its own for the same yard.
       expect(Math.round(card.finalPrice * 100), t.key).toBe(Math.round(job(request(card.fenceStyle, null)).totals.price * 100))
     }
-    // The quote's own best price fence is none of them: it stays its own card at the quote's price.
-    if (!(saved!.tiers as any[]).some(t => t.width === 'cheapest' && t.install === 'no-dig')) {
-      expect(j.ownTierKey).toBeNull()
-      expect(j.proposalOptions.some((o: any) => !o.tier && o.fenceStyle === VINYL)).toBe(true)
-    }
+    // Good, Better, Best only: no card of the quote's own beside them.
+    expect(j.proposalOptions.filter((o: any) => !o.tier).length).toBe(0)
+    expect(j.proposalOptions.length).toBe(3)
   })
 
   test('the minimum job price lifts every option, on the server, and nothing above it moves', () => {
