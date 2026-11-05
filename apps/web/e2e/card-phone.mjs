@@ -174,8 +174,11 @@ async function run(browser, phone) {
 
   /* a drag that starts on the number */
   await showColumn(s, src)
+  // Cards above it (test cards left on the dev copy) can push it below the screen; a press there touches nothing.
+  await s.page.locator(`[data-kanban-card="${id}"]`).evaluate(el => el.scrollIntoView({ block: 'center' }))
+  await sleep(250)
   const dest = 'Estimating'
-  const r0 = await rect(s, `[data-kanban-card="${id}"] [data-card-phone]`)
+  const r0 =await rect(s, `[data-kanban-card="${id}"] [data-card-phone]`)
   await p.down(r0.left + Math.min(20, r0.width / 2), r0.top + r0.height / 2)
   await p.move(r0.left + 40, r0.top + 30, 4)
   // On a phone the next column is off screen: hold the card at the edge until the board brings it in.
