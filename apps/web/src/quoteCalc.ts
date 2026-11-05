@@ -44,6 +44,9 @@ export interface QuoteStyle extends StylePricing {
   jobLot?: StyleJobLot
   /** Made in Settings (a color or choice added later), copying this style. */
   madeFrom?: string
+  /** The material and choices it is made of (Settings → Fence styles): farm fence counts its kits by them (farm.ts). */
+  material?: string
+  choices?: Record<string, string>
   /** Wood (wood.ts): the white vinyl style its install labor comes from, and the Wood factor (1.15) on that labor. */
   woodOf?: string
   woodBase?: QuoteStyle

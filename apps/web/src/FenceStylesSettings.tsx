@@ -405,7 +405,7 @@ function LevelRates({ m, dim, opt, config, views, fences, onSet }: {
   const isWood = m.key === 'wood'
   return (
     <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-2 space-y-2" data-level-rates={where}>
-      <p className="text-xs font-semibold text-gray-700">{opt ? `Pricing for every fence with ${name}` : `Pricing for every ${name} fence`}</p>
+      <p className="text-xs font-semibold text-gray-700">{opt ? `Pricing for every fence with ${name}` : `Pricing for every ${name}${/ fence$/i.test(name) ? '' : ' fence'}`}</p>
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
         <label className="block text-xs text-gray-600">Target Profit
           <PercentField value={profit} min={0} max={maxProfitPct(overhead)} placeholder={blankProfit} data-level-profit={where} onBad={setTooHigh}

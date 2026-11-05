@@ -10,7 +10,7 @@ import type { FollowedRates } from './fenceRates'
 export interface FenceStyle {
   id: string
   name: string
-  category: 'Vinyl' | 'Chainlink' | 'Commercial' | 'Aluminum' | 'Wood' | 'Other'
+  category: 'Vinyl' | 'Chainlink' | 'Commercial' | 'Aluminum' | 'Wood' | 'Farm' | 'Other'
   /** What price is divided into: 1 − Target Margin (0.56 for 44%). Worked out
    *  from Overhead % and this style's Target Profit % when the config is read;
    *  never typed. */
