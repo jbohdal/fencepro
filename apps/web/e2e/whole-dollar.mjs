@@ -63,9 +63,10 @@ try {
   if (!template) throw new Error('no template quote')
   const c = await call('POST', '/api/crm-contacts', { id: contactId, firstName: 'E2E', lastName: `Whole Dollar ${stamp}`, phone: '3525550177', email: 'e2e-whole-dollar@example.invalid', leadSource: 'Other' })
   const priced = ['fenceStyle', 'runs', 'runRails', 'corners', 'ends', 'walkGates', 'dblGates', 'tearOutSections', 'tearOutGates', 'adjLaborHrs', 'hasSalesman', 'priceAdjust', 'sections', 'materialCost', 'laborCost', 'tearOutCost', 'totalCOGS', 'finalPrice', 'gmPct', 'pullSheet']
-  // Its pricing choices without any whole dollar mark: a quote saved before the rule.
-  const { wholeDollar, roundingCents, ...pricing } = template.pricing ?? {}
-  void wholeDollar; void roundingCents
+  // Its pricing choices without any whole dollar mark: a quote saved before the rule. Without the draft stamp too
+  // (item 4, Nov 4 2026): a stamped Draft follows Settings and the Sent copy keeps its own margin, so the two would not be the same job.
+  const { wholeDollar, roundingCents, targetProfitPct, ...pricing } = template.pricing ?? {}
+  void wholeDollar; void roundingCents; void targetProfitPct
   const body = { ...Object.fromEntries(priced.map(k => [k, template[k]])), pricing, layout: { yard: null, runSections: template.layout?.runSections ?? [] } }
   const who = { crmContactId: contactId, customerName: NAME, customerPhone: '3525550177', customerEmail: 'e2e-whole-dollar@example.invalid', customerAddress: '9 Whole Dollar Way, Ocala, FL 34470', leadSource: 'Other', salesRep: 'E2E', date: '2026-10-21' }
   const d = await call('POST', '/api/saved-quotes', { id: draftId, ...body, ...who, status: 'DRAFT' })
