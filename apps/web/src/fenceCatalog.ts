@@ -633,7 +633,8 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
     }
     // Farm fence: no price without labor (Jonathan, Nov 5 2026): held until a sub rate per foot is set in Fence
     // Styles, on the fence itself or on the Farm material or one of its choices.
-    if (sc.material === 'farm' && !(typeof s.subRate === 'number' && s.subRate > 0) && !s.followed?.subRate) {
+    // A login whose copy has no sub rates (the Salesman) is told laborReady instead (routes/business-state.ts).
+    if (sc.material === 'farm' && !(typeof s.subRate === 'number' && s.subRate > 0) && !s.followed?.subRate && s.laborReady !== true) {
       why.push(`its sub rate per foot is not set (Settings → Fence Styles → ${m.label})`)
     }
     // 8 ft tall vinyl, every color: one price per section and one per post (Jonathan, Oct 21, 2026).

@@ -192,6 +192,9 @@ describe('adding farm fence (planFarm)', () => {
     const noSub = resolveFenceStyles(plan.state.fenceStyles, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!
     expect(noSub.held).toBe('its sub rate per foot is not set (Settings → Fence Styles → Farm fence)')
     // A sub rate per foot on the fence, on the Farm material or on a farm choice: available for quoting.
+    // The Salesman's copy has no sub rates; the server marks laborReady instead (routes/business-state.ts).
+    const marked = plan.state.fenceStyles.map(s => (s.name === 'farm/nc3/6/redbrand' ? { ...s, laborReady: true } : s))
+    expect(resolveFenceStyles(marked, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!.held).toBeUndefined()
     const onFence = plan.state.fenceStyles.map(s => (s.name === 'farm/nc3/6/redbrand' ? { ...s, subRate: 4.5 } : s))
     expect(resolveFenceStyles(onFence, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!.held).toBeUndefined()
     const cat = JSON.parse(JSON.stringify(plan.state.fenceCatalog))

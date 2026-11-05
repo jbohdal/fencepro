@@ -38,6 +38,8 @@ export interface FenceStyle {
    *  its choices and material (fenceRates.ts), then the category rate, then
    *  the default rate in Settings → Pricing. */
   subRate?: number
+  /** Farm fence only, on the copy a login without sub rates reads (the Salesman): its sub rate per foot is set (routes/business-state.ts). Never saved. */
+  laborReady?: boolean
   /** Subcontractor pay per walk gate and per double gate for this style. Blank follows, as subRate. */
   subWalkGate?: number
   subDblGate?: number

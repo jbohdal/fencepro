@@ -127,6 +127,14 @@ export function leanState<T>(s: T, omit: Set<string>): T {
   return out as T
 }
 
+/** Farm fences with a sub rate per foot set (their own, or their material's or a choice's): laborReady, no rate. */
+async function withFarmLaborMarks(config: any): Promise<any> {
+  if (!config || typeof config !== 'object' || !Array.isArray(config.fenceStyles)) return config
+  const m = await pricingModule() as any
+  const followed = m.followedRatesByStyle(config) as Record<string, { subRate?: unknown }>
+  return { ...config, fenceStyles: config.fenceStyles.map((s: any) => s?.material !== 'farm' ? s : { ...s, laborReady: (typeof s.subRate === 'number' && s.subRate > 0) || !!followed[s.name]?.subRate }) }
+}
+
 router.get('/', async (req: any, res) => {
   try {
     await salesmanAnswers(req, res)
@@ -138,7 +146,11 @@ router.get('/', async (req: any, res) => {
     // Which copy of the price data this is (lib/pricingStamp.ts): the phone sends it with a quote it prices.
     // overheadNow: live overhead from the budget and every job (lib/liveOverhead.ts), the one figure every phone prices with.
     const [overheadNow, livePct] = await Promise.all([overheadNowFor(accountId), liveOverheadPctFor(accountId, s.config)])
-    res.json({ success: true, data: leanState(s, omittedParts(req.query)), pricingPart: businessPart(s.config, livePct), overheadNow })
+    const data = leanState(s, omittedParts(req.query))
+    // A login whose copy has no sub rates (the Salesman, the Installer: lib/costRedact.ts) is told, fence by fence, that
+    // a farm fence has its labor set, never the rate: farm fence is held until it does (web fenceCatalog.ts, Nov 5 2026).
+    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req)) || hidesMargin(roleOf(req))) (data as any).config = await withFarmLaborMarks((data as any).config)
+    res.json({ success: true, data, pricingPart: businessPart(s.config, livePct), overheadNow })
   } catch (err) {
     console.error('[business-state] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load business state' })
@@ -191,6 +203,8 @@ router.patch('/', async (req: any, res) => {
     // A Salesman or Installer never had the costs (lib/costRedact.ts): the ones their
     // phone left out are put back as saved; a cost or the books sent is refused below.
     if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req)) || hidesMargin(roleOf(req))) {
+      // The farm labor marks were only for her phone (GET above): never saved.
+      if (updateData.config && Array.isArray(updateData.config.fenceStyles)) updateData.config = { ...updateData.config, fenceStyles: updateData.config.fenceStyles.map((x: any) => { if (!x || typeof x !== 'object' || !('laborReady' in x)) return x; const { laborReady: _l, ...rest } = x; return rest }) }
       for (const k of Object.keys(updateData)) updateData[k] = restoreCosts(updateData[k], (saved as any)?.[k], hideFor(roleOf(req)))
     }
     const refused = businessPatchRefusal(roleOf(req), req.user.id ?? null, saved as any, updateData)
