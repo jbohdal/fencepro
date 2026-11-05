@@ -146,11 +146,12 @@ router.get('/', async (req: any, res) => {
     // Which copy of the price data this is (lib/pricingStamp.ts): the phone sends it with a quote it prices.
     // overheadNow: live overhead from the budget and every job (lib/liveOverhead.ts), the one figure every phone prices with.
     const [overheadNow, livePct] = await Promise.all([overheadNowFor(accountId), liveOverheadPctFor(accountId, s.config)])
-    const data = leanState(s, omittedParts(req.query))
+    // The stamp of the copy as saved (the marks below are not part of it, so her phone's stamp matches the server's).
+    const pricingPart = businessPart(s.config, livePct)
     // A login whose copy has no sub rates (the Salesman, the Installer: lib/costRedact.ts) is told, fence by fence, that
     // a farm fence has its labor set, never the rate: farm fence is held until it does (web fenceCatalog.ts, Nov 5 2026).
-    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req)) || hidesMargin(roleOf(req))) (data as any).config = await withFarmLaborMarks((data as any).config)
-    res.json({ success: true, data, pricingPart: businessPart(s.config, livePct), overheadNow })
+    if (hidesCosts(roleOf(req)) || hidesPrices(roleOf(req)) || hidesMargin(roleOf(req))) (s as any).config = await withFarmLaborMarks(s.config)
+    res.json({ success: true, data: leanState(s, omittedParts(req.query)), pricingPart, overheadNow })
   } catch (err) {
     console.error('[business-state] get error:', err)
     res.status(500).json({ success: false, error: 'Failed to load business state' })
