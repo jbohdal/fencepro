@@ -265,7 +265,8 @@ describe('the vinyl gate hinge is shown as a pair to the crew', () => {
     expect(partWithPair('Vinyl, Gate, Hinge')).toBe('Vinyl, Gate, Hinge (pair)')
     expect(partWithPair('*Vinyl, Gate, Hinge (pair)')).toBe('*Vinyl, Gate, Hinge (pair)')
     expect(partWithPair('*Vinyl, Gate, Latch')).toBe('*Vinyl, Gate, Latch')
-    expect(partWithPair('Alum, Gate, Hinge, Self-Closing')).toBe('Alum, Gate, Hinge, Self-Closing')
+    // The aluminum self-closing hinge is a pair too (Jonathan, Nov 5, 2026).
+    expect(partWithPair('Alum, Gate, Hinge, Self-Closing')).toBe('Alum, Gate, Hinge, Self-Closing (pair)')
   })
 })
 

@@ -322,8 +322,13 @@ export function gateWarnings(style: Pick<QuoteStyle, 'name'>, gateWidths: QuoteC
   if (!kit || kit === 'archived') return []
   const walk = ((gateWidths?.walk ?? []) as number[]).slice(0, walkGates || undefined), dbl = ((gateWidths?.dbl ?? []) as number[]).slice(0, dblGates || undefined)
   const out: string[] = []
+  // 6 ft tall vinyl privacy: a 5 ft leaf is built the same as from a 6 ft wide section, as the standard leaf is (Jonathan,
+  // Nov 5, 2026), so a 5 ft walk gate and a 10 ft double gate take the standard gate's parts and need no note.
+  const sc = styleChoicesOf(style as Parameters<typeof styleChoicesOf>[0])
+  const fiveFtLeafAsStandard = !!sc && sc.material === 'vinyl' && sc.choices.style === 'privacy' && sc.choices.height === '6'
   for (const g of GATE_WIDTH_KIT) {
     const there = (g.side === 'walk' ? walk : dbl).some(w => Math.abs(w - g.ft) < 0.05)
+    if (fiveFtLeafAsStandard && (g.kit === 'walkGate5' || g.kit === 'dblGate10')) continue
     if (there && !kit.kits[g.kit]?.length) out.push(g.side === 'walk' ? `${g.ft} ft walk gate: this style has no parts list for it, so it is priced and pulled as a 4 ft walk gate. Check the pull sheet.` : `${g.ft} ft double gate: this style has no parts list for it, so it is priced and pulled as an 8 ft double gate (two 4 ft leaves). Check the pull sheet.`)
   }
   const odd = [...walk.filter(w => ![4, 5, 6].includes(w)).map(w => `${w} ft walk`), ...dbl.filter(w => ![8, 10, 12].includes(w)).map(w => `${w} ft double`)]

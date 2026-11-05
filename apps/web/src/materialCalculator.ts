@@ -1127,7 +1127,8 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
 
     if (walkGates > 0) {
       add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", walkGates, 168.83)
-      add("Alum, Gate, Hinge, Self-Closing", walkGates * 2, 33.36)
+      // The self-closing hinge part is a pair: one per leaf (Jonathan, Nov 5, 2026).
+      add("Alum, Gate, Hinge, Self-Closing", walkGates, 33.36)
       add("Alum, Gate, Latch, AQUA , Black, 20\"", walkGates, 50.43)
     }
     if (dblGates > 0) {
@@ -1135,7 +1136,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       const dbl10 = gateSizes(walkGates, dblGates, inputs.gateWidths).dbl10
       add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", (dblGates - dbl10) * 2, 168.83)
       add("Alum, 3-Rail, Emily, Gate, 4' x 5', 48\"", dbl10 * 2, 183.69)
-      add("Alum, Gate, Hinge, Self-Closing", dblGates * 4, 33.36)
+      add("Alum, Gate, Hinge, Self-Closing", dblGates * 2, 33.36)
       add("Alum, Gate, Latch", dblGates, 21.25)
     }
   }
@@ -1152,7 +1153,8 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
 
     if (walkGates > 0) {
       add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", walkGates, 168.83)
-      add("Alum, Gate, Hinge, Self-Closing", walkGates * 2, 33.36)
+      // The self-closing hinge part is a pair: one per leaf (Jonathan, Nov 5, 2026).
+      add("Alum, Gate, Hinge, Self-Closing", walkGates, 33.36)
       add("Alum, Gate, Latch, AQUA , Black, 20\"", walkGates, 50.43)
     }
     if (dblGates > 0) {
@@ -1160,7 +1162,7 @@ export function legacyCalculateMaterialsDetailed(inputs: JobInputs): MaterialRes
       const dbl10 = gateSizes(walkGates, dblGates, inputs.gateWidths).dbl10
       add("Alum, 3-Rail, Emily, Gate, 4' x 4', 48\"", (dblGates - dbl10) * 2, 168.83)
       add("Alum, 3-Rail, Emily, Gate, 4' x 5', 48\"", dbl10 * 2, 183.69)
-      add("Alum, Gate, Hinge, Self-Closing", dblGates * 4, 33.36)
+      add("Alum, Gate, Hinge, Self-Closing", dblGates * 2, 33.36)
       add("Alum, Gate, Latch", dblGates, 21.25)
     }
   }

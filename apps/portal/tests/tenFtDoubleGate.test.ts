@@ -48,7 +48,9 @@ describe('a 10 ft double gate is two 5 ft leaves', () => {
     expect([qty(g8.materials.items, four), qty(g8.materials.items, five)]).toEqual([2, 0])
     expect([qty(g10.materials.items, four), qty(g10.materials.items, five)]).toEqual([0, 2])
     expect([qty(both.materials.items, four), qty(both.materials.items, five)]).toEqual([2, 2])
-    expect(qty(g10.materials.items, 'Alum, Gate, Hinge, Self-Closing')).toBe(4)
+    // The self-closing hinge part is a pair: one per leaf (Jonathan, Nov 5, 2026).
+    expect(qty(g10.materials.items, 'Alum, Gate, Hinge, Self-Closing')).toBe(2)
+    expect(qty(g8.materials.items, 'Alum, Gate, Hinge, Self-Closing')).toBe(2)
     expect(qty(g10.materials.items, 'Alum, Gate, Latch')).toBe(1)
     restSame(g8, g10, [four, five])
     expect(g10.materialCost).toBeGreaterThan(g8.materialCost)
@@ -80,6 +82,18 @@ describe('a 10 ft double gate is two 5 ft leaves', () => {
     const g8 = quote(name, [8]), g10 = quote(name, [10])
     expect(g10.materials.items.map(i => [i.item, i.qty, i.unitCost])).toEqual(g8.materials.items.map(i => [i.item, i.qty, i.unitCost]))
     expect(g10.priced.price).toBe(g8.priced.price)
+  })
+
+  // 6 ft tall vinyl privacy: a 5 ft leaf is built the same as from a 6 ft wide section (Jonathan, Nov 5, 2026): no note.
+  test.each(["WV-ND 6'x6' Privacy", "WV-DS 6'x8' Privacy", "TV-ND 6'x6' Privacy", "TV-DS 6'x8' Privacy", 'WV-Auto ND Privacy'])('%s: a 10 ft double gate and a 5 ft walk gate need no staff note', name => {
+    expect(gateWarnings({ name }, { walk: [], dbl: [10] }, 0, 1)).toEqual([])
+    expect(gateWarnings({ name }, { walk: [5], dbl: [] }, 1, 0)).toEqual([])
+    // A 6 ft leaf (6 ft walk, 12 ft double) was not part of the answer: still noted.
+    expect(gateWarnings({ name }, { walk: [6], dbl: [12] }, 1, 1).length).toBe(2)
+  })
+
+  test.each(["WV-ND Bell 4'x6'", 'Alum - DS - Ind Abigail'])('%s: not 6 ft tall privacy, the note stays', name => {
+    expect(gateWarnings({ name }, { walk: [], dbl: [10] }, 0, 1).length).toBe(1)
   })
 
   test('a typed double gate (no width) is still the 8 ft gate', () => {
