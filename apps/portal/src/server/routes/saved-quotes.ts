@@ -128,6 +128,8 @@ const quoteSchema = z.object({
   layout: z.object({
     yard: z.object({ shape: z.string(), closed: z.boolean(), sides: z.array(z.object({}).passthrough()).max(60) }).passthrough().nullable(),
     runSections: z.array(z.number()).max(200),
+    // Farm fence wire rolls: clean corners (a new roll at each corner); absent: spliced (Nov 5 2026).
+    rollJoin: z.enum(['splice', 'clean']).optional(),
   }).optional().nullable(),
   corners: z.number().int().default(0),
   ends: z.number().int().default(0),

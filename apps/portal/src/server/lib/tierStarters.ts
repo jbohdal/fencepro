@@ -35,7 +35,8 @@ export const tierSpecSchema = z.object({
   install: z.enum(['same', 'no-dig', 'dig-set']),
   width: z.enum(['same', 'cheapest', '6', '8']),
   // Wood: the picket grade (pine, premium; web wood.ts), its Good / Better tiers (Oct 30 2026).
-  color: z.enum(['same', 'white', 'tan', 'galv', 'black', 'pine', 'premium']),
+  // Farm fence: wire and posts as one grade (web farm.ts), its Good / Better tiers (Nov 5 2026).
+  color: z.enum(['same', 'white', 'tan', 'galv', 'black', 'pine', 'premium', 'hutch-5', 'hutch-6', 'redbrand-5', 'redbrand-6', 'none-5', 'none-6']),
   style: z.string().max(200).nullable().optional(),
   priceAdjustPct: z.number().min(-50).max(100).nullable().optional(),
   text: z.string().max(400).default(''),
@@ -73,6 +74,15 @@ export const ALUM_STARTER: TierSpec[] = [
 export const WOOD_STARTER: TierSpec[] = [
   { key: 'good', name: 'Good', install: 'same', width: 'same', color: 'pine', text: 'Pressure treated pine pickets.' },
   { key: 'better', name: 'Better', install: 'same', width: 'same', color: 'premium', text: 'Alta Premium treated dog-ear pickets.' },
+]
+/**
+ * Farm fence (Jonathan, Nov 5 2026): Good is Hutchison Western no climb on 5"
+ * round posts, Better Red Brand on 6", the same style otherwise. No tier marked
+ * Most popular.
+ */
+export const FARM_STARTER: TierSpec[] = [
+  { key: 'good', name: 'Good', install: 'same', width: 'same', color: 'hutch-5', text: 'Hutchison Western no climb wire on 5" round treated posts.' },
+  { key: 'better', name: 'Better', install: 'same', width: 'same', color: 'redbrand-6', text: 'Red Brand no climb wire on 6" round treated posts.' },
 ]
 /** The tier marked Most popular in the two option sets: No dig. */
 export const TWO_OPTION_POPULAR = 'better'
@@ -120,6 +130,7 @@ export function startersFor(config: unknown): Starter[] {
   const nd = alumModels('ND'), ds = alumModels('DS')
   const alumOk = [...nd].some(x => ds.has(x))
   const woodOk = named.some(s => /^wood\/(stockade|bob|sb)\/6\/(pine|premium)\//.test(s.name))
+  const farmOk = named.some(s => /^farm\/(nc1|nc3|b4|xb)\/[56]\//.test(s.name))
 
   return [
     { key: 'vinyl', category: catOf(/^(WV|TV)-/, 'Vinyl'), tiers: vinyl.tiers, popular: vinyl.popular, sortOrder: 0 },
@@ -128,6 +139,8 @@ export function startersFor(config: unknown): Starter[] {
     // Wood: only once its styles are in Settings (not made empty, so it is made, once, as soon as they are: ensureTierSets
     // adds a starter not made yet, also for companies whose other sets were made before wood).
     ...(woodOk ? [{ key: 'wood', category: 'Wood', tiers: WOOD_STARTER, popular: null, sortOrder: 3 }] : []),
+    // Farm fence: the same way, once its styles are in Settings (Nov 5 2026).
+    ...(farmOk ? [{ key: 'farm', category: 'Farm', tiers: FARM_STARTER, popular: null, sortOrder: 4 }] : []),
   ]
 }
 

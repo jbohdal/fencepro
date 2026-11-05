@@ -174,6 +174,8 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
   const [category, setCategory]             = useState('All')
   const [saved, setSaved]                   = useState(false)
   const [editingId, setEditingId]           = useState<string | null>(null)
+  // Supplier item number and quantity break (Nov 5 2026), edited on a row of their own.
+  const [detailsId, setDetailsId]           = useState<string | null>(null)
   const [thresholdExpandId, setThresholdExpandId] = useState<string | null>(null)
   const [barcodesEditId, setBarcodesEditId] = useState<string | null>(null)
   const [barcodesInput, setBarcodesInput]   = useState('')
@@ -427,6 +429,12 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                       ) : canPrice ? (
                         <span className="cursor-pointer hover:text-orange-600" onClick={() => setEditingId(item.id)}>{item.name}</span>
                       ) : <span>{item.name}</span>}
+                      {(item.supplier || item.vendorItemNumber || item.qtyBreak || canPrice) && (
+                        <span className="block text-[11px] text-gray-500" data-item-details={item.id}>
+                          {[item.supplier, item.vendorItemNumber ? `item ${item.vendorItemNumber}` : '', item.qtyBreak ? `${item.qtyBreak.minQty} or more on a job: ${item.qtyBreak.pctOff}% off each` : ''].filter(Boolean).join(' · ')}
+                          {canPrice && <button type="button" className="ml-1 underline text-gray-500 hover:text-orange-600 min-h-[24px]" onClick={() => setDetailsId(detailsId === item.id ? null : item.id)} data-item-details-edit={item.id}>{item.supplier || item.vendorItemNumber || item.qtyBreak ? 'Edit' : 'Supplier item #, quantity break'}</button>}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-gray-500 text-xs">{item.category}</td>
                     {can('costs.view') && <td className="px-3 py-2.5 text-right">
@@ -491,6 +499,22 @@ function CatalogTab({ onlyIds, onShowAll }: { onlyIds?: string[]; onShowAll?: ()
                   {from && (
                     <tr key={`${item.id}-from`} data-follows-black={item.id} style={{ borderTopWidth: 0 }}>
                       <td colSpan={8} className="px-4 pt-0 pb-2.5 text-xs text-amber-800">{borrowedNote(from, canPrice)}</td>
+                    </tr>
+                  )}
+                  {canPrice && detailsId === item.id && (
+                    <tr key={`${item.id}-details`} className="bg-orange-50" data-item-details-row={item.id}>
+                      <td colSpan={8} className="px-6 py-3">
+                        <div className="flex flex-wrap items-end gap-3 text-xs text-gray-700">
+                          <label>Supplier<input className="block mt-1 w-40 border border-gray-300 rounded px-2 min-h-[36px] bg-white" value={item.supplier ?? ''} onChange={e => updateItem(item.id, 'supplier', e.target.value)} data-item-supplier={item.id} /></label>
+                          <label>Supplier item #<input className="block mt-1 w-32 border border-gray-300 rounded px-2 min-h-[36px] bg-white" value={item.vendorItemNumber ?? ''} onChange={e => updateItem(item.id, 'vendorItemNumber', e.target.value.trim())} data-item-vendor-number={item.id} /></label>
+                          <label>Quantity break: this many or more on a job<input type="number" min="2" step="1" className="block mt-1 w-24 border border-gray-300 rounded px-2 min-h-[36px] bg-white" value={item.qtyBreak?.minQty ?? ''}
+                            onChange={e => { const n = parseInt(e.target.value, 10); setItems(prev => prev.map(i => i.id !== item.id ? i : { ...i, qtyBreak: n > 1 ? { minQty: n, pctOff: i.qtyBreak?.pctOff ?? 5 } : null })) }} data-item-break-qty={item.id} /></label>
+                          <label>% off each<input type="number" min="0.1" max="99" step="0.1" className="block mt-1 w-20 border border-gray-300 rounded px-2 min-h-[36px] bg-white" value={item.qtyBreak?.pctOff ?? ''} disabled={!item.qtyBreak}
+                            onChange={e => { const p = parseFloat(e.target.value); setItems(prev => prev.map(i => i.id !== item.id || !i.qtyBreak ? i : { ...i, qtyBreak: { ...i.qtyBreak, pctOff: p > 0 && p < 100 ? p : i.qtyBreak.pctOff } })) }} data-item-break-pct={item.id} /></label>
+                          <button type="button" className="underline text-gray-600 min-h-[36px]" onClick={() => setItems(prev => prev.map(i => i.id !== item.id ? i : { ...i, qtyBreak: null }))} disabled={!item.qtyBreak}>No break</button>
+                        </div>
+                        <p className="mt-1 text-[11px] text-gray-500">A job whose pull sheet takes at least that many pays the lower price for each one; a sent quote keeps its prices. Save with the button at the top.</p>
+                      </td>
                     </tr>
                   )}
                   {isThresholdExpanded && (

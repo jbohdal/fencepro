@@ -14,6 +14,8 @@ import { setSavedKitSets } from '../../web/src/materialKits'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { estimateConfig } from '../../web/src/estimate'
 import { DEFAULT_CATALOG, plainName, resolveFenceStyles } from '../../web/src/fenceCatalog'
+import { tierStyles } from '../../web/src/tiers'
+import { FARM_STARTER } from '../src/server/lib/tierStarters'
 import {
   FARM_COMBOS, FARM_STYLE_NAMES, farmKitSet, farmStyleName, planFarm, farmRuns, farmRolls, crossbuckGap, feetInches,
   POST_6, BOARD, X_BOARD, WIRE_RB, STAPLE, FARM_PARTS, withEstTax,
@@ -138,5 +140,17 @@ describe('adding farm fence (planFarm)', () => {
     const ok = resolveFenceStyles(plan.state.fenceStyles, plan.state.fenceCatalog!, price(false), kitOf).find(s => s.name === 'farm/nc3/6/redbrand')!
     expect(ok.held).toBeUndefined()
     expect(plainName(plan.state.fenceCatalog!, { material: 'farm', choices: { style: 'xb', post: '5', wire: 'hutch' } })).toBe('Farm Fence, Crossbuck + No Climb, 5" round posts, Hutchison Western no climb')
+  })
+})
+
+describe('Good and Better (the Farm tier set)', () => {
+  test('Good = Hutchison + 5", Better = Red Brand + 6", the same style; a 4 board with no wire gets the wired grades', () => {
+    const all = FARM_COMBOS.map(c => style(c.style.key, c.post.key, c.wire.key))
+    for (const s of ['nc1', 'nc3', 'xb', 'b4']) {
+      const own = style(s, '6', s === 'b4' ? 'none' : 'redbrand')
+      const [good, better] = FARM_STARTER.map(t => tierStyles(t, own, all))
+      expect('styles' in good && good.styles.map(x => x.name)).toEqual([farmStyleName(s, '5', 'hutch')])
+      expect('styles' in better && better.styles.map(x => x.name)).toEqual([farmStyleName(s, '6', 'redbrand')])
+    }
   })
 })

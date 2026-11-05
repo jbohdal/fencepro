@@ -78,7 +78,13 @@ export function tierChoicesFor(styles: Array<Parameters<typeof styleParts>[1] & 
 
 export const WIDTH_LABEL: Record<TierWidth, string> = { same: 'Same as the quote', cheapest: '6 ft or 8 ft sections (best price)', '6': 'All 6 ft wide sections', '8': 'All 8 ft wide sections' }
 /** Wood's picket grades are its tier "colors" (wood.ts WOOD_GRADES); they are a choice, not a color in Settings. */
-export const COLOR_LABEL: Record<string, string> = { same: 'Same as the quote', pine: 'PT Pine pickets', premium: 'Alta Premium pickets' }
+export const COLOR_LABEL: Record<string, string> = {
+  same: 'Same as the quote', pine: 'PT Pine pickets', premium: 'Alta Premium pickets',
+  // Farm fence grades: wire and posts (farm.ts; proposalOptions.ts styleParts).
+  'hutch-5': 'Hutchison Western wire, 5" posts', 'hutch-6': 'Hutchison Western wire, 6" posts',
+  'redbrand-5': 'Red Brand wire, 5" posts', 'redbrand-6': 'Red Brand wire, 6" posts',
+  'none-5': 'No wire, 5" posts', 'none-6': 'No wire, 6" posts',
+}
 
 /** A tier color's name: the color's name in Settings (fenceCatalog.ts colorNamesOf; the default tree when none is given). */
 export function colorLabel(key: string, names: Record<string, string> = colorNamesOf(null)): string {
@@ -100,7 +106,7 @@ function describe(p: { family: StyleParts['family']; color: string | null; insta
   if (p.height) bits.push(`${p.height} ft tall`)
   if (p.width === 'auto') bits.push('auto mix (6 and 8 ft wide)')
   else if (typeof p.width === 'number') bits.push(`${p.width} ft wide`)
-  const what = p.family === 'vinyl' ? 'vinyl privacy' : p.family === 'chain' ? 'chain link' : p.family === 'wood' ? `wood ${p.model ?? ''}`.trim() : `aluminum ${p.model ?? ''}`.trim()
+  const what = p.family === 'vinyl' ? 'vinyl privacy' : p.family === 'chain' ? 'chain link' : p.family === 'wood' ? `wood ${p.model ?? ''}`.trim() : p.family === 'farm' ? 'farm fence' : `aluminum ${p.model ?? ''}`.trim()
   return `${bits.join(', ')}${bits.length ? ' ' : ''}${what}`
 }
 
@@ -338,7 +344,7 @@ export function tierCategory(prefs: TierPrefs, style: { name?: string; category?
 /** Names that say nothing about the fence, so they stay on a swapped option. "Dig set with concrete" would not. */
 const RANK_NAME = /^(good|better|best)$/i
 
-const MATERIAL_WORD: Record<StyleParts['family'], string> = { vinyl: 'Vinyl', chain: 'Chain link', alum: 'Aluminum', wood: 'Wood' }
+const MATERIAL_WORD: Record<StyleParts['family'], string> = { vinyl: 'Vinyl', chain: 'Chain link', alum: 'Aluminum', wood: 'Wood', farm: 'Farm fence' }
 
 /** A material in a word, for an option with no tier name of its own. */
 export function materialWord(style: (QuoteStyle & { material?: string }) | undefined): string {
