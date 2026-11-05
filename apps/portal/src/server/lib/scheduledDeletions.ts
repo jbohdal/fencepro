@@ -46,7 +46,13 @@ export async function runDueDeletions(now = new Date()): Promise<string[]> {
       if (appts + quotes + jobs > 0) kept.push(id); else deletable.push(id)
     }
     const notArchived = wanted.filter(id => !archived.some(a => a.id === id))
-    const deleted = deletable.length ? (await prisma.crmContact.deleteMany({ where: { id: { in: deletable }, OR: [{ archivedAt: { not: null } }, { deletedAt: { not: null } }] } })).count : 0
+    // Their properties go with them (lib/properties.ts; nothing of theirs points at one: checked above).
+    const deleted = deletable.length ? await prisma.$transaction(async tx => {
+      const gone = await tx.crmContact.findMany({ where: { id: { in: deletable }, OR: [{ archivedAt: { not: null } }, { deletedAt: { not: null } }] }, select: { id: true } })
+      const goneIds = gone.map(g => g.id)
+      await tx.customerProperty.deleteMany({ where: { crmContactId: { in: goneIds } } })
+      return (await tx.crmContact.deleteMany({ where: { id: { in: goneIds } } })).count
+    }) : 0
     const result = [
       `Deleted ${deleted} of ${wanted.length} on ${today} (backup ${backup.completedAt.toISOString()}).`,
       notArchived.length ? `Left alone, no longer archived: ${notArchived.length}.` : '',

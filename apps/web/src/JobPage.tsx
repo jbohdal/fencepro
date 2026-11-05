@@ -15,6 +15,7 @@
  * the Salesman's job writes (portal lib/salesmanJobs.ts).
  */
 
+import PropertyNotes from './PropertyNotes'
 import { useEffect, useState } from 'react'
 import { fetchJob, type Job } from './jobStore'
 import { canOpenOperations } from './permissions'
@@ -119,6 +120,7 @@ export default function JobPage() {
         <Row label="Name" value={job.customerName} />
         <Row label="Address" value={job.customerAddress} />
         <CustomerContact job={job} />
+        <PropertyNotes customerId={job.customerId} propertyId={job.propertyId} address={job.customerAddress} />
         {job.customerEmail && <Row label="Email" value={job.customerEmail} />}
       </Card>
 

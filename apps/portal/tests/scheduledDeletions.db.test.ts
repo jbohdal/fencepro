@@ -25,6 +25,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('scheduled deletions (dev databas
   }
   afterAll(async () => {
     await prisma.scheduledDeletion.deleteMany({ where: { id: { in: made.schedules } } })
+    await prisma.customerProperty.deleteMany({ where: { crmContactId: { in: made.contacts } } })
     await prisma.crmContact.deleteMany({ where: { id: { in: made.contacts } } })
     await prisma.backupLog.deleteMany({ where: { id: { in: made.backups } } })
   })
@@ -33,6 +34,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('scheduled deletions (dev databas
     const a = await contact('Dup A', true)
     const b = await contact('Dup B', true)
     const back = await contact('Brought back', false)
+    // Every customer has a property (their first one, Primary): it goes with them (Nov 5 2026).
+    for (const c of [a, b, back]) await prisma.customerProperty.create({ data: { accountId: account!.id, crmContactId: c, label: 'Home', isPrimary: true, address: '1 E2E St' } })
     const id = await schedule([a, b, back], '2030-01-02')
     // A day long before the date: nothing happens.
     expect((await runDueDeletions(new Date('2029-12-31T15:00:00Z'))).some(r => r.startsWith(id))).toBe(false)
@@ -46,6 +49,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('scheduled deletions (dev databas
     expect((await runDueDeletions(day)).find(r => r.startsWith(id))).toMatch(/Deleted 2 of 3.*no longer archived: 1/)
     expect(await prisma.crmContact.count({ where: { id: { in: [a, b] } } })).toBe(0)
     expect(await prisma.crmContact.count({ where: { id: back } })).toBe(1)
+    expect(await prisma.customerProperty.count({ where: { crmContactId: { in: [a, b] } } })).toBe(0)
+    expect(await prisma.customerProperty.count({ where: { crmContactId: back } })).toBe(1)
     expect((await prisma.scheduledDeletion.findUnique({ where: { id } }))!.status).toBe('done')
     // Done once: the next check does nothing.
     expect((await runDueDeletions(day)).some(r => r.startsWith(id))).toBe(false)

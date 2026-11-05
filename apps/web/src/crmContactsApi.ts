@@ -46,6 +46,10 @@ export interface CrmContactRecord extends CrmContactPayload {
   archivedAt?: string | null
   createdAt: string
   updatedAt: string
+  /** Every property address of theirs (Primary, a rental, one sold), for search (portal lib/properties.ts). */
+  propertyAddresses?: string[]
+  /** How many of their properties are still theirs (not marked No longer theirs). */
+  activeProperties?: number
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<{ ok: boolean; data?: T; error?: string; serverTime?: string }> {

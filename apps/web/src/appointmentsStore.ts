@@ -128,6 +128,8 @@ export const appointmentsFor = (customerId: string) => cache.filter(a => a.crmCo
 
 export interface NewAppointment {
   crmContactId: string
+  /** The customer's property visited (PropertyPicker.tsx): the server takes its address and map point. */
+  propertyId?: string | null
   type: AppointmentType
   startAt: string | null
   endAt: string | null
@@ -187,7 +189,7 @@ export async function createAppointment(input: NewAppointment & { id?: string },
   const c = getCustomerById(input.crmContactId)
   const now = new Date().toISOString()
   const local: Appointment = {
-    id, crmContactId: input.crmContactId, quoteId: input.quoteId ?? null, jobId: input.jobId ?? null,
+    id, crmContactId: input.crmContactId, propertyId: input.propertyId ?? null, quoteId: input.quoteId ?? null, jobId: input.jobId ?? null,
     type: input.type, status: input.status ?? 'scheduled', startAt: input.startAt, endAt: input.endAt, allDay: !!input.allDay,
     address: input.address ?? c?.serviceAddress ?? '', lat: input.lat ?? null, lng: input.lng ?? null,
     assignedTo: input.assignedTo ?? '', assignedToUserId: input.assignedToUserId ?? null, notes: input.notes ?? '', outcome: null, outcomeNotes: '', measuredFeet: null, nextStep: '',
@@ -220,7 +222,7 @@ async function settle(id: string, refusedTitle: string, opts: SaveOptions): Prom
 
 export type AppointmentChanges = Partial<Pick<Appointment,
   'type' | 'status' | 'startAt' | 'endAt' | 'allDay' | 'address' | 'lat' | 'lng' | 'assignedTo' | 'assignedToUserId' | 'notes' |
-  'outcomeNotes' | 'measuredFeet' | 'nextStep' | 'quoteId' | 'jobId' | 'startedAt'>> & { outcome?: AppointmentOutcome | null }
+  'outcomeNotes' | 'measuredFeet' | 'nextStep' | 'quoteId' | 'jobId' | 'startedAt' | 'propertyId'>> & { outcome?: AppointmentOutcome | null }
 
 /**
  * Change an appointment. `reason` goes in its history when the time moves.

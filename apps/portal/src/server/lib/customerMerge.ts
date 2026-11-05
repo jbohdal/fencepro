@@ -23,6 +23,7 @@
  */
 
 import prisma from './prisma.js'
+import { ensurePrimary, contactsAtAddress } from './properties.js'
 import { CUSTOMER_ID_ROWS, CUSTOMER_ID_LISTS, CUSTOMER_ID_KV, lockDoc, writeDoc, labelOf, nameOf, type ListDoc, type DocName, type Actor } from './deletion.js'
 
 type Tx = any
@@ -51,11 +52,19 @@ const digits10 = (phone: string | null | undefined) => {
 
 export interface MatchFound { id: string; reason: string }
 
+/** One Primary property for this customer: its own Primary kept, the ones just moved to it made its other properties; none, the first. */
+async function onePrimary(tx: Tx, accountId: string, contactId: string, movedIds: string[]) {
+  const primaries = await tx.customerProperty.findMany({ where: { accountId, crmContactId: contactId, isPrimary: true }, orderBy: { createdAt: 'asc' } })
+  const keep = primaries.find((p: any) => !movedIds.includes(p.id)) ?? primaries[0]
+  if (keep) await tx.customerProperty.updateMany({ where: { accountId, crmContactId: contactId, isPrimary: true, NOT: { id: keep.id } }, data: { isPrimary: false } })
+  else await ensurePrimary(tx, accountId, contactId)
+}
+
 /**
  * Customers on file (not deleted, archived or merged away) with this email or
  * phone. Read only: nothing is attached to them.
  */
-export async function findPossibleMatches(db: Pick<typeof prisma, 'crmContact'>, accountId: string, input: { phone?: string | null; email?: string | null }, excludeId?: string): Promise<MatchFound[]> {
+export async function findPossibleMatches(db: Pick<typeof prisma, 'crmContact' | 'customerProperty'>, accountId: string, input: { phone?: string | null; email?: string | null; address?: string | null }, excludeId?: string): Promise<MatchFound[]> {
   const phone10 = digits10(input.phone)
   const email = (input.email || '').trim().toLowerCase()
   const why = new Map<string, Set<string>>()
@@ -69,13 +78,23 @@ export async function findPossibleMatches(db: Pick<typeof prisma, 'crmContact'>,
       if (digits10(c.phone) === phone10) add(c.id, 'phone')
     }
   }
-  return [...why].slice(0, 5).map(([id, r]) => ({ id, reason: r.size > 1 ? 'email and phone' : [...r][0] }))
+  // Any property of theirs at this address (Home, a rental, one they sold), Nov 5 2026.
+  if (input.address) {
+    const at = await contactsAtAddress(db, accountId, input.address, { exceptContactId: excludeId })
+    if (at.length) {
+      const live = await db.crmContact.findMany({ where: { id: { in: at }, accountId, deletedAt: null, archivedAt: null, mergedIntoId: null }, select: { id: true } })
+      for (const c of live) add(c.id, 'address')
+    }
+  }
+  const order = ['email', 'phone', 'address']
+  const plainList = (l: string[]) => (l.length > 2 ? `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}` : l.join(' and '))
+  return [...why].slice(0, 5).map(([id, r]) => ({ id, reason: plainList(order.filter(x => r.has(x))) }))
 }
 
 // ── What a person reads ─────────────────────────────────────────────────────
 
 const ROW_WORD: Record<string, [string, string]> = {
-  savedQuote: ['quote', 'quotes'], savedJob: ['job', 'jobs'], appointment: ['appointment', 'appointments'],
+  savedQuote: ['quote', 'quotes'], savedJob: ['job', 'jobs'], appointment: ['appointment', 'appointments'], customerProperty: ['property', 'properties'],
   mediaItem: ['photo', 'photos'], crmContactNote: ['note', 'notes'], intakeLead: ['website or phone lead', 'website or phone leads'],
   callLog: ['logged call', 'logged calls'], proposalView: ['proposal open', 'proposal opens'], pendingTouch: ['pending call', 'pending calls'],
   warrantyUpdate: ['warranty update', 'warranty updates'], crmTextConsent: ['texting answer', 'texting answers'], portalAccount: ['portal login', 'portal logins'], portalPhoto: ['portal photo', 'portal photos'],
@@ -126,6 +145,9 @@ async function moveAll(tx: Tx, accountId: string, from: string, to: string, only
     await tx[p.model].updateMany({ where: { [p.idField]: { in: ids }, [p.field]: from }, data: { [p.field]: to } })
     out.rows.push({ model: p.model, field: p.field, ids })
   }
+  // Properties moved: the customer they went to keeps one Primary (its own; the moved ones are its other properties).
+  const props = out.rows.find(r => r.model === 'customerProperty')
+  if (props) await onePrimary(tx, accountId, to, props.ids)
 
   const docs = [...new Set(CUSTOMER_ID_LISTS.map(d => d.split('.')[0] as DocName))]
   for (const doc of docs) {

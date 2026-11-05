@@ -59,7 +59,9 @@ import { checkSession, logout as crmLogout, canAccess, setSessionExpiredHandler,
 import { getBusinessField } from './businessStateStore'
 import { getConfig } from './configStore'
 import { clearOldBrowserData } from './browserStorage'
-import { initCustomers, getCustomers, isCustomersHydrated, findCustomerFresh } from './customerStore'
+import { initCustomers, getCustomers, getCustomerById, isCustomersHydrated, findCustomerFresh } from './customerStore'
+import PropertyPicker from './PropertyPicker'
+import type { Property } from './propertiesApi'
 import { initQuotes, getQuotes, getArchivedQuotes, getQuoteById, upsertQuote, isQuotesHydrated, refreshQuotes, isSlimQuote, loadFullQuote, QUOTE_REPRICE_OPEN_EVENT } from './quoteStore'
 import { checkPricing } from './pricingFreshness'
 import { sizeText } from './moveRepair'
@@ -568,6 +570,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const showQuoteRef = useRef(false)
   showQuoteRef.current = showQuote
   const [editingQuote, setEditingQuote] = useState<SavedQuote | null>(null)
+  // A new quote for a customer with more than one property: which one, before the builder opens.
+  const [pickProperty, setPickProperty] = useState<{ c: Parameters<typeof openQuoteFor>[0]; extra: Parameters<typeof openQuoteFor>[1]; picked?: Property } | null>(null)
   const editingQuoteRef = useRef<SavedQuote | null>(null)
   editingQuoteRef.current = showQuote ? editingQuote : null
 
@@ -924,7 +928,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   /** A new quote for a customer: from their page, or from an appointment closed out "Ready to quote" (with its property and measurements). */
-  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string }, extra: { address?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean } = {}) {
+  function openQuoteFor(c: { id: string; firstName: string; lastName: string; phone?: string; email?: string; serviceAddress?: string; leadSource?: string; salesRep?: string; propertyAddresses?: string[] }, extra: { address?: string; propertyId?: string; notes?: string; repair?: { what: 'leaning' | 'storm' | 'gate' | 'other'; fenceStyle: string }; reuseDraft?: boolean } = {}) {
+    // A customer with more than one property (a rental, a new home): which one, first (PropertyPicker; Jonathan, Nov 5 2026).
+    // A visit's quote comes with the visit's property; a draft opened again keeps its own.
+    if (!extra.address && !extra.propertyId && !extra.reuseDraft && (getCustomerById(c.id)?.activeProperties ?? 1) > 1) {
+      setPickProperty({ c, extra })
+      return
+    }
     // Ready to quote and a pipeline card open the customer's draft (the website drawing, or one already started),
     // with the visit's notes added: never a blank quote and a second draft (quoteReuse.ts).
     if (extra.reuseDraft && !extra.repair) {
@@ -944,6 +954,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       customerPhone: c.phone || '',
       customerEmail: c.email || '',
       customerAddress: extra.address || c.serviceAddress || '',
+      ...(extra.propertyId ? { propertyId: extra.propertyId } : {}),
       leadSource: c.leadSource || '',
       salesRep: c.salesRep || '',
       fenceStyle: extra.repair?.fenceStyle || '', runs: [], corners: 0, ends: 0,
@@ -1631,6 +1642,26 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           onUseData={handleMapQuoteData}
           onClose={() => setShowMapQuote(false)}
         /></ScreenErrorBoundary></Suspense>
+      )}
+
+      {pickProperty && <BackClose name="quote-property" onClose={() => setPickProperty(null)} />}
+      {pickProperty && (
+        <div className="fixed inset-0 z-[90] bg-black/50 flex items-end sm:items-center justify-center" data-quote-property-dialog>
+          <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto p-5 space-y-4">
+            <div>
+              <h2 className="font-bold text-gray-900">New quote for {`${pickProperty.c.firstName} ${pickProperty.c.lastName}`.trim()}</h2>
+              <p className="text-sm text-gray-600">They have more than one property.</p>
+            </div>
+            <PropertyPicker customerId={pickProperty.c.id} title="Which property is this quote for?"
+              onPick={p => setPickProperty(cur => (cur ? { ...cur, picked: p } : cur))} />
+            <div className="flex gap-2">
+              <button type="button" className="flex-1 min-h-[48px] rounded-xl border border-gray-300 text-gray-700 font-medium" onClick={() => setPickProperty(null)}>Cancel</button>
+              <button type="button" className="flex-1 min-h-[48px] rounded-xl bg-orange-600 text-white font-semibold disabled:opacity-50" disabled={!pickProperty.picked}
+                onClick={() => { const { c, extra, picked } = pickProperty; setPickProperty(null); openQuoteFor(c, { ...extra, propertyId: picked!.id, address: picked!.address || c.serviceAddress || undefined }) }}
+                data-quote-property-start>Start quote</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ═══ QUOTE BUILDER MODAL ═══ */}

@@ -340,6 +340,8 @@ model Appointment {
   id           String    @id @default(uuid())
   accountId    String
   crmContactId String
+  /// The property it belongs to (CustomerProperty, Nov 5 2026); its address copy is that property's.
+  propertyId   String?
   quoteId      String?
   jobId        String?
   /// estimate | follow_up | contract_signing | install | service | warranty | call_back | other
@@ -387,6 +389,7 @@ model Appointment {
   contact CrmContact @relation(fields: [crmContactId], references: [id])
 
   @@unique([accountId, sourceRef])
+  @@index([propertyId])
   @@index([accountId, startAt])
   @@index([deletedAt])
   @@index([crmContactId])
@@ -740,6 +743,8 @@ enum PortalMessageSender {
 model PortalPhoto {
   id                  String           @id @default(uuid())
   crmCustomerId       String
+  /// The property it belongs to (CustomerProperty, Nov 5 2026); its address copy is that property's.
+  propertyId   String?
   uploadedByAccountId String? // PortalAccount id when customer-uploaded
   uploadedByUser      String? // staff user identifier when staff-uploaded
   fileKey             String // storage path
@@ -753,6 +758,7 @@ model PortalPhoto {
   createdAt           DateTime         @default(now())
   deletedAt           DateTime?
 
+  @@index([propertyId])
   @@index([crmCustomerId])
   @@index([source])
 }
@@ -1501,6 +1507,41 @@ model QuoteOption {
 // jobsite contacts that the CRM operator wants persisted in the database
 // instead of localStorage. Every field is optional after first/last name so
 // new fields can be added without breaking existing rows.
+/// A property a customer has (Jonathan, Nov 5 2026): their home, a rental, an Airbnb. Every quote, job,
+/// appointment, permit and locate (through its job), site plan, aerial and photo belongs to one; the
+/// customer's billing and mailing address stay on CrmContact. One is Primary (CrmContact.serviceAddress
+/// mirrors it, so every older reader still works). "No longer theirs" (moved or sold) keeps it, greyed out,
+/// with its history. lib/properties.ts.
+model CustomerProperty {
+  id           String    @id @default(uuid())
+  accountId    String
+  crmContactId String
+  /// Home, Rental, Airbnb, or what Jonathan types
+  label        String    @default("Home")
+  /// The whole address as the county suggestions give it ("10116 SW 78th Ct, Ocala, FL 34476")
+  address      String    @default("")
+  city         String?
+  state        String?
+  zip          String?
+  lat          Float?
+  lng          Float?
+  gateCode     String?
+  /// A tenant or property manager, and their phone
+  tenantName   String?
+  tenantPhone  String?
+  accessNotes  String?
+  isPrimary    Boolean   @default(false)
+  /// Moved or sold: kept with its history, greyed out, not offered for new work
+  noLongerTheirsAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contact CrmContact @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([crmContactId])
+}
+
 model CrmContact {
   id               String    @id @default(uuid())
   accountId        String? // CrmAccount this contact belongs to (the visibility scope)
@@ -1542,6 +1583,7 @@ model CrmContact {
   updatedAt        DateTime  @updatedAt
 
   textConsents CrmTextConsent[]
+  properties   CustomerProperty[]
   account      CrmAccount?      @relation("ContactsOfCrmAccount", fields: [accountId], references: [id])
   contactNotes CrmContactNote[]
   savedQuotes  SavedQuote[]
@@ -1778,6 +1820,8 @@ model SavedQuote {
   // Customer link (preferred) + denormalized snapshot fields so quotes survive
   // contact deletes and so public share pages don't need to join.
   crmContactId    String?
+  /// The property it belongs to (CustomerProperty, Nov 5 2026); its address copy is that property's.
+  propertyId   String?
   customerName    String  @default("")
   customerPhone   String  @default("")
   customerEmail   String  @default("")
@@ -1866,6 +1910,7 @@ model SavedQuote {
   account CrmAccount? @relation("QuotesOfCrmAccount", fields: [accountId], references: [id])
   contact CrmContact? @relation(fields: [crmContactId], references: [id])
 
+  @@index([propertyId])
   @@index([accountId])
   @@index([deletedAt])
   @@index([crmContactId])
@@ -1909,6 +1954,8 @@ model SavedJob {
   accountId    String // tenant scope
   quoteId      String? // SavedQuote.id; optional for legacy / hand created jobs
   crmContactId String?
+  /// The property it belongs to (CustomerProperty, Nov 5 2026); its address copy is that property's.
+  propertyId   String?
 
   status         SavedJobStatus  @default(staging)
   previousStatus SavedJobStatus?
@@ -1992,6 +2039,7 @@ model SavedJob {
   paymentSchedules PaymentSchedule[]
   billingLogs      BillingLog[]
 
+  @@index([propertyId])
   @@index([accountId])
   @@index([deletedAt])
   @@index([crmContactId])

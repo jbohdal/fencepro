@@ -1,0 +1,780 @@
+{
+ "madeFrom": "ezbiz_dev copy of live, 2026-11-05 16:44",
+ "decided": "Jonathan, Nov 5 2026",
+ "records": [
+  {
+   "n": 1,
+   "action": "own",
+   "kind": "quote",
+   "id": "c4c560f3-e2f3-5437-8c58-e5ebda1b102b"
+  },
+  {
+   "n": 3,
+   "action": "own",
+   "kind": "quote",
+   "id": "2c71e1c4-a431-5630-9b41-29a14e9151fe"
+  },
+  {
+   "n": 8,
+   "action": "own",
+   "kind": "quote",
+   "id": "9171ee5f-cd11-594c-a9ef-837715129b0a"
+  },
+  {
+   "n": 8,
+   "action": "own",
+   "kind": "appointment",
+   "id": "1559b756-3176-4dde-95fe-6ee5238d4f29"
+  },
+  {
+   "n": 9,
+   "action": "own",
+   "kind": "quote",
+   "id": "6477aaa3-8189-58c0-b9d5-df5ca633fc8f"
+  },
+  {
+   "n": 9,
+   "action": "own",
+   "kind": "appointment",
+   "id": "b965532e-c7a5-4dd8-b4b0-69fce8928729"
+  },
+  {
+   "n": 10,
+   "action": "own",
+   "kind": "quote",
+   "id": "26a48517-a1a4-5994-b098-6406e9efa564"
+  },
+  {
+   "n": 10,
+   "action": "own",
+   "kind": "job",
+   "id": "6adf0fdb-50a7-53e4-af86-9ea6f9de8260"
+  },
+  {
+   "n": 12,
+   "action": "own",
+   "kind": "quote",
+   "id": "9b319438-50e3-5708-98c2-055204914e45"
+  },
+  {
+   "n": 12,
+   "action": "own",
+   "kind": "appointment",
+   "id": "da258c8b-20a3-4b35-a462-eaa8fdb1eada"
+  },
+  {
+   "n": 13,
+   "action": "own",
+   "kind": "quote",
+   "id": "9a903bd9-ea81-5e16-af03-69b3e33824ea"
+  },
+  {
+   "n": 13,
+   "action": "own",
+   "kind": "appointment",
+   "id": "408591a8-b0cb-48f1-b500-3d80c34eea28"
+  },
+  {
+   "n": 14,
+   "action": "own",
+   "kind": "quote",
+   "id": "f3a40f5a-8c83-54f2-9fcf-2c291c353d1b"
+  },
+  {
+   "n": 17,
+   "action": "own",
+   "kind": "quote",
+   "id": "56223007-4cbb-52bd-a4be-49cef6d8b464"
+  },
+  {
+   "n": 18,
+   "action": "own",
+   "kind": "quote",
+   "id": "808017b4-4139-5512-8423-e593662d4941"
+  },
+  {
+   "n": 19,
+   "action": "own",
+   "kind": "quote",
+   "id": "14d43cda-8a93-540a-b618-c604841df7ab"
+  },
+  {
+   "n": 22,
+   "action": "own",
+   "kind": "quote",
+   "id": "3239ae53-137a-5f10-a0db-16805e19ab00"
+  },
+  {
+   "n": 22,
+   "action": "own",
+   "kind": "appointment",
+   "id": "b47513b2-30c7-480b-8140-e9ad2b30d794"
+  },
+  {
+   "n": 23,
+   "action": "own",
+   "kind": "quote",
+   "id": "dae969f4-591b-5bac-aede-74c17f952051"
+  },
+  {
+   "n": 23,
+   "action": "own",
+   "kind": "appointment",
+   "id": "8b7d4101-d3bd-4ccf-bd8b-b2436174606d"
+  },
+  {
+   "n": 24,
+   "action": "own",
+   "kind": "quote",
+   "id": "81a9cd77-790e-5ffb-b151-72128b28b2b5"
+  },
+  {
+   "n": 24,
+   "action": "own",
+   "kind": "appointment",
+   "id": "15e66a92-9266-4d5a-8a60-55b8595de479"
+  },
+  {
+   "n": 25,
+   "action": "own",
+   "kind": "quote",
+   "id": "fb8eda19-100b-5279-83ea-5c35f844f051"
+  },
+  {
+   "n": 26,
+   "action": "own",
+   "kind": "quote",
+   "id": "40b67be1-abf5-5bfc-9f41-20ba6046183b"
+  },
+  {
+   "n": 27,
+   "action": "own",
+   "kind": "quote",
+   "id": "499e27a1-36a0-5202-ba3f-caee17a996cd"
+  },
+  {
+   "n": 27,
+   "action": "own",
+   "kind": "appointment",
+   "id": "5395fdc3-7aae-4906-8bf1-8f65bb434d35"
+  },
+  {
+   "n": 27,
+   "action": "own",
+   "kind": "appointment",
+   "id": "19f082ed-4cb9-404a-9982-e0c5a2f80204"
+  },
+  {
+   "n": 28,
+   "action": "own",
+   "kind": "quote",
+   "id": "5b7b8f74-213e-5ec9-9ec7-921527bd5660"
+  },
+  {
+   "n": 29,
+   "action": "own",
+   "kind": "quote",
+   "id": "7b32b90d-d863-5cc3-94fa-2e4cf8302a6d"
+  },
+  {
+   "n": 30,
+   "action": "own",
+   "kind": "quote",
+   "id": "8f3142d7-97fc-5a32-b2cf-901d16b0e549"
+  },
+  {
+   "n": 31,
+   "action": "own",
+   "kind": "quote",
+   "id": "d746abb4-e566-5c08-aaf7-3e07883d916e"
+  },
+  {
+   "n": 32,
+   "action": "own",
+   "kind": "quote",
+   "id": "3ab51b69-8651-569a-848b-3f3e41cad8f9"
+  },
+  {
+   "n": 33,
+   "action": "own",
+   "kind": "quote",
+   "id": "0d0582dd-48b9-5166-9db7-707ee22e5168"
+  },
+  {
+   "n": 33,
+   "action": "own",
+   "kind": "appointment",
+   "id": "985cde08-5b5e-4bf4-8d1b-c5f7c37a6a4b"
+  },
+  {
+   "n": 34,
+   "action": "own",
+   "kind": "quote",
+   "id": "3f845e58-b428-5fb9-a987-4210e947b7bb"
+  },
+  {
+   "n": 35,
+   "action": "own",
+   "kind": "quote",
+   "id": "2e6a9b7d-3682-5c14-9432-d98e744d9e17"
+  },
+  {
+   "n": 36,
+   "action": "primary",
+   "kind": "quote",
+   "id": "27bf6ffc-81cf-5379-97e8-8c58a6b4bf43"
+  },
+  {
+   "n": 37,
+   "action": "own",
+   "kind": "quote",
+   "id": "179aa0c8-155c-5b85-93c4-a960a043fc80"
+  },
+  {
+   "n": 37,
+   "action": "own",
+   "kind": "appointment",
+   "id": "1c48adbd-66ef-459e-8766-30c5a8332f07"
+  },
+  {
+   "n": 38,
+   "action": "primary",
+   "kind": "quote",
+   "id": "4a590691-52d7-543e-99b9-f93dd6f0a4d4"
+  },
+  {
+   "n": 40,
+   "action": "delete",
+   "kind": "quote",
+   "id": "65c963ea-ce44-4fb5-a804-8743a01d582e"
+  },
+  {
+   "n": 40,
+   "action": "delete",
+   "kind": "quote",
+   "id": "5d0459d3-cf46-49dc-9acb-7d794435635f"
+  },
+  {
+   "n": 40,
+   "action": "delete",
+   "kind": "quote",
+   "id": "e48b23e2-ad78-482f-9b9c-7d8d3b4bbf67"
+  },
+  {
+   "n": 40,
+   "action": "delete",
+   "kind": "appointment",
+   "id": "606e3190-7da6-4ce6-9a75-b89f32bf01a0"
+  },
+  {
+   "n": 40,
+   "action": "delete",
+   "kind": "appointment",
+   "id": "facb3d79-231e-4bcc-a3f8-631c383a23ab"
+  },
+  {
+   "n": 41,
+   "action": "own",
+   "kind": "quote",
+   "id": "50ea8992-21e8-589d-a5c0-29f1e3e98664"
+  },
+  {
+   "n": 41,
+   "action": "own",
+   "kind": "job",
+   "id": "23d1ef3f-5fe0-5339-b075-8257807a719d"
+  },
+  {
+   "n": 41,
+   "action": "own",
+   "kind": "appointment",
+   "id": "61ce62e2-0eee-40d1-9d27-5ee71d737afd"
+  },
+  {
+   "n": 43,
+   "action": "own",
+   "kind": "quote",
+   "id": "1d673764-b709-507e-9f42-b4fd19c974ae"
+  },
+  {
+   "n": 44,
+   "action": "own",
+   "kind": "quote",
+   "id": "f6bc261e-a687-5b71-b0d8-f1efbbb7f881"
+  },
+  {
+   "n": 44,
+   "action": "own",
+   "kind": "appointment",
+   "id": "cf858dce-b030-498a-b159-9bf4a3319a9b"
+  },
+  {
+   "n": 47,
+   "action": "own",
+   "kind": "quote",
+   "id": "d15dd91a-450c-5ec2-8bc9-a6698659c3fe"
+  },
+  {
+   "n": 47,
+   "action": "own",
+   "kind": "job",
+   "id": "c4b7da4a-8ccf-5148-880d-61e67fc91fa6"
+  },
+  {
+   "n": 48,
+   "action": "own",
+   "kind": "quote",
+   "id": "ac07479d-2c5a-50ee-b86b-323bedef4004"
+  },
+  {
+   "n": 48,
+   "action": "own",
+   "kind": "job",
+   "id": "a223dcb3-777a-5458-9337-632125eed5a6"
+  },
+  {
+   "n": 48,
+   "action": "own",
+   "kind": "appointment",
+   "id": "8bfd4692-a262-44ad-86ec-11d3a5ae3765"
+  },
+  {
+   "n": 48,
+   "action": "own",
+   "kind": "appointment",
+   "id": "48ce62bc-1f32-4def-a0a9-1022e031fd45"
+  },
+  {
+   "n": 49,
+   "action": "own",
+   "kind": "quote",
+   "id": "b859d2f8-f434-57c6-8a33-e5900b67e417"
+  },
+  {
+   "n": 49,
+   "action": "own",
+   "kind": "job",
+   "id": "d0d92d00-45b2-5b2f-81dd-efee13524149"
+  },
+  {
+   "n": 49,
+   "action": "own",
+   "kind": "appointment",
+   "id": "bfcb6619-5715-41a4-86b1-43f80b14c299"
+  },
+  {
+   "n": 49,
+   "action": "own",
+   "kind": "appointment",
+   "id": "4911e3c8-ff1a-48f9-b307-7e5af0cd8465"
+  },
+  {
+   "n": 51,
+   "action": "own",
+   "kind": "quote",
+   "id": "24dfb495-286b-5c2c-9543-a8cebcac4fba"
+  },
+  {
+   "n": 51,
+   "action": "own",
+   "kind": "job",
+   "id": "1ce38e7b-be27-5121-81a7-fb67aa92723d"
+  },
+  {
+   "n": 52,
+   "action": "own",
+   "kind": "quote",
+   "id": "074a25ac-4f90-585c-b33d-ee92328c6a28"
+  },
+  {
+   "n": 52,
+   "action": "own",
+   "kind": "job",
+   "id": "9d3f8dcc-b424-54ae-afa8-e9aab1305b5f"
+  },
+  {
+   "n": 55,
+   "action": "mailing",
+   "kind": "quote",
+   "id": "d66c1b60-a510-5a25-bb53-f5ef086003aa"
+  },
+  {
+   "n": 55,
+   "action": "mailing",
+   "kind": "job",
+   "id": "ac6a3c92-f955-5c4e-9f8f-66b95f6d146f"
+  },
+  {
+   "n": 56,
+   "action": "mailing",
+   "kind": "quote",
+   "id": "9b6ba1aa-f1fe-5285-ae5b-a263d97c950d"
+  },
+  {
+   "n": 56,
+   "action": "mailing",
+   "kind": "job",
+   "id": "2c282a17-2e79-509b-a861-15fdd10a1c6a"
+  },
+  {
+   "n": 56,
+   "action": "mailing",
+   "kind": "appointment",
+   "id": "489c797e-cb27-411f-bac4-7e4f87a48aca"
+  },
+  {
+   "n": 56,
+   "action": "mailing",
+   "kind": "appointment",
+   "id": "81db5828-8b3c-449a-a2dc-8355b83fca83"
+  },
+  {
+   "n": 58,
+   "action": "own",
+   "kind": "quote",
+   "id": "0fdc6a44-9c6a-5729-aa1a-942e3d765e5b"
+  },
+  {
+   "n": 58,
+   "action": "own",
+   "kind": "job",
+   "id": "ccc22b2c-6d35-52b2-a609-c767e22051e4"
+  },
+  {
+   "n": 59,
+   "action": "own",
+   "kind": "quote",
+   "id": "ce21ae20-8fd7-54a6-830f-e2dd893b49a5"
+  },
+  {
+   "n": 59,
+   "action": "own",
+   "kind": "job",
+   "id": "fe696d02-e5ea-56d5-99c3-90e50c9731e0"
+  },
+  {
+   "n": 60,
+   "action": "own",
+   "kind": "quote",
+   "id": "7f880b7f-d6d4-5152-9576-d8e5e2a1e962"
+  },
+  {
+   "n": 60,
+   "action": "own",
+   "kind": "job",
+   "id": "01e6d5e0-ed35-540d-b931-131fd60ad0cb"
+  },
+  {
+   "n": 63,
+   "action": "own",
+   "kind": "quote",
+   "id": "6be5de52-8309-5dc3-a418-980ca85a6835"
+  },
+  {
+   "n": 63,
+   "action": "own",
+   "kind": "job",
+   "id": "2459c553-9b9b-50ac-8ce7-a5ffb70f54bb"
+  },
+  {
+   "n": 63,
+   "action": "own",
+   "kind": "appointment",
+   "id": "a1d70ffb-06da-49b9-bfed-4fcb6b5fb7d9"
+  },
+  {
+   "n": 64,
+   "action": "own",
+   "kind": "quote",
+   "id": "a714c376-35de-5a5d-b09d-0d70f05636de"
+  },
+  {
+   "n": 64,
+   "action": "own",
+   "kind": "job",
+   "id": "db088008-35ea-5ae1-a8ff-5fa50f546ec3"
+  },
+  {
+   "n": 70,
+   "action": "own",
+   "kind": "appointment",
+   "id": "1a69a0e7-f948-44d2-9fa0-482a78e838b1"
+  },
+  {
+   "n": 71,
+   "action": "primary",
+   "kind": "appointment",
+   "id": "1cef0777-2e22-405e-97cd-dd2673ea9d34"
+  },
+  {
+   "n": 72,
+   "action": "own",
+   "kind": "appointment",
+   "id": "4334fc36-8e13-46a2-b1e5-7e95255e31f3"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "78932a81-9c9c-5858-8a8c-3914025123e0"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "77e51bbc-cb2c-534c-a785-08d5569bbd97"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "59a6ce51-b87f-5dea-877c-098bf9676fe1"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "f60faafe-982a-5e91-8da2-8c681b372da0"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "2bb1266b-b7d8-5e56-bd3b-7aa12ae31ee0"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "b29141c0-f787-5224-bc24-020c256685c7"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "d6036877-1e44-5fbb-92a7-5f126ebb76c9"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "5ea8f75e-98ae-5632-be07-b1ef909b4cd8"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "3295ef64-56ed-5a18-8094-265cae3211e5"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "6455f777-c1b4-533b-93a1-fe0868e48803"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "0a4e07fb-b2f4-5fb2-9c26-b3fb10b8a5d9"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "f1abf2ff-5c42-5d15-aead-86f8f4afbfec"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "f612feae-be4d-520b-bda6-bb2ae3714fb8"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "73f68e95-f8d1-5560-a081-54edaa5df993"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "aaddacba-1c8f-584d-a80b-66e7b43aa2f7"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "f65d5473-e2ff-51de-a350-2057b01e4a45"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "493255e8-245c-57ae-bfe9-bf939d602e8d"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "9efba553-81e4-5d3b-9dd6-bb36809a3bff"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "047b6abd-a6da-53ba-9c68-4325f1700d7a"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "8a551862-f0ba-5304-9255-6e6da89e7a19"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "9afc6b46-db7b-411e-81b5-882cc04f8395"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "ff7eec12-fa78-4291-b37c-7ebd20475d99"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "quote",
+   "id": "1b6b8812-2852-4ad2-87d6-235f14fbf2e5"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "20c38fdf-8ce8-5807-90ae-9a3db1200da7"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "b123d656-0277-513c-b6bf-52b3d2fd8f7a"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "7e8cf3f3-bf67-5f84-b33b-6f183c685f42"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "9108303f-8725-5c13-b661-35c5ce63623f"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "966c905c-a966-5ddb-815d-f596e986f91e"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "ea7f3e8f-f61f-5bf1-99e6-67c93a32abdc"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "204a4053-e8fa-5183-bb15-2608cec5c33d"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "job",
+   "id": "bf37ebde-5f5c-5ecc-83b6-2fd52fbb4724"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "65f095ae-96a7-4db5-9fac-c11572ac90c3"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "4704c78b-57df-46ac-a921-944bfbce4fc6"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "9bfd67b4-a2be-4593-81bf-6276d7b3925c"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "63798557-59c9-41b5-b4b6-8807c3523397"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "32972953-0e62-4b44-a972-db94bfd75d88"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "bcae9816-7fb2-4c1a-9c5a-24faf49a8703"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "68c77fc9-1e3f-4a42-ae1f-74212196ed9f"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "0df90533-d4b7-453f-9835-fe17b6ea9ee4"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "d34e0a3d-8c98-4bb2-9b67-8011059de495"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "5ada3131-eebd-4003-a299-bdcec9a6fcbd"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "5944921e-02dc-42e4-be1b-6102872a4b43"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "f2451f9c-faee-4478-90af-85c0f50a8c14"
+  },
+  {
+   "n": 0,
+   "action": "leave",
+   "kind": "appointment",
+   "id": "cab31f76-3828-4d01-be24-97afe427924f"
+  }
+ ]
+}

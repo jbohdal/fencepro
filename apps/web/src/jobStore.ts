@@ -44,6 +44,8 @@ export interface Job {
   customerEmail: string
   customerAddress: string
   customerId?: string
+  /** The customer's property it is at (its quote's; portal lib/properties.ts). */
+  propertyId?: string
 
   // Scope (from quote)
   fenceStyle: string
@@ -127,6 +129,7 @@ function fromApi(r: SavedJobRecord): Job {
     customerEmail: r.customerEmail,
     customerAddress: r.customerAddress,
     customerId: r.crmContactId || undefined,
+    propertyId: r.propertyId || undefined,
     fenceStyle: r.fenceStyle,
     sections: r.sections,
     totalFeet: r.totalFeet,

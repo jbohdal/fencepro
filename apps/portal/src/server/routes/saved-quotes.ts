@@ -30,6 +30,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
+import { placeRecord } from '../lib/properties.js'
 import { DeleteError, deleteRecord } from '../lib/deletion.js'
 import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
@@ -117,6 +118,8 @@ const quoteSchema = z.object({
   customerPhone: z.string().default(''),
   customerEmail: z.string().default(''),
   customerAddress: z.string().default(''),
+  /** The customer's property it is for (CustomerProperty); its address becomes customerAddress. */
+  propertyId: z.string().max(64).optional().nullable(),
   leadSource: z.string().default(''),
   salesRep: z.string().default(''),
   fenceStyle: z.string().default(''),
@@ -353,16 +356,20 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     if (minimum.kind === 'refuse') { refusePrices(res, minimum); return }
     const repNow = (await repForSave(req, data.salesRep)) ?? ''
     await holdCommissionRule(req.user.crmAccountId, data, repNow, req.user.id, null)
+    const contactId = await ownContactId(data.crmContactId, req.user.crmAccountId)
+    // The property it is for (lib/properties.ts): the one picked, or the customer's with this address.
+    const place = await placeRecord(prisma, req.user.crmAccountId, contactId, { propertyId: data.propertyId, address: data.customerAddress })
     const created = await prisma.savedQuote.create({
       data: {
         ...(decision.kind === 'use' ? { id: decision.id } : {}),
         accountId: req.user.crmAccountId,
         ownerId: req.user.id,
-        crmContactId: await ownContactId(data.crmContactId, req.user.crmAccountId),
+        crmContactId: contactId,
+        propertyId: place.propertyId,
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,
-        customerAddress: data.customerAddress,
+        customerAddress: place.address ?? data.customerAddress,
         leadSource: data.leadSource,
         // A Salesman's own quote is hers when no rep is given (lib/salesRep.ts).
         salesRep: repNow,
@@ -500,15 +507,21 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     // A signed quote keeps its switch (only a logged fix changes it).
     const repNow = data.salesRep?.trim() ? data.salesRep : existing.salesRep?.trim() ? existing.salesRep : await repForSave(req, data.salesRep, existing.ownerId ?? null)
     if (!(await signedNow(existing))) await holdCommissionRule(existing.accountId, data, repNow, existing.ownerId, existing)
+    const contactNow = data.crmContactId === undefined ? undefined : await ownContactId(data.crmContactId, req.user.crmAccountId)
+    // Its property (lib/properties.ts): a signed quote keeps the one it was signed for.
+    const place = (await signedNow(existing)) || (data.propertyId === undefined && data.customerAddress === undefined && contactNow === undefined)
+      ? null
+      : await placeRecord(prisma, existing.accountId, contactNow === undefined ? existing.crmContactId : contactNow, { propertyId: data.propertyId === undefined ? (contactNow === undefined || contactNow === existing.crmContactId ? existing.propertyId : null) : data.propertyId, address: data.customerAddress ?? existing.customerAddress })
     const updated = await prisma.savedQuote.update({
       // Signed on the link since this save read the quote: it stands (routes/proposal.ts acceptQuote locks the row).
       where: { id: existing.id, ...(existing.acceptedAt ? {} : { acceptedAt: null }) },
       data: {
-        crmContactId: data.crmContactId === undefined ? undefined : await ownContactId(data.crmContactId, req.user.crmAccountId),
+        crmContactId: contactNow,
+        ...(place ? { propertyId: place.propertyId } : {}),
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerEmail: data.customerEmail,
-        customerAddress: data.customerAddress,
+        customerAddress: place?.address ?? data.customerAddress,
         leadSource: data.leadSource,
         // A rep already on the quote stays when a blank one is sent (a phone's older copy); a Salesman's own quote with none is hers (lib/salesRep.ts).
         salesRep: data.salesRep?.trim() ? data.salesRep : existing.salesRep?.trim() ? undefined : repNow,
@@ -674,6 +687,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
             accountId: req.user.crmAccountId,
             ownerId: req.user.id,
             crmContactId: safeContactId,
+            propertyId: (await placeRecord(prisma, req.user.crmAccountId, safeContactId, { address: q.customerAddress })).propertyId,
             customerName: q.customerName,
             customerPhone: q.customerPhone,
             customerEmail: q.customerEmail,

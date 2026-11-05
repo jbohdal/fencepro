@@ -6,6 +6,7 @@
  * page. Stages come from Settings > Operations Stages (opsStagesStore).
  */
 
+import PropertyNotes from './PropertyNotes'
 import { styleLabel } from './fenceCatalog'
 import { soldStyleLabel } from './soldStyleLabel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
@@ -222,6 +223,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           <Field label="Address" value={job.address} />
           {/* "(352) 671 8083": tap to call or text (JobTruth.tsx). */}
           {job.rawJob ? <CustomerContact job={job.rawJob} /> : null}
+          {/* The property's gate code, tenant and access notes (PropertyNotes.tsx). */}
+          {job.rawJob ? <PropertyNotes customerId={job.rawJob.customerId} propertyId={job.rawJob.propertyId} address={job.rawJob.customerAddress} /> : null}
           {job.rawJob?.customerEmail && <Field label="Email" value={job.rawJob.customerEmail} />}
         </Section>
 

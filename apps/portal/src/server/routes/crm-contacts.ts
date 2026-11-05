@@ -33,6 +33,8 @@ import { recordCardMoves } from '../lib/automations/hooks.js'
 import { requireCan } from '../lib/permissions.js'
 import { DeleteError, deleteRecord, emptySnapshot, logDeletion, labelOf, setArchived } from '../lib/deletion.js'
 import { addressParts } from '../lib/addressIndex.js'
+import { addProperty, addressesOf, wouldFollow, ensurePrimary, listProperties, makePrimary, primaryFollowsCustomer, PropertyError, setNoLongerTheirs, updateProperty } from '../lib/properties.js'
+import { isScopedCrew } from '../lib/crewScope.js'
 import { onCardMoves } from '../lib/followUps.js'
 import { recordTextConsent, textConsentHistory } from '../lib/textConsent.js'
 import { importHistory } from '../lib/customerImport.js'
@@ -170,7 +172,10 @@ router.get('/', requireAccount, async (req: any, res) => {
     })
     // A small refresh also names the ones gone off the list: an older screen reads archivedAt
     // as "gone", so a deleted one carries it too (a new screen checks deletedAt first).
-    const data = Number.isFinite(sinceRaw) ? contacts.map(c => (c.deletedAt && !c.archivedAt ? { ...c, archivedAt: c.deletedAt } : c)) : contacts
+    // Every property address of each one (Home, a rental, one sold), so search finds a customer by any of them.
+    const addresses = await addressesOf(prisma, req.user.crmAccountId, Number.isFinite(sinceRaw) ? contacts.map(c => c.id) : undefined)
+    const withAddresses = contacts.map(c => ({ ...c, propertyAddresses: addresses.get(c.id)?.addresses ?? [], activeProperties: addresses.get(c.id)?.active ?? 1 }))
+    const data = Number.isFinite(sinceRaw) ? withAddresses.map(c => (c.deletedAt && !c.archivedAt ? { ...c, archivedAt: c.deletedAt } : c)) : withAddresses
     res.json({ success: true, data, serverTime, partial: Number.isFinite(sinceRaw) })
   } catch (err) {
     console.error('[crm-contacts] list error:', err)
@@ -252,8 +257,10 @@ router.post('/', requireAccount, async (req: any, res) => {
           })
           // Asked for (the quote builder's Save of a new customer whose phone or email is on file under another name):
           // those customers are Possible matches on the new one, to merge with one tap (lib/customerMerge.ts, audit #44).
+          // Their first property, Primary: the address saved with them.
+          if (isNew) await ensurePrimary(tx, accountId, contact.id)
           if (isNew && (req.body?.recordMatches === true || scope)) {
-            const matches = await findPossibleMatches(tx, accountId, { phone: contact.phone, email: contact.email }, contact.id)
+            const matches = await findPossibleMatches(tx, accountId, { phone: contact.phone, email: contact.email, address: contact.serviceAddress }, contact.id)
             if (matches.length) await tx.customerPossibleMatch.createMany({ data: matches.map(m => ({ accountId, contactId: contact.id, matchId: m.id, reason: m.reason })) })
             if (scope) onFileElsewhere = matches.filter(m => !scope.contactIds.has(m.id)).length
           }
@@ -355,6 +362,8 @@ router.patch('/:id', requireAccount, async (req: any, res) => {
         isCompleted: data.isCompleted,
       },
     })
+    // The customer's address is the Primary property's: a change here (an older screen, the customer form) is the Primary's.
+    if (data.serviceAddress !== undefined || data.city !== undefined || data.state !== undefined || data.zip !== undefined) await primaryFollowsCustomer(prisma, req.user.crmAccountId, updated)
     // A new Sales rep: the customer's open call back goes with it (Jonathan, Oct 29 2026, D7; lib/leadCallback.ts).
     if (data.salesRep !== undefined && updated.salesRep?.trim() && !sameName(updated.salesRep, existing.salesRep)) {
       const to = await loginForRep(req.user.crmAccountId, updated.salesRep)
@@ -482,6 +491,98 @@ async function contactOrNone(req: any) {
   const contact = await prisma.crmContact.findUnique({ where: { id: String(req.params.id) } })
   return contact && contact.accountId === req.user.crmAccountId && !contact.deletedAt ? contact : null
 }
+
+// ── Properties (lib/properties.ts; Jonathan, Nov 5 2026) ──
+// A customer's properties: Home, a rental, an Airbnb; one Primary; one sold or moved from is kept, greyed out,
+// with its history. Under the customer's id, so the Salesman sees her own customers' only, and the Installer his
+// installs' (index.ts salesScoped / crewScoped); the Installer reads them and cannot change them.
+const text = (max: number) => z.string().max(max).optional().nullable()
+const propertySchema = z.object({
+  label: text(40), address: text(500), city: text(120), state: text(40), zip: text(20),
+  lat: z.number().finite().optional().nullable(), lng: z.number().finite().optional().nullable(),
+  gateCode: text(120), tenantName: text(120), tenantPhone: text(40), accessNotes: text(2000),
+  primary: z.boolean().optional(), noLongerTheirs: z.boolean().optional(),
+  /** A change of address that moves signed jobs or visits ahead: confirmed on the screen (MOVES_RECORDS). */
+  confirmMove: z.boolean().optional(),
+})
+const fields = (d: z.infer<typeof propertySchema>) => {
+  const out: Record<string, unknown> = {}
+  for (const k of ['label', 'address', 'city', 'state', 'zip', 'lat', 'lng', 'gateCode', 'tenantName', 'tenantPhone', 'accessNotes'] as const) if (d[k] !== undefined) out[k] = k === 'address' || k === 'label' ? (d[k] ?? '') : d[k]
+  return out
+}
+const refuseCrew = (req: any, res: any) => {
+  if (!isScopedCrew(staffRoleOf(req) ?? req.user.role)) return false
+  res.status(403).json({ success: false, code: 'NOT_ALLOWED', error: 'The office adds and changes properties.' })
+  return true
+}
+/** The customer changed (a property saved): their row's time moves, so every other screen's small refresh reads it. */
+const touched = (id: string) => prisma.crmContact.update({ where: { id }, data: { updatedAt: new Date() } })
+
+router.get('/:id/properties', requireAccount, async (req: any, res) => {
+  try {
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    await ensurePrimary(prisma, (req.user.crmAccountId as string), contact.id)
+    res.json({ success: true, data: await listProperties(prisma, (req.user.crmAccountId as string), contact.id) })
+  } catch (err) {
+    console.error('[crm-contacts] properties error:', err)
+    res.status(500).json({ success: false, error: 'Could not load the properties' })
+  }
+})
+
+router.post('/:id/properties', requireAccount, async (req: any, res) => {
+  try {
+    if (refuseCrew(req, res)) return
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const d = propertySchema.parse(req.body ?? {})
+    if (!String(d.address ?? '').trim()) { res.status(400).json({ success: false, error: 'Type the property address.' }); return }
+    const made = await prisma.$transaction(tx => addProperty(tx, (req.user.crmAccountId as string), contact.id, { ...(fields(d) as any), primary: d.primary === true }))
+    await touched(contact.id)
+    await audit(req, 'create', 'CustomerProperty', made.id, { newValues: made })
+    res.status(201).json({ success: true, data: made, properties: await listProperties(prisma, (req.user.crmAccountId as string), contact.id) })
+  } catch (err) {
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    console.error('[crm-contacts] add property error:', err)
+    res.status(500).json({ success: false, error: 'The property was not saved. Try again.' })
+  }
+})
+
+router.patch('/:id/properties/:propertyId', requireAccount, async (req: any, res) => {
+  try {
+    if (refuseCrew(req, res)) return
+    const contact = await loadContactInAccount(req, res)
+    if (!contact) return
+    const d = propertySchema.parse(req.body ?? {})
+    const pid = String(req.params.propertyId)
+    const was = await prisma.customerProperty.findFirst({ where: { id: pid, accountId: (req.user.crmAccountId as string), crmContactId: contact.id } })
+    if (!was) { res.status(404).json({ success: false, error: 'Property not found' }); return }
+    if (d.address !== undefined && !String(d.address ?? '').trim()) { res.status(400).json({ success: false, error: 'Type the property address.' }); return }
+    // Another address that would move signed jobs or visits ahead: asked first (review, Nov 5 2026). A typo fixed is
+    // the same property (they follow); a different place is another property (Add property), so they stay.
+    if (d.address !== undefined && String(d.address ?? '').trim() !== was.address && d.confirmMove !== true) {
+      const moves = await wouldFollow(prisma, req.user.crmAccountId as string, pid)
+      if (moves.jobs || moves.appointments) {
+        res.status(409).json({ success: false, code: 'MOVES_RECORDS', moves, error: `This moves ${[moves.jobs ? `${moves.jobs} job${moves.jobs === 1 ? '' : 's'}` : '', moves.appointments ? `${moves.appointments} visit${moves.appointments === 1 ? '' : 's'} ahead` : ''].filter(Boolean).join(' and ')} to the new address.` })
+        return
+      }
+    }
+    const now = await prisma.$transaction(async tx => {
+      let p = await updateProperty(tx, (req.user.crmAccountId as string), contact.id, pid, fields(d) as any)
+      if (d.primary === true) p = await makePrimary(tx, (req.user.crmAccountId as string), contact.id, pid)
+      if (d.noLongerTheirs !== undefined) p = await setNoLongerTheirs(tx, (req.user.crmAccountId as string), contact.id, pid, d.noLongerTheirs)
+      return p
+    })
+    await touched(contact.id)
+    await audit(req, 'update', 'CustomerProperty', pid, { oldValues: was, newValues: now })
+    res.json({ success: true, data: now, properties: await listProperties(prisma, (req.user.crmAccountId as string), contact.id) })
+  } catch (err) {
+    if (err instanceof PropertyError) { res.status(err.status).json({ success: false, error: err.message }); return }
+    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
+    console.error('[crm-contacts] update property error:', err)
+    res.status(500).json({ success: false, error: 'The property was not saved. Try again.' })
+  }
+})
 
 /**
  * Where a customer named in a link is: on the list, archived, deleted (in

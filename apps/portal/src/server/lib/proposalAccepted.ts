@@ -8,6 +8,7 @@
  */
 
 import prisma from './prisma.js'
+import { jobPropertyId } from './properties.js'
 import { isUniqueViolation } from './once.js'
 import { ensureJobChecklist } from './seeds.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
@@ -74,6 +75,13 @@ export async function onProposalAccepted(q: { id: string; accountId: string; crm
  * The job for a quote a customer accepted online, so it shows in Operations
  * like one sold in person. Once only: a quote that already has a job keeps it.
  */
+/** A property's map point, for a job at its address. */
+async function pointOf(accountId: string, propertyId: string | null, address: string): Promise<{ lat?: number; lng?: number }> {
+  if (!propertyId) return {}
+  const p = await prisma.customerProperty.findFirst({ where: { id: propertyId, accountId }, select: { address: true, lat: true, lng: true } })
+  return p && p.lat != null && p.lng != null && p.address.trim() === address.trim() ? { lat: p.lat, lng: p.lng } : {}
+}
+
 export async function ensureJobForAcceptedQuote(q: {
   id: string; accountId: string; crmContactId: string | null; customerName: string; customerPhone: string; customerEmail: string; customerAddress: string
   fenceStyle: string; sections: number; runs: unknown; walkGates: number; dblGates: number; tearOutSections: number; hasSalesman: boolean
@@ -86,16 +94,19 @@ export async function ensureJobForAcceptedQuote(q: {
   // schedule's own function); signed before, the quote's price to the cent, as it always was.
   const price = shownJobPriceOf(q, await customerDollarsFrom(q.accountId)) ?? q.finalPrice
   const runs = Array.isArray(q.runs) ? (q.runs as unknown[]).map(Number).filter(n => Number.isFinite(n)) : []
-  // The same job (same customer, sold within 60 days, price within 10%): the
-  // customer accepted another proposal for the same fence. One job, now
-  // following the quote accepted last, with a note of the change.
+  // The property the quote was signed for (lib/properties.ts).
+  const propertyId = await jobPropertyId(prisma, q.accountId, q.crmContactId, { quoteId: q.id, address: q.customerAddress })
+  // The same job (same customer, same property, sold within 60 days, price
+  // within 10%): the customer accepted another proposal for the same fence.
+  // One job, now following the quote accepted last, with a note of the change.
+  // Another property of theirs (a rental) is another fence: its own job.
   if (q.crmContactId) {
     const since = new Date(Date.now() - 60 * 86_400_000)
     const open = await prisma.savedJob.findMany({
       where: { accountId: q.accountId, crmContactId: q.crmContactId, deletedAt: null, archivedAt: null, createdAt: { gte: since }, status: { notIn: ['completed', 'invoiced', 'paid'] } },
       orderBy: { createdAt: 'desc' },
     })
-    const same = open.find(j => j.contractValue > 0 && Math.abs(j.contractValue - q.finalPrice) <= 0.1 * Math.max(j.contractValue, q.finalPrice))
+    const same = open.find(j => (!propertyId || !j.propertyId || j.propertyId === propertyId) && j.contractValue > 0 && Math.abs(j.contractValue - q.finalPrice) <= 0.1 * Math.max(j.contractValue, q.finalPrice))
     if (same) {
       const day = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
       await prisma.savedJob.update({
@@ -120,6 +131,10 @@ export async function ensureJobForAcceptedQuote(q: {
     job = await prisma.savedJob.create({
     data: {
       id: jobId, accountId: q.accountId, quoteId: q.id, crmContactId: q.crmContactId, status: 'staging', opsStage,
+      // The property the quote was signed for (lib/properties.ts).
+      propertyId,
+      // The property's map point (Dispatch and the map need no lookup), when the job is at its address.
+      ...(await pointOf(q.accountId, propertyId, q.customerAddress)),
       customerName: q.customerName, customerPhone: q.customerPhone, customerEmail: q.customerEmail, customerAddress: q.customerAddress,
       fenceStyle: q.fenceStyle, sections: q.sections, totalFeet: Math.round(runs.reduce((s, n) => s + n, 0)),
       walkGates: q.walkGates, dblGates: q.dblGates, tearOutSections: q.tearOutSections, hasSalesman: q.hasSalesman,

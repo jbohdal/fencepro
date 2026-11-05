@@ -15,6 +15,7 @@ import { catalogOf } from './fenceCatalog'
 import { newId } from './recordSync'
 import type { SavedQuote } from './QuotesPage'
 import { getCustomers, getCustomerById, upsertCustomer, findPossibleMatches } from './customerStore'
+import PropertyPicker from './PropertyPicker'
 import { customersMatching, decideNewCustomer, contactToAdd, quoteDraftAddress, serviceAddressShown } from './customerPick'
 import AddressAutocomplete from './AddressAutocomplete'
 import { getConfig } from './configStore'
@@ -138,6 +139,7 @@ function SaveModal({
   initialCustomerName,
   initialCustomerId,
   initialAddress = '',
+  initialPropertyId,
   initialNotes = '',
   initialStatus = 'DRAFT',
 }: {
@@ -147,6 +149,8 @@ function SaveModal({
     customerPhone: string
     customerEmail: string
     customerAddress: string
+    /** The customer's property picked (PropertyPicker): customerAddress is its address. */
+    propertyId?: string
     leadSource: string
     salesRep: string
     status: SavedQuote['status']
@@ -164,6 +168,8 @@ function SaveModal({
   initialCustomerId?: string
   /** The property this quote is for (it can differ from the customer's main address). */
   initialAddress?: string
+  /** The saved quote's property (the customer's Properties). */
+  initialPropertyId?: string
   initialNotes?: string
   /** A saved quote keeps its status unless another is picked (it used to start at Draft every time). */
   initialStatus?: SavedQuote['status']
@@ -194,6 +200,9 @@ function SaveModal({
   const [leadTemp, setLeadTemp]   = useState(0)
   // The quote's property. It is the quote's own: clearing or changing the customer never changes it.
   const [propertyAddress, setPropertyAddress] = useState(initialAddress || selectedCustomer?.serviceAddress || '')
+  // Which of the customer's properties (PropertyPicker): its address is the quote's. Typing another address
+  // instead leaves none picked: the server puts the quote on their property with that address, or makes one.
+  const [propertyId, setPropertyId] = useState<string | undefined>(initialPropertyId)
   const address = serviceAddressShown(typedAddress, propertyAddress)
   // Settings > Lead Sources (shown ones), and the quote's own word when it is not among them.
   const LEAD_SOURCES = sourcePicker(leadSource)
@@ -206,7 +215,8 @@ function SaveModal({
 
   // Someone on file with the phone or email typed for a new customer: offered. On Save, the same name
   // goes on them; a different name is a new customer with a Possible match (customerPick decideNewCustomer).
-  const matches = mode === 'new' ? (findPossibleMatches({ phone, email }) as SavedCustomer[]) : []
+  // Or a property of theirs at this address (portal lib/properties.ts; Jonathan, Nov 5 2026).
+  const matches = mode === 'new' ? (findPossibleMatches({ phone, email, address: address.trim() || propertyAddress.trim() }) as SavedCustomer[]) : []
   const onFile = decideNewCustomer({ first: firstName, last: lastName }, matches)
   // Put on them: a phone or email typed that they have none of is added; one where they have another is not saved, said below (audit #48).
   const contact = onFile.kind === 'attach' ? contactToAdd(onFile.to, { phone, email }) : null
@@ -216,6 +226,7 @@ function SaveModal({
   function handleSelectCustomer(c: SavedCustomer) {
     setSelectedCustomer(c)
     setSearch(`${c.firstName} ${c.lastName}`)
+    setPropertyId(undefined)
     setPropertyAddress(prev => prev.trim() ? prev : (c.serviceAddress || ''))
   }
 
@@ -244,7 +255,11 @@ function SaveModal({
         customerName: `${onto.firstName} ${onto.lastName}`,
         customerPhone: who.phone,
         customerEmail: who.email,
-        customerAddress: propertyAddress.trim() || onto.serviceAddress,
+        // New Customer that is someone on file: the address typed (Property, else Service Address) is this quote's,
+        // so the server puts it on their property there (a rental), never their home by default (review, Nov 5 2026).
+        customerAddress: propertyAddress.trim() || (mode === 'new' ? address.trim() : '') || onto.serviceAddress,
+        // A property picked is the one; a new customer's phone or email that was someone on file: theirs found by the address.
+        ...(mode === 'search' && propertyId ? { propertyId } : {}),
         leadSource: onto.leadSource,
         salesRep: onto.salesRep,
         status,
@@ -301,7 +316,7 @@ function SaveModal({
               <div>
                 <p className="text-xs text-gray-500">Quote for</p>
                 <p className="text-sm font-semibold text-gray-900">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
-                <p className="text-xs text-gray-500">{formatPhone(selectedCustomer.phone)}{selectedCustomer.serviceAddress ? ` · ${selectedCustomer.serviceAddress}` : ''}</p>
+                <p className="text-xs text-gray-500">{formatPhone(selectedCustomer.phone)}</p>
               </div>
               <button type="button" onClick={() => setKnownCustomer(false)} className="btn btn-quiet btn-sm shrink-0" data-save-change-customer>Change customer</button>
             </div>
@@ -377,8 +392,8 @@ function SaveModal({
               {matches.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1.5" data-possible-match>
                   <p className="text-xs text-amber-800">{onFile.kind === 'attach'
-                    ? `Already on file with this phone or email, same name: Save puts the quote on ${`${onFile.to.firstName} ${onFile.to.lastName}`.trim()}.`
-                    : 'Already on file with this phone or email, another name: Save makes a new customer, marked Possible match to merge if it is the same person. Or pick one.'}</p>
+                    ? `Already on file with this phone, email or property address, same name: Save puts the quote on ${`${onFile.to.firstName} ${onFile.to.lastName}`.trim()}.`
+                    : 'Already on file with this phone, email or property address, another name: Save makes a new customer, marked Possible match to merge if it is the same person. Or pick one.'}</p>
                   {contact?.add.phone && <p className="text-xs text-amber-800" data-contact-added="phone">They have no phone on file: Save adds {formatPhone(contact.add.phone)}.</p>}
                   {contact?.add.email && <p className="text-xs text-amber-800 [overflow-wrap:anywhere]" data-contact-added="email">They have no email on file: Save adds {contact.add.email}.</p>}
                   {contact?.kept.map(k => (
@@ -450,12 +465,19 @@ function SaveModal({
             </div>
           </div>
 
+          {mode === 'search' && selectedCustomer && (
+            <PropertyPicker key={selectedCustomer.id} customerId={selectedCustomer.id} propertyId={propertyId} address={propertyAddress}
+              title="Which property is this quote for?"
+              onPick={p => { setPropertyId(p.id); if (p.address) setPropertyAddress(p.address) }} />
+          )}
+
           <div>
-            <label className="text-xs text-gray-500 mb-1 block font-medium">Property address</label>
+            <label className="text-xs text-gray-500 mb-1 block font-medium">{mode === 'new' ? 'Property address (only if the fence is not at their Service Address)' : 'Property address'}</label>
             <input
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              placeholder={mode === 'new' ? 'Same as Service Address' : undefined}
               value={propertyAddress}
-              onChange={e => setPropertyAddress(e.target.value)}
+              onChange={e => { setPropertyAddress(e.target.value); setPropertyId(undefined) }}
               data-quote-property-address
             />
           </div>
@@ -1261,6 +1283,7 @@ export default function QuoteBuilder({
     customerPhone: string
     customerEmail: string
     customerAddress: string
+    propertyId?: string
     leadSource: string
     salesRep: string
     status: SavedQuote['status']
@@ -1336,6 +1359,8 @@ export default function QuoteBuilder({
       customerPhone: data.customerPhone,
       customerEmail: data.customerEmail,
       customerAddress: data.customerAddress,
+      // The property picked; none picked, the one it had stays with it unless the address or customer changed (the server finds it then).
+      propertyId: data.propertyId ?? (data.customerId === init?.customerId && data.customerAddress === init?.customerAddress ? init?.propertyId : undefined),
       leadSource: data.leadSource,
       // A Salesman's quote with no rep is hers (the server does the same: lib/salesRep.ts).
       salesRep: data.salesRep || mySalesRepName(),
@@ -2775,6 +2800,7 @@ export default function QuoteBuilder({
           initialCustomerName={customerName}
           initialCustomerId={quoteCustomerId || undefined}
           initialAddress={quoteDraftAddress(entry === 'layout' ? yard?.plan?.aerial?.address : null, init?.customerAddress)}
+          initialPropertyId={init?.propertyId}
           initialStatus={saveWindowKept?.status ?? init?.status ?? 'DRAFT'}
           initialNotes={saveWindowKept ? saveWindowKept.notes : [init?.notes, ...voiceNotes.map(n => `Crew note: ${n}`)].filter(Boolean).join('\n')}
           onCancel={() => setShowSaveModal(false)}

@@ -1,3 +1,4 @@
+import CustomerProperties from './CustomerProperties'
 import MediaGallery from './MediaGallery'
 import { possessive } from './personName'
 import TextButton from './TextButton'
@@ -83,6 +84,8 @@ interface Customer {
   phone: string
   email: string
   serviceAddress: string
+  /** Every property address of theirs (customerStore.ts), for search. */
+  propertyAddresses?: string[]
   city?: string
   state?: string
   zip?: string
@@ -1055,7 +1058,7 @@ function CustomerDetailsPanel({ customer, showStage }: { customer: Customer; sho
   const name = `${customer.firstName} ${customer.lastName}`.trim()
   const address = fullAddress(customer)
   const rows: Array<{ label: string; value: string; node?: React.ReactNode }> = [
-    { label: 'Service Address', value: address, node: address ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">{address}</a> : null },
+    { label: 'Primary property', value: address, node: address ? <a href={mapsSearchUrl(address)} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">{address}</a> : null },
     ...(customer.billingDifferent ? [{ label: 'Billing Address', value: customer.billingAddress }] : []),
     { label: 'Phone', value: customer.phone, node: customer.phone ? <PhoneLink phone={customer.phone} customerId={customer.id} name={name} data-customer-phone /> : null },
     { label: 'Email', value: customer.email, node: customer.email ? <a href={`mailto:${customer.email}`} className="text-blue-700 hover:underline">{customer.email}</a> : null },
@@ -1088,6 +1091,8 @@ function CustomerDetailsPanel({ customer, showStage }: { customer: Customer; sho
           </div>
         )}
       </div>
+      {/* Their properties: Home, a rental, an Airbnb, one sold (CustomerProperties.tsx). Billing stays above. */}
+      <CustomerProperties customerId={customer.id} />
     </div>
   )
 }
@@ -1808,6 +1813,8 @@ export default function CustomersPage({ onNewQuote }: {
       (c.phone || '').includes(q) ||
       (c.email || '').toLowerCase().includes(q) ||
       (c.serviceAddress || '').toLowerCase().includes(q) ||
+      // Any property of theirs (a rental, one sold), Nov 5 2026.
+      (c.propertyAddresses || []).some(a => a.toLowerCase().includes(q)) ||
       // Tags too (their id and their name), so "MyBudgetQuote dropoff" finds those customers.
       (q.length > 2 && (c.tags || []).some(t => t.toLowerCase().includes(q) || tagLabel(t).toLowerCase().includes(q)))
     )

@@ -52,10 +52,15 @@ router.get('/customer/:contactId/:entry.pdf', async (req: any, res) => {
       prisma.crmContact.findUnique({ where: { id: contactId }, select: { firstName: true, lastName: true, serviceAddress: true } }),
       prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     ])
+    // The property the work is at: its job's address, else its quote's (lib/properties.ts); the customer's own only when neither has one.
+    const e = entry as any
+    const job = e.jobId ? await prisma.savedJob.findFirst({ where: { id: String(e.jobId), accountId }, select: { customerAddress: true } }) : null
+    const quote = !job?.customerAddress && e.quoteId ? await prisma.savedQuote.findFirst({ where: { id: String(e.quoteId), accountId }, select: { customerAddress: true } }) : null
+    const address = job?.customerAddress || quote?.customerAddress || contact?.serviceAddress || ''
     const co = (b?.config as any)?.company ?? {}
     const pdf = await pullSheetPdf({
       company: { name: String(co.name || 'Getter Done Fence'), phone: String(co.phone || ''), email: String(co.email || '') },
-      customerName: [contact?.firstName, contact?.lastName].filter(Boolean).join(' '), address: contact?.serviceAddress || '',
+      customerName: [contact?.firstName, contact?.lastName].filter(Boolean).join(' '), address,
       entry: costs ? entry : quantitiesOnly([entry])[0], withCosts: costs,
     })
     const name = `Pull sheet - ${[contact?.firstName, contact?.lastName].filter(Boolean).join(' ') || 'customer'}`.replace(/[^\w .-]/g, '')

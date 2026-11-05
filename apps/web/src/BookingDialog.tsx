@@ -33,6 +33,7 @@ import {
   dayInput, bestTimes, timeGrid, warningsFor, timeline, otherDays, parseTypedTime, clock, clockAmPm, differentStreets,
 } from './bookingPlanner'
 import AddressAutocomplete from './AddressAutocomplete'
+import PropertyPicker from './PropertyPicker'
 import { confirmationSms, confirmationBody, confirmationSubject, icsDescription, repWarning, bookingUsesRepPhone, type MessageContext } from './appointmentMessages'
 import { applyBooking } from './appointmentPipeline'
 import MapView, { type MapPoint } from './MapView'
@@ -148,6 +149,9 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
   const [days, setDays] = useState(() => existing?.allDay && existing.startAt && existing.endAt
     ? Math.max(1, Math.round((new Date(existing.endAt).getTime() - new Date(existing.startAt).getTime()) / 86_400_000)) : 1)
   const [address, setAddress] = useState(existing?.address ?? '')
+  // Which of the customer's properties (PropertyPicker): its address and map point are the visit's. Another address
+  // typed leaves none picked: the server puts the visit on their property with that address, or makes one.
+  const [propertyId, setPropertyId] = useState<string | null>(existing?.propertyId ?? null)
   // The address Jonathan settled on when two differ (the pin waits until then).
   const [chosenAddress, setChosenAddress] = useState(existing?.address ?? '')
   // What the address lookup matched, when it is a different street from what was typed.
@@ -284,7 +288,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
     setSaving(true)
     setRefused('')
     const body = {
-      type, address,
+      type, address, propertyId,
       // The login and its name; an appointment kept with a former team member sends what it had (no change).
       ...(member ? { assignedTo: member.name, assignedToUserId: member.userId } : { assignedTo: formerName, assignedToUserId: existing?.assignedToUserId ?? null }), lat: pos?.lat ?? null, lng: pos?.lng ?? null, notes,
       startAt: startAt?.toISOString() ?? null, endAt: endAt?.toISOString() ?? null, allDay,
@@ -374,7 +378,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                     data-customer-search className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                   <div className="mt-1 divide-y divide-gray-100 border border-gray-100 rounded-lg empty:hidden">
                     {customerMatches.map(c => (
-                      <button key={c.id} onClick={() => { setCustomerId(c.id); setAddress(c.serviceAddress || '') }} className="w-full text-left px-3 py-2 hover:bg-orange-50">
+                      <button key={c.id} onClick={() => { setCustomerId(c.id); setPropertyId(null); setAddress(c.serviceAddress || '') }} className="w-full text-left px-3 py-2 hover:bg-orange-50">
                         <span className="text-sm font-semibold text-gray-900">{c.firstName} {c.lastName}</span>
                         <span className="block text-xs text-gray-500">{[formatPhone(c.phone), c.serviceAddress].filter(Boolean).join(' · ')}</span>
                       </button>
@@ -466,8 +470,17 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                 </label>
               </div>
 
+              {customerId && (
+                <PropertyPicker key={customerId} customerId={customerId} propertyId={propertyId} address={address} title="Which property?"
+                  onPick={p => {
+                    setPropertyId(p.id)
+                    if (!p.address) return
+                    setAddress(p.address); setChosenAddress(p.address)
+                    if (p.lat != null && p.lng != null) { setLocatedFor(p.address); setPos({ lat: p.lat, lng: p.lng }) }
+                  }} />
+              )}
               <div className="text-xs font-semibold text-gray-500">Property address
-                <AddressAutocomplete value={address} onChange={setAddress} inputAttrs={{ 'data-field': 'address' }}
+                <AddressAutocomplete value={address} onChange={v => { setAddress(v); setPropertyId(null) }} inputAttrs={{ 'data-field': 'address' }}
                   onSelect={p => { if (p.lat != null && p.lng != null) { setLocatedFor(p.formatted); setPos({ lat: p.lat, lng: p.lng }) } setAddress(p.formatted); setChosenAddress(p.formatted) }}
                   className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-normal text-gray-900" />
               </div>
@@ -483,7 +496,7 @@ function BookingDialog({ req, onClose }: { req: BookingRequest; onClose: () => v
                   </div>
                 </div>
               ) : otherAddresses.length > 0 && (
-                <div className="flex flex-wrap gap-1">{otherAddresses.map(a => <button key={a} onClick={() => { setAddress(a); setChosenAddress(a) }} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{a}</button>)}</div>
+                <div className="flex flex-wrap gap-1">{otherAddresses.map(a => <button key={a} onClick={() => { setAddress(a); setChosenAddress(a); setPropertyId(null) }} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{a}</button>)}</div>
               )}
               {address && !pos && !mismatch && <p className="text-xs text-amber-700">Not found on the map yet. It still saves; you can place it by hand later.</p>}
 

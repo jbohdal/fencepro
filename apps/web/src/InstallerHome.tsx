@@ -10,6 +10,7 @@
  * only the packet link worked.
  */
 
+import PropertyNotes from './PropertyNotes'
 import { useEffect, useMemo, useState } from 'react'
 import { Navigation, Phone, FileText, Play, Square, Camera, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { getJobs } from './jobStore'
@@ -212,6 +213,8 @@ function InstallCard({ d, today = false }: { d: CrewDay; today?: boolean }) {
       <div>
         <p className="text-lg font-bold text-gray-900">{job.customerName}</p>
         <p className="text-sm text-gray-700">{job.customerAddress || 'No address on the job'}</p>
+        {/* The property's gate code, tenant and access notes (PropertyNotes.tsx). */}
+        <div className="pt-1"><PropertyNotes customerId={job.customerId} propertyId={job.propertyId} address={job.customerAddress} /></div>
         <p className="text-sm text-gray-600">{[d.crew, d.days > 1 ? `day ${d.dayNo} of ${d.days}` : ''].filter(Boolean).join(' · ')}</p>
         {facts.length > 0 && <p className="text-sm text-gray-600" data-install-facts>{facts.join(' · ')}</p>}
         {/* The job's 811 locate, the same record as the office's (the packet shows it in full). */}

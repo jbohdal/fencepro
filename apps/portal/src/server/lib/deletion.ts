@@ -84,6 +84,7 @@ export const CUSTOMER_ID_ROWS = [
   { model: 'savedQuote', field: 'crmContactId', idField: 'id', account: true },
   { model: 'savedJob', field: 'crmContactId', idField: 'id', account: true },
   { model: 'appointment', field: 'crmContactId', idField: 'id', account: true },
+  { model: 'customerProperty', field: 'crmContactId', idField: 'id', account: true },
   { model: 'mediaItem', field: 'customerId', idField: 'id', account: true },
   { model: 'crmContactNote', field: 'crmContactId', idField: 'id', account: true },
   { model: 'intakeLead', field: 'crmContactId', idField: 'id', account: true },

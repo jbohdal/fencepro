@@ -8,6 +8,7 @@
  * the pipeline card the next time it checks (see apps/web/src/intakeStore.ts).
  */
 
+import { ensurePrimary } from './properties.js'
 import prisma from './prisma.js'
 import { withLock } from './once.js'
 import { loadPipelineStages } from './pipelineStages.js'
@@ -69,11 +70,12 @@ export async function resolveIntakeAccountId(): Promise<string | null> {
  * this customer back out with it.
  */
 /** A transaction or the client itself: the widget makes the customer inside its one save. */
-type Db = Pick<typeof prisma, 'crmContact' | 'customerPossibleMatch'>
+type Db = Pick<typeof prisma, 'crmContact' | 'customerPossibleMatch' | 'customerProperty'>
 
 export async function findOrCreateContact(accountId: string, input: Pick<IntakeInput, 'name' | 'phone' | 'email' | 'address' | 'leadSource'> & { tags?: string[] }, db: Db = prisma): Promise<{ id: string; created: boolean; name: string }> {
   const email = (input.email || '').trim().toLowerCase()
-  const matches = await findPossibleMatches(db, accountId, { phone: input.phone, email })
+  // Phone, email, or any property address of a customer on file (their Home, a rental) is a Possible match.
+  const matches = await findPossibleMatches(db, accountId, { phone: input.phone, email, address: input.address })
 
   const { firstName, lastName } = splitName(input.name)
   // The stage a new customer starts in: Settings > Pipeline Stages' "new cards land here" stage.
@@ -92,6 +94,7 @@ export async function findOrCreateContact(accountId: string, input: Pick<IntakeI
     },
     select: { id: true },
   })
+  await ensurePrimary(db, accountId, created.id)
   if (matches.length) {
     await db.customerPossibleMatch.createMany({ data: matches.map(m => ({ accountId, contactId: created.id, matchId: m.id, reason: m.reason })) })
   }

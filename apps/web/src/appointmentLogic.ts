@@ -60,6 +60,8 @@ export interface HistoryEntry {
 export interface Appointment {
   id: string
   crmContactId: string
+  /** The customer's property visited (portal lib/properties.ts); address is its address. */
+  propertyId?: string | null
   quoteId: string | null
   jobId: string | null
   type: AppointmentType

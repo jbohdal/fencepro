@@ -35,6 +35,7 @@ import {
 import { plainZod } from '../lib/plainZod.js'
 import { forCrew, hidesPrices, staffRoleOf } from '../lib/costRedact.js'
 import { suggest } from '../lib/addressIndex.js'
+import { placeRecord } from '../lib/properties.js'
 import { withReps, assignedUserIdFor, bookingTeam, bookableMember } from '../lib/appointmentRep.js'
 import { randomUUID } from 'node:crypto'
 import { can, roleOf, REFUSAL } from '../lib/permissions.js'
@@ -100,10 +101,12 @@ const fields = {
   quoteId: z.string().max(80).nullable(),
   jobId: z.string().max(80).nullable(),
   startedAt: iso.nullable(),
+  /** The customer's property visited (CustomerProperty); its address and map point are the visit's. */
+  propertyId: z.string().max(64).nullable(),
 }
 const createSchema = z.object({ crmContactId: z.string().min(1), ...fields }).partial({
   status: true, endAt: true, allDay: true, address: true, lat: true, lng: true, assignedTo: true, assignedToUserId: true, notes: true,
-  outcome: true, outcomeNotes: true, measuredFeet: true, nextStep: true, quoteId: true, jobId: true, startAt: true, startedAt: true,
+  outcome: true, outcomeNotes: true, measuredFeet: true, nextStep: true, quoteId: true, jobId: true, startAt: true, startedAt: true, propertyId: true,
 }).extend({ id: z.string().uuid().optional() })
 const patchSchema = z.object(fields).partial().extend({
   baseVersion: z.number().int().min(0),
@@ -272,11 +275,14 @@ async function bookByStaff(req: any, res: any) {
     const start = dateOrNull(d.startAt)
     const allDay = d.allDay ?? d.type === 'install'
     const end = dateOrNull(d.endAt) ?? (start ? new Date(start.getTime() + (DEFAULT_MINUTES[d.type] || 60) * 60_000) : null)
+    // The property visited (lib/properties.ts): the one picked (its address and map point), or the customer's with this address.
+    const place = await placeRecord(prisma, accountId, contact.id, { propertyId: d.propertyId, address: d.address ?? contact.serviceAddress ?? '' })
+    const picked = place.address !== undefined ? await prisma.customerProperty.findFirst({ where: { id: place.propertyId!, accountId }, select: { lat: true, lng: true } }) : null
     const data = await withPosition(accountId, {
       ...(d.id ? { id: d.id } : {}),
-      accountId, crmContactId: contact.id, type: d.type, status: d.status ?? 'scheduled',
+      accountId, crmContactId: contact.id, propertyId: place.propertyId, type: d.type, status: d.status ?? 'scheduled',
       startAt: start, endAt: end, allDay,
-      address: d.address ?? contact.serviceAddress ?? '', lat: d.lat ?? null, lng: d.lng ?? null,
+      address: place.address ?? d.address ?? contact.serviceAddress ?? '', lat: picked ? picked.lat : d.lat ?? null, lng: picked ? picked.lng : d.lng ?? null,
       assignedTo: who.assignedTo, assignedToUserId: who.assignedToUserId, notes: d.notes ?? '', quoteId: d.quoteId ?? null, jobId: d.jobId ?? null,
       outcome: d.outcome ?? null, outcomeNotes: d.outcomeNotes ?? '', measuredFeet: d.measuredFeet ?? null, nextStep: d.nextStep ?? '',
       source: 'manual', createdBy: actor(req),
@@ -357,7 +363,17 @@ router.patch('/:id', requireUser, async (req: any, res) => {
     } else if (!d.assignedToUserId && 'assignedTo' in d && d.assignedTo !== cur.assignedTo) {
       Object.assign(data, { assignedTo: d.assignedTo ?? '', assignedToUserId: await assignedUserIdFor(accountId, d.assignedTo) })
     }
-    if ('address' in d && d.address !== cur.address && !('lat' in d)) { data.lat = null; data.lng = null; await withPosition(accountId, data) }
+    // Another property picked, or the address changed: the visit's property (lib/properties.ts) and its address.
+    if ('propertyId' in d || ('address' in d && d.address !== cur.address)) {
+      const place = await placeRecord(prisma, accountId, cur.crmContactId, { propertyId: 'propertyId' in d ? d.propertyId : cur.propertyId, address: 'address' in d ? d.address : cur.address })
+      data.propertyId = place.propertyId
+      if (place.address !== undefined && place.address !== cur.address) {
+        const p = await prisma.customerProperty.findFirst({ where: { id: place.propertyId!, accountId }, select: { lat: true, lng: true } })
+        Object.assign(data, { address: place.address, lat: p?.lat ?? null, lng: p?.lng ?? null })
+      }
+    }
+    if ('address' in data && data.address !== cur.address && !('lat' in d) && data.lat === undefined) { data.lat = null; data.lng = null; await withPosition(accountId, data) }
+    else if ('address' in data && data.address !== cur.address && data.lat == null) await withPosition(accountId, data)
     data.history = history
 
     // The install date (lib/installBooking.ts): an install on a job booked, moved or brought back schedules the
@@ -445,7 +461,7 @@ async function bookFromChat(req: any, res: any) {
     const set = Number((cfg?.config as any)?.appointments?.durations?.[type])
     const minutes = d.duration ?? (Number.isFinite(set) && set > 0 ? set : 60)
     const data = await withPosition(accountId, {
-      accountId, crmContactId: intake.contactId, type, status: 'scheduled', source: 'website_chat', sourceRef: ref,
+      accountId, crmContactId: intake.contactId, propertyId: (await placeRecord(prisma, accountId, intake.contactId, { address: d.address })).propertyId, type, status: 'scheduled', source: 'website_chat', sourceRef: ref,
       startAt: start, endAt: new Date(start.getTime() + minutes * 60_000),
       address: d.address || '', notes: d.notes || '', createdBy: 'Website chat',
       history: [{ at: new Date().toISOString(), by: 'Website chat', kind: 'booked', to: { startAt: start.toISOString() } }],

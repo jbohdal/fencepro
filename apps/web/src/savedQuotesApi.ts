@@ -29,6 +29,8 @@ export interface SavedQuotePayload {
   customerPhone?: string
   customerEmail?: string
   customerAddress?: string
+  /** The customer's property (CustomerProperty); not sent: the server keeps it, or finds it by the address. */
+  propertyId?: string | null
   leadSource?: string
   salesRep?: string
   fenceStyle?: string
@@ -73,7 +75,8 @@ export interface SavedQuotePayload {
   minimumOverride?: boolean
 }
 
-export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp' | 'proposalBase' | 'backToDraft'>> {
+export interface SavedQuoteRecord extends Required<Omit<SavedQuotePayload, 'crmContactId' | 'propertyId' | 'runRails' | 'layout' | 'proposal' | 'id' | 'pricing' | 'work' | 'needsResend' | 'pricingStamp' | 'proposalBase' | 'backToDraft'>> {
+  propertyId?: string | null
   needsResend?: boolean
   id: string
   /** Who sold it, when that is not the rep on it now (portal lib/soldBy.ts). */

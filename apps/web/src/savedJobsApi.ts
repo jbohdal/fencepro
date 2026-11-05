@@ -76,6 +76,7 @@ export interface SavedJobRecord {
   customerPhone: string
   customerEmail: string
   customerAddress: string
+  propertyId?: string | null
   fenceStyle: string
   sections: number
   totalFeet: number

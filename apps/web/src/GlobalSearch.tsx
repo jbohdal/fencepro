@@ -55,10 +55,10 @@ export default function GlobalSearch({ onClose, quotes, jobs, pages, openCustome
     const archivedIds = new Set(getArchivedCustomers().map(c => c.id))
     const customers = [...getCustomers(), ...getArchivedCustomers()].filter(c => {
       const name = `${c.firstName} ${c.lastName}`.toLowerCase()
-      return name.includes(text) || (c.serviceAddress || '').toLowerCase().includes(text) || (c.email || '').toLowerCase().includes(text) ||
+      return name.includes(text) || (c.serviceAddress || '').toLowerCase().includes(text) || (c.propertyAddresses || []).some(a => a.toLowerCase().includes(text)) || (c.email || '').toLowerCase().includes(text) ||
         (num.length >= 3 && digits(c.phone).includes(num))
     }).slice(0, 8)
-    for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [archivedIds.has(c.id) ? 'Archived' : '', formatPhone(c.phone), c.serviceAddress].filter(Boolean).join(' · '), badge: badgeFor(c.id) ? badgeWords(badgeFor(c.id)!) : undefined, run: done(() => openCustomer(c.id)), ...(archivedIds.has(c.id) ? {} : { customer: c }) })
+    for (const c of customers) out.push({ group: 'Customers', icon: User, label: `${c.firstName} ${c.lastName}`.trim(), sub: [archivedIds.has(c.id) ? 'Archived' : '', formatPhone(c.phone), (c.serviceAddress || '').toLowerCase().includes(text) ? c.serviceAddress : (c.propertyAddresses || []).find(a => a.toLowerCase().includes(text)) ?? c.serviceAddress].filter(Boolean).join(' · '), badge: badgeFor(c.id) ? badgeWords(badgeFor(c.id)!) : undefined, run: done(() => openCustomer(c.id)), ...(archivedIds.has(c.id) ? {} : { customer: c }) })
     for (const x of quotes.filter(x => matchesQuoteNumber(x.id, q) || x.customerName.toLowerCase().includes(text) || (x.customerAddress || '').toLowerCase().includes(text) || (x.fenceStyle.toLowerCase().includes(text) || styleLabel(x.fenceStyle).toLowerCase().includes(text))).slice(0, 5))
       out.push({ group: 'Quotes', icon: ClipboardList, label: x.customerName, sub: [`#${quoteNumber(x.id)}`, styleLabel(x.fenceStyle), money(x.finalPrice), x.status.charAt(0) + x.status.slice(1).toLowerCase(), x.date].filter(Boolean).join(' · '), run: done(() => openQuote(x)) })
     for (const j of jobs.filter(j => j.customerName.toLowerCase().includes(text) || (j.customerAddress || '').toLowerCase().includes(text)).slice(0, 5))

@@ -37,6 +37,8 @@ export interface SavedQuote {
   /** Who sold it, when that is not the rep on it now: a signed job moved to someone else (portal lib/soldBy.ts). */
   soldBy?: string
   customerId?: string
+  /** The customer's property it is for (Properties.tsx; portal lib/properties.ts): customerAddress is its address. */
+  propertyId?: string
   fenceStyle: string
   runs: number[]
   /** Per-run rail-width decision parallel to `runs`. Only populated for

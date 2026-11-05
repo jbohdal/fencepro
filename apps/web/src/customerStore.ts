@@ -27,6 +27,7 @@ import {
 import { cloudStorage } from './cloudStorage'
 import { businessDate } from './businessDate'
 import { toast } from './toast'
+import { addressKey, hasPropertyAt } from './propertyAddress'
 
 const EVT = 'fencepro:customers:updated'
 /** A new customer reached the server ({ id }). */
@@ -54,6 +55,10 @@ export interface Customer {
   salesRep: string
   firstApptDate: string
   jobStatus?: string
+  /** Every property address of theirs (Primary, a rental, one sold; Properties.tsx), for search and the duplicate checks. */
+  propertyAddresses?: string[]
+  /** How many of their properties are still theirs: a new quote asks which one when more than one. */
+  activeProperties?: number
 }
 
 let cache: Customer[] = []
@@ -82,6 +87,8 @@ function fromApi(r: CrmContactRecord): Customer {
     salesRep: r.salesRep || '',
     firstApptDate: r.firstApptDate || '',
     jobStatus: r.jobStatus,
+    propertyAddresses: Array.isArray(r.propertyAddresses) ? r.propertyAddresses : [],
+    activeProperties: typeof r.activeProperties === 'number' ? r.activeProperties : 1,
   }
 }
 
@@ -221,19 +228,21 @@ export async function findCustomerFresh(id: string): Promise<Customer | null> {
  * Customers on file with this phone or email. Only ever shown as a suggestion
  * ("Use <name>"): a customer is linked by an explicit pick, never by a match.
  */
-export function findPossibleMatches(data: { phone?: string; email?: string }): Customer[] {
+export function findPossibleMatches(data: { phone?: string; email?: string; address?: string }): Customer[] {
   const phone = (data.phone || '').replace(/\D/g, '')
   const email = (data.email || '').trim().toLowerCase()
-  if (!phone && !email) return []
+  const at = !!addressKey(data.address)
+  if (!phone && !email && !at) return []
   return cache.filter(c => {
     const cPhone = (c.phone || '').replace(/\D/g, '')
     const cEmail = (c.email || '').trim().toLowerCase()
-    return (!!phone && phone === cPhone) || (!!email && email === cEmail)
+    // Or a property of theirs at this address (their Home, a rental, one sold).
+    return (!!phone && phone === cPhone) || (!!email && email === cEmail) || (at && hasPropertyAt(c, data.address))
   })
 }
 
-/** The first customer on file with this phone or email (the CSV import skips those rows). */
-export function findDuplicate(data: { phone?: string; email?: string }): Customer | null {
+/** The first customer on file with this phone, email or a property at this address (the CSV import skips those rows). */
+export function findDuplicate(data: { phone?: string; email?: string; address?: string }): Customer | null {
   return findPossibleMatches(data)[0] ?? null
 }
 
@@ -437,7 +446,8 @@ export function deleteCustomer(id: string): void {
  * Bulk import (CSV), used by the CSV import flow on CustomersPage. Each row is
  * a new customer through the normal create path, one at a time. A row whose
  * phone or email is already on file is skipped: it neither links to nor
- * changes the customer who has them.
+ * changes the customer who has them. One at an address a customer on file has
+ * a property at is saved with a Possible match on it.
  */
 export async function bulkImportCustomers(records: Customer[]): Promise<{ created: number; updated: number; total: number }> {
   if (!records || records.length === 0) return { created: 0, updated: 0, total: 0 }
@@ -445,7 +455,9 @@ export async function bulkImportCustomers(records: Customer[]): Promise<{ create
   for (const r of records) {
     const dup = findDuplicate({ phone: r.phone, email: r.email })
     if (dup) continue
-    upsertCustomer(r, { keepRepBlank: true })
+    // A customer on file with a property at this address (a new owner, a tenant, or the same person): the new
+    // one is kept, with a Possible match on it to merge with one tap (the server looks: portal lib/customerMerge.ts).
+    upsertCustomer(r, { keepRepBlank: true, recordMatches: true })
     created++
   }
   return { created, updated: 0, total: records.length }

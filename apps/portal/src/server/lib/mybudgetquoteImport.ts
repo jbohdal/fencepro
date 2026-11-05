@@ -50,6 +50,7 @@ import { loadOptionList } from './optionLists.js'
 import { optionFor } from './optionListModel.js'
 import { lockDoc, writeDoc } from './deletion.js'
 import { roleStageId } from './pipelineStageModel.js'
+import { addressKey } from './properties.js'
 import { addTagTx, decideMatch, emptyRecords, lockImport, type BatchRecords } from './customerImport.js'
 
 type Db = any
@@ -210,6 +211,8 @@ export interface MbqPlan {
   pairs: Array<{ contact: Decision; match: Decision; reason: string; id: string }>
   /** New customers made because the name differs from the customer on file with their phone or email */
   nameDiffers: Decision[]
+  /** New customers at the address of a property of a customer on file (lib/properties.ts; Nov 5 2026): a Possible match each */
+  atAddress: Array<{ id: string; contact: Decision; matchId: string }>
   sameEmailOther: Array<{ email: string; rows: Decision[] }>
   cards: any[]
   counts: {
@@ -217,7 +220,7 @@ export interface MbqPlan {
     cardsByStage: Record<string, number>; newWithoutCard: number; newWithoutCardWhy: Record<string, number>
     matchedWithoutCardWhy: Record<string, number>; skipped: Record<string, number>; flags: Record<string, number>
     possibleMatches: number
-    possibleMatchesByKind: { sameEmailAndStreet: number; nameDiffers: number }
+    possibleMatchesByKind: { sameEmailAndStreet: number; nameDiffers: number; sameAddress: number }
   }
 }
 
@@ -371,6 +374,17 @@ export async function planMbq(db: Db, accountId: string, rows: MbqRow[], file: s
   const byEmailNew = new Map<string, Decision[]>()
   for (const d of fresh) if (d.row.email) byEmailNew.set(d.row.email, [...(byEmailNew.get(d.row.email) ?? []), d])
   const nameDiffers = fresh.filter(d => d.possibleOf)
+  // A new customer at the address of any property of a customer on file (their home, a rental, one sold): a
+  // Possible match, unless it already is one with them by phone or email.
+  const atKey = new Map<string, Set<string>>()
+  const note = (address: string | null | undefined, id: string) => { const k = addressKey(address); if (k) atKey.set(k, (atKey.get(k) ?? new Set()).add(id)) }
+  const live = new Set(onFile.map(c => c.id))
+  for (const c of onFile) note(c.serviceAddress, c.id)
+  for (const p of await db.customerProperty.findMany({ where: { accountId }, select: { crmContactId: true, address: true } })) if (live.has(p.crmContactId)) note(p.address, p.crmContactId)
+  const atAddress: MbqPlan['atAddress'] = []
+  for (const d of fresh) {
+    for (const id of atKey.get(addressKey(fullAddress(d.row))) ?? []) if (d.possibleOf?.c.id !== id) atAddress.push({ id: newId(), contact: d, matchId: id })
+  }
   const sameEmailOther = [...byEmailNew].filter(([, ds]) => ds.length > 1 && ds.some(d => !paired.has(d))).map(([email, ds]) => ({ email, rows: ds }))
 
   // Counts.
@@ -386,14 +400,14 @@ export async function planMbq(db: Db, accountId: string, rows: MbqRow[], file: s
   for (const r of rows) { srcCount.set(r.leadSource, (srcCount.get(r.leadSource) ?? 0) + 1); if (r.sourceOther) otherCount.set(r.sourceOther, (otherCount.get(r.sourceOther) ?? 0) + 1) }
   const matched = decisions.filter(d => d.kind === 'matched')
   return {
-    accountId, batchId, file, firstStage, rows, decisions, cards, pairs, nameDiffers, sameEmailOther,
+    accountId, batchId, file, firstStage, rows, decisions, cards, pairs, nameDiffers, atAddress, sameEmailOther,
     sourceMap: [...srcCount].sort((a, b) => b[1] - a[1]).map(([from, n]) => ({ from, ...mapLeadSource(from, known), rows: n })),
     sourceOther: [...otherCount].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([text, n]) => ({ text, rows: n })),
     counts: {
       rows: rows.length, newCustomers: fresh.length, matchedRows: matched.length, matchedCustomers: new Set(matched.map(d => d.contactId)).size,
       cardsByStage, newWithoutCard: fresh.filter(d => !d.card.make).length, newWithoutCardWhy, matchedWithoutCardWhy, skipped, flags,
-      possibleMatches: pairs.length + nameDiffers.length,
-      possibleMatchesByKind: { sameEmailAndStreet: pairs.length, nameDiffers: nameDiffers.length },
+      possibleMatches: pairs.length + nameDiffers.length + atAddress.length,
+      possibleMatchesByKind: { sameEmailAndStreet: pairs.length, nameDiffers: nameDiffers.length, sameAddress: atAddress.length },
     },
   }
 }
@@ -431,6 +445,11 @@ export async function applyMbq(prisma: Db, accountId: string, rows: MbqRow[], fi
         createdAt: floridaToUtc(`${r.firstRequest || r.latest.slice(0, 10)} 12:00`),
       }
     }) }))
+    // Their first property, Primary: the address imported (lib/properties.ts).
+    await chunk(fresh, c => tx.customerProperty.createMany({ data: c.map(d => ({
+      accountId, crmContactId: d.contactId!, label: 'Home', isPrimary: true, address: fullAddress(d.row) || '',
+      city: d.row.city || null, state: d.row.state || null, zip: d.row.zip || null,
+    })) }))
     rec.contacts = fresh.map(d => d.contactId!)
     wrote.contacts = fresh.length
 
@@ -474,6 +493,7 @@ export async function applyMbq(prisma: Db, accountId: string, rows: MbqRow[], fi
     const pms = [
       ...plan.pairs.map(p => ({ id: p.id, contactId: p.contact.contactId, matchId: p.match.contactId, reason: p.reason })),
       ...plan.nameDiffers.map(d => ({ id: d.possibleOf!.id, contactId: d.contactId, matchId: d.possibleOf!.c.id, reason: d.possibleOf!.by })),
+      ...plan.atAddress.map(a => ({ id: a.id, contactId: a.contact.contactId, matchId: a.matchId, reason: 'address' })),
     ]
     if (pms.length) {
       await tx.customerPossibleMatch.createMany({ data: pms.map(p => ({ ...p, accountId, createdAt: at })) })

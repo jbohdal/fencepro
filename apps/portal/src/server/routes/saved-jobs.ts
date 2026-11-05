@@ -24,6 +24,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { jobPropertyId } from '../lib/properties.js'
 import { DeleteError, deleteRecord, setArchived } from '../lib/deletion.js'
 import { ensureJobChecklist } from '../lib/seeds.js'
 import { audit } from '../lib/auditLog.js'
@@ -110,6 +111,8 @@ const jobSchema = z.object({
   customerPhone: z.string().default(''),
   customerEmail: z.string().default(''),
   customerAddress: z.string().default(''),
+  /** The customer's property (CustomerProperty); a job from a quote takes the quote's. */
+  propertyId: z.string().max(64).optional().nullable(),
   fenceStyle: z.string().default(''),
   sections: z.number().int().default(0),
   totalFeet: z.number().int().default(0),
@@ -275,6 +278,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
           accountId: req.user.crmAccountId,
           quoteId: data.quoteId || null,
           crmContactId: contactId,
+          propertyId: await jobPropertyId(tx, req.user.crmAccountId, contactId, { quoteId: data.quoteId, propertyId: data.propertyId, address: data.customerAddress }),
         },
       })
       await recordJobChanges(req.user.crmAccountId, null, row, tx)
@@ -390,6 +394,14 @@ router.patch('/:id', requireUser, requireAccount, async (req: any, res) => {
           ...data,
           crmContactId: data.crmContactId === undefined ? undefined : (data.crmContactId || null),
           quoteId: data.quoteId === undefined ? undefined : (data.quoteId || null),
+          // Its property, again when what it goes by changed (customer, quote, address, a property picked).
+          propertyId: data.propertyId === undefined && data.crmContactId === undefined && data.quoteId === undefined && data.customerAddress === undefined && existing.propertyId
+            ? undefined
+            : await jobPropertyId(tx, req.user.crmAccountId, data.crmContactId === undefined ? existing.crmContactId : (data.crmContactId || null), {
+              quoteId: data.quoteId === undefined ? existing.quoteId : data.quoteId,
+              propertyId: data.propertyId === undefined ? existing.propertyId : data.propertyId,
+              address: data.customerAddress ?? existing.customerAddress,
+            }),
           id: undefined as any,
         },
       })
@@ -551,6 +563,7 @@ router.post('/sync', requireUser, requireAccount, requireCan('records.import'), 
             id: undefined as any,
             crmContactId: safeContactId,
             quoteId: safeQuoteId,
+            propertyId: await jobPropertyId(prisma, req.user.crmAccountId, safeContactId, { quoteId: safeQuoteId, address: j.customerAddress }),
           },
         })
         created++
