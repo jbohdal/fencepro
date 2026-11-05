@@ -55,6 +55,7 @@ export { planTanTall, planTanTallParts } from './tanTall'
 export { followBorrowedPrices, borrowedPrice } from './priceAge'
 // Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).
 export { planVinylColor, planArchiveVinylColor, planUndoVinylColor, inputFromColor, kitLineCounts } from './vinylColorForm'
+export { isUnsentDraft } from './draftMargin'
 export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG } from './fenceCatalog'
 // Settings → Fence styles → Add color / turn a choice off (scripts/stephens-quotes-2026-10-26b.ts: Green chain link).
 export { planAddColor, planUpdateOption, resolveFenceStyles, swapColor, isColorPart } from './fenceCatalog'

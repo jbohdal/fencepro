@@ -7,7 +7,9 @@
  * server makes the catalog items, dated costs, fences, material kits and the
  * quote builder choice in one go and says what it made; Undo takes it all
  * away for 24 hours. Edit opens the same form filled in; a changed cost is a
- * new dated cost and never changes a saved quote. Remove archives the color.
+ * new dated cost and never changes a saved quote. Archive (the owner only,
+ * Nov 5, 2026) shows what it switches off and asks first: the color, its
+ * fences, kits and catalog items; sent and signed quotes keep their prices.
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
@@ -20,7 +22,7 @@ import {
   type SetMethod, type SizeKey, type StiffenerInput, type VinylColorInput,
 } from './vinylColorForm'
 import { TALL_VINYL_SECTION } from './materialCalculator'
-import { addVinylColor, loadColorRecords, removeVinylColor, restoreVinylColor, saveVinylColor, undoVinylColor, type ColorRecord } from './vinylColorsStore'
+import { addVinylColor, archiveCheckFor, loadColorRecords, removeVinylColor, restoreVinylColor, saveVinylColor, undoVinylColor, type ArchiveCheck, type ColorRecord } from './vinylColorsStore'
 import { navigate, useNav } from './nav'
 import { toast } from './toast'
 import { roleCan, signedInRole } from './permissions'
@@ -73,6 +75,9 @@ export default function VinylColorsSettings({ blocked, onServerSaved }: {
   const tick = useTick()
   const nav = useNav()
   const may = roleCan(signedInRole(), 'settings.change') && roleCan(signedInRole(), 'prices.change')
+  // Archiving a whole color is the owner's (Jonathan, Nov 5, 2026).
+  const owner = signedInRole() === 'super_admin'
+  const [confirm, setConfirm] = useState<null | { o: ChoiceOption; check: ArchiveCheck | null; loading: boolean }>(null)
   const [records, setRecords] = useState<ColorRecord[]>([])
   const [form, setForm] = useState<null | { key?: string }>(null)
   const [done, setDone] = useState<null | { record: ColorRecord; message: string; edit: boolean }>(null)
@@ -91,17 +96,25 @@ export default function VinylColorsSettings({ blocked, onServerSaved }: {
   const colors = dim?.options ?? []
   const recordOf = (key: string) => records.find(r => r.key === key)
 
+  async function askArchive(o: ChoiceOption) {
+    setErr('')
+    setConfirm({ o, check: null, loading: true })
+    const r = await archiveCheckFor(o.key)
+    if (!r.ok) { setConfirm(null); setErr(r.error); return }
+    setConfirm({ o, check: r.data, loading: false })
+  }
+
   async function act(kind: 'undo' | 'remove' | 'restore', o: ChoiceOption) {
     setErr('')
     if (kind === 'undo' && !window.confirm(`Undo adding ${o.label}? Its fences, material kits, catalog items and costs are taken away.`)) return
-    if (kind === 'remove' && !window.confirm(`Remove ${o.label}? It is archived: no longer offered for quoting; quotes already saved keep their prices.`)) return
     setBusy(true)
     const r = kind === 'undo' ? await undoVinylColor(o.key) : kind === 'remove' ? await removeVinylColor(o.key) : await restoreVinylColor(o.key)
     setBusy(false)
     if (!r.ok) { setErr(r.error); return }
     onServerSaved()
     setDone(null)
-    toast.success(kind === 'undo' ? `${o.label} undone` : kind === 'remove' ? `${o.label} removed (archived)` : `${o.label} is back`, kind === 'undo' ? 'Everything adding it made was taken away.' : '')
+    setConfirm(null)
+    toast.success(kind === 'undo' ? `${o.label} undone` : kind === 'remove' ? `${o.label} archived` : `${o.label} is back`, kind === 'undo' ? 'Everything adding it made was taken away.' : kind === 'remove' ? 'Its fences, kits and parts are archived. Saved quotes keep their prices.' : 'Its fences, kits and parts are back.')
     await reload()
   }
 
@@ -138,8 +151,8 @@ export default function VinylColorsSettings({ blocked, onServerSaved }: {
                 </span>
                 {may && f && !o.archived && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy || blocked} onClick={() => setForm({ key: o.key })} data-vc-edit={o.key}>Edit</button>}
                 {may && f && canUndo && !o.archived && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy || blocked} onClick={() => act('undo', o)} data-vc-undo={o.key}>Undo</button>}
-                {may && f && !o.archived && <button type="button" className="btn btn-quiet btn-sm min-h-[44px] text-red-700" disabled={busy || blocked} onClick={() => act('remove', o)} data-vc-remove={o.key}>Remove</button>}
-                {may && f && o.archived && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy || blocked} onClick={() => act('restore', o)} data-vc-restore={o.key}>Bring back</button>}
+                {owner && f && !o.archived && <button type="button" className="btn btn-quiet btn-sm min-h-[44px] text-red-700" disabled={busy || blocked} onClick={() => askArchive(o)} data-vc-remove={o.key}>Archive</button>}
+                {owner && f && o.archived && <button type="button" className="btn btn-secondary btn-sm min-h-[44px]" disabled={busy || blocked} onClick={() => act('restore', o)} data-vc-restore={o.key}>Bring back</button>}
                 {!f && o.copiedFrom && <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => navigate('/settings?tab=styles')}>Fence Styles</button>}
               </li>
             )
@@ -150,6 +163,35 @@ export default function VinylColorsSettings({ blocked, onServerSaved }: {
 
       {form && <ColorForm editKey={form.key} onClose={() => { setForm(null); if (want || wantColor) navigate('/settings?tab=price_list') }}
         onSaved={(record, message) => { onServerSaved(); setForm(null); setDone({ record, message, edit: !!form.key }); void reload(); if (want || wantColor) navigate('/settings?tab=price_list') }} />}
+      {confirm && (
+        <Sheet data="vinyl-color-archive" title={`Archive ${confirm.o.label}?`} onClose={() => setConfirm(null)}
+          footer={<>
+            <button type="button" className="btn btn-secondary min-h-[44px]" onClick={() => setConfirm(null)}>Cancel</button>
+            <button type="button" className="btn btn-primary min-h-[44px] bg-red-700 border-red-700" disabled={busy || confirm.loading || !confirm.check || confirm.check.blocking.length > 0} onClick={() => act('remove', confirm.o)} data-vc-archive-yes>{busy ? 'Archiving…' : `Archive ${confirm.o.label}`}</button>
+          </>}>
+          {confirm.loading || !confirm.check ? <p className={small}>Checking what uses it…</p> : (
+            <div className="space-y-4 text-sm" data-vc-archive-check={confirm.o.key}>
+              <p className="text-gray-800">No longer offered for quoting. Archived with it: {confirm.check.fences.length} fence{confirm.check.fences.length === 1 ? '' : 's'}, {confirm.check.kits} material kit{confirm.check.kits === 1 ? '' : 's'} and {confirm.check.items} catalog item{confirm.check.items === 1 ? '' : 's'}. Bring back undoes it.</p>
+              {confirm.check.fences.length > 0 && <ul className="space-y-0.5 text-gray-700">{confirm.check.fences.map(n => <li key={n}>{n}</li>)}</ul>}
+              {confirm.check.blocking.length > 0 && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-2 text-red-800" data-vc-archive-blocking>
+                  <p className="font-semibold">Waiting for {confirm.check.blocking.length === 1 ? 'one draft' : `${confirm.check.blocking.length} drafts`}</p>
+                  <p className="text-xs">A draft on an archived fence cannot be priced or sent. Change its fence, or archive the draft, first.</p>
+                  <ul className="mt-1 text-xs">{confirm.check.blocking.map(q => <li key={q.id}>{q.what}</li>)}</ul>
+                </div>
+              )}
+              {confirm.check.keep.length > 0 && (
+                <div data-vc-archive-keep>
+                  <p className="font-semibold text-gray-900">Keep their prices ({confirm.check.keep.length})</p>
+                  <p className={small}>Sent and signed quotes and jobs are not changed: the customer sees and signs what was sent.</p>
+                  <ul className="mt-1 text-xs text-gray-700">{confirm.check.keep.map(q => <li key={q.id}>{q.what}</li>)}</ul>
+                </div>
+              )}
+              {err && <p className="text-sm text-red-700" role="alert" data-vc-archive-error>{err}</p>}
+            </div>
+          )}
+        </Sheet>
+      )}
       {done && <Created record={done.record} message={done.message} edit={done.edit} busy={busy} onClose={() => setDone(null)}
         onUndo={() => { const o = colors.find(x => x.key === done.record.key); if (o) void act('undo', o) }} />}
     </div>

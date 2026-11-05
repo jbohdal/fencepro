@@ -8,8 +8,11 @@
  *   per priced item; the role without prices.change is refused.
  * - Edit: a new section cost is a new dated cost; a saved quote on the color
  *   keeps its stored prices to the cent.
- * - Remove: refused while an active quote uses it; archives once that quote
- *   is archived; Bring back restores it. Undo is refused while any quote uses
+ * - Archive (Nov 5, 2026: the owner only, asks first, sent and signed quotes
+ *   keep their prices): the check lists what it switches off; refused while an
+ *   unsent draft uses it; once that quote is sent it keeps its prices and the
+ *   color, its fences, kits and items archive; an admin is refused; Bring back
+ *   restores fences, kits and items. Undo is refused while any quote uses
  *   it (archived too; one in Deleted Records does not count) and after 24 hours.
  * - Undo: Settings, Inventory and kits are exactly as before (deep equal),
  *   the price history rows and the record are gone.
@@ -28,7 +31,7 @@ const onDev = /\/ezbiz_dev(\?|$)/.test(process.env.DATABASE_URL || '')
 describe.skipIf(!process.env.DEV_DB || !onDev)('vinyl colors (dev database)', () => {
   let prisma: any
   let accountId = ''
-  let owner = '', salesRep = ''
+  let owner = '', salesRep = '', admin = ''
   let base = ''
   let server: Server
   let quoteId = ''
@@ -59,6 +62,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('vinyl colors (dev database)', ()
     const secret = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
     owner = jwt.sign({ sub: user.id, email: user.email, role: 'super_admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     salesRep = jwt.sign({ sub: user.id, email: user.email, role: 'sales_rep', crmAccountId: accountId }, secret, { expiresIn: '10m' })
+    admin = jwt.sign({ sub: user.id, email: user.email, role: 'admin', crmAccountId: accountId }, secret, { expiresIn: '10m' })
     const app = express()
     app.use(express.json({ limit: '10mb' }))
     app.use('/api/vinyl-colors', (await import('../src/server/routes/vinyl-colors.js')).default)
@@ -127,24 +131,43 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('vinyl colors (dev database)', ()
     expect({ ...quoteAfter, updatedAt: null }).toEqual({ ...quoteBefore, updatedAt: null })
     expect(quoteAfter.updatedAt.getTime()).toBe(quoteBefore.updatedAt.getTime())
 
-    // ── Remove: refused while an active quote uses it; Undo refused while any quote does ──
+    // ── Archive: the check first; refused while an unsent draft uses it; Undo refused while any quote does ──
+    const c1 = await call(owner, 'GET', '/api/vinyl-colors/chai-gray/archive-check')
+    expect(c1.status).toBe(200)
+    const madeItems = (await snapshot()).items.filter((i: any) => i.madeFor === 'vinyl:color:chai-gray').length
+    expect(c1.json.data).toMatchObject({ label: 'Chai Gray', kits: 2, items: madeItems })
+    expect(c1.json.data.fences).toEqual(['Chai Gray Vinyl Privacy, 6 ft tall, 8 ft sections, No dig', 'Chai Gray Vinyl Privacy, 6 ft tall, 8 ft sections, Dig set'])
+    expect(c1.json.data.blocking.map((q: any) => q.id)).toEqual([quoteId])
+    expect(c1.json.data.keep).toEqual([])
     const r1 = await call(owner, 'POST', '/api/vinyl-colors/chai-gray/remove')
     expect(r1.status).toBe(409)
-    expect(r1.json.error).toMatch(/Test vinyl color/)
+    expect(r1.json.error).toMatch(/unsent draft for Test vinyl color/)
     expect(r1.json.usedBy[0].id).toBe(quoteId)
     const u1 = await call(owner, 'POST', '/api/vinyl-colors/chai-gray/undo')
     expect(u1.status).toBe(409)
-    // The quote archived: Remove archives the color; Bring back restores it.
-    await prisma.savedQuote.update({ where: { id: quoteId }, data: { archivedAt: new Date() } })
+    // Sent to the customer: it keeps its prices, and the color can be archived. The owner only.
+    await prisma.savedQuote.update({ where: { id: quoteId }, data: { shareToken: `t-${tag}`, status: 'SENT' } })
+    const sentBefore = await prisma.savedQuote.findUnique({ where: { id: quoteId } })
+    const c2 = await call(owner, 'GET', '/api/vinyl-colors/chai-gray/archive-check')
+    expect(c2.json.data.blocking).toEqual([])
+    expect(c2.json.data.keep.map((q: any) => q.id)).toEqual([quoteId])
+    expect((await call(admin, 'GET', '/api/vinyl-colors/chai-gray/archive-check')).status).toBe(403)
+    expect((await call(admin, 'POST', '/api/vinyl-colors/chai-gray/remove')).status).toBe(403)
     const r2 = await call(owner, 'POST', '/api/vinyl-colors/chai-gray/remove')
     expect(r2.status).toBe(200)
+    expect(r2.json.data.kits.length).toBe(2)
     let s = await snapshot()
     expect(s.config.fenceStyles.filter((x: any) => x.choices?.color === 'chai-gray').every((x: any) => x.isActive === false)).toBe(true)
     expect(s.items.filter((i: any) => i.madeFor === 'vinyl:color:chai-gray').every((i: any) => i.status === 'archived')).toBe(true)
-    expect((await call(owner, 'POST', '/api/vinyl-colors/chai-gray/undo')).status).toBe(409) // the archived quote still uses it
+    expect(s.kits.filter((k: any) => k.madeFor === 'vinyl:color:chai-gray').every((k: any) => k.archived === true)).toBe(true)
+    const sentAfter = await prisma.savedQuote.findUnique({ where: { id: quoteId } })
+    expect({ ...sentAfter, updatedAt: null }).toEqual({ ...sentBefore, updatedAt: null })
+    expect((await call(owner, 'POST', '/api/vinyl-colors/chai-gray/undo')).status).toBe(409) // the sent quote still uses it
+    expect((await call(admin, 'POST', '/api/vinyl-colors/chai-gray/restore')).status).toBe(403)
     expect((await call(owner, 'POST', '/api/vinyl-colors/chai-gray/restore')).status).toBe(200)
     s = await snapshot()
     expect(s.config.fenceStyles.filter((x: any) => x.choices?.color === 'chai-gray').every((x: any) => x.isActive === true)).toBe(true)
+    expect(s.kits.filter((k: any) => k.madeFor === 'vinyl:color:chai-gray').every((k: any) => !k.archived && !k.archivedWithColor)).toBe(true)
 
     // ── Undo: only within 24 hours ──
     // The quote deleted (in Deleted Records): it no longer holds Undo back.

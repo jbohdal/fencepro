@@ -42,5 +42,8 @@ export const loadColorRecords = () => send<{ records: ColorRecord[] }>('GET', '/
 export const addVinylColor = (input: VinylColorInput) => send<{ record: ColorRecord; message: string }>('POST', '/api/vinyl-colors', { input })
 export const saveVinylColor = (key: string, input: VinylColorInput) => send<{ record: ColorRecord; message: string; priced: number }>('PUT', `/api/vinyl-colors/${encodeURIComponent(key)}`, { input })
 export const undoVinylColor = (key: string) => send<{ removed: { styles: string[]; kits: string[]; items: string[]; priceHistory: number } }>('POST', `/api/vinyl-colors/${encodeURIComponent(key)}/undo`)
-export const removeVinylColor = (key: string) => send<{ styles: string[]; items: string[] }>('POST', `/api/vinyl-colors/${encodeURIComponent(key)}/remove`)
+/** What archiving a color does: its fences, kits and items, the quotes that keep their prices, the drafts that stop it (the owner only). */
+export interface ArchiveCheck { label: string; fences: string[]; kits: number; items: number; keep: Array<{ id: string; what: string }>; blocking: Array<{ id: string; what: string }> }
+export const archiveCheckFor = (key: string) => send<ArchiveCheck>('GET', `/api/vinyl-colors/${encodeURIComponent(key)}/archive-check`)
+export const removeVinylColor = (key: string) => send<{ styles: string[]; items: string[]; kits: string[] }>('POST', `/api/vinyl-colors/${encodeURIComponent(key)}/remove`)
 export const restoreVinylColor = (key: string) => send<{ styles: string[]; items: string[] }>('POST', `/api/vinyl-colors/${encodeURIComponent(key)}/restore`)

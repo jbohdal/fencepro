@@ -17,6 +17,13 @@
  * archives, and is refused only while an active quote (not archived or
  * deleted) uses one. Saved quotes keep the pull sheet and prices they were
  * priced with: nothing here touches a quote.
+ *
+ * Archive (Jonathan, Nov 5, 2026: "archive a whole color and all its fences
+ * and kits ... owner only, asks first, sent and signed quotes keep their
+ * prices"): the owner only; the screen shows archiveCheck first. Its fences,
+ * kits and catalog items are archived. A sent, signed or lost quote and a job
+ * on it keep their prices (a sent proposal never reprices); only an unsent
+ * draft on one of its fences stops it, since it could not be priced or sent.
  */
 
 import prisma from './prisma.js'
@@ -209,14 +216,64 @@ export async function undoVinylColor(actor: ColorActor, key: string, now = new D
   }, { timeout: 30_000 })
 }
 
-/** Remove (archive) a color, or bring it back. Remove is refused while an active quote uses one of its fences. */
-export async function archiveVinylColor(actor: ColorActor, key: string, archive: boolean): Promise<{ styles: string[]; items: string[] }> {
+export interface ArchiveCheck {
+  label: string
+  /** Its fences (plain names), material kits and catalog items that archiving switches off. */
+  fences: string[]
+  kits: number
+  items: number
+  /** Sent, signed or lost quotes and jobs on its fences: they keep their prices. */
+  keep: Array<{ id: string; what: string }>
+  /** Unsent drafts on its fences: archiving waits for them. */
+  blocking: Array<{ id: string; what: string }>
+}
+
+/** Quotes and jobs on a color's fences, split into those that keep their prices and the unsent drafts that stop an archive. */
+async function quotesOnColor(db: any, m: any, accountId: string, styles: string[]): Promise<Pick<ArchiveCheck, 'keep' | 'blocking'>> {
+  if (!styles.length) return { keep: [], blocking: [] }
+  const like = styles.map(s => `%"${s.replace(/[%_\\]/g, c => `\\${c}`)}"%`)
+  const sel = { id: true, customerName: true, date: true, status: true, shareToken: true, acceptedAt: true, soldAt: true, firstViewedAt: true, viewCount: true }
+  const direct = await db.savedQuote.findMany({ where: { accountId, fenceStyle: { in: styles }, deletedAt: null, archivedAt: null }, select: sel })
+  const ids: Array<{ id: string }> = await db.$queryRawUnsafe(
+    `SELECT id FROM "SavedQuote" WHERE "accountId" = $1 AND "deletedAt" IS NULL AND "archivedAt" IS NULL AND proposal::text LIKE ANY($2::text[])`, accountId, like)
+  const more = ids.length ? await db.savedQuote.findMany({ where: { id: { in: ids.map(r => r.id).filter(id => !direct.some((q: any) => q.id === id)) }, deletedAt: null, archivedAt: null }, select: sel }) : []
+  const keep: ArchiveCheck['keep'] = [], blocking: ArchiveCheck['blocking'] = []
+  for (const q of [...direct, ...more]) {
+    const what = `${q.customerName || 'a customer'}${q.date ? ` (${q.date})` : ''}${q.status && q.status !== 'DRAFT' ? `, ${String(q.status).toLowerCase()}` : ''}`
+    ;(m.isUnsentDraft(q) ? blocking : keep).push({ id: q.id, what: m.isUnsentDraft(q) ? `the unsent draft for ${what}` : `the quote for ${what}` })
+  }
+  const jobs = await db.savedJob.findMany({ where: { accountId, fenceStyle: { in: styles }, deletedAt: null, archivedAt: null }, select: { id: true, customerName: true } })
+  for (const j of jobs) keep.push({ id: j.id, what: `the job for ${j.customerName || 'a customer'}` })
+  return { keep, blocking }
+}
+
+/** What archiving a color does, for the screen to show before the owner says yes. */
+export async function archiveCheck(accountId: string, key: string): Promise<ArchiveCheck> {
+  const m = await pricingModule() as any
+  const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
+  const inv = await prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } })
+  const cfg = obj(b?.config)
+  const st = { fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items: arr(inv?.items), kits: arr(inv?.kits) }
+  let plan: any
+  try { plan = m.planArchiveVinylColor(st, key, true) } catch (err) { throw new ColorError(400, (err as Error).message) }
+  const styles = stylesOfColor(cfg, key)
+  const labels = m.styleLabels(cfg, { inventory: st.items, kits: st.kits }) as Record<string, string>
+  const opt = arr(m.fenceCatalogOf(cfg)?.materials).find((x: any) => x?.key === 'vinyl')?.dims?.find((d: any) => d?.key === 'color')?.options?.find((o: any) => o?.key === key)
+  return {
+    label: opt?.label ?? key,
+    fences: styles.map(s => labels[s] || s), kits: plan.kits.length, items: plan.items.length,
+    ...(await quotesOnColor(prisma, m, accountId, styles)),
+  }
+}
+
+/** Archive a color, or bring it back. Archive waits only for unsent drafts on its fences (archiveCheck). */
+export async function archiveVinylColor(actor: ColorActor, key: string, archive: boolean): Promise<{ styles: string[]; items: string[]; kits: string[] }> {
   const m = await pricingModule() as any
   return prisma.$transaction(async (tx: any) => {
     const { cfg, items, kits } = await lockedState(tx, actor.accountId)
     if (archive) {
-      const used = await quotesUsing(tx, actor.accountId, stylesOfColor(cfg, key), true)
-      if (used.length) throw new ColorError(409, `It cannot be removed while ${used.map(u => u.what).join(', ')} uses it. Archive or finish those quotes first.`, { usedBy: used })
+      const { blocking } = await quotesOnColor(tx, m, actor.accountId, stylesOfColor(cfg, key))
+      if (blocking.length) throw new ColorError(409, `It cannot be archived while ${blocking.map(u => u.what).join(', ')} uses it: a draft on an archived fence cannot be priced or sent. Change that draft's fence, or archive the draft, first.`, { usedBy: blocking })
     }
     let plan: any
     try { plan = m.planArchiveVinylColor({ fenceStyles: arr(cfg.fenceStyles), fenceCatalog: m.fenceCatalogOf(cfg), items, kits }, key, archive) } catch (err) { throw new ColorError(400, (err as Error).message) }
@@ -224,7 +281,7 @@ export async function archiveVinylColor(actor: ColorActor, key: string, archive:
     const rk = recordKey(key)
     const row = await tx.accountKeyValue.findUnique({ where: { accountId_key: { accountId: actor.accountId, key: rk } } })
     if (row) await tx.accountKeyValue.update({ where: { accountId_key: { accountId: actor.accountId, key: rk } }, data: { value: { ...(row.value as any), archivedAt: archive ? new Date().toISOString() : null } as any, version: { increment: 1 }, updatedBy: actor.userId } })
-    return { styles: plan.styles, items: plan.items }
+    return { styles: plan.styles, items: plan.items, kits: plan.kits }
   }, { timeout: 30_000 })
 }
 

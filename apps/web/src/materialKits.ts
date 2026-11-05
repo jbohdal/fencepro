@@ -112,6 +112,8 @@ export interface KitSet {
   /** The style this set prices; null for a copy not in use yet. */
   styleName: string | null
   archived?: boolean
+  /** Archived with its vinyl color (Vinyl Colors → Archive): Bring back un-archives it, and only it. */
+  archivedWithColor?: boolean
   kits: Partial<Record<KitKind, KitPart[]>>
   /** Parts whose job total is rounded up to a whole one. */
   roundUp: string[]

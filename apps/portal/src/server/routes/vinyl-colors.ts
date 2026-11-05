@@ -5,8 +5,9 @@
  *   POST /               → { input }: add a color from the form
  *   PUT  /:key           → { input }: save the form again for a color it made (costs as new dated costs)
  *   POST /:key/undo      → take away everything adding it made (24 hours, no quote or job on it)
- *   POST /:key/remove    → archive it (refused while an active quote uses it)
- *   POST /:key/restore   → bring an archived color back
+ *   GET  /:key/archive-check → what archiving it does: its fences, kits and items, the quotes that keep their prices, the drafts that stop it
+ *   POST /:key/remove    → archive it, with its fences, kits and catalog items (the owner only; refused while an unsent draft uses it)
+ *   POST /:key/restore   → bring an archived color back (the owner only)
  *
  * Changing a color changes prices and Settings: the owner and admin
  * (prices.change and settings.change). Every change is in the change log.
@@ -19,7 +20,7 @@ import { resolveSecret } from '../lib/secrets.js'
 import { requireCan } from '../lib/permissions.js'
 import { audit } from '../lib/auditLog.js'
 import { auditSettingChange } from '../lib/settingsAudit.js'
-import { archiveVinylColor, colorRecords, ColorError, saveVinylColor, undoVinylColor, recordKey, type ColorActor } from '../lib/vinylColors.js'
+import { archiveCheck, archiveVinylColor, colorRecords, ColorError, saveVinylColor, undoVinylColor, recordKey, type ColorActor } from '../lib/vinylColors.js'
 
 const router = Router()
 const JWT_SECRET = resolveSecret('JWT_SECRET', 'dev-crm-jwt-secret-change-me')
@@ -58,6 +59,16 @@ function fail(res: any, err: unknown, what: string) {
 
 const keyOf = (req: any) => String(req.params.key ?? '').slice(0, 80)
 const changers = [requireCan('settings.change'), requireCan('prices.change')]
+/** Archiving a whole color is the owner's (Jonathan, Nov 5, 2026). */
+function ownerOnly(req: any, res: any, next: any) {
+  if (req.user?.role !== 'super_admin') { res.status(403).json({ success: false, error: 'Only the owner can archive a color or bring one back.' }); return }
+  next()
+}
+
+router.get('/:key/archive-check', ownerOnly, async (req: any, res) => {
+  try { res.json({ success: true, data: await archiveCheck(req.user.crmAccountId, keyOf(req)) }) }
+  catch (err) { fail(res, err, 'check the color') }
+})
 
 router.get('/', async (req: any, res) => {
   try { res.json({ success: true, data: { records: await colorRecords(req.user.crmAccountId) } }) }
@@ -96,11 +107,11 @@ router.post('/:key/undo', ...changers, async (req: any, res) => {
 })
 
 for (const [path, archive] of [['remove', true], ['restore', false]] as const) {
-  router.post(`/:key/${path}`, ...changers, async (req: any, res) => {
+  router.post(`/:key/${path}`, ownerOnly, ...changers, async (req: any, res) => {
     const key = keyOf(req)
     try {
       const out = await archiveVinylColor(await actorOf(req), key, archive)
-      await audit(req, archive ? 'soft_delete' : 'restore', 'VinylColor', key, { newValues: { archived: archive, styles: out.styles, items: out.items } })
+      await audit(req, archive ? 'soft_delete' : 'restore', 'VinylColor', key, { newValues: { archived: archive, styles: out.styles, items: out.items, kits: out.kits } })
       await auditSettingChange(req, `vinyl-colors/${key}`, { archived: !archive }, { archived: archive, styles: out.styles })
       res.json({ success: true, data: out })
     } catch (err) { fail(res, err, archive ? 'remove the color' : 'bring the color back') }

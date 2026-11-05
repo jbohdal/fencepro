@@ -376,6 +376,9 @@ describe('undo, edit, remove (pure)', () => {
     expect(off.styles.length).toBe(2)
     expect(off.state.fenceStyles.filter(s => s.choices?.color === 'chai-gray').every(s => s.isActive === false)).toBe(true)
     expect(off.state.items.filter(i => i.madeFor === 'vinyl:color:chai-gray').every(i => i.status === 'archived')).toBe(true)
+    // Its kits too (Nov 5, 2026), marked as archived with the color.
+    expect(off.kits.length).toBe(2)
+    expect(off.state.kits.filter(k => k.madeFor === 'vinyl:color:chai-gray').every(k => k.archived === true && k.archivedWithColor === true)).toBe(true)
     const on = planArchiveVinylColor(off.state, plan.key, false)
     expect(on.state).toEqual(plan.state)
   })

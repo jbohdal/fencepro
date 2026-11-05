@@ -607,8 +607,13 @@ export function planVinylColor(st0: CatalogState, input0: VinylColorInput, opts:
 const countsOf = (sf: StiffenerInput | null | undefined): StiffenerCounts | null =>
   sf ? { perSection: Object.fromEntries(Object.entries(sf.perSection ?? {}).filter(([, v]) => typeof v === 'number')), perLeaf: sf.perLeaf } : null
 
-/** Archive a color made by the form (Remove), or bring it back: its fences off or on, its catalog items archived or active. */
-export function planArchiveVinylColor(st0: CatalogState, key: string, archive: boolean): { state: CatalogState; styles: string[]; items: string[] } {
+/**
+ * Archive a color made by the form, or bring it back: its fences off or on,
+ * its catalog items archived or active, and its material kits archived (with
+ * the color: Bring back un-archives only those). Quotes are not touched: a
+ * sent or signed one keeps its prices (Jonathan, Nov 5, 2026).
+ */
+export function planArchiveVinylColor(st0: CatalogState, key: string, archive: boolean): { state: CatalogState; styles: string[]; items: string[]; kits: string[] } {
   const st = clone(st0)
   const m = materialOf(st.fenceCatalog, 'vinyl')
   const dim = colorDimOf(m)
@@ -630,7 +635,15 @@ export function planArchiveVinylColor(st0: CatalogState, key: string, archive: b
     const next = archive ? 'archived' : 'active'
     if (i.status !== next) { i.status = next; items.push(i.name) }
   }
-  return { state: st, styles, items }
+  // Its kits: the ones made for it, and any kit of one of its fences (a copy made in Material Kits too).
+  const fenceNames = new Set(stylesOfOption(st.fenceStyles, 'vinyl', dim.key, key).map(s => s.name))
+  const kits: string[] = []
+  for (const k of st.kits) {
+    if (k.madeFor !== tag && !(k.styleName && fenceNames.has(k.styleName))) continue
+    if (archive && !k.archived) { k.archived = true; k.archivedWithColor = true; kits.push(k.name) }
+    else if (!archive && k.archivedWithColor) { delete k.archived; delete k.archivedWithColor; kits.push(k.name) }
+  }
+  return { state: st, styles, items, kits }
 }
 
 /** Take away everything the form made for a color (Undo): the choice, its fences, kits and catalog items. */
