@@ -30,7 +30,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { roleOf } from '../lib/permissions.js'
 import {
   planAccess, planPayload, planSchemaFor, savePlan, markDone, reopen, nameOf, PlanConflict, surveyFileOf, surveyUrl, planDir,
-  SURVEY_FILE, editsPlans, sitePlanSettings, siteModule, chosenStyleOf, asSold, currentFence,
+  SURVEY_FILE, editsPlans, sitePlanSettings, siteModule, chosenStyleOf, asSold, currentFence, donePlanOf,
 } from '../lib/sitePlans.js'
 import { parcelsAt } from '../lib/parcels.js'
 import { renderPermitSheet } from '../lib/sitePlanSheet.js'
@@ -81,6 +81,12 @@ sitePlanRoutes.put('/:jobId', express.json({ limit: '6mb' }), async (req: any, r
         res.status(400).json({ success: false, error: !bad.co ? 'A change waiting on the plan is for a change order that is not on this job. Open the plan again.' : `${n} is already ${bad.co.status === 'void' ? 'voided' : 'approved'}. Open the plan again: its change is ${bad.co.status === 'void' ? 'off' : 'on'} the plan now.` })
         return
       }
+    }
+    // An answer waiting on a change order names one of this job's that is not voided (approved ones settle when the plan is opened).
+    const answerCos = [...new Set(Object.values(plan.answers).map(x => x.coId).filter((x): x is string => !!x))]
+    if (answerCos.length) {
+      const cos = a.job.quoteId ? await prisma.changeOrder.findMany({ where: { id: { in: answerCos }, accountId, quoteId: a.job.quoteId, deletedAt: null, status: { not: 'void' } }, select: { id: true } }) : []
+      if (cos.length !== answerCos.length) { res.status(400).json({ success: false, error: 'An answer waits on a change order that is not on this job or was voided. Open the plan again.' }); return }
     }
     try {
       const out = await savePlan(accountId, a.job, plan, body.baseRevision, await nameOf(req), body.note ?? '')
@@ -218,10 +224,13 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     const accountId = req.user.crmAccountId
     const row = await prisma.sitePlan.findUnique({ where: { jobId: a.job.id } })
     if (!row || row.accountId !== accountId) { res.status(409).json({ success: false, error: 'Save the plan first.' }); return }
-    const plan = asSold(row.data as any)
+    // Done: the copy frozen when it was marked done, at that revision (what the crew builds). Not done yet: the working plan, stamped a draft.
+    const draft = !row.doneAt
+    const plan = draft ? asSold(row.data as any) : donePlanOf(row)
+    const shownRev = draft ? row.revision : (row.doneRevision ?? row.revision)
     if (!plan?.sides?.length) { res.status(409).json({ success: false, error: 'Draw the fence on the plan first.' }); return }
     const [rev, quote, permit, company, m] = await Promise.all([
-      prisma.sitePlanRevision.findFirst({ where: { planId: row.id, revision: row.revision }, select: { by: true } }),
+      prisma.sitePlanRevision.findFirst({ where: { planId: row.id, revision: shownRev }, select: { by: true } }),
       a.job.quoteId ? prisma.savedQuote.findFirst({ where: { id: a.job.quoteId, accountId }, select: { fenceStyle: true, chosenOption: true, proposal: true } }) : null,
       prisma.permit.findUnique({ where: { jobId: a.job.id }, select: { parcelId: true, county: true } }),
       contractorOf(accountId),
@@ -230,7 +239,7 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     // The fence as it is now (a change order can change the style).
     const style = (await currentFence(accountId, a.job.quoteId))?.fenceStyle || chosenStyleOf(quote as any) || a.job.fenceStyle
     const { pdf, note } = await renderPermitSheet(m, {
-      size: b.size, plan, revision: row.revision, drawnBy: rev?.by || 'Office',
+      size: b.size, plan, revision: shownRev, drawnBy: rev?.by || 'Office', draft,
       date: usDate(floridaDay(new Date())),
       company: { name: company.name, address: company.address, phone: company.phone },
       customerName: a.job.customerName, address: a.job.customerAddress,
@@ -239,13 +248,13 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
       fenceText: (await plainStyleName(style)) || style,
       aerial: b.aerial ? async (z, x, y) => (await tiles.naip(z, x, y)).body : null,
     })
-    const file = path.join(planDir(accountId, a.job.id), `permit-sheet-r${row.revision}-${Date.now()}.pdf`)
+    const file = path.join(planDir(accountId, a.job.id), `permit-sheet-r${shownRev}${draft ? '-draft' : ''}-${Date.now()}.pdf`)
     fs.writeFileSync(file, pdf)
     await prisma.sitePlan.update({ where: { id: row.id }, data: { permitPdfPath: file } })
     // Only the latest sheet is kept: the one before it goes (only a file in this job's own plan folder).
     const was = row.permitPdfPath
     if (was && was !== file && path.dirname(was) === path.dirname(file)) fs.rmSync(was, { force: true })
-    res.json({ success: true, data: { url: `/api/site-plans/${encodeURIComponent(a.job.id)}/permit-sheet.pdf`, ...(note ? { note } : {}) } })
+    res.json({ success: true, data: { url: `/api/site-plans/${encodeURIComponent(a.job.id)}/permit-sheet.pdf`, draft, ...(note ? { note } : {}) } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
     fail(res, err, 'make the permit sheet')

@@ -21,7 +21,8 @@ import path from 'path'
 import { z } from 'zod'
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
-import { can, roleOf } from './permissions.js'
+import { Prisma } from '@prisma/client'
+import { can, roleOf, sameJson } from './permissions.js'
 import { isSalesman, salesScopeOf, idInSalesScope } from './salesScope.js'
 import { jobCounty } from './county.js'
 import { mediaDir } from './media.js'
@@ -119,7 +120,7 @@ const side = z.object({
   quotedFt: ft.nullable(), yardSideId: id.nullable(), walkStepIds: z.array(id).max(400), gates: z.array(gate).max(30),
   teeFrom: id.nullable().optional(),
 }).strict()
-const answer = z.object({ kind: z.enum(['keep', 'drawn']), note: z.string().max(2000), by: z.string().max(200), at: z.string().max(40) }).strict()
+const answer = z.object({ kind: z.enum(['keep', 'drawn']), note: z.string().max(2000), by: z.string().max(200), at: z.string().max(40), coId: z.string().min(1).max(64).nullable().optional() }).strict()
 const ring = (max: number) => z.array(latLng).max(max)
 
 /** A survey picture's address as this server gives it: /api/site-plans/<job>/survey/<file>. */
@@ -208,6 +209,9 @@ export async function planPayload(accountId: string, job: any, canEdit: boolean)
     plan: row ? (row.data as SitePlanData) : null,
     revision: row?.revision ?? 0,
     doneAt: row?.doneAt ?? null,
+    // The revision it was marked done at, and whether the working plan has changed since (the crew still has the done copy).
+    doneRevision: row?.doneAt ? (row.doneRevision ?? null) : null,
+    changedSinceDone: !!row?.doneAt && !!row.doneData && !sameJson(asSold(row.data), row.doneData),
     doneBy: row?.doneBy ?? null,
     updatedAt: row?.updatedAt ?? null,
     revisions,
@@ -261,7 +265,10 @@ export async function savePlan(accountId: string, job: { id: string; quoteId: st
 export async function openFlagsOf(accountId: string, plan: SitePlanData, current: CurrentFence | null): Promise<string[]> {
   const [m, s] = await Promise.all([siteModule(), sitePlanSettings(accountId)])
   const flags = m.planFlags(plan, current?.yard ?? null, { tolFt: s.tolFt, tolPct: s.tolPct })
-  return m.openFlags(plan, flags).map(f => f.text)
+  // An answer waiting on a change order (its coId) counts once that change order is approved or signed (reconcilePlanChanges drops the coId then).
+  const waiting = (f: { key: string }) => !!plan.answers?.[f.key]?.coId
+  return [...m.openFlags(plan, flags), ...flags.filter(f => plan.answers?.[f.key] && waiting(f) && !m.openFlags(plan, [f]).length)]
+    .map(f => (waiting(f) ? `${f.text} (waiting on its change order to be signed or approved)` : f.text))
 }
 
 /**
@@ -278,7 +285,8 @@ export async function markDone(accountId: string, job: { id: string; quoteId: st
   if (open.length) return { ok: false, status: 409, error: 'Answer every flag first.', open }
   const doneAt = new Date()
   await prisma.$transaction(async tx => {
-    const n = await tx.sitePlan.updateMany({ where: { id: row.id, revision }, data: { doneAt, doneBy: by } })
+    // The plan exactly as done (no change order still waiting): what the crew, the permit sheet and the customer read.
+    const n = await tx.sitePlan.updateMany({ where: { id: row.id, revision }, data: { doneAt, doneBy: by, doneData: asSold(row.data), doneRevision: revision } })
     if (n.count !== 1) throw new PlanConflict('Someone else saved this plan since you opened it.')
     if (quote) await setPlanDone(tx, quote.id, true)
   })
@@ -290,7 +298,7 @@ export async function reopen(accountId: string, job: { id: string; quoteId: stri
   const row = await prisma.sitePlan.findUnique({ where: { jobId: job.id } })
   if (!row || row.accountId !== accountId) return false
   await prisma.$transaction(async tx => {
-    await tx.sitePlan.update({ where: { id: row.id }, data: { doneAt: null, doneBy: null } })
+    await tx.sitePlan.update({ where: { id: row.id }, data: { doneAt: null, doneBy: null, doneData: Prisma.DbNull, doneRevision: null } })
     if (job.quoteId) await setPlanDone(tx, job.quoteId, false)
   })
   return true
@@ -311,7 +319,7 @@ export async function customerPlanSvg(q: { id: string; accountId: string; status
   const job = await prisma.savedJob.findFirst({ where: { id: row.jobId, deletedAt: null }, select: { id: true } }).catch(() => null)
   if (!job) return ''
   const m = await siteModule()
-  return m.sitePlanSvg(asSold(row.data), { width: 760, height: 560, propertyLine: true, neighbors: false })
+  return m.sitePlanSvg(donePlanOf(row), { width: 760, height: 560, propertyLine: true, neighbors: false })
 }
 
 /** The width each crew section is spaced at when the quote's own count does not match a piece: the style's section width (chain link at most 10 ft). */
@@ -390,6 +398,16 @@ export function chosenStyleOf(q: { fenceStyle?: string | null; chosenOption?: nu
 
 // ── Change orders from the plan ──────────────────────────────────────────────
 
+/**
+ * The plan the crew, the permit sheet and the customer read: the copy frozen
+ * when it was marked done (doneData), never the working plan the office keeps
+ * editing. A plan marked done before the copy was kept (Nov 6 2026): its plan
+ * as saved.
+ */
+export function donePlanOf(row: { data: unknown; doneData?: unknown }): SitePlanData {
+  return asSold((row.doneData ?? row.data) as SitePlanData)
+}
+
 /** The plan as built and sold: a change order still waiting (pending) is never on the crew's or permit sheet or the customer's pages. */
 export function asSold(plan: SitePlanData): SitePlanData {
   if (!plan || typeof plan !== 'object') return plan
@@ -417,39 +435,67 @@ export async function reconcilePlanChanges(accountId: string, quoteId: string, d
   if (!job) return 0
   const row = await db.sitePlan.findUnique({ where: { jobId: job.id } })
   if (!row || row.accountId !== accountId) return 0
+  const answersOf = (p: any): Record<string, any> => (p && typeof p.answers === 'object' && p.answers ? p.answers : {})
   const pending: any[] = Array.isArray((row.data as any)?.pending) ? (row.data as any).pending : []
-  if (!pending.length) return 0
-  const coIds = [...new Set(pending.map(p => String(p.coId)))]
+  // Answers waiting on a change order ("Use the drawn length" through one): in the working plan or the done copy.
+  const waitingIds = [row.data, row.doneData].flatMap(p => Object.values(answersOf(p)).map((a: any) => a?.coId).filter(Boolean)).map(String)
+  if (!pending.length && !waitingIds.length) return 0
+  const coIds = [...new Set([...pending.map(p => String(p.coId)), ...waitingIds])]
   const cos = await db.changeOrder.findMany({ where: { id: { in: coIds } }, select: { id: true, accountId: true, quoteId: true, number: true, status: true, deletedAt: true, approvedBy: true, signedAt: true } })
   const m = await siteModule()
   let plan: SitePlanData = row.data
+  // The done copy the crew reads takes an approved change too (the crew must get the paid change); a voided one was never on it.
+  let done: SitePlanData | null = row.doneData ?? null
   let rev = row.revision
+  let approved = false
   const writes: Array<{ revision: number; data: SitePlanData; by: string; note: string }> = []
+  /** Each answer waiting on this change order: kept (its coId dropped) when it went through, taken off when it did not. */
+  const settleAnswers = (p: any, coId: string, keep: boolean): { plan: any; n: number } => {
+    if (!p) return { plan: p, n: 0 }
+    const answers = { ...answersOf(p) }
+    let n = 0
+    for (const [k, a] of Object.entries(answers)) {
+      if (a?.coId !== coId) continue
+      n++
+      if (keep) { const { coId: _c, ...rest } = a; answers[k] = rest } else delete answers[k]
+    }
+    return { plan: n ? { ...p, answers } : p, n }
+  }
   for (const coId of coIds) {
     const co = cos.find((c: any) => c.id === coId && c.accountId === accountId && c.quoteId === quoteId)
     const mine = (plan.pending ?? []).filter((p: any) => p.coId === coId)
-    if (!mine.length) continue
-    const n = co?.number ?? mine[0].coNumber ?? '?'
+    const waiting = Object.values(answersOf(plan)).some((a: any) => a?.coId === coId) || Object.values(answersOf(done)).some((a: any) => a?.coId === coId)
+    if (!mine.length && !waiting) continue
+    const n = co?.number ?? mine[0]?.coNumber ?? '?'
     if (co && !co.deletedAt && co.status === 'approved') {
-      const words = mine.map((c: any) => changeWords(plan, c)).join('; ')
-      for (const c of mine) plan = m.applyChange(plan, c)
-      writes.push({ revision: ++rev, data: plan, by: co.signedAt ? 'Customer signed' : (co.approvedBy || 'Office'), note: `Change order CO-${n}: ${words}` })
+      approved = true
+      const words: string[] = mine.map((c: any) => changeWords(plan, c))
+      for (const c of mine) { plan = m.applyChange(plan, c); if (done) done = asSold(m.applyChange(done, c)) }
+      const a = settleAnswers(plan, coId, true); plan = a.plan
+      done = settleAnswers(done, coId, true).plan
+      if (a.n) words.push(`its drawn length${a.n === 1 ? '' : 's'} kept`)
+      writes.push({ revision: ++rev, data: plan, by: co.signedAt ? 'Customer signed' : (co.approvedBy || 'Office'), note: `Change order CO-${n}: ${words.join('; ')}` })
     } else if (!co || co.deletedAt || co.status === 'void') {
-      plan = { ...plan, pending: (plan.pending ?? []).filter((p: any) => p.coId !== coId) }
+      const what = co && !co.deletedAt ? 'voided' : 'removed'
+      const parts: string[] = []
+      if (mine.length) { plan = { ...plan, pending: (plan.pending ?? []).filter((p: any) => p.coId !== coId) }; parts.push('its change taken off the plan') }
+      const a = settleAnswers(plan, coId, false); plan = a.plan
+      done = settleAnswers(done, coId, false).plan
+      if (a.n) parts.push(`its answer${a.n === 1 ? '' : 's'} taken off`)
       // Who voided it (the change order's own save passes them); a removal found later on opening the plan: the office.
-      writes.push({ revision: ++rev, data: plan, by: opts.by || 'Office', note: `Change order CO-${n}: ${co && !co.deletedAt ? 'voided' : 'removed'}, its change taken off the plan` })
+      writes.push({ revision: ++rev, data: plan, by: opts.by || 'Office', note: `Change order CO-${n} ${what}: ${parts.join('; ') || 'nothing on the plan'}` })
     }
   }
   if (!writes.length) return 0
   if (!(plan.pending ?? []).length) plan = asSold(plan)
-  // A done plan that now disagrees with the job's fence (its change order's drawing differs from the plan's) is not done any more: it says why.
-  let reopenWhy: string[] = []
-  if (row.doneAt) reopenWhy = await openFlagsOf(accountId, asSold(plan), await currentFence(accountId, quoteId)).catch(() => [])
-  if (reopenWhy.length) writes[writes.length - 1].note += ` The plan needs another look: ${reopenWhy.join(' ')}`
-  const done = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan, ...(reopenWhy.length ? { doneAt: null, doneBy: null } : {}) } })
+  // The done copy keeps the paid change even when the working plan now has a question open: said on the revision.
+  if (row.doneAt && approved) {
+    const open = await openFlagsOf(accountId, asSold(plan), await currentFence(accountId, quoteId)).catch(() => [] as string[])
+    if (open.length) writes[writes.length - 1].note += `. The crew's copy has the change; the plan has a question to answer: ${open.join(' ')}`
+  }
+  const saved = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan, ...(done ? { doneData: done } : {}) } })
   // Saved by someone else at this very moment: the next open of the plan puts it right.
-  if (done.count !== 1) return 0
-  if (reopenWhy.length) await setPlanDone(db, quoteId, false)
+  if (saved.count !== 1) return 0
   for (const w of writes) await db.sitePlanRevision.create({ data: { planId: row.id, revision: w.revision, data: w.data, by: w.by, note: w.note.slice(0, 500) } })
   return writes.length
 }

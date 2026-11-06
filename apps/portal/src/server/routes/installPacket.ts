@@ -50,7 +50,7 @@ import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { isWorkLine, installWord } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
-import { crewPlanFor, sitePlanSettings, asSold, currentFence } from '../lib/sitePlans.js'
+import { crewPlanFor, sitePlanSettings, donePlanOf, currentFence } from '../lib/sitePlans.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
 async function crewNameFor(accountId: string, v: string): Promise<string> {
@@ -198,7 +198,8 @@ export async function installerPlanSection(accountId: string, job: { id: string;
   const row = await prisma.sitePlan.findUnique({ where: { jobId: job.id } }).catch(() => null)
   // Only a finished plan reaches the crew (an unfinished one can still change): before that, the walk list as before.
   if (!row || row.accountId !== accountId || !row.doneAt) return null
-  const plan = asSold(row.data as any)
+  // The copy frozen when it was marked done: saves after done never reach the crew until it is marked done again.
+  const plan = donePlanOf(row)
   if (!Array.isArray(plan?.sides) || !plan.sides.length) return null
   // The job's fence as it is now (the signed quote with its approved and signed change orders): the sections the price used.
   const current = await currentFence(accountId, job.quoteId)

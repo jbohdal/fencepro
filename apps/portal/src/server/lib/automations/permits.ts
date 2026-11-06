@@ -132,9 +132,10 @@ export async function packetInputFor(accountId: string, jobId: string, opts: { l
   const fenceText = await plainStyleName(opt?.fenceStyle || job.fenceStyle) || String(opt?.label || job.fenceStyle || '')
   const layout = (quote?.layout ?? null) as any
   // The office site plan once it is done (lib/sitePlans.ts), with the property lines; else a walked quote's walk list sheet.
-  const site = await prisma.sitePlan.findUnique({ where: { jobId: job.id }, select: { accountId: true, doneAt: true, data: true } }).catch(() => null)
+  // The copy frozen when it was marked done (doneData), never the working plan.
+  const site = await prisma.sitePlan.findUnique({ where: { jobId: job.id }, select: { accountId: true, doneAt: true, data: true, doneData: true } }).catch(() => null)
   const walkSvg = site?.doneAt && site.accountId === accountId
-    ? (await pricingModule() as any).sitePlanSvg({ ...(site.data as any), pending: undefined }, { width: 760, height: 560, neighbors: true }) as string
+    ? (await pricingModule() as any).sitePlanSvg({ ...((site.doneData ?? site.data) as any), pending: undefined }, { width: 760, height: 560, neighbors: true }) as string
     : layout?.walk && !layout.planDone ? (await pricingModule() as any).walkSheetSvg(layout.walk) as string : null
   return { company: contractor.name, contractor, fenceText, job, permit: { ...permit, parcelId: permit.parcelId || parcel?.parcel || '' }, quote, parcel, walkSvg }
 }
