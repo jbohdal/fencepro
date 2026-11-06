@@ -9,6 +9,7 @@ import { walkPieceRows, walkSketchSvg, walkTable } from './walkList'
 import { can } from './permissions'
 import { locateOf, locateWords } from '../../portal/src/server/lib/locates'
 import { getJob, refreshJobs } from './jobStore'
+import { getQuoteById, loadFullQuote } from './quoteStore'
 import { reloadSchedule } from './scheduleStore'
 import { businessDate } from './businessDate'
 import { styleLabel } from './fenceCatalog'
@@ -195,6 +196,20 @@ export async function sendInstallPacket(jobId: string, job: { fenceStyle?: strin
   const photo = await bakedBackdrop(quote?.layout?.yard ?? null)
   const snapshot = buildPacketSnapshot(job, quote, media, photo)
   return call<Packet>('', { method: 'POST', body: JSON.stringify({ jobId, snapshot }) })
+}
+
+/**
+ * The job's crew packet link, for the office site plan's "Installer sheet": the packet already made (made again first,
+ * so it carries the plan as saved now), or made now from the job and its quote. Null when it could not be made.
+ */
+export async function openCrewPacket(jobId: string): Promise<string | null> {
+  let job = getJob(jobId)
+  if (!job) { await refreshJobs(); job = getJob(jobId) }
+  if (!job) return null
+  const quote = job.quoteId ? (getQuoteById(job.quoteId) ?? await loadFullQuote(job.quoteId) ?? undefined) : undefined
+  const p = await sendInstallPacket(jobId, job, quote)
+  if (!p || p.disabledAt) return null
+  return packetUrl(p.token)
 }
 
 // ── The installer's home (InstallerHome.tsx) ─────────────────────────────────

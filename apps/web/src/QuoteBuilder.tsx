@@ -89,6 +89,8 @@ import { partWithPair } from '../../portal/src/server/lib/partNames'
 import SalesmanPicker from './SalesmanPicker'
 import { defaultRepNow } from './salesmanChoice'
 import { betterInstall, oneWidthEach, widthSiblings } from './salesmanPicks'
+import type { PlanQuoteChange } from './planQuoteChange'
+import { optionPairs } from './sitePlanEdit'
 
 /** A style in the picker; one this quote keeps but that is not offered for new quotes says so. */
 /** "2026-10-19" → "Oct 19, 2026" */
@@ -541,6 +543,7 @@ export default function QuoteBuilder({
   startOnYard = false,
   changeOrder = false,
   repriceOnOpen = false,
+  planChange = null,
 }: {
   onClose: () => void
   onSave: (q: SavedQuote) => void
@@ -551,6 +554,8 @@ export default function QuoteBuilder({
   changeOrder?: boolean
   /** Opened because the server sent its save back for new prices (#58): it reprices and asks before saving. */
   repriceOnOpen?: boolean
+  /** Opened from the office site plan (planQuoteChange.ts): the walk list or drawing comes changed, old and new prices shown. */
+  planChange?: PlanQuoteChange | null
 }) {
   const init = initialQuote
 
@@ -606,11 +611,31 @@ export default function QuoteBuilder({
   // saved with a layout reopens on it; older quotes open on the run list.
   const [entry, setEntry]               = useState<'layout' | 'advanced'>(() =>
     init?.layout?.yard ? 'layout' : (init?.runs?.length ? 'advanced' : 'layout'))
-  const [yard, setYard]                 = useState<YardLayout | null>(init?.layout?.yard ?? null)
+  // The office site plan's change (planQuoteChange.ts) is put on the walk list and the drawing as they open; the saved quote
+  // (init) stays as it was, so the save and Make change order see it as a change. Missed: said in the banner.
+  const [planEditMissed, setPlanEditMissed] = useState(false)
+  const planAsked = useRef(false)
+  const [yard, setYard]                 = useState<YardLayout | null>(() => {
+    const y0 = init?.layout?.yard ?? null
+    if (!y0 || !planChange?.edit?.yard) return y0
+    return planChange.edit.yard(y0) ?? y0
+  })
   // The walk list (walkList.ts; Jonathan, Nov 5 2026): a new quote is walked with the wheel, not drawn; one saved with a
   // walk list reopens on it until the office draws its plan. An older quote's drawing opens in the drawing tool as before.
-  const [walk, setWalk] = useState<WalkList | null>(() => (init?.layout as { walk?: WalkList } | undefined)?.walk
-    ?? (!init?.layout?.yard && !init?.runs?.length ? emptyWalk() : null))
+  const [walk, setWalk] = useState<WalkList | null>(() => {
+    const w0 = (init?.layout as { walk?: WalkList } | undefined)?.walk ?? (!init?.layout?.yard && !init?.runs?.length ? emptyWalk() : null)
+    if (!w0 || !planChange?.edit?.walk) return w0
+    return planChange.edit.walk(w0) ?? w0
+  })
+  useEffect(() => {
+    const e = planChange?.edit
+    if (!e) return
+    const w0 = (init?.layout as { walk?: WalkList } | undefined)?.walk, y0 = init?.layout?.yard
+    const walkMissed = !!w0 && (!e.walk || !e.walk(w0))
+    const yardMissed = !!y0 && (!e.yard || !e.yard(y0))
+    // Missed only when nothing the builder prices from took it.
+    if (w0 ? walkMissed && (!y0 || yardMissed) : yardMissed) setPlanEditMissed(true)
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   const [planDone, setPlanDone] = useState<boolean>(!!(init?.layout as { planDone?: boolean } | undefined)?.planDone)
   // The office's bridge: a walked quote laid out in the drawing tool (square corners from the turns, lengths kept).
   const [drawFromWalk, setDrawFromWalk] = useState<null | { price: number; key: string }>(null)
@@ -1287,6 +1312,14 @@ export default function QuoteBuilder({
       tiers: internal ? tierOptions(tiers, {}, tierSets) : viewProposalOptions(sv),
     })
   }
+  /** Old and new prices for the office site plan's change: each option (Good, Better, Best) as saved and now; the quote's own price when it has none. */
+  function planPricePairs(): Array<{ name: string; was: number | null; now: number | null }> {
+    const before = (init?.proposal as { options?: MinimumOption[] } | undefined)?.options ?? []
+    let after: MinimumOption[] = []
+    try { after = style ? optionsNow() : [] } catch { after = [] }
+    if (!before.length || !after.length) return [{ name: 'Price', was: init ? Math.round((init.finalPrice || 0) * 100) : null, now: Math.round(adjPrice * 100) }]
+    return optionPairs(before, after)
+  }
   /** The options a save would write: a move as is beside the move, or every option of a new fence. */
   function optionsNow(): MinimumOption[] {
     if (jobType === 'new') return proposalNow().options
@@ -1306,6 +1339,13 @@ export default function QuoteBuilder({
     notes: string
     leadTemp: number
   }, opts: { pricesChecked?: boolean; commissionOff?: boolean } = {}) {
+    // The office site plan's change on an unsigned quote: the old and new prices are asked about before it is saved.
+    if (planChange && !signedQuote && !planAsked.current) {
+      const pairs = planPricePairs()
+      const lines = pairs.map(p => `${p.name}: was ${p.was == null ? '—' : priceText(p.was / 100)}, now ${p.now == null ? '—' : priceText(p.now / 100)}`).join('\n')
+      if (!window.confirm(`${planChange.title}\n\n${lines}\n\nSave the quote with these prices?`)) return
+      planAsked.current = true
+    }
     // A plan drawn from the walk list: a change to feet, gates or posts changes the price; asked before it is saved.
     if (drawFromWalk && JSON.stringify(layoutKey(layoutResult)) !== drawFromWalk.key) {
       const now = Math.round(calc.priced.price * 100)
@@ -1691,6 +1731,7 @@ export default function QuoteBuilder({
             {coNoWorkNote && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-no-work-note>{coNoWorkNote}</p>}
             {signedQuote && changeOrder && init?.id && <button type="button" onClick={() => setTypeInstead(true)} className="text-sm text-orange-700 font-semibold underline min-h-[44px]" data-co-type-instead>Type the change instead</button>}
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
+            {planChange && <PlanChangeBanner title={planChange.title} signed={signedQuote} missed={planEditMissed} pairs={planPricePairs()} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({priceText(init!.finalPrice)} then, {priceText(adjPrice)} now).</p>}
             {(draftLine || repricedLine) && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-price-changed-banner>{draftLine || repricedLine}</p>}
           </div>
@@ -2937,9 +2978,27 @@ export default function QuoteBuilder({
           prefill={coPrefill}
           // The change order is its own record: the signed quote is not saved again (that re-save said "Quote sold, job
           // created" and sent the signed quote a second time). Same as Type the change instead.
-          onSaved={() => { setCoPrefill(null); setPending(null); onClose() }}
+          onSaved={co => { setCoPrefill(null); setPending(null); planChange?.onSaved({ changeOrder: co }); onClose() }}
           onClose={() => setCoPrefill(null)}
         />
+      )}
+    </div>
+  )
+}
+/** The office site plan's change, at the top of the builder: what changed, and each option's price before and now (cents). */
+function PlanChangeBanner({ title, signed, missed, pairs }: { title: string; signed: boolean; missed: boolean; pairs: Array<{ name: string; was: number | null; now: number | null }> }) {
+  const money = (c: number | null) => (c == null ? '—' : `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`)
+  return (
+    <div className="mt-1 max-w-xl rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950" data-plan-change-banner>
+      <p className="font-semibold">From the site plan: {title}</p>
+      {missed
+        ? <p className="mt-1 text-amber-900" data-plan-change-missed>The {signed ? 'job' : 'quote'} was changed since the plan was made, so the change is not filled in. Make it here by hand{signed ? ', then tap Make change order.' : ', then save.'}</p>
+        : <p className="mt-1">{signed ? 'Check it, then tap Make change order.' : 'Check it, then save the quote. The prices before and now:'}</p>}
+      {!signed && (
+        <table className="mt-1 text-sm" data-plan-change-prices>
+          <thead><tr className="text-left text-xs text-blue-800"><th className="pr-4 font-medium">Option</th><th className="pr-4 font-medium">Before</th><th className="font-medium">Now</th></tr></thead>
+          <tbody>{pairs.map((p, i) => <tr key={i}><td className="pr-4">{p.name}</td><td className="pr-4 tabular-nums">{money(p.was)}</td><td className="tabular-nums font-semibold">{money(p.now)}</td></tr>)}</tbody>
+        </table>
       )}
     </div>
   )

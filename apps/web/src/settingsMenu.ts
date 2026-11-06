@@ -8,7 +8,7 @@
 export type SettingsTab = 'company' | 'warranties' | 'contract_templates' | 'email_templates'
   | 'pricing' | 'price_list' | 'styles' | 'tiers' | 'moves' | 'optimizer'
   | 'pipeline' | 'leads' | 'tags' | 'follow_ups' | 'appointments' | 'messages' | 'proposals' | 'portal_quote' | 'voice'
-  | 'ops_stages' | 'walkthrough' | 'calendar'
+  | 'ops_stages' | 'walkthrough' | 'site_plans' | 'calendar'
   | 'change_log' | 'deleted'
 
 export interface SettingsPageInfo {
@@ -82,6 +82,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         keywords: ['Operations', 'Stages', 'Stage name', 'Staging', 'Columns'] },
       { key: 'walkthrough', label: 'Final Walkthrough', description: 'Checklist and the completion warranty.',
         keywords: ['Walkthrough', 'Checklist', 'Certificate of Completion', 'Warranty'] },
+      { key: 'site_plans', label: 'Site plans', description: 'When a drawn side is flagged, the setback, and property lines by county.',
+        keywords: ['Site plan', 'Quoted against drawn', 'Flag', 'Feet', 'Percent', 'Property line', 'Setback', 'County', 'Property lines', 'Survey'] },
       { key: 'calendar', label: 'Google Calendar', description: 'Connect and send jobs to Google.',
         keywords: ['Google', 'Calendar', 'Connect', 'Disconnect', 'Sync'] },
     ],
