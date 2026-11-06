@@ -61,6 +61,10 @@ export default function JobLienPanel({ jobId, wrap = c => c }: { jobId: string; 
           {k.open ? `Lien clock: day ${k.day} of 90` : k.owedCents ? 'Lien clock' : 'Paid: no lien needed'}
         </p>
         <p className="text-xs text-gray-700">Final furnishing date {usDate(k.finalFurnishingDate)}{v.job.ffdSet ? '' : ' (the day the job was completed)'}. {k.open ? `Owed ${money(k.owedCents)} (cleared ${money(k.clearedCents)} of ${money(k.contractCents)}). Claim of Lien must be recorded by ${usDate(k.deadline)} (${k.daysLeft} day${k.daysLeft === 1 ? '' : 's'} left).` : ''}</p>
+        {/* Florida's 713.015 notice: on the contract, or given by the customer's signed addendum (JobLienNoticeAddendum.tsx). */}
+        {v.notice?.needed && <p className={`text-xs ${v.notice.given ? 'text-green-800' : 'font-semibold text-red-700'}`} data-lien-notice-given={v.notice.how ?? 'no'}>
+          {v.notice.how === 'contract' ? "Florida's lien notice (713.015): on the signed contract." : v.notice.how === 'addendum' ? `Florida's lien notice (713.015): given by the signed addendum${v.notice.signedOn ? ` (${usDate(v.notice.signedOn)})` : ''}.` : "Florida's lien notice (713.015): not given. The contract was signed without it and no addendum is signed."}
+        </p>}
         {k.serveBy && <p className="text-xs font-semibold text-red-700" data-lien-serve-by>Serve the owner by {usDate(k.serveBy)} ({daysTo(k.serveBy)} days).</p>}
         {k.suitBy && <p className="text-xs font-semibold text-amber-800" data-lien-suit-by>Suit to enforce must be filed by {usDate(k.suitBy)} ({daysTo(k.suitBy)} days){f.contestOn ? ': a Notice of Contest shortens it to 60 days' : ''}.</p>}
       </div>

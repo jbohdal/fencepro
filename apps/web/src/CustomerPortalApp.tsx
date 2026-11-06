@@ -917,7 +917,7 @@ function PapersPage({ accent }: { accent: string }) {
           className="bg-white border border-gray-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:shadow-md transition-all">
           <span className="text-xl">✍️</span>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-900 break-words">{d.kind === 'contract' ? 'Signed contract' : `Signed ${d.title.toLowerCase()}`}{d.detail ? `: ${d.detail}` : ''}</p>
+            <p className="font-medium text-gray-900 break-words">{d.kind === 'contract' ? 'Signed contract' : d.kind === 'lien_notice' ? 'Signed Florida lien notice' : `Signed ${d.title.toLowerCase()}`}{d.detail ? `: ${d.detail}` : ''}</p>
             <p className="text-xs text-gray-500">Signed {d.signedOn} by {d.signedBy}</p>
           </div>
           <span className="text-xs font-semibold shrink-0" style={{ color: accent }}>PDF</span>

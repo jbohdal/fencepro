@@ -31,6 +31,7 @@ import { clearedCover } from './paymentClearing.js'
 import { subSettingsOf, SubError, TEMPLATES, type TemplateKey } from './subcontractors.js'
 import { pdfDocument, pdfSafeText } from './pdfText.js'
 import { storeFile } from './storage/index.js'
+import { noticeGiven } from './lienNoticeAddendum.js'
 
 type Json = any
 const money = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -96,6 +97,8 @@ export async function lienView(accountId: string, jobId: string) {
     case: c ? { ...c, parcelId } : { parcelId, legalDescription: '', furnished: '', actions: [] as Json[] },
     reviewed: Object.fromEntries((Object.keys(TEMPLATE_OF) as LienKind[]).map(k => [k, !!settings.reviews[TEMPLATE_OF[k]]])),
     job: { id: job.id, customerName: job.customerName, address: job.customerAddress, startedOn: job.scheduledDate, finalFurnishingDate: ffdOf(job), ffdSet: !!job.finalFurnishingDate },
+    // Florida's 713.015 notice: on the contract, or given by the signed addendum (lib/lienNoticeAddendum.ts).
+    notice: await noticeGiven(accountId, job.quoteId),
   }
 }
 

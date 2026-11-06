@@ -46,9 +46,10 @@ import { quoteOnCustomerDollars, customerDollarsFrom, onCustomerDollars } from '
 const UPLOAD_DIR = () => process.env.UPLOAD_DIR || './uploads'
 const TZ = 'America/New_York'
 
-export type SignedKind = 'contract' | 'change_order'
+export type SignedKind = 'contract' | 'change_order' | 'lien_notice'
 export const contractKey = (quoteId: string) => `contract:${quoteId}`
 export const changeOrderKey = (changeOrderId: string) => `change-order:${changeOrderId}`
+export const lienNoticeKey = (addendumId: string) => `lien-notice:${addendumId}`
 
 type Doc = NonNullable<Awaited<ReturnType<typeof prisma.signedDocument.findUnique>>>
 export type MadeBy = 'signing' | 'backfill'
@@ -220,6 +221,32 @@ export async function fileSignedChangeOrder(changeOrderId: string, madeBy: MadeB
   return out
 }
 
+/**
+ * The signed Florida lien notice addendum (lib/lienNoticeAddendum.ts; Jonathan, Nov 6 2026), stored once with the
+ * contract's signed documents: the job's and the customer's Documents, and their portal.
+ */
+export async function fileSignedLienNotice(addendumId: string, madeBy: MadeBy = 'signing'): Promise<{ doc: Doc; made: boolean } | null> {
+  const a = await prisma.lienNoticeAddendum.findUnique({ where: { id: addendumId } })
+  if (!a || !a.signedAt || !a.signedBy) return null
+  const label = 'Signed Florida lien notice (addendum to the contract)'
+  const fileName = `Signed lien notice - ${safeName(a.customerName)}.pdf`
+  const have = await prisma.signedDocument.findUnique({ where: { sourceKey: lienNoticeKey(a.id) } })
+  if (have) return { doc: await complete(have, a.crmContactId, label, fileName), made: false }
+  const { addendumPdf, contractLine, companyOf } = await import('./lienNoticeAddendum.js')
+  const company = await companyOf(a.accountId)
+  const ip = plainIp(a.signedIp)
+  const pdf = await addendumPdf({
+    company: company.name, notice: a.noticeText, name: a.signedBy, signature: pngOf(a.signature), at: a.signedAt, ip,
+    line: contractLine(company.name, { customerName: a.customerName, address: a.customerAddress, priceCents: a.contractCents, signedOn: a.contractSignedOn, fence: a.contractFence }),
+  })
+  const out = await store({
+    accountId: a.accountId, sourceKey: lienNoticeKey(a.id), kind: 'lien_notice', quoteId: a.quoteId, changeOrderId: null, jobId: a.jobId ?? await jobOfQuote(a.accountId, a.quoteId),
+    contactId: a.crmContactId, pdf, signedAt: a.signedAt, signedBy: a.signedBy, ip, userAgent: a.signedUserAgent, madeBy, fileName, label,
+  })
+  if (out.made) console.log(`[signed-documents] stored the signed lien notice addendum ${a.id} of quote ${a.quoteId} (${madeBy})`)
+  return out
+}
+
 // ── Reading ──────────────────────────────────────────────────────────────────
 
 export interface SignedDocumentView {
@@ -256,14 +283,21 @@ async function views(all: Doc[]): Promise<SignedDocumentView[]> {
   // all rows: by the ids of these documents; a change order voided or deleted later still shows its number on what was signed.
   const cos = await prisma.changeOrder.findMany({ where: { id: { in: rows.map(r => r.changeOrderId).filter((x): x is string => !!x) } }, select: { id: true, number: true, totalCents: true } })
   const files = await prisma.portalFile.findMany({ where: { id: { in: rows.map(r => r.portalFileId).filter((x): x is string => !!x) } }, select: { id: true, deletedAt: true, isVisibleToCustomer: true } })
+  // A signed lien notice addendum names the contract it was added to (lib/lienNoticeAddendum.ts).
+  const noticeRows = rows.filter(r => r.kind === 'lien_notice')
+  const notices = noticeRows.length ? await prisma.lienNoticeAddendum.findMany({ where: { quoteId: { in: noticeRows.map(r => r.quoteId) } }, select: { quoteId: true, contractSignedOn: true } }) : []
+  const noticeDetail = (quoteId: string) => {
+    const on = notices.find(n => n.quoteId === quoteId)?.contractSignedOn
+    return `Florida construction lien law notice (s. 713.015), added to the contract${on ? ` signed ${dayWords(new Date(`${on}T12:00:00Z`))}` : ''}`
+  }
   return rows.map(r => {
     const q = quotes.find(x => x.id === r.quoteId)
     const co = r.changeOrderId ? cos.find(x => x.id === r.changeOrderId) : null
     const f = r.portalFileId ? files.find(x => x.id === r.portalFileId) : null
     return {
       id: r.id, kind: r.kind as SignedKind,
-      title: r.kind === 'contract' ? 'Contract' : `Change order CO-${co?.number ?? ''}`.trim(),
-      detail: r.kind === 'contract' ? (q ? acceptedOptionText(q, '', onCustomerDollars(q, from)) : '') : co ? changeOrderAcceptedText(co.number, co.totalCents) : '',
+      title: r.kind === 'contract' ? 'Contract' : r.kind === 'lien_notice' ? 'Florida lien notice (addendum)' : `Change order CO-${co?.number ?? ''}`.trim(),
+      detail: r.kind === 'contract' ? (q ? acceptedOptionText(q, '', onCustomerDollars(q, from)) : '') : r.kind === 'lien_notice' ? noticeDetail(r.quoteId) : co ? changeOrderAcceptedText(co.number, co.totalCents) : '',
       signedAt: r.signedAt.toISOString(), signedOn: dayWords(r.signedAt), signedBy: r.signedBy,
       quoteId: r.quoteId, jobId: r.jobId, changeOrderId: r.changeOrderId,
       inPortal: !!f && !f.deletedAt && f.isVisibleToCustomer, portalFileId: r.portalFileId,

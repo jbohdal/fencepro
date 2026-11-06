@@ -14,7 +14,7 @@ import { CO_EVENT } from './ChangeOrders'
 
 export interface SignedDocumentRow {
   id: string
-  kind: 'contract' | 'change_order'
+  kind: 'contract' | 'change_order' | 'lien_notice'
   title: string
   detail: string
   signedAt: string
@@ -43,7 +43,7 @@ export async function loadSignedDocuments(which: SignedFor): Promise<SignedDocum
 export async function openSignedPdf(d: Pick<SignedDocumentRow, 'pdf' | 'kind'>): Promise<void> {
   const tab = window.open('', '_blank')
   const r = await fetchWithAuth(`${API_ORIGIN}${d.pdf}`).catch(() => null)
-  if (!r?.ok) { tab?.close(); toast.error(`Could not open the signed ${d.kind === 'contract' ? 'contract' : 'change order'}`, 'Check the connection and try again.'); return }
+  if (!r?.ok) { tab?.close(); toast.error(`Could not open the signed ${d.kind === 'contract' ? 'contract' : d.kind === 'lien_notice' ? 'lien notice' : 'change order'}`, 'Check the connection and try again.'); return }
   const u = URL.createObjectURL(await r.blob())
   if (tab) tab.location.href = u; else window.location.href = u
 }
@@ -77,20 +77,20 @@ export default function SignedDocuments({ which, heading = 'Documents', hideWhen
       <h3 className="text-sm font-semibold text-gray-900 mb-2">{heading}</h3>
       {rows === undefined && <p className="text-xs text-gray-500">Loading the signed documents…</p>}
       {rows === null && <p className="text-xs text-red-700">Could not load the signed documents. Check the connection. <button type="button" className="underline min-h-[48px]" onClick={reload}>Try again</button></p>}
-      {rows && rows.length === 0 && <p className="text-xs text-gray-500" data-signed-docs-empty>Nothing signed yet. A contract or change order the customer signs shows here with its signed PDF.</p>}
+      {rows && rows.length === 0 && <p className="text-xs text-gray-500" data-signed-docs-empty>Nothing signed yet. A contract, change order or lien notice the customer signs shows here with its signed PDF.</p>}
       {rows && rows.length > 0 && (
         <ul className="divide-y divide-gray-100">
           {rows.map(d => (
             <li key={d.id} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1" data-signed-doc={d.id} data-signed-doc-kind={d.kind}>
               <span className={`shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full border ${d.kind === 'contract' ? 'bg-purple-50 text-purple-800 border-purple-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}>
-                {d.kind === 'contract' ? 'Contract' : 'Change order'}
+                {d.kind === 'contract' ? 'Contract' : d.kind === 'lien_notice' ? 'Lien notice' : 'Change order'}
               </span>
               <div className="flex-1 min-w-[180px]">
                 <p className="text-sm font-medium text-gray-900 break-words" data-signed-doc-title>{d.detail || d.title}</p>
                 <p className="text-xs text-gray-600" data-signed-doc-signed>Signed {d.signedOn} by {d.signedBy}{d.inPortal ? ' · a copy is in their customer portal' : ''}</p>
               </div>
               <button type="button" className="btn btn-secondary min-h-[48px] shrink-0" onClick={() => openSignedPdf(d)} data-signed-doc-open>
-                {d.kind === 'contract' ? 'Signed contract (PDF)' : 'Signed change order (PDF)'}
+                {d.kind === 'contract' ? 'Signed contract (PDF)' : d.kind === 'lien_notice' ? 'Signed lien notice (PDF)' : 'Signed change order (PDF)'}
               </button>
             </li>
           ))}

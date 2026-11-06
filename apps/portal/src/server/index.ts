@@ -93,6 +93,8 @@ import { ensureWoodAll, ensureWoodRealKitsAll } from './lib/woodSeed.js'
 import vendorInvoiceRoutes from './routes/vendor-invoices.js'
 import subcontractorRoutes from './routes/subcontractors.js'
 import lienRoutes from './routes/liens.js'
+import lienAddendaRoutes from './routes/lienAddenda.js'
+import { lienNoticePublic } from './routes/lienNoticePublic.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
@@ -357,6 +359,7 @@ app.use('/p/sub', subLinkPublic) // A sub's job link, no login (routes/subLinkPu
 app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)
 app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
+app.use('/p/ln', lienNoticePublic)  // The Florida lien notice addendum's customer link (routes/lienNoticePublic.ts)
 app.use('/p/wu', warrantyUpdatePublic)  // A warranty update's customer link (routes/warrantyUpdatePublic.ts)
 app.use('/p/r', receiptPublic)  // A payment receipt's customer link and PDF (routes/receiptPublic.ts)
 app.use('/p/s', servicePhotosPublic)  // A service request's no login photo link (routes/servicePhotosPublic.ts)
@@ -378,6 +381,7 @@ app.use('/api/vendor-state', vendorStateRoutes)
 app.use('/api/vendor-invoices', vendorInvoiceRoutes) // Vendor invoices update Inventory prices (lib/vendorInvoices.ts)
 app.use('/api/subcontractors', subcontractorRoutes) // Subcontractors: owner and office (lib/subcontractors.ts)
 app.use('/api/liens', lienRoutes) // Liens: the owner only (lib/liens.ts)
+app.use('/api/lien-addenda', lienAddendaRoutes) // The lien notice addendum for contracts signed before the notice: owner and office (lib/lienNoticeAddendum.ts)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
 app.use('/api/ops-stages', opsStagesRoutes)

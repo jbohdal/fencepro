@@ -802,6 +802,14 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
   * Proposals sent and contracts signed before this keep what they were sent or signed with.
   * The owner's dashboard lists the signed contracts over $2,500 without it.
   * **DEV, NEEDS JONATHAN** (check the wording against the statute; decide what to do for the contracts already signed)
+* The notice addendum for contracts already signed without it (Jonathan, Nov 6 2026: "prepare the signed notice addendum for the 11 contracts not installed yet, locked until I mark it attorney reviewed; don't send until then. Leave the installed ones alone.").
+  * Who gets one: signed over $2,500 without the notice, the job not installed (not Complete/Invoiced/Paid, no completed day, no final furnishing date, and the crew's install has not happened by its records). Installed ones get nothing.
+  * One page: the notice word for word, naming the original contract (customer, address, day signed, fence, price); the customer types their name and signs with their finger on their link (/p/ln/...).
+  * Locked until the owner marks it reviewed by an attorney (its own mark: on the job, or Subcontractors → Settings). Until then the send buttons say "Locked until Jonathan marks it attorney reviewed." and the link shows nothing.
+  * Then the office sends it from the job: Email it (the server's email), Text it or Copy link (their own phone). Never by itself.
+  * Signed: the signed PDF is with the job's and customer's Documents and their portal; the owner's list counts it as the notice given, and the lien clock says "given by the signed addendum".
+  * Tests: tests/lienNoticeAddendum.db.test.ts; e2e lien-notice-addendum.mjs (WebKit, phone size).
+  * **DEV, NEEDS JONATHAN** (an attorney reads it; then mark it reviewed)
 * The lien clock, owner only (liens.manage), on the job window: day N of 90 from the final furnishing date, what is owed (cleared payments only), and the Claim of Lien deadline.
   * The owner is pushed at day 30, 60, 75 and 85 while the final payment has not cleared.
   * The Subs dashboard shows the day; the owner's lien box lists every clock.

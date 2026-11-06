@@ -139,7 +139,7 @@ export interface PortalBilling {
 }
 export interface PortalPapers {
   /** The signed PDFs as they were stored at signing (contracts and change orders); `url` is a file link (fileHref). */
-  signed?: Array<{ id: string; kind: 'contract' | 'change_order'; title: string; detail: string; signedOn: string; signedBy: string; quoteId: string; url: string }>
+  signed?: Array<{ id: string; kind: 'contract' | 'change_order' | 'lien_notice'; title: string; detail: string; signedOn: string; signedBy: string; quoteId: string; url: string }>
   /** `stored`: this quote's signed contract is in `signed`. */
   contracts: Array<{ quoteId: string; style: string; signedOn: string; url: string; stored?: boolean }>
   certificates: Array<{ jobId: string; style: string; completedOn: string; url: string }>
