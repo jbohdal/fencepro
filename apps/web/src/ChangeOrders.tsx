@@ -306,7 +306,10 @@ export async function quoteForChange(quote: SavedQuote): Promise<SavedQuote> {
     ...(typeof d.sections === 'number' ? { sections: d.sections } : {}),
     // A move's or repair's inputs as change orders left them: the builder opens on them.
     ...(now.work && (d.move || d.repair) ? { work: { ...now.work, ...(d.move ? { move: d.move } : {}), ...(d.repair ? { repair: d.repair } : {}) } } : {}),
-    layout: d.layout ? { ...(now.layout ?? {}), ...d.layout } as SavedQuote['layout'] : now.layout,
+    // A walk list the server's drawing does not carry is the signed one, without the open change orders' changes: the
+    // builder would lay the fence out from it again and drop them (a second change order from the site plan undid the
+    // first one's gate, Nov 6 2026). The drawing as it is now is opened instead.
+    layout: d.layout ? { ...(now.layout ?? {}), ...d.layout, ...(d.layout.walk ? {} : { walk: null }) } as SavedQuote['layout'] : now.layout,
     proposal: now.proposal ? { ...now.proposal, ...(d.planSvg ? { planSvg: d.planSvg } : {}) } : now.proposal,
   }
   signedOf.set(out, signedQuoteOf(quote))

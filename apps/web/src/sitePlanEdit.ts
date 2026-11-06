@@ -334,7 +334,25 @@ export function turnSurvey(origin: LatLng, s: SiteSurvey, deg: number): SiteSurv
  * other step is kept as it was. Null when the side's steps are not on the
  * walk list (it was changed since) or the feet cannot be taken off.
  */
-export function walkWithSideFeet(walk: WalkList, stepIds: string[], feetIn: number): WalkList | null {
+/**
+ * The steps that make a side on the walk list as it is now: from just after the step that ended the side before it
+ * (a corner, an end, back to start) to the last of the side's own steps the plan knows. A step put in since the plan
+ * was made (a change order's gate) is counted with its side. Null when none of the side's steps is on the walk.
+ */
+export function sideStepsNow(walk: WalkList, stepIds: string[]): string[] | null {
+  for (const line of walk.lines) {
+    let last = -1
+    line.steps.forEach((x, i) => { if (stepIds.includes(x.id)) last = i })
+    if (last < 0) continue
+    let first = last
+    while (first > 0 && !['corner', 'end', 'start'].includes(line.steps[first - 1].what)) first -= 1
+    return line.steps.slice(first, last + 1).map(x => x.id)
+  }
+  return null
+}
+
+export function walkWithSideFeet(walk: WalkList, planStepIds: string[], feetIn: number): WalkList | null {
+  const stepIds = sideStepsNow(walk, planStepIds) ?? []
   if (!stepIds.length || !(feetIn > 0)) return null
   const all = walk.lines.flatMap(l => l.steps)
   const steps = stepIds.map(id => all.find(s => s.id === id))
@@ -366,7 +384,8 @@ export function yardWithSideFeet(yard: YardLayout, yardSideId: string, lengthIn:
  * same: the gate takes the place of fence). Null when the gate does not fit
  * inside one stretch of fence (it would cross a corner, a tee or another gate).
  */
-export function walkWithGate(walk: WalkList, stepIds: string[], atIn: number, gate: { widthIn: number; type: GateType }): WalkList | null {
+export function walkWithGate(walk: WalkList, planStepIds: string[], atIn: number, gate: { widthIn: number; type: GateType }): WalkList | null {
+  const stepIds = sideStepsNow(walk, planStepIds) ?? []
   if (!stepIds.length || !(gate.widthIn > 0) || atIn < 0) return null
   const next = clone(walk)
   for (const line of next.lines) {

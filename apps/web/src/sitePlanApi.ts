@@ -17,7 +17,7 @@ export interface SitePlanRecord {
   doneBy: string | null
   updatedAt: string | null
   revisions: SitePlanRevision[]
-  job: { id: string; quoteId: string | null; address: string; county: string | null; customerName: string }
+  job: { id: string; quoteId: string | null; address: string; county: string | null; customerName: string; lat?: number | null; lng?: number | null }
   quote: { id: string; status: string; signed: boolean; layout: (Partial<QuoteLayoutRecord> & Record<string, unknown>) | null } | null
   settings: { tolFt: number; tolPct: number; setbackFt: number }
   canEdit: boolean
@@ -38,7 +38,9 @@ export async function getSitePlan(jobId: string): Promise<Got<SitePlanRecord>> {
 
 /** A save: the new revision, or 409 with what someone else saved since (`current`). */
 export async function saveSitePlan(jobId: string, plan: SitePlanData, baseRevision: number, note: string): Promise<Got<{ revision: number; updatedAt: string }>> {
-  const r = await sendJson('PUT', base(jobId), { plan, baseRevision, ...(note.trim() ? { note: note.trim() } : {}) })
+  // The place is its latitude and longitude only (a looked up address also says where it came from).
+  const clean = { ...plan, origin: { lat: plan.origin.lat, lng: plan.origin.lng } }
+  const r = await sendJson('PUT', base(jobId), { plan: clean, baseRevision, ...(note.trim() ? { note: note.trim() } : {}) })
   if (r.result.ok) return { ok: true, data: (r.json?.data ?? r.json) as { revision: number; updatedAt: string } }
   return { ok: false, status: r.status, error: errorOf(r, 'The site plan was not saved.'), json: r.json }
 }
