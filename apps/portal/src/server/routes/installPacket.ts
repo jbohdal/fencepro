@@ -50,7 +50,7 @@ import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { isWorkLine, installWord } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
-import { crewPlanFor, sitePlanSettings, asSold } from '../lib/sitePlans.js'
+import { crewPlanFor, sitePlanSettings, asSold, currentFence } from '../lib/sitePlans.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
 async function crewNameFor(accountId: string, v: string): Promise<string> {
@@ -164,6 +164,29 @@ export function postsLine(posts: { corners: number; ends: number; gatePosts: num
 const POST_WORD: Record<string, string> = { corner: 'Corner', end: 'End', line: 'Line', gate: 'Gate', tee: 'Tee' }
 
 /**
+ * The plan's property line warnings (sitePlanData propertyLineWarnings) as one
+ * short sentence for the crew's sheet, so five sides past the line still fit
+ * one printed page: "Sides 1, 2 and 3 are on or past it. Back is 2 ft from it
+ * (the setback is 5 ft)." Empty when there are none.
+ */
+export function propertyLineBlock(warnings: string[]): string {
+  const list = (names: string[]) => (names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`)
+  const past: string[] = [], close: string[] = [], other: string[] = []
+  let setback = ''
+  for (const w of warnings) {
+    const a = /^(.*) crosses the property line\./.exec(w)
+    const b = /^(.*) is ([\d.]+ ft) from the property line, closer than the ([\d.]+ ft) setback\.$/.exec(w)
+    if (a) past.push(a[1])
+    else if (b) { close.push(`${b[1]} (${b[2]})`); setback = b[3] }
+    else other.push(w)
+  }
+  const out: string[] = []
+  if (past.length) out.push(`${list(past)} ${past.length === 1 ? 'is' : 'are'} on or past it.`)
+  if (close.length) out.push(`${list(close)} ${close.length === 1 ? 'is' : 'are'} closer than the ${setback} setback.`)
+  return [...out, ...other].join(' ')
+}
+
+/**
  * The office site plan on the crew's packet ("Site plan (installer sheet)";
  * lib/sitePlans.ts): the plan with every post numbered in walking order from
  * "Start here" and typed, each side's line posts spaced as the quote counted
@@ -173,12 +196,14 @@ const POST_WORD: Record<string, string> = { corner: 'Corner', end: 'End', line: 
  */
 export async function installerPlanSection(accountId: string, job: { id: string; quoteId: string | null; fenceStyle: string }, opts: { locateText: string; photos: Array<{ url: string; caption: string; category: string }> }): Promise<{ html: string; done: boolean } | null> {
   const row = await prisma.sitePlan.findUnique({ where: { jobId: job.id } }).catch(() => null)
-  if (!row || row.accountId !== accountId) return null
+  // Only a finished plan reaches the crew (an unfinished one can still change): before that, the walk list as before.
+  if (!row || row.accountId !== accountId || !row.doneAt) return null
   const plan = asSold(row.data as any)
   if (!Array.isArray(plan?.sides) || !plan.sides.length) return null
-  const quote = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { layout: true, fenceStyle: true, chosenOption: true, proposal: true } }) : null
-  const { posts, sides, m } = await crewPlanFor(accountId, plan, quote as any, job.fenceStyle)
-  const warnings = m.propertyLineWarnings(plan, (await sitePlanSettings(accountId)).setbackFt)
+  // The job's fence as it is now (the signed quote with its approved and signed change orders): the sections the price used.
+  const current = await currentFence(accountId, job.quoteId)
+  const { posts, sides, m } = await crewPlanFor(accountId, plan, current, job.fenceStyle)
+  const warnings = propertyLineBlock(m.propertyLineWarnings(plan, (await sitePlanSettings(accountId)).setbackFt))
   // Sized to the fence and house (the lot's lines cut at its edge), shown at its own size on a phone so post numbers read (11 px).
   const size = m.crewSheetSize(plan, posts, { fontSize: 16 })
   const svg = m.sitePlanSvg(plan, { width: size.width, height: size.height, scale: size.scale, fit: 'fence', crewPosts: posts, showStart: true, neighbors: false, sideNames: true, fontSize: 16 })
@@ -219,15 +244,14 @@ export async function installerPlanSection(accountId: string, job: { id: string;
     })
   }
   const notes = forCrew(String(plan.notes || '')).trim()
-  const html = `<section data-packet-site-plan${row.doneAt ? '' : ' data-site-plan-unfinished'}><h2>Site plan (installer sheet)</h2>
-    ${row.doneAt ? '' : '<p class="unfinished" data-site-plan-not-finished><b>Site plan not finished yet.</b> The office is still drawing it, so it may change. The fence as measured is below.</p>'}
+  const html = `<section data-packet-site-plan><h2>Site plan (installer sheet)</h2>
     <div class="plan siteplan"${startX != null ? ` data-start-x="${Math.round(startX)}"` : ''}>${svg}</div>
     <p class="small">Start at the green circle (Start here) and set the posts in number order. Filled circles: corner, end, gate and tee posts. Open circles: line posts. Feet are the fence as built.</p>
     <p data-site-post-count><b>${posts.length} posts:</b> ${kinds.map(x => `${x.n} ${POST_WORD[x.k].toLowerCase()}`).join(' · ')}</p>
     <table data-site-sides><thead><tr><th>Side</th><th>Feet</th><th>Sections and post spacing</th><th>Posts</th></tr></thead><tbody>${sideRows}</tbody></table>
     ${gateRows.length ? `<h3>Gates</h3><ul>${gateRows.join('')}</ul>` : ''}
     <h3>Posts in order</h3><ol class="postlist" data-site-posts>${posts.map(p => `<li value="${p.n}">${POST_WORD[p.kind]}</li>`).join('')}</ol>
-    ${warnings.length ? `<div class="warnbox" data-site-warnings><b>Property line</b><ul>${warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul><p class="small">Property lines are approximate, from county records, not a survey.</p></div>` : ''}
+    ${warnings ? `<p class="warnbox" data-site-warnings><b>Check the property line:</b> ${esc(warnings)} Property lines are approximate, from county records, not a survey.</p>` : ''}
     <p data-site-locate><b>811 locate:</b> ${esc(opts.locateText)}</p>
     ${notes ? `<div class="notes" data-site-notes><b>Office notes</b><p>${esc(notes).replace(/\n/g, '<br>')}</p></div>` : ''}
     ${opts.photos.length ? `<h3>Pinned photos</h3><div class="media pinned">${opts.photos.map(p => `<figure><a href="${esc(p.url)}"><img src="${esc(p.url)}" alt="${esc(p.category)}" loading="lazy"></a><figcaption>${esc(forCrew(p.caption || p.category))}</figcaption></figure>`).join('')}</div>` : ''}
@@ -811,6 +835,7 @@ h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 
 .unfinished{background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:10px 12px}
 .warnbox{background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;margin:10px 0}.warnbox ul{margin:4px 0}
 .pinned{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+@page{size:letter;margin:0.4in}
 @media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}
-[data-packet-site-plan]{break-inside:auto;break-before:page;break-after:page;font-size:11px;padding:0}[data-packet-site-plan] h2{margin:0 0 4px}[data-packet-site-plan] h3{margin:6px 0 2px;font-size:12px}[data-packet-site-plan] p{margin:3px 0}.plan.siteplan{overflow:visible}.plan.siteplan svg{width:100%;max-height:4.6in}[data-packet-site-plan] .small{font-size:9px;margin:2px 0}[data-packet-site-plan] ul{margin:2px 0}[data-packet-site-plan] .postlist{line-height:1.15;font-size:9px}[data-packet-site-plan] .unfinished,[data-packet-site-plan] .warnbox{padding:4px 8px}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
+[data-packet-site-plan]{break-inside:auto;break-before:page;break-after:page;font-size:11px;padding:0}[data-packet-site-plan] h2{margin:0 0 4px}[data-packet-site-plan] h3{margin:6px 0 2px;font-size:12px}[data-packet-site-plan] p{margin:3px 0}.plan.siteplan{overflow:visible}.plan.siteplan svg{width:100%;max-height:3.9in}[data-packet-site-plan] .warnbox{margin:4px 0;font-size:10px}[data-packet-site-plan] .notes{padding:4px 8px;margin:4px 0}[data-packet-site-plan] .small{font-size:9px;margin:2px 0}[data-packet-site-plan] ul{margin:2px 0}[data-packet-site-plan] .postlist{line-height:1.15;font-size:9px}[data-packet-site-plan] .unfinished,[data-packet-site-plan] .warnbox{padding:4px 8px}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
 `

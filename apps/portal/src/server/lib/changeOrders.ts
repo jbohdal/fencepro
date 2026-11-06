@@ -743,14 +743,14 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false, backToOk: backToOk && row.status === 'needs_ok', ...(overrides.length ? { minimumOverride: overrides } : {}) }
   }, { timeout: 15_000 })
   // Approved or voided: its change waiting on the office site plan goes on, or comes off (lib/sitePlans.ts).
-  if (!result.stale && (result.row.status === 'approved' || result.row.status === 'void')) await planFollows(accountId, result.row.quoteId)
+  if (!result.stale && (result.row.status === 'approved' || result.row.status === 'void')) await planFollows(accountId, result.row.quoteId, by)
   return result
 }
 
-/** The job's office site plan follows its change orders (lib/sitePlans.ts reconcilePlanChanges); a failure is logged, never fails the change order. */
-async function planFollows(accountId: string, quoteId: string): Promise<void> {
+/** The job's office site plan follows its change orders (lib/sitePlans.ts reconcilePlanChanges); a failure is logged, never fails the change order. `by`: who voided it. */
+async function planFollows(accountId: string, quoteId: string, by?: string): Promise<void> {
   try {
     const { reconcilePlanChanges } = await import('./sitePlans.js')
-    await reconcilePlanChanges(accountId, quoteId)
+    await reconcilePlanChanges(accountId, quoteId, undefined, { by })
   } catch (e) { console.error('[change-orders] site plan:', e) }
 }

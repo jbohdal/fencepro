@@ -203,6 +203,7 @@ export async function planPayload(accountId: string, job: any, canEdit: boolean)
     prisma.permit.findUnique({ where: { jobId: job.id }, select: { county: true } }).catch(() => null),
   ])
   const revisions = row ? await prisma.sitePlanRevision.findMany({ where: { planId: row.id }, orderBy: { revision: 'desc' }, take: 50, select: { revision: true, by: true, at: true, note: true } }) : []
+  const current = await currentFence(accountId, job.quoteId)
   return {
     plan: row ? (row.data as SitePlanData) : null,
     revision: row?.revision ?? 0,
@@ -216,6 +217,8 @@ export async function planPayload(accountId: string, job: any, canEdit: boolean)
       lat: typeof job.lat === 'number' ? job.lat : null, lng: typeof job.lng === 'number' ? job.lng : null,
     },
     quote: quote ? { id: quote.id, status: quote.status, signed: isSignedQuote(quote), layout: quote.layout ?? null } : null,
+    // The job's fence now: the signed quote with its approved and signed change orders. The plan is checked against this.
+    current,
     settings: { tolFt: settings.tolFt, tolPct: settings.tolPct, setbackFt: settings.setbackFt },
     permitSheet: row?.permitPdfPath ? { url: `/api/site-plans/${encodeURIComponent(job.id)}/permit-sheet.pdf` } : null,
     canEdit,
@@ -254,10 +257,10 @@ export async function savePlan(accountId: string, job: { id: string; quoteId: st
   })
 }
 
-/** The flags still open on the saved plan, checked against the quote's yard with Settings' tolerances. */
-export async function openFlagsOf(accountId: string, plan: SitePlanData, quoteLayout: any): Promise<string[]> {
+/** The flags still open on the saved plan, checked against the job's fence now (the quote with its approved change orders) with Settings' tolerances. */
+export async function openFlagsOf(accountId: string, plan: SitePlanData, current: CurrentFence | null): Promise<string[]> {
   const [m, s] = await Promise.all([siteModule(), sitePlanSettings(accountId)])
-  const flags = m.planFlags(plan, quoteLayout?.yard ?? null, { tolFt: s.tolFt, tolPct: s.tolPct })
+  const flags = m.planFlags(plan, current?.yard ?? null, { tolFt: s.tolFt, tolPct: s.tolPct })
   return m.openFlags(plan, flags).map(f => f.text)
 }
 
@@ -270,8 +273,8 @@ export async function markDone(accountId: string, job: { id: string; quoteId: st
   const row = await prisma.sitePlan.findUnique({ where: { jobId: job.id } })
   if (!row || row.accountId !== accountId) return { ok: false, status: 409, error: 'Save the plan first.' }
   if (row.revision !== revision) return { ok: false, status: 409, error: 'Someone else saved this plan since you opened it.' }
-  const quote = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { id: true, layout: true } }) : null
-  const open = await openFlagsOf(accountId, asSold(row.data), quote?.layout)
+  const quote = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { id: true } }) : null
+  const open = await openFlagsOf(accountId, asSold(row.data), await currentFence(accountId, job.quoteId))
   if (open.length) return { ok: false, status: 409, error: 'Answer every flag first.', open }
   const doneAt = new Date()
   await prisma.$transaction(async tx => {
@@ -322,12 +325,59 @@ export async function sectionWidthFor(accountId: string, fenceStyle: string): Pr
   } catch { return 8 }
 }
 
-/** The crew's posts for a plan, spaced as the quote counted its sections. */
-export async function crewPlanFor(accountId: string, plan: SitePlanData, quote: { layout?: any; fenceStyle?: string | null; chosenOption?: number | null; proposal?: any } | null, jobStyle: string) {
+/**
+ * The job's fence as it is now: the signed quote with every approved or
+ * signed change order's change (lib/changeOrderWork.ts workNow: the newest
+ * approved change order's work, rebuilt on the earlier ones), else the signed
+ * quote's. GET /api/site-plans `current`; the done check, the crew's sheet and
+ * the permit sheet read it.
+ */
+export interface CurrentFence {
+  fenceStyle: string
+  /** The yard as priced (null: a typed run list). */
+  yard: any | null
+  /** Feet of each run over 0, in the order the yard gives them. */
+  runs: number[]
+  /** Sections in each of those runs, as priced. */
+  runSections: number[]
+  /** Each run's panel pick ('auto', '6ft', '8ft'), when the work kept one. */
+  runRails: string[] | null
+  /** The change orders it includes (approved or signed, with a change to the work), by number. */
+  changeOrders: number[]
+}
+
+export async function currentFence(accountId: string, quoteId: string | null | undefined): Promise<CurrentFence | null> {
+  if (!quoteId) return null
+  const { workNow } = await import('./changeOrderWork.js')
+  const { work, row } = await workNow(accountId, quoteId)
+  if (!work) return null
+  const nums = (a: unknown) => (Array.isArray(a) ? a.map(Number).filter(n => Number.isFinite(n)) : [])
+  const layout = (work.layout ?? null) as any
+  const included = row ? (await prisma.changeOrder.findMany({ where: { accountId, quoteId, status: 'approved', deletedAt: null, approvedAt: { lte: (row as any).approvedAt ?? new Date() } }, select: { number: true, work: true }, orderBy: { number: 'asc' } })).filter(r => !!r.work).map(r => r.number) : []
+  return {
+    fenceStyle: row ? String(work.fenceStyle || '') : chosenStyleOf(work),
+    yard: layout?.yard ?? null,
+    runs: nums(work.runs).filter(f => f > 0),
+    runSections: nums(layout?.runSections),
+    runRails: Array.isArray(work.runRails) ? work.runRails.map(String) : null,
+    changeOrders: included,
+  }
+}
+
+/** The crew's posts for a plan, spaced as the job's fence is now counted (the quote with its approved change orders). */
+export async function crewPlanFor(accountId: string, plan: SitePlanData, current: CurrentFence | null, jobStyle: string) {
   const m = await siteModule()
-  const style = chosenStyleOf(quote) || jobStyle
+  const style = current?.fenceStyle || jobStyle
   const width = await sectionWidthFor(accountId, style)
-  const sectionsOf = m.quoteSectionsOf(plan, quote?.layout?.yard ?? null, quote?.layout?.runSections ?? null, width)
+  const runSections = current?.runSections ?? null
+  const fromYard = m.quoteSectionsOf(plan, current?.yard ?? null, runSections, width)
+  // A typed run list (no yard): each piece takes the run of the same feet, each run once.
+  const runs = !current?.yard && current && current.runs.length === current.runSections.length ? current.runs.map((ft, i) => ({ ft, sections: current.runSections[i], used: false })) : []
+  const sectionsOf = (sideId: string, pieceFt: number) => {
+    const hit = runs.find(r => !r.used && r.sections > 0 && Math.abs(r.ft - pieceFt) <= 1)
+    if (hit) { hit.used = true; return hit.sections }
+    return fromYard(sideId, pieceFt)
+  }
   return { ...m.crewPosts(plan, (sideId, pieceFt) => sectionsOf(sideId, pieceFt)), m, style }
 }
 
@@ -362,7 +412,7 @@ function changeWords(plan: SitePlanData, c: any): string {
  * order is approved, signed or voided (lib/changeOrders.ts) and when the plan
  * is opened. Returns how many revisions were written.
  */
-export async function reconcilePlanChanges(accountId: string, quoteId: string, db: any = prisma): Promise<number> {
+export async function reconcilePlanChanges(accountId: string, quoteId: string, db: any = prisma, opts: { by?: string } = {}): Promise<number> {
   const job = await db.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })
   if (!job) return 0
   const row = await db.sitePlan.findUnique({ where: { jobId: job.id } })
@@ -386,14 +436,20 @@ export async function reconcilePlanChanges(accountId: string, quoteId: string, d
       writes.push({ revision: ++rev, data: plan, by: co.signedAt ? 'Customer signed' : (co.approvedBy || 'Office'), note: `Change order CO-${n}: ${words}` })
     } else if (!co || co.deletedAt || co.status === 'void') {
       plan = { ...plan, pending: (plan.pending ?? []).filter((p: any) => p.coId !== coId) }
-      writes.push({ revision: ++rev, data: plan, by: 'Office', note: `Change order CO-${n}: ${co && !co.deletedAt ? 'voided' : 'removed'}, its change taken off the plan` })
+      // Who voided it (the change order's own save passes them); a removal found later on opening the plan: the office.
+      writes.push({ revision: ++rev, data: plan, by: opts.by || 'Office', note: `Change order CO-${n}: ${co && !co.deletedAt ? 'voided' : 'removed'}, its change taken off the plan` })
     }
   }
   if (!writes.length) return 0
   if (!(plan.pending ?? []).length) plan = asSold(plan)
-  const done = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan } })
+  // A done plan that now disagrees with the job's fence (its change order's drawing differs from the plan's) is not done any more: it says why.
+  let reopenWhy: string[] = []
+  if (row.doneAt) reopenWhy = await openFlagsOf(accountId, asSold(plan), await currentFence(accountId, quoteId)).catch(() => [])
+  if (reopenWhy.length) writes[writes.length - 1].note += ` The plan needs another look: ${reopenWhy.join(' ')}`
+  const done = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan, ...(reopenWhy.length ? { doneAt: null, doneBy: null } : {}) } })
   // Saved by someone else at this very moment: the next open of the plan puts it right.
   if (done.count !== 1) return 0
+  if (reopenWhy.length) await setPlanDone(db, quoteId, false)
   for (const w of writes) await db.sitePlanRevision.create({ data: { planId: row.id, revision: w.revision, data: w.data, by: w.by, note: w.note.slice(0, 500) } })
   return writes.length
 }
