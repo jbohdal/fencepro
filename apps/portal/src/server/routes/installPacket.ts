@@ -50,7 +50,7 @@ import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { isWorkLine, installWord } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
-import { crewPlanFor, sitePlanSettings, donePlanOf, currentFence } from '../lib/sitePlans.js'
+import { crewPlanFor, sitePlanSettings, donePlanOf, currentFence, siteModule } from '../lib/sitePlans.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
 async function crewNameFor(accountId: string, v: string): Promise<string> {
@@ -211,41 +211,28 @@ export async function installerPlanSection(accountId: string, job: { id: string;
   // Where Start here is across the drawing (the same frame sitePlanSvg drew it in), for the phone's first scroll.
   const startPost = plan.posts.find((p: any) => p.id === plan.startPostId)
   const startX = startPost ? m.planFrame(plan, size.width, size.height, { scale: size.scale, pad: 16 * 5, bottom: 16 * 3.2 + 16 * 2.6, fit: 'fence' }).at(startPost).x : null
-  // Each side as the crew walks it (sitePlanData walkingOrder, the same order the posts are numbered in).
-  const flipOf = new Map(m.walkingOrder(plan).map(w => [w.side.id, w.flip]))
+  // Every number here is crewPosts' own (sitePlanData: the sides as walked from Start here, each side's first and last post
+  // as walked, each gate's posts), so the table, the gate lines, the post list and the picture agree.
   const ft = (n: number) => m.feetLabel(n)
-  const sameSpot = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lng - b.lng) < 1e-9
-  const numberAt = (postId: string) => { const p = plan.posts.find((x: any) => x.id === postId); return p ? posts.find(c => sameSpot(c.at, p))?.n ?? null : null }
   const kinds = ['corner', 'end', 'gate', 'tee', 'line'].map(k => ({ k, n: posts.filter(p => p.kind === k).length })).filter(x => x.n)
   const sideRows = sides.map(cs => {
-    const side = plan.sides.find((s: any) => s.id === cs.id)
-    const flip = flipOf.get(cs.id) ?? false
-    const from = numberAt(flip ? side.b : side.a), to = numberAt(flip ? side.a : side.b)
     const pieces = cs.pieces.filter(p => p.ft > 0).map(p => `${ft(p.ft)}: ${p.sections} section${p.sections === 1 ? '' : 's'}, posts ${ft(p.spacingFt)} apart`).join('<br>')
-    return `<tr data-site-side="${esc(cs.id)}"><td><b>${esc(forCrew(cs.name))}</b></td><td>${esc(ft(cs.ft))}</td><td>${pieces || '-'}</td><td>${from != null && to != null ? `#${from} → #${to}` : ''}</td></tr>`
+    return `<tr data-site-side="${esc(cs.id)}"><td><b>${esc(forCrew(cs.name))}</b></td><td>${esc(ft(cs.ft))}</td><td>${pieces || '-'}</td><td data-site-side-posts>#${cs.from} → #${cs.to}</td></tr>`
   }).join('')
   const gateRows: string[] = []
   for (const cs of sides) {
     const side = plan.sides.find((s: any) => s.id === cs.id)
-    if (!side?.gates?.length) continue
-    const flip = flipOf.get(cs.id) ?? false
-    const total = cs.ft
-    const startNo = numberAt(flip ? side.b : side.a)
-    const walked = [...side.gates].map((g: any) => ({ g, at: flip ? total - g.atFt - g.widthFt : g.atFt })).sort((x, y) => x.at - y.at)
-    // Each gate's two posts by where they stand along the side (a gate at a corner hangs on that corner post).
-    const A = plan.posts.find((p: any) => p.id === (flip ? side.b : side.a)), B = plan.posts.find((p: any) => p.id === (flip ? side.a : side.b))
-    const endNo = numberAt(flip ? side.a : side.b)
-    const along = (at: { lat: number; lng: number }) => { const v = m.toFeet(A, B), w = m.toFeet(A, at), l2 = v.x * v.x + v.y * v.y || 1; return (w.x * v.x + w.y * v.y) / l2 }
-    const onSide = [...(startNo != null ? [{ n: startNo, k: 0 }] : []), ...posts.filter(p => p.sideId === side.id).map(p => ({ n: p.n, k: along(p.at) })), ...(endNo != null ? [{ n: endNo, k: 1 }] : [])]
-    const postAt = (ftAlong: number) => { const k = total > 0 ? ftAlong / total : 0; const best = onSide.reduce<{ n: number; d: number } | null>((b, p) => { const d = Math.abs(p.k - k); return !b || d < b.d ? { n: p.n, d } : b }, null); return best && best.d < 0.02 ? best.n : null }
-    walked.forEach(({ g, at }) => {
-      const nums = [postAt(at), postAt(at + g.widthFt)].filter((n): n is number => n != null).map(n => `#${n}`).join(' and ')
+    for (const cg of cs.gates) {
+      const g = side?.gates?.find((x: any) => x.id === cg.id)
+      if (!g) continue
       const single = g.type !== 'double'
-      gateRows.push(`<li data-site-gate><b>${esc(forCrew(side.name))}: ${esc(ft(g.widthFt))} ${single ? 'single' : 'double'} gate</b>, ${esc(ft(Math.max(0, at)))} from post #${startNo ?? '?'}${nums ? ` (gate posts ${nums})` : ''}. Swings ${g.swing === 'out' ? 'out of the yard' : 'into the yard'}${single ? (g.hinge ? `, hinges on the ${g.hinge} (looking from inside the yard)` : ', hinge side not set: ask the office') : ''}.</li>`)
-    })
+      gateRows.push(`<li data-site-gate><b>${esc(forCrew(cs.name))}: ${esc(ft(g.widthFt))} ${single ? 'single' : 'double'} gate</b>, ${esc(ft(Math.max(0, cg.atFt)))} from post #${cs.from} (gate posts #${cg.posts[0]} and #${cg.posts[1]}). Swings ${g.swing === 'out' ? 'out of the yard' : 'into the yard'}${single ? (g.hinge ? `, hinges on the ${g.hinge} (looking from inside the yard)` : ', hinge side not set: ask the office') : ''}.</li>`)
+    }
   }
   const notes = forCrew(String(plan.notes || '')).trim()
+  const doneDay = row.doneAt ? row.doneAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric' }) : ''
   const html = `<section data-packet-site-plan><h2>Site plan (installer sheet)</h2>
+    <p class="small" data-site-revision>Site plan revision ${row.doneRevision ?? row.revision}, marked done ${esc(doneDay)}.</p>
     <div class="plan siteplan"${startX != null ? ` data-start-x="${Math.round(startX)}"` : ''}>${svg}</div>
     <p class="small">Start at the green circle (Start here) and set the posts in number order. Filled circles: corner, end, gate and tee posts. Open circles: line posts. Feet are the fence as built.</p>
     <p data-site-post-count><b>${posts.length} posts:</b> ${kinds.map(x => `${x.n} ${POST_WORD[x.k].toLowerCase()}`).join(' · ')}</p>
@@ -538,6 +525,17 @@ packetPublic.get('/:token', async (req, res) => {
   // An approved change order changed the work after this packet was sent: the work as it is now, what changed marked.
   const coChange = await packetChange(p.accountId, job!.quoteId, p.sentAt).catch(() => null)
   const s = packetWithChange(p.snapshot as Snapshot, coChange)
+  // The work changed by a change order: its run table (spacing) and gate lines (place, swing) built as before one (web/src/packetRuns.ts).
+  if (coChange && Array.isArray(coChange.work?.runs)) {
+    try {
+      const w = coChange.work as any
+      const { dataFor } = await import('../lib/quotePricing.js')
+      const table = (await siteModule()).packetRunsForWork(await dataFor(p.accountId), w.layout?.yard ?? null, w.runs, Array.isArray(w.layout?.runSections) ? w.layout.runSections : [], w.fenceStyle || job!.fenceStyle)
+      s.runs = table.runs.map((r: any, i: number) => ({ ...r, label: coChange.runNames?.[i] || r.label }))
+      if (table.gates) s.gates = table.gates
+      if (table.skips) s.skips = table.skips
+    } catch (err) { console.error('[packet] change order runs:', err) }
+  }
   const typed = await typedLinesFor(p.accountId, job!.quoteId)
   const coLines = coChange ? sheetChanges((p.snapshot as Snapshot).pullSheet ?? [], s.pullSheet ?? []) : []
   // The fence's plain name (packets made before plain names carry the style's code).
@@ -838,5 +836,5 @@ h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 
 .pinned{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
 @page{size:letter;margin:0.4in}
 @media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}
-[data-packet-site-plan]{break-inside:auto;break-before:page;break-after:page;font-size:11px;padding:0}[data-packet-site-plan] h2{margin:0 0 4px}[data-packet-site-plan] h3{margin:6px 0 2px;font-size:12px}[data-packet-site-plan] p{margin:3px 0}.plan.siteplan{overflow:visible}.plan.siteplan svg{width:100%;max-height:3.9in}[data-packet-site-plan] .warnbox{margin:4px 0;font-size:10px}[data-packet-site-plan] .notes{padding:4px 8px;margin:4px 0}[data-packet-site-plan] .small{font-size:9px;margin:2px 0}[data-packet-site-plan] ul{margin:2px 0}[data-packet-site-plan] .postlist{line-height:1.15;font-size:9px}[data-packet-site-plan] .unfinished,[data-packet-site-plan] .warnbox{padding:4px 8px}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
+[data-packet-site-plan]{break-inside:auto;break-before:page;break-after:page;font-size:11px;padding:0}[data-packet-site-plan] h2{margin:0 0 4px}[data-packet-site-plan] h3{margin:6px 0 2px;font-size:12px}[data-packet-site-plan] p{margin:3px 0}.plan.siteplan{overflow:visible}.plan.siteplan svg{width:100%;max-height:3.5in}[data-packet-site-plan] .warnbox{margin:4px 0;font-size:10px}[data-packet-site-plan] .notes{padding:4px 8px;margin:4px 0}[data-packet-site-plan] .small{font-size:9px;margin:2px 0}[data-packet-site-plan] ul{margin:2px 0}[data-packet-site-plan] .postlist{line-height:1.15;font-size:9px}[data-packet-site-plan] .unfinished,[data-packet-site-plan] .warnbox{padding:4px 8px}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
 `

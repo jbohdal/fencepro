@@ -359,7 +359,13 @@ export function planCloses(plan: SitePlanData): boolean {
 
 export type PostKind = 'corner' | 'end' | 'line' | 'gate' | 'tee'
 export interface CrewPost { n: number; kind: PostKind; at: LatLng; sideId: string | null }
-export interface CrewSide { id: string; name: string; ft: number; pieces: Array<{ ft: number; sections: number; spacingFt: number }> }
+export interface CrewSide {
+  id: string; name: string; ft: number; pieces: Array<{ ft: number; sections: number; spacingFt: number }>
+  /** The crew's numbers of the side's first and last post as walked, and whether it is walked from its last post (b). */
+  from: number; to: number; flip: boolean
+  /** Its gates in walking order: feet from the side's first post as walked, and the numbers of the two posts it hangs between. */
+  gates: Array<{ id: string; atFt: number; widthFt: number; posts: [number, number] }>
+}
 
 /**
  * Every post the crew sets, numbered in walking order from the start post:
@@ -374,11 +380,12 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
   for (const s of plan.sides) for (const p of [s.a, s.b]) uses.set(p, (uses.get(p) ?? 0) + 1)
   const teeAt = new Set(plan.sides.filter(s => s.teeFrom).map(s => s.a))
   const kindOf = (id: string): PostKind => (teeAt.has(id) ? 'tee' : (uses.get(id) ?? 0) >= 2 ? 'corner' : 'end')
-  const add = (kind: PostKind, at: LatLng, sideId: string | null, postId?: string) => {
-    if (postId && numbered.has(postId)) return
+  const add = (kind: PostKind, at: LatLng, sideId: string | null, postId?: string): number => {
+    if (postId && numbered.has(postId)) return numbered.get(postId)!
     const n = posts.length + 1
     posts.push({ n, kind, at, sideId })
     if (postId) numbered.set(postId, n)
+    return n
   }
   for (const { side, flip } of walkingOrder(plan)) {
     let a = postOf(plan, side.a), b = postOf(plan, side.b)
@@ -388,7 +395,8 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
     // A post `ft` along the side (built feet) sits at that share of the side as drawn on the map.
     const vec = toFeet(a, b)
     const at = (ft: number) => { const k = total > 0 ? Math.min(1, Math.max(0, ft / total)) : 0; return fromFeet(a!, { x: vec.x * k, y: vec.y * k }) }
-    add(kindOf(flip ? side.b : side.a), a, side.id, flip ? side.b : side.a)
+    const first = add(kindOf(flip ? side.b : side.a), a, side.id, flip ? side.b : side.a)
+    const gateNos: CrewSide['gates'] = []
     const gates = [...side.gates].map(g => (flip ? { ...g, atFt: total - g.atFt - g.widthFt } : g)).sort((x, y) => x.atFt - y.atFt)
     const cuts: Array<[number, number]> = []
     let from = 0
@@ -403,10 +411,16 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
       const g = gates[i]
       // A gate at the side's first or last post hangs on it: that post is the gate post (counted once, as priced).
       const atEnd = (ft: number) => ft < 0.05 || ft > total - 0.05
-      if (g) { if (!atEnd(g.atFt)) add('gate', at(g.atFt), side.id); if (!atEnd(g.atFt + g.widthFt)) add('gate', at(g.atFt + g.widthFt), side.id) }
+      // Its posts: its own gate posts, or the side's end post it hangs on (the last post's number is known once it is added, below).
+      if (g) {
+        const p0 = atEnd(g.atFt) ? (g.atFt < 0.05 ? first : -1) : add('gate', at(g.atFt), side.id)
+        const p1 = atEnd(g.atFt + g.widthFt) ? (g.atFt + g.widthFt < 0.05 ? first : -1) : add('gate', at(g.atFt + g.widthFt), side.id)
+        gateNos.push({ id: g.id, atFt: Math.round(g.atFt * 100) / 100, widthFt: g.widthFt, posts: [p0, p1] })
+      }
     })
-    add(kindOf(flip ? side.a : side.b), b, side.id, flip ? side.a : side.b)
-    sides.push({ id: side.id, name: side.name, ft: Math.round(total * 100) / 100, pieces })
+    const last = add(kindOf(flip ? side.a : side.b), b, side.id, flip ? side.a : side.b)
+    for (const g of gateNos) g.posts = g.posts.map(n => (n === -1 ? last : n)) as [number, number]
+    sides.push({ id: side.id, name: side.name, ft: Math.round(total * 100) / 100, pieces, from: first, to: last, flip, gates: gateNos })
   }
   return { posts, sides }
 }

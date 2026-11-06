@@ -401,6 +401,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     let row = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
     expect((row.doneData as any).sides[3].gates.map((x: any) => x.id)).toContain('g4')
     expect((row.data as any).answers[`len:${s3}`]).toEqual({ kind: 'drawn', note: 'CO-4', by: 'Olive', at: '2026-11-06' })
+    // The side's quoted feet are the contract's now (120 ft + 10 ft through CO-4): the editor no longer says quoted 120 / drawn 130.
+    const s3side = (row.data as any).sides[3], s3a = (row.data as any).posts.find((x: any) => x.id === s3side.a), s3b = (row.data as any).posts.find((x: any) => x.id === s3side.b)
+    expect(s3side.quotedFt).toBeCloseTo(Math.hypot(toFeet(s3a, s3b).x, toFeet(s3a, s3b).y), 1)
+    expect(s3side.quotedFt).toBeGreaterThan(125)
     g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
     expect(g.revisions[0].note).toMatch(/^Change order CO-4: added a 4 ft single gate on .*; its drawn length kept/)
 
@@ -414,5 +418,55 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     const open = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: g.revision })
     expect(open.status).toBe(409)
     expect(open.json.open.some((t: string) => /waiting/.test(t))).toBe(false)
+  })
+
+  test('Start here mid-fence, after a signed change order: the crew\'s table, gate lines and post list agree; the run table keeps its spacing; the sheet says its revision; the permit sheet names who drew it and the change order', async () => {
+    const { reconcilePlanChanges } = await import('../src/server/lib/sitePlans.js')
+    let g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const plan = JSON.parse(JSON.stringify(g.plan))
+    // Answer the side the voided CO-5 left open, take off CO-4's gate (this test's CO-4 priced no drawing, so the job's fence has no
+    // such gate), start at a middle corner, and mark done.
+    plan.answers[`len:${plan.sides[0].id}`] = { kind: 'keep', note: 'Wheel checked', by: 'Olive', at: '2026-11-06' }
+    plan.sides[3].gates = plan.sides[3].gates.filter((x: any) => x.id !== 'g4')
+    plan.startPostId = plan.sides[2].a
+    plan.notes = 'Mid-fence start.'
+    const saved = await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan, baseRevision: g.revision })
+    expect(saved.status).toBe(200)
+    const done = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: saved.json.data.revision })
+    expect(done.status).toBe(200)
+    // CO-6, signed by the customer after done: a 4 ft gate on side 2, on the crew's copy.
+    const co6 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 6, status: 'sent', reason: 'Gate', lines: [], totalCents: 30000, createdBy: 'Olive' } as any })
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const withCo = { ...g.plan, pending: [{ id: 'pc6', coId: co6.id, coNumber: 6, kind: 'gate', sideId: g.plan.sides[1].id, gate: { id: 'g6', atFt: 50, widthFt: 4, type: 'walk', swing: 'in', hinge: 'right' }, by: 'Olive', at: '2026-11-06' }] }
+    expect((await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan: withCo, baseRevision: g.revision })).status).toBe(200)
+    const signedAt = new Date('2026-11-06T15:00:00Z')
+    await prisma.changeOrder.update({ where: { id: co6.id }, data: { status: 'approved', approvedAt: signedAt, approvedBy: 'Pat (customer)', signedAt, signedBy: 'Pat' } })
+    expect(await reconcilePlanChanges(accountId, quoteId)).toBe(1)
+    const row = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect(row.doneRevision).toBe(row.revision)
+
+    const html = await (await fetch(`${base}/p/i/${packetToken}`)).text()
+    expect(html).toMatch(new RegExp(`Site plan revision ${row.doneRevision}, marked done \\d\\d/\\d\\d/\\d{4}\\.`))
+    // Every side's numbers and every gate's "from post" are crewPosts' own, worked out here from the crew's copy.
+    const { crewPlanFor, currentFence } = await import('../src/server/lib/sitePlans.js')
+    const { sides, posts } = await crewPlanFor(accountId, row.doneData as any, await currentFence(accountId, quoteId), 'WV-6-Privacy')
+    expect(posts[0].kind).toBe('corner')
+    const tablePosts = [...html.matchAll(/<td data-site-side-posts>#(\d+) → #(\d+)<\/td>/g)].map(m => [Number(m[1]), Number(m[2])])
+    expect(tablePosts).toEqual(sides.map(s => [s.from, s.to]))
+    for (const s of sides) for (const gt of s.gates) expect(html).toContain(`from post #${s.from} (gate posts #${gt.posts[0]} and #${gt.posts[1]})`)
+    const list = [...html.matchAll(/<li value="(\d+)">(\w+)<\/li>/g)].map(m => [Number(m[1]), m[2]])
+    expect(list.length).toBe(posts.length)
+    for (const s of sides) { expect(list[s.from - 1][1]).not.toBe('Line'); expect(list[s.to - 1][1]).not.toBe('Line') }
+    // The lower run table after a change order: every run has its post spacing again.
+    const runTable = html.slice(html.indexOf('<th>Posts apart</th>'), html.indexOf('</table>', html.indexOf('<th>Posts apart</th>')))
+    expect(runTable).toMatch(/<td>[^<]+<\/td><\/tr>/)
+    expect(runTable).not.toMatch(/<td><\/td><\/tr>/)
+
+    // The permit sheet: drawn by the office person who drew it, with the change order under it.
+    const sheet = await call('office', 'POST', `/api/site-plans/${jobId}/permit-sheet`, { size: 'letter', aerial: false })
+    const text = pdfText((await call('office', 'GET', sheet.json.data.url)).buf!)
+    expect(text).toContain(`DRAWN BY Olive ${tag}`)
+    expect(text).not.toContain('Customer signed')
+    expect(text).toContain('Changed by change order CO-6 (signed 11/06/2026)')
   })
 })

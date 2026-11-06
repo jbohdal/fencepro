@@ -208,3 +208,29 @@ describe('review fixes (Nov 6 2026)', () => {
     expect(planFlags(p, y).map(f => f.key)).not.toContain('closed')
   })
 })
+
+describe('the crew\'s numbers with Start here mid-fence', () => {
+  test('each side\'s first and last post and each gate\'s posts are the numbers crewPosts gave, in the direction it is walked', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'm', steps: [step(30, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(30, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(116, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(30, 'end')] }] }
+    const p = planFromYard(walkToYard(w), OCALA, w)!
+    p.startPostId = p.sides[2].a // a middle corner
+    const { posts, sides } = crewPosts(p, (_s, f) => sectionsAt(f, 8))
+    const near = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => feetBetween(a, b) < 0.01
+    expect(near(posts[0].at, p.posts.find(x => x.id === p.startPostId)!)).toBe(true)
+    for (const cs of sides) {
+      const side = p.sides.find(s => s.id === cs.id)!
+      const first = p.posts.find(x => x.id === (cs.flip ? side.b : side.a))!, last = p.posts.find(x => x.id === (cs.flip ? side.a : side.b))!
+      expect(near(posts[cs.from - 1].at, first), `${cs.name} from`).toBe(true)
+      expect(near(posts[cs.to - 1].at, last), `${cs.name} to`).toBe(true)
+      // Its own posts sit between its first and last as walked, in number order.
+      const own = posts.filter(x => x.sideId === cs.id && x.n !== cs.from && x.n !== cs.to)
+      const along = (at: { lat: number; lng: number }) => feetBetween(first, at)
+      expect(own.map(x => along(x.at))).toEqual([...own.map(x => along(x.at))].sort((a, b) => a - b))
+      for (const g of cs.gates) for (const n of g.posts) expect([cs.from, cs.to, ...own.map(x => x.n)]).toContain(n)
+    }
+    const gated = sides.find(s => s.gates.length)!
+    expect(gated.gates[0].posts.map(n => posts[n - 1].kind)).toEqual(['gate', 'gate'])
+    // Some side is walked against its drawn direction from a mid-fence start, and still reads first → last.
+    expect(sides.some(s => s.flip)).toBe(true)
+  })
+})

@@ -34,12 +34,13 @@ import { parcelSourcesOf, type ParcelSource } from './parcels.js'
 export interface LatLng { lat: number; lng: number }
 export type SitePlanData = any
 export interface CrewPostT { n: number; kind: 'corner' | 'end' | 'line' | 'gate' | 'tee'; at: LatLng; sideId: string | null }
-export interface CrewSideT { id: string; name: string; ft: number; pieces: Array<{ ft: number; sections: number; spacingFt: number }> }
+export interface CrewSideT { id: string; name: string; ft: number; pieces: Array<{ ft: number; sections: number; spacingFt: number }>; from: number; to: number; flip: boolean; gates: Array<{ id: string; atFt: number; widthFt: number; posts: [number, number] }> }
 export interface SiteModule {
   planFlags(plan: SitePlanData, yard: unknown, s?: { tolFt: number; tolPct: number }): Array<{ key: string; sideId: string | null; text: string; kind: string }>
   openFlags(plan: SitePlanData, flags: Array<{ key: string; text: string }>): Array<{ key: string; text: string }>
   crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, pieceFt: number, piece: number) => number): { posts: CrewPostT[]; sides: CrewSideT[] }
   builtFt(plan: SitePlanData, side: any): number
+  drawnFt(plan: SitePlanData, side: any): number
   propertyLineWarnings(plan: SitePlanData, setbackFt?: number): string[]
   quoteSectionsOf(plan: SitePlanData, yard: unknown, runSections: unknown, widthFt: number): (sideId: string, pieceFt: number) => number
   sitePlanSvg(plan: SitePlanData, o: Record<string, unknown>): string
@@ -49,6 +50,7 @@ export interface SiteModule {
   gateLeaves(plan: SitePlanData, side: any, g: any): Array<{ hingeFt: number; towardFt: number }>
   feetLabel(ft: number): string
   changeOrderSectionWidthFor(data: unknown, fenceStyle: string): number
+  packetRunsForWork(data: unknown, yard: unknown, runs: number[], sections: number[], fenceStyle: string): { runs: Array<{ label: string; length: string; sections: number; spacing: string }>; gates: string[] | null; skips: string[] | null }
   applyChange(plan: SitePlanData, c: unknown): SitePlanData
   walkingOrder(plan: SitePlanData): Array<{ side: any; flip: boolean }>
   toFeet(origin: LatLng, at: LatLng): { x: number; y: number }
@@ -459,7 +461,10 @@ export async function reconcilePlanChanges(accountId: string, quoteId: string, d
       n++
       if (keep) { const { coId: _c, ...rest } = a; answers[k] = rest } else delete answers[k]
     }
-    return { plan: n ? { ...p, answers } : p, n }
+    // Kept: the side's quoted feet become the drawn feet, the contract's now (the editor no longer asks quoted vs drawn).
+    let sides = p.sides
+    if (keep && n) sides = (p.sides ?? []).map((s: any) => (answersOf(p)[`len:${s.id}`]?.coId === coId ? { ...s, quotedFt: Math.round(m.drawnFt(p, s) * 100) / 100 } : s))
+    return { plan: n ? { ...p, answers, sides } : p, n }
   }
   for (const coId of coIds) {
     const co = cos.find((c: any) => c.id === coId && c.accountId === accountId && c.quoteId === quoteId)
@@ -493,7 +498,7 @@ export async function reconcilePlanChanges(accountId: string, quoteId: string, d
     const open = await openFlagsOf(accountId, asSold(plan), await currentFence(accountId, quoteId)).catch(() => [] as string[])
     if (open.length) writes[writes.length - 1].note += `. The crew's copy has the change; the plan has a question to answer: ${open.join(' ')}`
   }
-  const saved = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan, ...(done ? { doneData: done } : {}) } })
+  const saved = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan, ...(done ? { doneData: done, ...(sameJson(done, row.doneData) ? {} : { doneRevision: rev }) } : {}) } })
   // Saved by someone else at this very moment: the next open of the plan puts it right.
   if (saved.count !== 1) return 0
   for (const w of writes) await db.sitePlanRevision.create({ data: { planId: row.id, revision: w.revision, data: w.data, by: w.by, note: w.note.slice(0, 500) } })

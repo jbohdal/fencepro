@@ -230,7 +230,7 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     const shownRev = draft ? row.revision : (row.doneRevision ?? row.revision)
     if (!plan?.sides?.length) { res.status(409).json({ success: false, error: 'Draw the fence on the plan first.' }); return }
     const [rev, quote, permit, company, m] = await Promise.all([
-      prisma.sitePlanRevision.findFirst({ where: { planId: row.id, revision: shownRev }, select: { by: true } }),
+      prisma.sitePlanRevision.findMany({ where: { planId: row.id, revision: { lte: shownRev } }, orderBy: { revision: 'desc' }, take: 200, select: { revision: true, by: true, note: true } }),
       a.job.quoteId ? prisma.savedQuote.findFirst({ where: { id: a.job.quoteId, accountId }, select: { fenceStyle: true, chosenOption: true, proposal: true } }) : null,
       prisma.permit.findUnique({ where: { jobId: a.job.id }, select: { parcelId: true, county: true } }),
       contractorOf(accountId),
@@ -238,8 +238,9 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     ])
     // The fence as it is now (a change order can change the style).
     const style = (await currentFence(accountId, a.job.quoteId))?.fenceStyle || chosenStyleOf(quote as any) || a.job.fenceStyle
+    const drawn = await drawnByOf(accountId, a.job.quoteId, rev)
     const { pdf, note } = await renderPermitSheet(m, {
-      size: b.size, plan, revision: shownRev, drawnBy: rev?.by || 'Office', draft,
+      size: b.size, plan, revision: shownRev, drawnBy: drawn.by, changedBy: drawn.changedBy, draft,
       date: usDate(floridaDay(new Date())),
       company: { name: company.name, address: company.address, phone: company.phone },
       customerName: a.job.customerName, address: a.job.customerAddress,
@@ -260,6 +261,24 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     fail(res, err, 'make the permit sheet')
   }
 })
+
+/**
+ * "Drawn by" on the permit sheet: the person who last drew the plan by hand
+ * (never "Customer signed" or a change order's entry). When the plan's last
+ * change came from a change order: "Changed by change order CO-n (signed
+ * <date>)" under it. `revs`: the plan's revisions up to the one shown, newest first.
+ */
+export async function drawnByOf(accountId: string, quoteId: string | null, revs: Array<{ revision: number; by: string; note: string }>): Promise<{ by: string; changedBy?: string }> {
+  const coOf = (r: { note: string }) => /^Change order CO-(\d+)/.exec(r.note)
+  const hand = revs.find(r => !coOf(r) && r.by !== 'Customer signed')
+  const last = revs[0]
+  const m = last ? coOf(last) : null
+  if (!m) return { by: hand?.by || 'Office' }
+  const co = quoteId ? await prisma.changeOrder.findFirst({ where: { accountId, quoteId, number: Number(m[1]) }, select: { signedAt: true, approvedAt: true } }) : null
+  const when = co?.signedAt ?? co?.approvedAt ?? null
+  const day = when ? when.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit', year: 'numeric' }) : ''
+  return { by: hand?.by || 'Office', changedBy: `Changed by change order CO-${m[1]}${when ? ` (${co?.signedAt ? 'signed' : 'approved'} ${day})` : ''}` }
+}
 
 sitePlanRoutes.get('/:jobId/permit-sheet.pdf', async (req: any, res) => {
   try {

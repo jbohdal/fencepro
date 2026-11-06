@@ -25,6 +25,7 @@ import type { TierSet } from './tiers'
 import { pickList, pickPrice, type PickInput, type PickList } from './changeOrderPicks'
 import { workWidth } from './moveRepair'
 import { marginCheck, fenceTargetMargin } from './quoteChecks'
+import { packetRunsFor } from './packetRuns'
 export { importedOldPrice, keepsCents } from './pricingEngine'
 
 /**
@@ -288,6 +289,13 @@ export function changeOrderPicksFor(data: EstimateData, input: PickInput): PickL
 }
 
 /** The section width a change order's picked sections are added at, for a style (moveRepair.ts workWidth); 0 for an unknown style. */
+/** The crew's run table and gate lines for a job's work as it is now (packetRuns.ts), with the style from Settings (server routes/installPacket.ts). */
+export function packetRunsForWork(data: EstimateData, yard: YardLayout | null, runs: number[], sections: number[], fenceStyle: string) {
+  useData(data)
+  const style = estimateConfig(data.config).fenceStyles.find(s => s.name === fenceStyle) ?? (fenceStyle ? { name: fenceStyle } : null)
+  return packetRunsFor(yard, runs, sections, style)
+}
+
 export function changeOrderSectionWidthFor(data: EstimateData, fenceStyle: string): number {
   useData(data)
   const style = estimateConfig(data.config).fenceStyles.find(s => s.name === fenceStyle)

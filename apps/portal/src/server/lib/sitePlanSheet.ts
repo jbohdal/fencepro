@@ -23,6 +23,8 @@ export interface SheetInput {
   plan: SitePlanData
   revision: number
   drawnBy: string
+  /** The plan's last change came from a change order: "Changed by change order CO-2 (signed 11/06/2026)". */
+  changedBy?: string
   /** YYYY-MM-DD or words, as the sheet shows it. */
   date: string
   company: { name: string; address: string; phone: string }
@@ -124,6 +126,7 @@ export async function renderPermitSheet(m: SiteModule, p: SheetInput): Promise<{
   line('Date', p.date)
   line('Revision', String(p.revision))
   line('Drawn by', p.drawnBy)
+  if (p.changedBy) { doc.font('Helvetica').fontSize(fs + 0.5).fillColor('#374151').text(p.changedBy, inner, y - 3, { width: iw }); y = doc.y + 5 }
   rule()
   doc.font('Helvetica-Bold').fontSize(fs + 0.5).fillColor('#991B1B').text('Approximate property lines from county records, not a survey.', inner, y, { width: iw })
   y = doc.y + 4

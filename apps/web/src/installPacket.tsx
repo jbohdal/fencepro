@@ -21,7 +21,7 @@ import { bakedBackdrop } from './aerialBake'
 import type { AerialBackdrop } from './sitePlanPhoto'
 import { buildPlan } from './sitePlanGeometry'
 import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL, sitePlanNeeded } from './yardLayout'
-import { gateWhereText } from './gateSlide'
+import { packetRunsFor } from './packetRuns'
 import { quotePlanWidth } from './QuotePlan'
 import { savedRunSections } from './quoteCalc'
 import { listMedia, type ServerMedia } from './mediaStore'
@@ -95,10 +95,9 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
   const plan = yard ? quotePlanWidth(yard, quote, styleCfg) : null
   const derived = yard ? deriveLayout(yard, plan!.nearIn) : null
   const named = derived && derived.runs.length === runs.length ? derived.runs : null
-  snap.runs = runs.map((ft, i) => ({
-    label: named ? (named[i].pieces > 1 ? `${named[i].sideName} (${named[i].piece} of ${named[i].pieces})` : named[i].sideName) : `Run ${i + 1}`,
-    length: formatFtIn(ft * 12), sections: sections[i] ?? 0, spacing: postSpacing(ft, sections[i] ?? 0),
-  }))
+  // The run table and gate lines, built the same way the server builds them after a change order (packetRuns.ts).
+  const table = packetRunsFor(yard, runs, sections, styleCfg ?? (quote.fenceStyle ? { name: quote.fenceStyle } : null))
+  snap.runs = table.runs
   snap.footageFt = runs.reduce((s, n) => s + n, 0)
   snap.sections = sections.reduce((s, n) => s + n, 0)
   const gatePosts = derived ? derived.counted.gatePosts : 2 * ((quote.walkGates ?? 0) + (quote.dblGates ?? 0))
@@ -113,19 +112,7 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
     }
   }
   if (yard && derived) {
-    snap.gates = []; snap.skips = []
-    // Swing and hinge come from the drawing (left / right as seen from inside the yard).
-    const planGates = new Map(buildPlan(yard, derived, undefined, plan!.widthFt).sides.map(p => [p.sideId, p.gate]))
-    yard.sides.forEach((s, i) => {
-      if (!s.on) return
-      const r = derived.sides[i]
-      if (s.gate && r.gateAtIn != null) {
-        // Both ways, by the side's real ends: "Back: 5 ft walk gate, 12 ft from the Left side corner, 31 ft to the Right side corner".
-        const where = gateWhereText(yard, i, plan!.nearIn) ?? `${formatFtIn(s.gate.widthIn)} ${GATE_LABEL[s.gate.type].toLowerCase()}`
-        snap.gates!.push(`${s.name}: ${where}; ${planGates.get(s.id)?.swingText ?? 'swings in'} (as seen from inside the yard)`)
-      }
-      if (s.skip && r.skipAtIn != null) snap.skips!.push(`${s.name}: ${formatFtIn(s.skip.lengthIn)} ${s.skip.kind === 'existing' ? 'existing fence' : 'with no fence'}, starting ${formatFtIn(r.skipAtIn)} from the start of the side`)
-    })
+    snap.gates = table.gates ?? []; snap.skips = table.skips ?? []
     // The plan with the photo pins the crew can see.
     const pins = media.filter(m => m.pin && (m.visibility === 'crew' || m.visibility === 'customer'))
       .map(m => ({ id: m.id, x: m.pin!.x, y: m.pin!.y, angle: m.pin!.angle ?? null }))
