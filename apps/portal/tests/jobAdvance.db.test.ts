@@ -7,8 +7,11 @@
  *   - "Finish for today" on day 1 of 2 is not the install finished; Finish on
  *     the last day, or "We finished the whole job", is;
  *   - install finished + final walkthrough signed + paid in full, in any
- *     order: Complete and on to Paid, the card to Paid & Closed;
- *   - a job marked Complete by hand that is paid in full goes on to Paid;
+ *     order: Complete; on to Paid, the card to Paid & Closed, once the owner
+ *     taps Cleared on the payments (Nov 6 2026: "A job reads Paid only when
+ *     cleared");
+ *   - a job marked Complete by hand that is paid in full goes on to Paid once
+ *     cleared;
  *   - the crew packet shows the office's 811 locate in words, keeps it when a
  *     box is left empty, and asks before a different ticket replaces it.
  * Everything made is removed at the end.
@@ -58,6 +61,10 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     const sched = await prisma.paymentSchedule.findUnique({ where: { accountId_jobId: { accountId, jobId: job } } })
     const inv = await prisma.contractInvoice.findMany({ where: { scheduleId: sched!.id, voidedAt: null }, orderBy: { sortOrder: 'asc' } })
     return { job, card, invoices: inv.map(i => i.amountCents) }
+  }
+  /** The owner taps Cleared on each of the job's payments not cleared yet (lib/paymentClearing.ts). */
+  async function clearAll(jobId: string) {
+    for (const p of await prisma.contractPayment.findMany({ where: { jobId, clearState: 'received', voidedAt: null } })) expect((await call('POST', `/api/payments/${p.id}/cleared`, {})).status).toBe(200)
   }
   const pay = (jobId: string, cents: number, n: string) => call('POST', '/api/payments', { id: `japay${Date.now().toString(36)}${n}`, jobId, amountCents: cents, method: 'check', checkNumber: n })
   async function signWalkthrough(jobId: string) {
@@ -133,10 +140,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     const f1 = await call('POST', `/api/install-packets/crew/${job}/finish`, {}, crew)
     expect(f1.json.data).toMatchObject({ jobDone: false, lastDay: plus(today, 7) })
     expect((await jobOf(job))?.status).toBe('in_progress')
-    // "We finished the whole job": Complete, then Paid (the balance is zero), and the card to Paid & Closed.
+    // "We finished the whole job": Complete (every dollar received); the checks have not cleared, so not Paid yet.
     const f2 = await call('POST', `/api/install-packets/crew/${job}/finish`, { jobDone: true }, crew)
     expect(f2.json.data.jobDone).toBe(true)
     expect(f2.json.data.times.at(-1)).toMatchObject({ kind: 'finish', jobDone: true })
+    expect(await jobOf(job)).toMatchObject({ status: 'completed', opsStage: 'completed', paymentStatus: 'partial', completedDate: today })
+    expect((await cardOf(card)).stage).not.toBe('Paid & Closed')
+    // The owner taps Cleared: Paid, and the card to Paid & Closed.
+    await clearAll(job)
     const j = await jobOf(job)
     expect(j).toMatchObject({ status: 'paid', opsStage: 'paid', paymentStatus: 'paid', completedDate: today })
     expect(j?.completedBy).toMatch(/Automatic/)
@@ -159,7 +170,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     expect(await prisma.savedJob.findUnique({ where: { id: job }, select: { scheduledEndDate: true } })).toEqual({ scheduledEndDate: today })
   })
 
-  test('Finish on the last crew day first, then the walkthrough, then the final payment: Paid on the payment', async () => {
+  test('Finish on the last crew day first, then the walkthrough, then the final payment: Complete on the payment, Paid once cleared', async () => {
     const { job, card, invoices } = await soldJob('Linda', [today])
     await call('POST', `/api/install-packets/crew/${job}/start`, {}, crew)
     const f = await call('POST', `/api/install-packets/crew/${job}/finish`, {}, crew)
@@ -169,17 +180,23 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a job moves on by itself (dev da
     expect((await pay(job, invoices[0], '201')).status).toBe(201)
     expect((await jobOf(job))?.status).toBe('in_progress')
     expect((await pay(job, invoices.slice(1).reduce((a, b) => a + b, 0), '202')).status).toBe(201)
+    // Received in full: Complete; Paid waits for the bank.
+    expect(await jobOf(job)).toMatchObject({ status: 'completed', opsStage: 'completed' })
+    await clearAll(job)
     expect(await jobOf(job)).toMatchObject({ status: 'paid', opsStage: 'paid' })
     expect((await cardOf(card)).stage).toBe('Paid & Closed')
   })
 
-  test('marked Complete by hand while paid in full: on to Paid by itself', async () => {
+  test('marked Complete by hand while paid in full: on to Paid by itself once cleared', async () => {
     const { job, invoices } = await soldJob('Robert', [plus(today, 14)])
     for (const [i, c] of invoices.entries()) await pay(job, c, `30${i}`)
     expect((await jobOf(job))?.status).toBe('scheduled')
     const r = await call('PATCH', `/api/saved-jobs/${job}`, { opsStage: 'completed' })
     expect(r.status).toBe(200)
-    expect(r.json.data).toMatchObject({ status: 'paid', opsStage: 'paid' })
+    // Received in full, not cleared: it stays Complete until the owner taps Cleared.
+    expect(r.json.data).toMatchObject({ status: 'completed', opsStage: 'completed' })
+    await clearAll(job)
+    expect(await jobOf(job)).toMatchObject({ status: 'paid', opsStage: 'paid' })
   })
 
   test('the crew packet: the office\'s 811 locate in words, kept when a box is empty, replaced only when the crew says so', async () => {

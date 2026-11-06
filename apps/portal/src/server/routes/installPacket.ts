@@ -413,7 +413,8 @@ export async function crewFacts(accountId: string, jobId: string) {
   const closeOut = {
     closed: isDonePhase(job.status),
     walkthroughSigned: !!w && w.accountId === accountId && !!w.homeownerSig && !!w.repSig,
-    paidInFull: billingStatusOf(await billingViewFor(accountId, jobId)).paidInFull,
+    // The crew's "waiting on the final payment": the customer paid (received); the bank clearing is the office's (Nov 6 2026).
+    paidInFull: billingStatusOf(await billingViewFor(accountId, jobId)).receivedInFull,
   }
   const loc = locateOf(job)
   // The 811 status on the card every day, and what Start warns about (never a block): not clear yet, expired, or

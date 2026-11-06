@@ -289,6 +289,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a sold quote\'s proposal link (d
       id: `sold-pay-a-${stamp}`, jobId: job.id, customerName: 'E2E Sold Paid', amountCents: 368150, paidOn: '2026-10-21', method: 'check',
       customerId: contactId, address: '9 Sold Test Way, Ocala, FL', fenceStyle: "WV-ND 6'x8' Privacy", checkNumber: '1042', reference: null,
       receipt: { id: rc.id, number: rc.number },
+      // Recorded straight to the table with no state: reads as cleared (Nov 6 2026).
+      clearState: null, clearedOn: null,
     }])
   })
 })

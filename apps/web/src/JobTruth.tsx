@@ -169,8 +169,8 @@ export function JobMilestones({ job, onMarkInstalled }: { job: Job; onMarkInstal
       {/* Signed off and paid in full, but nothing says it was installed: it does not close out by itself; the owner says so. */}
       {data.closeOut === 'mark_installed' && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm space-y-2" data-closeout-ask>
-          <p className="font-semibold text-amber-900">Paid and signed off. Mark it installed?</p>
-          <p className="text-amber-900">The walkthrough is signed and it is paid in full, but the crew has not tapped Finish on the last install day (or "Finished the job") and its last install day has not passed, so it did not move to Complete by itself.</p>
+          <p className="font-semibold text-amber-900">Final payment received and signed off. Mark it installed?</p>
+          <p className="text-amber-900">The walkthrough is signed and every dollar is received, but the crew has not tapped Finish on the last install day (or "Finished the job") and its last install day has not passed, so it did not move to Complete by itself.</p>
           {can('billing.amounts') && onMarkInstalled
             ? <button type="button" className="btn btn-primary min-h-[48px]" onClick={() => { if (window.confirm('Mark this job installed and complete?')) onMarkInstalled() }} data-closeout-mark>Mark installed and complete</button>
             : <p className="text-xs text-amber-800">The owner marks it installed.</p>}
@@ -215,7 +215,8 @@ export function JobFinancial({ job }: { job: Job }) {
   useSyncExternalStore(subscribe, paymentsVersion, paymentsVersion)
   useEffect(() => { void loadJob(job.id) }, [job.id, job.updatedAt])
   const s = scheduleOf(job.id)
-  const status = billingStatusOf(s ? { contractCents: s.contractCents, paidCents: s.paidCents, completedDate: s.completedDate, invoices: s.invoices } : null)
+  // Paid only when cleared (Jonathan, Nov 6 2026): received in full with a check waiting on the bank reads "Paid, not cleared yet".
+  const status = billingStatusOf(s ? { contractCents: s.contractCents, paidCents: s.paidCents, clearedCents: s.clearedCents, completedDate: s.completedDate, invoices: s.invoices } : null)
   const contractCents = s ? s.contractCents : Math.round((job.contractValue || 0) * 100)
   const paidCents = s ? s.paidCents : Math.round((job.amountPaid || 0) * 100)
   const row = (k: string, v: string, attr?: string) => (
@@ -226,9 +227,10 @@ export function JobFinancial({ job }: { job: Job }) {
       {row('Contract Value', money(contractCents))}
       {row('Amount Paid', money(paidCents))}
       {row('Outstanding', money(contractCents - paidCents))}
+      {!!s?.notClearedCents && row('Not cleared yet', `${money(s.notClearedCents)} (${s.notClearedCount ?? 0} payment${s.notClearedCount === 1 ? '' : 's'})`, 'data-job-not-cleared')}
       <div className="flex justify-between gap-3 text-sm">
         <span className="text-gray-500">Payment Status</span>
-        <span className={`font-semibold text-right ${status.state === 'paid' ? 'text-green-700' : status.state === 'deposit_due' || status.state === 'due' ? 'text-orange-700' : 'text-gray-900'}`} data-job-payment-status>
+        <span className={`font-semibold text-right ${status.state === 'paid' ? 'text-green-700' : status.state === 'paid_not_cleared' ? 'text-amber-700' : status.state === 'deposit_due' || status.state === 'due' ? 'text-orange-700' : 'text-gray-900'}`} data-job-payment-status>
           {s ? status.text : 'No signed contract with a payment schedule yet'}
         </span>
       </div>

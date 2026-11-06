@@ -5,10 +5,15 @@
  * Pure: no browser, no stores. The screens hand it what they loaded and show
  * what it returns, so the same concept is worked out one way everywhere:
  *
- *   Revenue, cash basis      payments received in the period (the payment
- *                            schedules' "Payment received", by the day paid),
- *                            plus payments on hand-made Billing invoices that
- *                            were never taken into a schedule.
+ *   Revenue, cash basis      payments cleared in the period, by the day they
+ *                            cleared (Jonathan, Nov 6 2026: "The P&L goes by
+ *                            cleared date"); received and not cleared yet is
+ *                            not in it, bounced never. Payments recorded
+ *                            before states were kept count by the day paid,
+ *                            as do payments on hand-made Billing invoices
+ *                            never taken into a schedule.
+ *   Not cleared yet          received, not cleared (Billing's line, the
+ *                            Balance Sheet's deposits in transit).
  *   Revenue, installed       jobs finished (completed date) in the period, at
  *   (accrual)                their contract value: what the Dashboard calls
  *                            "Revenue this year".
@@ -49,13 +54,41 @@ export const BASIS_WORDS: Record<RevenueBasis, { name: string; short: string; ho
     how: 'Jobs finished in the period, at their contract value (the Dashboard\'s "Revenue this year").',
   },
   cash: {
-    name: 'Payments received (cash)',
-    short: 'payments received',
-    how: 'Payments recorded with "Payment received" in the period, by the day paid. Voided payments are left out.',
+    name: 'Payments cleared (cash)',
+    short: 'payments cleared',
+    how: 'Payments the bank cleared in the period, by the day they cleared. Received and not cleared yet is left out until you tap Cleared; voided and bounced payments never count.',
   },
 }
 
 export interface ReceivedPayment { paidOn: string; amountCents: number }
+
+/** A payment on a schedule as the server lists it (portal lib/jobTruth.ts paymentsReceived). */
+export interface PaymentWithState { paidOn: string; amountCents: number; clearState?: string | null; clearedOn?: string | null }
+
+/**
+ * The P&L's cash (Nov 6 2026: "The P&L goes by cleared date"): each cleared payment on the day it cleared; one
+ * recorded before states were kept (no state) on the day paid; received and not cleared yet left out. The server
+ * never lists voided (bounced) ones.
+ */
+export function clearedCash(rows: PaymentWithState[]): ReceivedPayment[] {
+  const out: ReceivedPayment[] = []
+  for (const r of rows) {
+    if (r.clearState === 'received' || r.clearState === 'bounced') continue
+    out.push({ paidOn: r.clearState === 'cleared' && r.clearedOn ? r.clearedOn : r.paidOn, amountCents: r.amountCents })
+  }
+  return out
+}
+
+/** Received and not cleared yet (Billing's "Not cleared yet" line, the Balance Sheet's deposits in transit). */
+export function notClearedYet(rows: Array<Pick<PaymentWithState, 'amountCents' | 'clearState'>>): { cents: number; count: number } {
+  let cents = 0, count = 0
+  for (const r of rows) {
+    if (r.clearState !== 'received') continue
+    cents += Math.round(Number(r.amountCents) || 0)
+    count++
+  }
+  return { cents, count }
+}
 
 /** Cash basis: payments received from `from` to `to` (YYYY-MM-DD, inclusive). */
 export function cashReceived(payments: ReceivedPayment[], from: string, to: string): { cents: number; count: number } {
@@ -377,6 +410,8 @@ export interface BalanceInput {
   arCents: number
   /** Accounts payable (open vendor bills), cents. */
   apCents: number
+  /** Deposits in transit: payments received, not cleared by the bank yet (notClearedYet), cents (Nov 6 2026). */
+  inTransitCents?: number
   entries: Array<{ category: 'current_asset' | 'fixed_asset' | 'other_asset' | 'current_liability' | 'long_term_liability' | 'equity'; amountCents: number }>
 }
 
@@ -406,7 +441,8 @@ export interface BalanceResult {
  */
 export function balanceSheet(input: BalanceInput): BalanceResult {
   const sum = (c: BalanceInput['entries'][number]['category']) => input.entries.filter(e => e.category === c).reduce((s, e) => s + Math.round(e.amountCents || 0), 0)
-  const currentAssetsCents = sum('current_asset') + input.arCents
+  // Deposits in transit are a current asset of their own: received (so out of what is owed), not in the bank yet.
+  const currentAssetsCents = sum('current_asset') + input.arCents + Math.round(input.inTransitCents ?? 0)
   const fixedAssetsCents = sum('fixed_asset')
   const otherAssetsCents = sum('other_asset')
   const assetsCents = currentAssetsCents + fixedAssetsCents + otherAssetsCents

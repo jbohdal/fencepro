@@ -30,6 +30,7 @@ import { toast } from './toast'
 import { canTextHere } from './textingDevice'
 import { smsLink } from './appointmentLogic'
 import { invoiceDue } from '../../portal/src/server/lib/jobReadiness'
+import { waitsOnBank } from '../../portal/src/server/lib/paymentMath'
 import { businessDate } from './businessDate'
 import { hasSignal } from './outbox'
 import { formatPhone } from './phoneFormat'
@@ -120,7 +121,10 @@ function ScheduleCard({ s, showJob, compact }: { s: Schedule; showJob: boolean; 
           <p className="text-sm text-gray-700">Contract <b data-contract-total>{money(s.contractCents)}</b>{s.changeOrderCents || s.adjustmentCents ? <span className="text-xs text-gray-500"> (signed {money(s.signedCents)}{s.changeOrderCents ? `, change orders ${money(s.changeOrderCents)}` : ''}{s.adjustmentCents ? `, adjustments ${money(s.adjustmentCents)}` : ''})</span> : null}</p>
           <p className="text-sm text-gray-700">Paid <b className="text-green-700" data-paid-total>{money(s.paidCents + waitingCents)}</b> · {balance < 0 ? <>Credit <b className="text-blue-700" data-balance>{money(-balance)}</b></> : <>Balance <b className={balance > 0 ? 'text-orange-700' : 'text-green-700'} data-balance>{money(balance)}</b></>}</p>
         </div>
-        {balance <= 0 && s.invoices.some(i => i.kind === 'final') && <span className="rounded-full bg-green-100 text-green-800 text-xs font-semibold px-2 py-1" data-paid-in-full>Paid in full</span>}
+        {/* Paid only when cleared (Jonathan, Nov 6 2026); received in full with a payment waiting on the bank says so. */}
+        {balance <= 0 && s.invoices.some(i => i.kind === 'final') && (waitingCents === 0 && (s.clearedCents ?? s.paidCents) >= s.contractCents
+          ? <span className="rounded-full bg-green-100 text-green-800 text-xs font-semibold px-2 py-1" data-paid-in-full>Paid in full</span>
+          : <span className="rounded-full bg-amber-100 text-amber-800 text-xs font-semibold px-2 py-1 text-center" data-paid-not-cleared>Paid, not cleared yet</span>)}
       </div>
 
       <div className="divide-y divide-gray-100 border-y border-gray-100">
@@ -136,7 +140,11 @@ function ScheduleCard({ s, showJob, compact }: { s: Schedule; showJob: boolean; 
               <div className="text-right text-sm shrink-0">
                 <p className="font-semibold" data-invoice-amount>{money(i.amountCents)}</p>
                 <p className="text-xs text-gray-500">Paid {money(i.amountCents - i.shownBalance)}</p>
-                <p className={`text-xs font-semibold ${i.shownBalance > 0 ? 'text-orange-700' : 'text-green-700'}`} data-invoice-balance={i.shownBalance}>{i.shownBalance > 0 ? `Left ${money(i.shownBalance)}` : 'Paid'}</p>
+                {(() => {
+                  // Paid only when the cleared payments cover it (Nov 6 2026); a phone's waiting payment is not cleared either.
+                  const notCleared = i.shownBalance <= 0 && (i.shownBalance < i.balanceCents || (i.clearedBalanceCents ?? i.balanceCents) > 0)
+                  return <p className={`text-xs font-semibold ${i.shownBalance > 0 ? 'text-orange-700' : notCleared ? 'text-amber-700' : 'text-green-700'}`} data-invoice-balance={i.shownBalance} data-invoice-cleared={notCleared ? 'no' : 'yes'}>{i.shownBalance > 0 ? `Left ${money(i.shownBalance)}` : notCleared ? 'Paid, not cleared yet' : 'Paid'}</p>
+                })()}
               </div>
             </div>
             {recorder && i.shownBalance > 0 && (
@@ -353,6 +361,10 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
   const link = token ? receiptUrl(token) : ''
   const waiting = paymentWaiting(paymentId)
   const voided = !!fromServer?.voided
+  // A check not cleared yet: the customer reads "Payment received", not Paid in full (Jonathan, Nov 6 2026). This
+  // payment is received until the owner taps Cleared; cash, card and Zelle read as before.
+  const own = s?.payments.find(p => p.id === paymentId)
+  const bankWait = !!snap?.paidInFull && !voided && [...(s?.payments ?? []), ...(own || !snap ? [] : [{ amountCents: snap.amountCents, clearState: 'received', method: snap.method }])].some(waitsOnBank)
   // Shown as the app shows phones: "(352) 555 0211" (recheck Oct 27 2026: the box showed 3525550211).
   const [phone, setPhone] = useState(formatPhone(snap?.phone || s?.phone || ''))
   const [email, setEmail] = useState(snap?.email || s?.email || '')
@@ -388,7 +400,13 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
           <Row k="Paid to date" v={money(snap.paidToDateCents)} attr="data-receipt-paid" />
           <Row k={snap.balanceCents < 0 ? 'Credit (over the total)' : 'Balance remaining'} v={money(Math.abs(snap.balanceCents))} attr="data-receipt-balance" bold />
         </div>
-        {snap.paidInFull && (
+        {bankWait && (
+          <div className="rounded-xl bg-green-50 border border-green-200 p-4 text-center" data-receipt-waiting-on-bank>
+            <p className="text-2xl font-bold text-green-800">Payment received</p>
+            <p className="text-base text-gray-800">Thank you! Your balance is $0.00. It reads paid in full once your check clears.</p>
+          </div>
+        )}
+        {snap.paidInFull && !bankWait && (
           <div className="rounded-xl bg-green-50 border border-green-200 p-4 text-center" data-receipt-paid-in-full>
             <p className="text-2xl font-bold text-green-800">Paid in full</p>
             <p className="text-base text-gray-800" data-receipt-warranty>Warranty: {snap.warrantyName || 'as written on your contract'}</p>

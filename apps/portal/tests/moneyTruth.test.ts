@@ -9,7 +9,35 @@ import {
   toCents, dayIn, cashReceived, installedRevenue, legacyPaymentsReceived, receivablesTotal,
   marginOf, leftOutWords, targetMargins, targetOfStyle, weightedTarget, marginTone,
   budgetActuals, projectYear, balanceSheet, withChangeOrders, soldInYear, jobContractCents,
+  clearedCash, notClearedYet,
 } from '../../web/src/moneyTruth'
+
+describe('Received and Cleared (Jonathan, Nov 6 2026: "Yes to all four")', () => {
+  const rows = [
+    { paidOn: '2026-10-28', amountCents: 445700, clearState: 'cleared', clearedOn: '2026-11-02' },
+    { paidOn: '2026-11-03', amountCents: 300000, clearState: 'received', clearedOn: null },
+    { paidOn: '2026-11-04', amountCents: 125000, clearState: 'received', clearedOn: null },
+    { paidOn: '2026-10-15', amountCents: 50000, clearState: null, clearedOn: null },
+  ]
+  test('Billing: received counts, with a "not cleared yet" line (total and count)', () => {
+    expect(notClearedYet(rows)).toEqual({ cents: 425000, count: 2 })
+    expect(notClearedYet([])).toEqual({ cents: 0, count: 0 })
+  })
+  test('the P&L goes by cleared date: received not in it yet, before-states payments by the day paid', () => {
+    expect(clearedCash(rows)).toEqual([{ paidOn: '2026-11-02', amountCents: 445700 }, { paidOn: '2026-10-15', amountCents: 50000 }])
+    // Paid in October, cleared in November: November's cash, not October's.
+    expect(cashReceived(clearedCash(rows), '2026-10-01', '2026-10-31')).toEqual({ cents: 50000, count: 1 })
+    expect(cashReceived(clearedCash(rows), '2026-11-01', '2026-11-30')).toEqual({ cents: 445700, count: 1 })
+    // Bounced (voided; the server leaves them out anyway) never counts.
+    expect(clearedCash([{ paidOn: '2026-11-01', amountCents: 9900, clearState: 'bounced', clearedOn: null }])).toEqual([])
+  })
+  test('the Balance Sheet: deposits in transit are a current asset, and it still balances', () => {
+    const bs = balanceSheet({ arCents: 100000, apCents: 20000, inTransitCents: 425000, entries: [{ category: 'current_asset', amountCents: 500000 }, { category: 'equity', amountCents: 300000 }] })
+    expect(bs.currentAssetsCents).toBe(500000 + 100000 + 425000)
+    expect(bs.assetsCents).toBe(bs.liabilitiesAndEquityCents)
+    expect(balanceSheet({ arCents: 100000, apCents: 0, entries: [] }).currentAssetsCents).toBe(100000)
+  })
+})
 
 describe('revenue', () => {
   const payments = [

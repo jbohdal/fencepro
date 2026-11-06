@@ -64,7 +64,8 @@ export interface ReadinessFacts {
   walkthrough: { signed: boolean; signedAt: string | null; homeowner: string | null; open: boolean } | null
   photos: number
   /** The payment schedule (lib/contractBilling.ts), or null when the job has none. */
-  billing: { finalCents: number; finalDue: boolean; balanceCents: number; paidInFull: boolean } | null
+  /** paidInFull: received in full and cleared; receivedInFull: received in full, maybe not cleared yet (Nov 6 2026). */
+  billing: { finalCents: number; finalDue: boolean; balanceCents: number; paidInFull: boolean; receivedInFull?: boolean } | null
 }
 
 /** A ticked item as stored (BusinessState.jobChecklists[jobId]). */
@@ -135,6 +136,7 @@ export function fromRecords(key: MilestoneKey, f: ReadinessFacts): { done: boole
     case 'invoice':
       if (!f.billing) return { done: false, detail: 'No payment schedule' }
       if (f.billing.paidInFull) return { done: true, detail: 'Paid in full' }
+      if (f.billing.receivedInFull) return { done: true, detail: 'Paid, not cleared yet' }
       if (f.billing.finalDue) return { done: true, detail: `Final ${money(f.billing.finalCents)} due` }
       return { done: false, detail: `Final ${money(f.billing.finalCents)} is due when the job is complete` }
   }
@@ -189,8 +191,12 @@ export function staleTicks(f: ReadinessFacts, stored: StoredTick[] | null | unde
 // ── Payment status ──────────────────────────────────────────────────────────
 
 export interface BillingStatus {
-  /** none: no schedule; deposit_due, due (an invoice due now), not_due (only the Final, due on completion), paid. */
-  state: 'none' | 'deposit_due' | 'due' | 'not_due' | 'paid'
+  /**
+   * none: no schedule; deposit_due, due (an invoice due now), not_due (only the Final, due on completion), paid;
+   * paid_not_cleared: every dollar received, some not cleared by the bank yet (Jonathan, Nov 6 2026: "A job reads
+   * Paid only when cleared").
+   */
+  state: 'none' | 'deposit_due' | 'due' | 'not_due' | 'paid' | 'paid_not_cleared'
   text: string
   contractCents: number
   paidCents: number
@@ -199,7 +205,12 @@ export interface BillingStatus {
   due: { label: string; balanceCents: number; dueDate: string | null } | null
   finalCents: number
   finalDue: boolean
+  /** Received in full and every payment cleared (or recorded before states were kept): Paid. */
   paidInFull: boolean
+  /** Received in full, cleared or not: nothing is owed (Billing counts received). */
+  receivedInFull: boolean
+  /** Received, not cleared yet (cents). */
+  notClearedCents: number
   /** The invoice due now is past its due date (as of `today`), and by how many days. */
   overdue: boolean
   daysOver: number
@@ -232,21 +243,27 @@ export function invoiceDue(i: { balanceCents: number; dueOn: string; dueDate: st
  * the job's Financial section, Payments and Billing show these words, the
  * server's job status follows the same view in lib/contractBilling.ts settleIn).
  */
-export function billingStatusOf(v: { contractCents: number; paidCents: number; invoices: Array<{ kind: string; label: string; amountCents: number; balanceCents: number; dueOn: string; dueDate: string | null }>; completedDate?: string | null } | null, today: string = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })): BillingStatus {
-  if (!v) return { state: 'none', text: 'No payment schedule yet', contractCents: 0, paidCents: 0, balanceCents: 0, due: null, finalCents: 0, finalDue: false, paidInFull: false, overdue: false, daysOver: 0 }
+export function billingStatusOf(v: { contractCents: number; paidCents: number; clearedCents?: number; invoices: Array<{ kind: string; label: string; amountCents: number; balanceCents: number; dueOn: string; dueDate: string | null }>; completedDate?: string | null } | null, today: string = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })): BillingStatus {
+  if (!v) return { state: 'none', text: 'No payment schedule yet', contractCents: 0, paidCents: 0, balanceCents: 0, due: null, finalCents: 0, finalDue: false, paidInFull: false, receivedInFull: false, notClearedCents: 0, overdue: false, daysOver: 0 }
   const balance = v.contractCents - v.paidCents
   const final = v.invoices.find(i => i.kind === 'final')
   const finalCents = final?.amountCents ?? 0
   const complete = !!v.completedDate
-  const paidInFull = balance <= 0 && !!final
+  const receivedInFull = balance <= 0 && !!final
+  // Cleared: not given, every payment counts as cleared (as it read before Nov 6 2026).
+  const cleared = typeof v.clearedCents === 'number' ? v.clearedCents : v.paidCents
+  const notClearedCents = Math.max(0, v.paidCents - cleared)
+  // Paid only when cleared (Jonathan, Nov 6 2026): what the cleared payments cover pays the contract.
+  const paidInFull = receivedInFull && v.contractCents - cleared <= 0
   // Due now: an open invoice that is not "due on completion", or the Final once the job is complete.
   const open = v.invoices.filter(i => i.balanceCents > 0 && (i.dueOn !== 'completion' || complete))
   const first = open[0] ?? null
   const due = first ? { label: first.label, balanceCents: first.balanceCents, dueDate: first.dueOn === 'completion' ? (first.dueDate ?? v.completedDate ?? null) : first.dueDate } : null
   const when0 = first ? invoiceDue(first, v.completedDate, today) : null
   const overdue = when0?.state === 'overdue'
-  const base = { contractCents: v.contractCents, paidCents: v.paidCents, balanceCents: balance, due, finalCents, finalDue: complete && !!final, paidInFull, overdue, daysOver: when0?.daysOver ?? 0 }
+  const base = { contractCents: v.contractCents, paidCents: v.paidCents, balanceCents: balance, due, finalCents, finalDue: complete && !!final, paidInFull, receivedInFull, notClearedCents, overdue, daysOver: when0?.daysOver ?? 0 }
   if (paidInFull) return { ...base, state: 'paid', text: 'Paid in full' }
+  if (receivedInFull) return { ...base, state: 'paid_not_cleared', text: `Paid, not cleared yet (${money(notClearedCents)} waiting on the bank)` }
   if (due) {
     const when = overdue ? ` overdue since ${mdy(due.dueDate!)} (${base.daysOver} day${base.daysOver === 1 ? '' : 's'})` : due.dueDate ? ` due ${mdy(due.dueDate)}` : ' due now'
     const isDeposit = first!.kind === 'deposit'

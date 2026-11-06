@@ -16,8 +16,10 @@
 //   5. A Salesman records one in the field (straight to the server, with a
 //      Salesman's own sign in): it is in "Payments to confirm"; the owner
 //      confirms it and its receipt does not change.
-//   6. The final payment: Paid in full, the warranty, the lien release (DRAFT)
-//      on the PDF. Voided (its receipt says VOID), then made again.
+//   6. The final payment by check: "Payment received" (balance $0), not Paid in
+//      full, while the checks have not cleared (Nov 6 2026); the owner taps
+//      Cleared: Paid in full, the warranty, the lien release (DRAFT) on the
+//      PDF. Voided (its receipt says VOID), then made again.
 //   7. The customer page Billing and the pipeline card window show the schedule.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 E2E_ACCESS_TOKEN=<owner> node e2e/payments.mjs
@@ -251,12 +253,17 @@ try {
     await until(async () => (await R().locator('[data-receipt-status]').getAttribute('data-receipt-status')) === 'saved', 20000)
   }
   await payFinal(true)
-  check('final: Paid in full with the warranty', await R().locator('[data-receipt-paid-in-full]').isVisible() && /Lifetime Craftsmanship Warranty/.test(await R().locator('[data-receipt-warranty]').innerText()), await R().locator('[data-receipt-warranty]').innerText().catch(() => ''))
+  // The checks have not cleared: "Payment received", never Paid in full (Jonathan, Nov 6 2026).
+  check('final, checks not cleared: Payment received, not Paid in full', await R().locator('[data-receipt-waiting-on-bank]').isVisible() && !(await R().locator('[data-receipt-paid-in-full]').isVisible()))
   check('final: the balance is $0.00', (await R().locator('[data-receipt-balance]').innerText()) === '$0.00')
-  await shot(page, '5-paid-in-full')
+  await shot(page, '5-payment-received')
   const fin1 = sql(`SELECT r.token || '|' || r."paymentId" FROM "Receipt" r JOIN "ContractPayment" p ON p.id = r."paymentId" WHERE r."jobId" = '${jobId}' AND p."checkNumber" = '1043'`).split('|')
+  const wpdf = pdfText(Buffer.from(await (await fetch(`${API}/p/r/${fin1[0]}.pdf`)).arrayBuffer()))
+  check('final PDF before the checks clear: Payment received, no Paid in full, no lien release yet', wpdf.includes('Payment received') && !wpdf.includes('Paid in full') && !wpdf.includes('WAIVER AND RELEASE OF LIEN'))
+  // The owner taps Cleared on every payment once the bank shows them.
+  for (const p of (await call('GET', `/api/payments/job/${jobId}`)).json.data.schedule.payments.filter(p => !p.voidedAt && p.clearState === 'received')) await call('POST', `/api/payments/${p.id}/cleared`, {})
   const fpdf = pdfText(Buffer.from(await (await fetch(`${API}/p/r/${fin1[0]}.pdf`)).arrayBuffer()))
-  check('final PDF: Paid in full, the warranty, the install date note, the DRAFT lien release', fpdf.includes('Paid in full') && fpdf.includes('Lifetime Craftsmanship Warranty') && fpdf.includes('starts on the install date') && fpdf.includes('WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT') && fpdf.includes('DRAFT'))
+  check('final PDF once cleared: Paid in full, the warranty, the install date note, the DRAFT lien release', fpdf.includes('Paid in full') && fpdf.includes('Lifetime Craftsmanship Warranty') && fpdf.includes('starts on the install date') && fpdf.includes('WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT') && fpdf.includes('DRAFT'))
   await tap(R().locator('[data-receipt-done]'))
   // Void it.
   const row = page.locator(`[data-payment="${fin1[1]}"]`)
@@ -268,7 +275,7 @@ try {
   check('void: the final is open again ($2,000.00 left)', /Left \$2,000\.00/.test(await page.locator('[data-invoice="final"]').innerText()))
   check('void: in the audit log', sql(`SELECT count(*) FROM "CrmAuditLog" WHERE action = 'voided' AND "entityId" = '${fin1[1]}'`) === '1')
   await payFinal(false)
-  check('redo: Paid in full again', await R().locator('[data-receipt-paid-in-full]').isVisible())
+  check('redo (a new check, not cleared): Payment received again', await R().locator('[data-receipt-waiting-on-bank]').isVisible())
   await tap(R().locator('[data-receipt-done]'))
 
   // ── 7. The customer page and the card window show the schedule ──
@@ -276,7 +283,7 @@ try {
   await page.goto(`${APP}/customers/${contactId}`)
   await tap(page.locator('[data-customer-tab="billing"]'))
   await page.waitForSelector(`[data-payment-schedule="${jobId}"]`, { timeout: 20000 })
-  check('customer page Billing: the schedule, paid in full', await page.locator(`[data-payment-schedule="${jobId}"] [data-paid-in-full]`).isVisible())
+  check('customer page Billing: the schedule, paid, not cleared yet (the new check)', await page.locator(`[data-payment-schedule="${jobId}"] [data-paid-not-cleared]`).isVisible())
   await openPage()
   await page.goto(`${APP}/pipeline?card=${cardId}`)
   check('card window: Payments', !!(await until(async () => await page.locator(`[data-card-payments] [data-payment-schedule="${jobId}"]`).isVisible(), 20000)))

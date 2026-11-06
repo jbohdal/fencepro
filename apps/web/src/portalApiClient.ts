@@ -134,7 +134,7 @@ export interface PortalInvoice { id: string; invoiceNumber: string; title: strin
 export interface PortalBilling {
   jobId: string; style: string
   signedCents: number; changeOrderCents: number; otherChangesCents: number; contractCents: number; paidCents: number; balanceCents: number
-  invoices: Array<{ id: string; label: string; amountCents: number; paidCents: number; balanceCents: number; due: string; number: string | null }>
+  invoices: Array<{ id: string; label: string; amountCents: number; paidCents: number; balanceCents: number; /** Paid by a check not cleared yet: reads "Payment received" (Nov 6 2026). */ waitingOnBank?: boolean; due: string; number: string | null }>
   payments: Array<{ id: string; amountCents: number; paidOn: string; paidOnText: string; method: string; receipt: { number: number; link: string; pdf: string } | null }>
 }
 export interface PortalPapers {

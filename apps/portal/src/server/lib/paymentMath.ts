@@ -115,6 +115,39 @@ export function applyPayments(invoices: InvoiceLite[], payments: PaymentLite[]):
   return { applications, paidByInvoice, unappliedByPayment, creditCents: credit }
 }
 
+// ── Received and Cleared (Jonathan, Nov 6 2026) ─────────────────────────────
+// "Billing counts received, with a 'not cleared yet' line. The P&L goes by cleared date. The Balance Sheet shows
+// deposits in transit. A job reads Paid only when cleared." (lib/paymentClearing.ts marks them.)
+
+export interface ClearLite { amountCents?: number; clearState?: string | null; voided?: boolean; voidedAt?: Date | string | null; method?: string | null }
+
+const isVoided = (p: ClearLite) => !!p.voided || !!p.voidedAt
+
+/** Cleared: the owner tapped Cleared, or it was recorded before states were kept (null reads as it always did). Never voided or bounced. */
+export const isCleared = (p: ClearLite): boolean => !isVoided(p) && (p.clearState === 'cleared' || p.clearState == null)
+
+/** Received and not cleared yet (a deposit in transit). Bounced payments are voided, so never this. */
+export const isNotCleared = (p: ClearLite): boolean => !isVoided(p) && p.clearState === 'received'
+
+/** Cash, card and Zelle are the customer's money when taken (lib/paymentClearing.ts startingStatusPlan says the same). */
+export const INSTANT_METHODS: readonly string[] = ['cash', 'card', 'zelle']
+
+/**
+ * What a customer reads: a check (or "other") not cleared yet is "Payment received", never Paid
+ * (Nov 6 2026: "say Payment received rather than Paid" on an uncleared check). Cash, card and Zelle read as before.
+ */
+export const waitsOnBank = (p: ClearLite): boolean => isNotCleared(p) && !INSTANT_METHODS.includes(String(p.method ?? ''))
+
+/** Cleared cents and the received-not-cleared cents and count of a job's (or the account's) payments. */
+export function clearSums(payments: Array<ClearLite & { amountCents: number }>): { clearedCents: number; notClearedCents: number; notClearedCount: number } {
+  let clearedCents = 0, notClearedCents = 0, notClearedCount = 0
+  for (const p of payments) {
+    if (isCleared(p)) clearedCents += p.amountCents
+    else if (isNotCleared(p)) { notClearedCents += p.amountCents; notClearedCount++ }
+  }
+  return { clearedCents, notClearedCents, notClearedCount }
+}
+
 /** Dollars and cents for receipts and log lines: $4,457.00 (a credit shows as -$27.00). */
 export function moneyText(cents: number): string {
   const neg = cents < 0

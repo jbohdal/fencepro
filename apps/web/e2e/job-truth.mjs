@@ -277,9 +277,13 @@ try {
   const mid = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
   check('close out: the deposit alone leaves the job where it is', p1.status === 201 && mid.status === 'staging', mid.status)
   const p2 = await call('POST', '/api/payments', { id: `e2etruth${stamp}b`, jobId: W.a.jobId, amountCents: 355700, method: 'check', checkNumber: '102' })
+  const recv = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
+  // Nov 6 2026 ("A job reads Paid only when cleared"): received in full is Complete; Paid waits for the owner's Cleared.
+  check('close out: received in full, checks not cleared: Complete, not Paid', recv.status === 'completed' && recv.paymentStatus === 'partial', `${recv.status} ${recv.paymentStatus}`)
+  for (const id of [`e2etruth${stamp}a`, `e2etruth${stamp}b`]) await call('POST', `/api/payments/${id}/cleared`, {})
   const done = (await call('GET', `/api/saved-jobs/${W.a.jobId}`)).json.data
-  // Round 2 (Oct 26): Complete, and the balance being zero, on to Paid by itself.
-  check('close out: signed and paid in full: Complete then Paid by itself', p2.status === 201 && done.status === 'paid' && done.opsStage === 'paid' && done.paymentStatus === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(done.completedDate || ''), `${done.status} ${done.opsStage} ${done.paymentStatus}`)
+  // Round 2 (Oct 26): Complete, and the balance being zero (and cleared, Nov 6), on to Paid by itself.
+  check('close out: signed, paid in full and cleared: Complete then Paid by itself', p2.status === 201 && done.status === 'paid' && done.opsStage === 'paid' && done.paymentStatus === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(done.completedDate || ''), `${done.status} ${done.opsStage} ${done.paymentStatus}`)
   const card = ((await call('GET', '/api/pipeline')).json.data?.leads ?? []).find(l => l.id === W.a.cardId)
   check('close out: paid in full and done, the pipeline card is in Paid & Closed', card?.stage === 'Paid & Closed', card?.stage)
   await pc.page.goto(`${APP}/customers/${W.a.contactId}`)

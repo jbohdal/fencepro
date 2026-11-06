@@ -13,7 +13,7 @@ import { getConfig, overheadPctOf } from './configStore'
 import { businessDate } from './businessDate'
 import type { SavedQuote } from './QuotesPage'
 import {
-  legacyPaymentsReceived, receivablesTotal, targetMargins, withChangeOrders, soldInYear, budgetActuals, installedRevenue, projectYear, toCents,
+  legacyPaymentsReceived, receivablesTotal, clearedCash, targetMargins, withChangeOrders, soldInYear, budgetActuals, installedRevenue, projectYear, toCents,
   targetOfStyle, quoteGrade, weightedTarget, hasCost,
   type ReceivedPayment, type TargetMargins, type BudgetActuals, type QuoteForGrade, type QuoteForMargin, type QuoteGrade, type MarginTone,
 } from './moneyTruth'
@@ -29,6 +29,8 @@ export interface ReceivedRow {
   id: string; jobId: string; customerName: string; amountCents: number; paidOn: string; method: string
   customerId: string | null; address: string; fenceStyle: string; checkNumber: string | null; reference: string | null
   receipt: { id: string; number: number } | null
+  /** received | cleared | null (recorded before states were kept: reads as cleared) (Nov 6 2026). */
+  clearState: 'received' | 'cleared' | null; clearedOn: string | null
 }
 
 function useServerList<T>(path: string, failWords: string): { rows: T[] | null; error: string } {
@@ -51,9 +53,12 @@ export const useReceivables = () => useServerList<Receivable>('/api/payments/rec
 /** Payments received on the payment schedules. */
 export const useReceived = () => useServerList<ReceivedRow>('/api/payments/received', 'Payments received need signal to load.')
 
-/** Every payment received: the schedules' and the hand-made Billing invoices' not taken into a schedule. */
+/**
+ * The P&L's cash: the schedules' payments by the day they cleared (received and not cleared yet left out, Nov 6
+ * 2026), and the hand-made Billing invoices' not taken into a schedule (no states: by the day paid).
+ */
 export function allReceived(rows: ReceivedRow[]): ReceivedPayment[] {
-  return [...rows.map(r => ({ paidOn: r.paidOn, amountCents: r.amountCents })), ...legacyPaymentsReceived(getInvoices(), getPayments())]
+  return [...clearedCash(rows), ...legacyPaymentsReceived(getInvoices(), getPayments())]
 }
 
 /** Outstanding and overdue, exactly as the Billing page adds them up. */
