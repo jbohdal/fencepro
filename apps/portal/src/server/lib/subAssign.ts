@@ -364,8 +364,8 @@ export async function waitingSubTexts(accountId: string, jobId?: string): Promis
   const off = await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: OFF_KEY } } })
   const offTexts = (((off?.value as Json)?.texts as Json[]) ?? []).filter(t => !t.textedAt && !t.dismissedAt && (!jobId || t.jobId === jobId))
   if (offTexts.length) {
-    const offJobs = await prisma.savedJob.findMany({ where: { id: { in: offTexts.map(t => t.jobId) } }, select: { id: true, customerName: true } })
-    for (const t of offTexts) out.push({ subJobId: '', jobId: t.jobId, textId: t.textId, at: t.at, what: String(t.what).replace(/^Text waiting: /, ''), text: t.text, phone: t.to, subName: t.subName ?? '', customerName: offJobs.find(j => j.id === t.jobId)?.customerName ?? '' })
+    const offJobs = await prisma.savedJob.findMany({ where: { id: { in: offTexts.map(t => t.jobId) }, deletedAt: null }, select: { id: true, customerName: true } })
+    for (const t of offTexts) if (offJobs.some(j => j.id === t.jobId)) out.push({ subJobId: '', jobId: t.jobId, textId: t.textId, at: t.at, what: String(t.what).replace(/^Text waiting: /, ''), text: t.text, phone: t.to, subName: t.subName ?? '', customerName: offJobs.find(j => j.id === t.jobId)?.customerName ?? '' })
   }
   return out.sort((a, b) => b.at.localeCompare(a.at))
 }
