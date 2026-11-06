@@ -47,6 +47,7 @@ import { customerDollarsFrom, onCustomerDollars, signedAtOf } from './customerDo
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
 import { plainStyleName } from './estimates.js'
+import { jobStyleName } from './customerStyleName.js'
 
 const err = (status: number, message: string, code?: string) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) })
 
@@ -640,7 +641,7 @@ export async function receiptPdfOf(r: { snapshot: unknown; voidedAt: Date | null
     installDay = day ? dayWords(day) : null
   }
   // The fence in plain words ("White Vinyl Privacy, 6 ft tall, 8 ft panels, No dig"), never the style code the receipt was saved with.
-  const fenceStyle = s.fenceStyle ? await plainStyleName(s.fenceStyle) : ''
+  const fenceStyle = s.fenceStyle ? await jobStyleName({ fenceStyle: s.fenceStyle, quoteId: (await prisma.savedJob.findUnique({ where: { id: r.jobId }, select: { quoteId: true } }))?.quoteId }) : ''
   return receiptPdf({ s: { ...s, fenceStyle }, voided: !!r.voidedAt, dayWords: dayWords(s.paidOn), installDay })
 }
 

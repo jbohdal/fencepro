@@ -43,6 +43,7 @@ export function certificateDay(completedDate: string | null | undefined, complet
 import { safeSvg } from '../routes/proposal.js'
 import { signedForPortal } from './signedDocuments.js'
 import { customerPlanSvg } from './sitePlans.js'
+import { customerStyleName, jobStyleName } from './customerStyleName.js'
 
 /** The customer's own quotes (not deleted or archived), by their customer id and company. */
 export async function quotesOf(contact: { id: string; accountId: string | null }) {
@@ -85,7 +86,7 @@ export async function quoteRowOf(q: QuoteRow, now = Date.now()) {
   const p = q.proposal as any
   const signed = isSigned(q)
   return {
-    id: q.id, style: await plainStyleName(q.fenceStyle), date: q.date, status: q.status,
+    id: q.id, style: await customerStyleName(q.fenceStyle, q as any), date: q.date, status: q.status,
     priceCents: Math.round((q.finalPrice || 0) * 100),
     // The customer's own proposal link, when the office made one and it still works.
     shareToken: q.shareToken && !q.shareDisabledAt && (!q.shareExpiresAt || q.shareExpiresAt.getTime() > now) ? q.shareToken : null,
@@ -114,7 +115,7 @@ export async function papersOf(contact: { id: string; accountId: string | null }
   const certificates = []
   for (const w of walks) {
     const j = jobs.find(x => x.id === w.jobId)!
-    certificates.push({ jobId: j.id, style: await plainStyleName(j.fenceStyle), completedOn: certificateDay(j.completedDate, w.completedAt), url: `certificates/${j.id}.pdf` })
+    certificates.push({ jobId: j.id, style: await jobStyleName(j), completedOn: certificateDay(j.completedDate, w.completedAt), url: `certificates/${j.id}.pdf` })
   }
   return { signed, contracts, certificates }
 }
@@ -142,7 +143,7 @@ export async function billingOf(contact: { id: string; accountId: string | null 
     const paid = payments.reduce((sum, p) => sum + p.amountCents, 0)
     const rByPay = new Map(receipts.map(r => [r.paymentId, r]))
     out.push({
-      jobId: job.id, style: await plainStyleName(job.fenceStyle),
+      jobId: job.id, style: await jobStyleName(job),
       signedCents: parts.signedCents, changeOrderCents: parts.changeOrderCents, otherChangesCents: parts.adjustmentCents, contractCents: parts.contractCents,
       paidCents: paid, balanceCents: parts.contractCents - paid,
       invoices: invoices.map(i => {

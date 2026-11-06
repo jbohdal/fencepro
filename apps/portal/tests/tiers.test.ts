@@ -90,6 +90,13 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
     const t3 = resolveTiers(input(byName("WV-DS 6'x8' Privacy")), STYLES, EIGHT)
     expect(t3.map(x => x.style!.name)).toEqual(["WV-DS 6'x8' Privacy", 'WV-Auto ND Privacy', "WV-ND 6'x6' Privacy"])
     expect(t3[1].option!.finalPrice).toBe(priceOption(input(byName("WV-DS 6'x8' Privacy")), byName('WV-Auto ND Privacy')).finalPrice)
+    // Jonathan, Nov 6 2026: "Vinyl Good is the best price dig set". With a dig set best price fence turned on, Good on a
+    // no dig quote is it, at its own price; a plain 8 ft dig set quote keeps Good as itself.
+    const withDs = [...STYLES, ds]
+    const t4 = resolveTiers(input(auto), withDs, EIGHT)
+    expect(t4.map(x => x.style!.name)).toEqual(['WV-Auto DS Privacy', 'WV-Auto ND Privacy', "WV-ND 6'x6' Privacy"])
+    expect(t4[0].option!.finalPrice).toBe(priceOption(input(auto), ds).finalPrice)
+    expect(resolveTiers(input(byName("WV-DS 6'x8' Privacy")), withDs, EIGHT)[0].style!.name).toBe("WV-DS 6'x8' Privacy")
   })
 
   test('every price is the quote math for that style', () => {
@@ -98,7 +105,7 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
 
   test('the words for the proposal are the new lineup', () => {
     expect(tiers.map(t => t.spec.text)).toEqual([
-      'Posts set in concrete. Solid fence at the best price.',
+      'Posts set in concrete. A solid fence at the lowest price.',
       'Steel pipe driven deep, no concrete, faster install.',
       'More posts per foot for the strongest fence we build.',
     ])
@@ -120,7 +127,7 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
     expect(p.options.slice(0, 3).map(o => o.tier?.label)).toEqual(['Good', 'Better', 'Best'])
     expect(p.recommended).toBe(1)
     expect(p.options[1].badge).toBe('Most popular')
-    expect(p.options[0].tier!.blurb).toBe('Posts set in concrete. Solid fence at the best price.')
+    expect(p.options[0].tier!.blurb).toBe('Posts set in concrete. A solid fence at the lowest price.')
     expect(p.tierSet!.tiers.map(t => t.key)).toEqual(['good', 'better', 'best'])
   })
 

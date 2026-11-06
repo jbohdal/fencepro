@@ -31,7 +31,7 @@ import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { Prisma } from '@prisma/client'
 import { priceWork, costDeltaOf, scopeOf, workChangeable, approvedInOrder, daysFor, startOfChange, effectiveWork, requestForShape, openNotice, rebuildJobWork, deriveFor, signingClash, inputs, type StoredWork, type WorkInput } from './changeOrderWork.js'
-import { shapeOf, sameShape, ownChangeWords, ownLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
+import { shapeOf, sameShape, ownChangeWords, ownLineWords, customerLineWords, withAddedPieces, type AddedPieces } from './changeOrderMerge.js'
 import { pricingModule } from './estimates.js'
 import { lockJob, checkCut, checkVoid, checkApprove, keepOverride, overrideToKeep, type MinimumAsk, type CutOverride } from './changeOrderMinimum.js'
 import { dataFor } from './quotePricing.js'
@@ -134,8 +134,8 @@ export function alsoInDrawingWords(also: ReturnType<typeof alsoInDrawing>): stri
   })
 }
 
-/** A line as the customer sees it: what changes, how many and the amount (never where it was picked from). */
-const customerLine = ({ source, fromChange, ...l }: ChangeOrderLine) => { void source; void fromChange; return l }
+/** A line as the customer sees it: what changes, how many and the amount (never where it was picked from, nor panel counts). */
+const customerLine = ({ source, fromChange, ...l }: ChangeOrderLine) => { void source; void fromChange; return { ...l, description: customerLineWords(l.description) } }
 
 export const totalOf = (lines: ChangeOrderLine[]) => lines.reduce((s, l) => s + l.amountCents, 0)
 
@@ -224,14 +224,15 @@ export async function contractAround(r: Row, quotePrice: number | null | undefin
 }
 
 /** What the customer sees: the lines, amounts and total; never who made it, a cost, the IP or the signature image. */
-export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null } | null, contract: ContractAround | null = null) {
+export function customerView(r: Row, q?: { fenceStyle?: string | null; finalPrice?: number | null; customerName?: string | null; runRails?: unknown } | null, contract: ContractAround | null = null) {
   return {
     id: r.id, number: r.number, status: r.status as ChangeOrderStatus, reason: r.reason, lines: shownLines(r).map(customerLine), totalCents: r.totalCents,
     sentAt: r.sentAt, approvedAt: r.approvedAt, voidedAt: r.voidedAt, signedBy: r.signedBy ?? null, signedAt: r.signedAt ?? null,
     // Approved verbally with the office: it is part of the contract, and still waits for the customer's own signature.
     needsSignature: needsSignature(r), contractRev: r.contractRev ?? null,
     warrantyBefore: warrantyOf(r.warrantyBefore), warrantyAfter: warrantyOf(r.warrantyAfter),
-    quote: q ? { fenceStyle: q.fenceStyle ?? '', priceCents: Math.round((q.finalPrice ?? 0) * 100) } : null,
+    // The runs' picks: the customer reads the sections used, never "(best price)" (Jonathan, Nov 6 2026).
+    quote: q ? { fenceStyle: q.fenceStyle ?? '', runRails: q.runRails ?? null, priceCents: Math.round((q.finalPrice ?? 0) * 100) } : null,
     contract,
   }
 }
@@ -244,7 +245,7 @@ export async function changeOrdersForContact(contactId: string) {
   if (typeof contactId !== 'string' || !contactId) return [] // never "every quote"
   const quotes = await prisma.savedQuote.findMany({
     where: { crmContactId: contactId, deletedAt: null, archivedAt: null },
-    select: { id: true, accountId: true, fenceStyle: true, finalPrice: true, customerName: true },
+    select: { id: true, accountId: true, fenceStyle: true, finalPrice: true, customerName: true, runRails: true },
   })
   if (!quotes.length) return []
   const rows = await prisma.changeOrder.findMany({

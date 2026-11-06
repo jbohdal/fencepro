@@ -27,6 +27,7 @@
  */
 
 import { styleLabel } from './fenceCatalog'
+import { customerFenceName } from '../../portal/src/server/lib/customerFenceName'
 import { publicDoorUrl } from './publicDoor'
 import { formatPhone } from './phoneFormat'
 import { useEffect, useRef, useState } from 'react'
@@ -651,7 +652,7 @@ function ChangeOrderCard({ co, accent, defaultName, onSigned }: { co: PortalChan
     <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-3 min-w-0" data-portal-co={co.id} data-portal-co-status={co.status}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs text-gray-400">Change order CO-{co.number}{co.contractRev && co.status === 'approved' ? ` · Contract rev ${co.contractRev}` : ''}{co.quote?.fenceStyle ? ` · ${styleLabel(co.quote.fenceStyle)}` : ''}</p>
+          <p className="text-xs text-gray-400">Change order CO-{co.number}{co.contractRev && co.status === 'approved' ? ` · Contract rev ${co.contractRev}` : ''}{co.quote?.fenceStyle ? ` · ${customerFenceName(styleLabel(co.quote.fenceStyle), (co.quote as { runRails?: unknown }).runRails)}` : ''}</p>
           {co.reason && <p className="font-semibold text-gray-900 break-words">{co.reason}</p>}
         </div>
         <span className={`shrink-0 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${badge[1]}`}>{badge[0]}</span>

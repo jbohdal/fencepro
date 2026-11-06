@@ -12,7 +12,9 @@
  *     customer's own address follows the Primary;
  *   - a new lead at the rental's address is a Possible match;
  *   - a merge leaves the kept customer one Primary;
- *   - a Salesman sees her own customers' properties only.
+ *   - a Salesman sees her own customers' properties only;
+ *   - a quote moved to another customer: the first one keeps the property only
+ *     when it was already theirs (Jonathan, Nov 6 2026).
  */
 
 import 'dotenv/config'
@@ -165,5 +167,41 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('customer properties (dev databas
     const rows = (await call('GET', '/api/crm-contacts', 'sally')).json.data
     expect(rows.some((c: any) => c.id === his)).toBe(false)
     expect(rows.find((c: any) => c.id === hers).propertyAddresses.length).toBe(2)
+  })
+
+  test('a quote moved to another customer: the first keeps the property only when it was already theirs (Nov 6 2026)', async () => {
+    const first = await newCustomer('owner', { serviceAddress: HOME, phone: '3525550111' })
+    const second = await newCustomer('owner', { serviceAddress: '2 NE 2nd Ave, Ocala, FL 34470', phone: '3525550112' })
+    const quoteAt = async (contactId: string, address: string) => {
+      const place = await lib.placeRecord(prisma, accountId, contactId, { address })
+      return prisma.savedQuote.create({ data: { accountId, crmContactId: contactId, propertyId: place.propertyId, customerName: 'E2E Move', customerAddress: address, fenceStyle: 'x', runs: [], pullSheet: [] } })
+    }
+    const propsOf = async (id: string) => (await prisma.customerProperty.findMany({ where: { accountId, crmContactId: id } })).map((p: any) => p.address).sort()
+
+    // Typed at a new address: the quote's save made the property, so it goes with the move.
+    const q1 = await quoteAt(first, '3 NE 3rd Ave, Ocala, FL 34470')
+    expect(await propsOf(first)).toEqual([HOME, '3 NE 3rd Ave, Ocala, FL 34470'].sort())
+    await prisma.savedQuote.update({ where: { id: q1.id }, data: { crmContactId: second, propertyId: (await lib.placeRecord(prisma, accountId, second, { address: q1.customerAddress })).propertyId } })
+    expect(await lib.dropMovedQuoteProperty(prisma, accountId, q1.propertyId, q1)).toBe(true)
+    expect(await propsOf(first)).toEqual([HOME])
+
+    // At their Primary (their home): kept.
+    const q2 = await quoteAt(first, HOME)
+    expect(await lib.dropMovedQuoteProperty(prisma, accountId, q2.propertyId, q2)).toBe(false)
+    // A rental added on the customer before the quote, with notes: theirs already, kept.
+    const rental = (await call('POST', `/api/crm-contacts/${first}/properties`, 'owner', { label: 'Rental', address: RENTAL, gateCode: '11' })).json.data
+    const q3 = await quoteAt(first, RENTAL)
+    expect(q3.propertyId).toBe(rental.id)
+    expect(await lib.dropMovedQuoteProperty(prisma, accountId, rental.id, q3)).toBe(false)
+    // Made by this quote, but another quote of theirs is there too: kept.
+    const q4 = await quoteAt(first, '4 NE 4th Ave, Ocala, FL 34470')
+    await quoteAt(first, '4 NE 4th Ave, Ocala, FL 34470')
+    expect(await lib.dropMovedQuoteProperty(prisma, accountId, q4.propertyId, q4)).toBe(false)
+    // Made long before this quote (an older property, written as Other): kept.
+    const old = await prisma.customerProperty.create({ data: { accountId, crmContactId: first, label: 'Other', address: '5 NE 5th Ave, Ocala, FL 34470', createdAt: new Date(Date.now() - 86_400_000) } })
+    const q5 = await quoteAt(first, '5 NE 5th Ave, Ocala, FL 34470')
+    expect(q5.propertyId).toBe(old.id)
+    expect(await lib.dropMovedQuoteProperty(prisma, accountId, old.id, q5)).toBe(false)
+    expect(await propsOf(first)).toEqual([HOME, RENTAL, '4 NE 4th Ave, Ocala, FL 34470', '5 NE 5th Ave, Ocala, FL 34470'].sort())
   })
 })

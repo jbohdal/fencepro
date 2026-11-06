@@ -30,6 +30,7 @@ import { startView, beatView, staffOf, ignoredRequest, proposalOpenedPush } from
 import { contractForQuote, warrantyLines } from '../lib/contractPdf.js'
 import { installDateOf } from '../lib/warranties.js'
 import { pricingModule } from '../lib/estimates.js'
+import { customerFenceName } from '../lib/customerFenceName.js'
 import { remakeCertificateForJob } from '../lib/walkthroughCertificate.js'
 import { changedNames, recordAcknowledged, signedIndex, withUpdateWarranties, type UpdateOption } from '../lib/warrantyUpdates.js'
 import { REUSE_MS } from '../lib/proposalViewRules.js'
@@ -122,7 +123,7 @@ warrantyUpdatePublic.get('/:token', async (req, res) => {
       <p class="small">${esc(p?.customer?.address || r.q.customerAddress || '')}</p>
       <section class="notice" data-wu-note><p>We've updated the warranty on your fence: <b>${esc(o.warranty.name)}</b>. Your price and everything else stay the same.</p></section>
       <section data-wu-fence><h2>Your fence</h2>
-        ${opt?.tier?.label ? `<p class="tier">${esc(opt.tier.label)}</p>` : ''}<p class="optlabel" style="margin:0">${esc(o.label)}</p>
+        ${opt?.tier?.label ? `<p class="tier">${esc(opt.tier.label)}</p>` : ''}<p class="optlabel" style="margin:0">${esc(customerFenceName(o.label))}</p>
         <p class="price" style="margin:4px 0 0" data-wu-price>${money(o.finalPrice)}</p><p class="small">Your price, unchanged.</p></section>
       <section id="warranty" data-warranty-section><h2>Warranty</h2><p class="wname" id="wname" data-wu-warranty-name>${esc(o.warranty.name)}</p>
         <p id="wtext" data-wu-warranty-text>${esc(o.warranty.text).replace(/\n/g, '<br>')}</p>

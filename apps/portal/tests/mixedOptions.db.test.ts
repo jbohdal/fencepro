@@ -214,7 +214,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
     expect(signedPricing({ pricing: q.pricing }, {})).toEqual({})
   })
 
-  test('Vinyl Good / Better / Best as saved: a tier at a fixed width is that width\'s fence at its own price; a best price quote is the Better card, no fourth', () => {
+  test('Vinyl Good / Better / Best as saved: a tier at a fixed width is that width\'s fence at its own price (Good and Better: the best price fence of their kind); a best price quote is the Better card, no fourth', () => {
     const saved = savedSetOf('Vinyl')
     expect(saved, 'the dev database has a vinyl Good / Better / Best').toBeTruthy()
     const j = job(request(VINYL, saved))
@@ -226,6 +226,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('proposal options of any style (d
       if (t.key === 'better' && t.install === 'no-dig') {
         expect(card.fenceStyle).toBe(VINYL)
         expect(Math.round(card.finalPrice * 100)).toBe(Math.round(j.totals.price * 100))
+        continue
+      }
+      // Good, the dig set at a fixed width, is the dig set best price fence (Jonathan, Nov 6 2026), at its own price.
+      if (t.key === 'good' && t.install === 'dig-set' && /Auto DS/.test(card.fenceStyle)) {
+        expect(Math.round(card.finalPrice * 100), t.key).toBe(Math.round(job(request(card.fenceStyle, null)).totals.price * 100))
         continue
       }
       expect(card.fenceStyle, t.key).toMatch(new RegExp(`${t.install === 'dig-set' ? 'DS' : 'ND'} 6'x${t.width}'`))

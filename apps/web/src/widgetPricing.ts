@@ -20,6 +20,10 @@ import type { AppConfig, FenceStyle } from './configStore'
 import type { QuotePricingOverrides } from './pricingEngine'
 import { colorNamesOf } from './fenceCatalog'
 import { WOOD_STYLES } from './wood'
+// A namespace import: run from source by the server (tsx), the portal's .ts files load as CommonJS, whose names a
+// plain named import cannot see (moveRepair.ts); Vite and the pricing bundle give the names directly.
+import * as fenceNameNs from '../../portal/src/server/lib/customerFenceName'
+const { customerFenceName } = (Reflect.get(fenceNameNs, 'default') ?? fenceNameNs) as typeof fenceNameNs
 
 // ── What the customer picks ──────────────────────────────────────────────────
 
@@ -185,6 +189,15 @@ export function priceForStyle(cfg: AppConfig, overheadPct: number, yard: YardLay
 }
 
 /**
+ * A fence's name as the customer reads it on the website: a best price fence names the sections its runs took for
+ * this yard ("8 ft sections", "6 ft and 8 ft sections"), never "(best price)" (Jonathan, Nov 6 2026).
+ */
+function widgetFenceName(style: FenceStyle, priced: ReturnType<typeof priceForStyle>): string {
+  const rails = style.autoRailMix ? priced.job.calc.perRunRail.filter(r => r != null) : undefined
+  return customerFenceName(style.label || style.name, rails)
+}
+
+/**
  * The options for what the customer picked, each priced for their yard:
  * the builder's tier set for that category (Good Better Best for vinyl, Dig
  * set / No dig for aluminum and chain link), resolved from a style of their
@@ -213,7 +226,7 @@ export function widgetOptions(cfg: AppConfig, overheadPct: number, yard: YardLay
       if (!ts || t.sameAs || !pickOf(ts)) continue
       const adj = (Number(t.spec.priceAdjustPct) || 0) / 100
       const p = priceForStyle(cfg, overheadPct, yard, ts, adj)
-      options.push({ key: t.spec.key, name: t.spec.name, text: t.spec.text, popular: t.popular, fenceStyle: ts.name, styleLabel: ts.label || ts.name, price: p.price, perFoot: p.perFoot, priceAdjust: adj })
+      options.push({ key: t.spec.key, name: t.spec.name, text: t.spec.text, popular: t.popular, fenceStyle: ts.name, styleLabel: widgetFenceName(ts, p), price: p.price, perFoot: p.perFoot, priceAdjust: adj })
     }
   }
   if (!options.length) {
@@ -221,7 +234,7 @@ export function widgetOptions(cfg: AppConfig, overheadPct: number, yard: YardLay
       const p = priceForStyle(cfg, overheadPct, yard, s)
       const install = s.choices?.install === 'ds' ? 'Dig set' : s.choices?.install === 'nd' ? 'No dig' : ''
       const width = s.autoRailMix ? '' : s.choices?.width ? `${s.choices.width} ft sections` : ''
-      options.push({ key: s.name, name: [install, width].filter(Boolean).join(', ') || (s.label || s.name), text: '', popular: false, fenceStyle: s.name, styleLabel: s.label || s.name, price: p.price, perFoot: p.perFoot, priceAdjust: 0 })
+      options.push({ key: s.name, name: [install, width].filter(Boolean).join(', ') || (s.label || s.name), text: '', popular: false, fenceStyle: s.name, styleLabel: widgetFenceName(s, p), price: p.price, perFoot: p.perFoot, priceAdjust: 0 })
     }
     options.sort((a, b) => a.price - b.price)
   }

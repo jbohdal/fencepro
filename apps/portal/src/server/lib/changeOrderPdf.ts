@@ -15,6 +15,7 @@ import { pdfDocument } from './pdfText.js'
 import { logoPath } from '../routes/proposal.js'
 import { drawSignedRecord, type SignedRecord } from './contractPdf.js'
 import type { ChangeOrderLine, ContractAround } from './changeOrders.js'
+import { customerLineWords } from './changeOrderMerge.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const usd = (cents: number) => (cents < 0 ? '-' : '') + '$' + (Math.abs(cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -107,7 +108,7 @@ export function changeOrderPdf(c: ChangeOrderPdfInput): Promise<Buffer> {
     for (const l of c.lines) {
       need(20)
       const y = doc.y
-      doc.font('Helvetica').fontSize(10).fillColor(INK).text(l.description || 'Change', L, y, { width: W - 110 })
+      doc.font('Helvetica').fontSize(10).fillColor(INK).text(customerLineWords(l.description) || 'Change', L, y, { width: W - 110 })
       const after = doc.y
       doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(usd(l.amountCents), L + W - 100, y, { width: 100, align: 'right' })
       doc.y = Math.max(after, doc.y)

@@ -122,13 +122,14 @@ export function proposalLinkFor(token: string | null | undefined): string {
 const dollarsToCents = (n: unknown) => { const v = Number(n); return Number.isFinite(v) ? Math.round(v * 100) : 0 }
 
 /**
- * {{style}}: the fence's plain name. Sold (a job, or a sold or signed quote): a best price fence says the panels
- * its runs used ("8 ft panels"), as the customer reads it, not "6 or 8 ft panels (best price)" (Oct 27 2026:
- * the "Order materials for …" task). Unsold keeps the plain name.
+ * {{style}}: the fence's plain name as the customer reads it: a best price fence says the sections its runs used
+ * ("8 ft sections"), never "6 or 8 ft panels (best price)" (Oct 27 2026: the "Order materials for …" task; Jonathan,
+ * Nov 6 2026: never "best price" on anything customers see, and a template can be a text to the customer). An unsold
+ * draft reads the runs of its main option.
  */
 async function soldStyleName(code: string, sold: boolean, quote: { fenceStyle?: string | null; runRails?: unknown; proposal?: unknown } | null): Promise<string> {
   const plain = await plainStyleName(code)
-  return sold && plain ? customerFenceName(plain, soldRailsOf(quote, code)) : plain
+  return plain ? customerFenceName(plain, sold ? soldRailsOf(quote, code) : quote?.runRails) : plain
 }
 
 /** Build the context for a card or job. Null when it no longer exists. */

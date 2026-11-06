@@ -30,6 +30,7 @@ import { walkthroughApi, WALKTHROUGH_MISSING } from './walkthroughAdapter.js'
 import { ensurePermit, packetInputFor, portalFor, renderPacket, defaultPermitStatusOf } from './permits.js'
 import { textAllowedFor, textAllowedTo, mergedTextNo } from '../textConsent.js'
 import { installWord, repairWording } from '../workWords.js'
+import { jobStyleName } from '../customerStyleName.js'
 
 export interface StepRun {
   accountId: string
@@ -326,7 +327,7 @@ async function finalInvoice(r: StepRun, dueInDays: number): Promise<StepOutcome>
   if (totalCents <= 0) throw new PermanentStepError('The job has no contract price, so the final invoice cannot be made.')
   const id = `auto-${r.runId.slice(0, 8)}-${r.stepIndex}`
   let number = ''
-  const styleText = await plainStyleName(job.fenceStyle)
+  const styleText = await jobStyleName(job)
   await updateBusiness(r.accountId, effectKey(r, 'invoice'), r.runId, cur => {
     const list = Array.isArray(cur.invoices) ? [...(cur.invoices as any[])] : []
     if (list.some(i => i?.id === id)) return null

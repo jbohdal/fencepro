@@ -307,6 +307,30 @@ export async function placeRecord(db: Db, accountId: string, contactId: string |
   return { propertyId: p.id, address: picked && p.address ? p.address : undefined }
 }
 
+/**
+ * A quote moved to another customer (Jonathan, Nov 6 2026): the first customer does not keep the property the quote
+ * was at "unless it was already one of their properties". It is taken off only when this quote's own saves made it
+ * (made no earlier than a minute before the quote), it is not the Primary, nobody wrote on it (still "Other", no gate
+ * code, tenant or access notes) and no other quote, job, visit or photo of theirs is there. True when taken off.
+ */
+export async function dropMovedQuoteProperty(db: Db, accountId: string, propertyId: string | null | undefined, quote: { id: string; createdAt: Date }): Promise<boolean> {
+  if (!propertyId) return false
+  const p = await db.customerProperty.findFirst({ where: { id: propertyId, accountId } })
+  if (!p || p.isPrimary || p.label !== 'Other' || p.gateCode || p.tenantName || p.tenantPhone || p.accessNotes) return false
+  if (+new Date(p.createdAt) < +new Date(quote.createdAt) - 60_000) return false
+  const where = { accountId, propertyId }
+  // all rows: a deleted record can be restored, so one still at the property keeps it.
+  const [quotes, jobs, visits, photos] = await Promise.all([
+    db.savedQuote.count({ where: { ...where, id: { not: quote.id } } }),
+    db.savedJob.count({ where }),
+    db.appointment.count({ where }),
+    db.portalPhoto.count({ where: { propertyId } }),
+  ])
+  if (quotes || jobs || visits || photos) return false
+  await db.customerProperty.delete({ where: { id: p.id } })
+  return true
+}
+
 /** A job's property: its quote's (the job is that quote's work), else as any record, by the one picked or its address. */
 export async function jobPropertyId(db: Db, accountId: string, contactId: string | null | undefined, input: { quoteId?: string | null; propertyId?: string | null; address?: string | null }): Promise<string | null> {
   if (!contactId) return null

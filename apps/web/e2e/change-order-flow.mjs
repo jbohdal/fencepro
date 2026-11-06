@@ -119,7 +119,7 @@ try {
   const warrantyBefore = (await call('GET', `/api/warranties/job/${jobId}`)).json.data?.warranty?.name
   // B: copied from a priced no dig quote with a yard drawing (one side without a gate to lengthen).
   const plain = side => side && side.lengthIn >= 96 && !side.gate && !side.off && !side.skip
-  const templateB = all.filter(q => !/^E2E/i.test(q.customerName) && Array.isArray(q.pullSheet) && q.pullSheet.length >= 8 && q.totalCOGS > 0 && !q.work && /^WV-ND 6'x8'/.test(q.fenceStyle) && q.layout?.yard?.sides?.some(plain))
+  const templateB = all.filter(q => !/^E2E/i.test(q.customerName) && Array.isArray(q.pullSheet) && q.pullSheet.length >= 8 && q.totalCOGS > 0 && !q.work && /^WV-ND 6'x8'/.test(q.fenceStyle) && !q.layout?.walk && q.layout?.yard?.sides?.some(plain))
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
   if (!templateB) throw new Error('no priced no dig quote with a yard drawing to copy on dev')
   const WHO_B = `${WHO} B`
@@ -254,7 +254,7 @@ try {
   await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
   // This quote is copied with no yard drawing (layout.yard null), so it opens on its run list and says so (Nov 2 2026).
   const lockedBanner = await page.locator('[data-quote-locked-banner]').innerText()
-  check('the quote builder opens on the signed quote, on its runs, saying how to make the change order', /Change order: change the run list, then tap Make change order/.test(lockedBanner), lockedBanner)
+  check('the quote builder opens on the signed quote, on its runs, saying how to make the change order', /Change order: change the (run list|list of lengths), then tap Make change order/.test(lockedBanner), lockedBanner)
   // Round 2 (Oct 26 2026): straight from the drawing to the change order; no "Update quote", no status, no lock message.
   const runInput = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first()
   const ftWas = parseFloat(await runInput.inputValue())

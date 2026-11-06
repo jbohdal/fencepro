@@ -125,3 +125,15 @@ describe('change orders: two drawings on one job', () => {
     expect(now.walkGates).toBe(1)
   })
 })
+
+describe('a change order line as the customer reads it (Jonathan, Nov 6 2026: no panel counts)', () => {
+  test('panel counts come off; what changes, the side and the price words stay', async () => {
+    const { customerLineWords } = await import('../src/server/lib/changeOrderMerge.js')
+    expect(customerLineWords('Add 10 ft of fence, 1 panel fewer (Side 3 60 ft → 70 ft)')).toBe('Add 10 ft of fence (Side 3 60 ft → 70 ft)')
+    expect(customerLineWords('Add 10 ft of fence, 2 panels more')).toBe('Add 10 ft of fence')
+    expect(customerLineWords('Remove 4 ft of fence, yet 1 panel more: a side split in two pieces needs a panel for each piece')).toBe('Remove 4 ft of fence')
+    expect(customerLineWords('Add 2 ft of fence: still 7 panels on that side, no price change')).toBe('Add 2 ft of fence, no price change')
+    expect(customerLineWords('Add 2 ft of fence (Left side 40 ft → 42 ft): same panels')).toBe('Add 2 ft of fence (Left side 40 ft → 42 ft)')
+    expect(customerLineWords('Add 1 walk gate')).toBe('Add 1 walk gate')
+  })
+})

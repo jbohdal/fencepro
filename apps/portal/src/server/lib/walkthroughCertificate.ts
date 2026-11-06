@@ -24,6 +24,7 @@ import { plainStyleName, pricingModule } from './estimates.js'
 import { logoPath } from '../routes/proposal.js'
 import { CATEGORY_LABEL, locationText, type WalkItem, type PhotoSlot, type Signature, type WalkCategory } from './walkthroughRules.js'
 import { effectiveQuoteWarranty, nyDay } from './warranties.js'
+import { jobStyleName } from './customerStyleName.js'
 
 const PURPLE = '#5E28A1', INK = '#1C1030', GRAY = '#5F5769', LINE = '#E2DCEC'
 const TZ = 'America/New_York'
@@ -242,7 +243,7 @@ export async function makeCertificate(
     company: { name: String(co.name || 'Getter Done Fence'), phone: String(co.phone || ''), email: String(co.email || '') },
     customerName: job?.customerName || 'Homeowner',
     address: job?.customerAddress || '',
-    fenceStyle: await plainStyleName(job?.fenceStyle || ''),
+    fenceStyle: await jobStyleName(job),
     category: (['vinyl', 'chain_link', 'aluminum'].includes(w.category) ? w.category : 'vinyl') as WalkCategory,
     work: await jobWorkLine(job),
     completedAt,

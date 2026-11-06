@@ -6,9 +6,9 @@
 // On a phone sized screen: walk the backyard on the walk list (Nov 5 2026: no
 // drawing at the house), a walk gate in the left return and a double gate in
 // the right return, pick a style; the sections, posts and price must match the
-// same job typed as a run list. Then save, reopen on a computer sized screen,
-// open it in the drawing tool (office), check the plan and post spacing, save
-// at the same price, and the customer sees the finished plan.
+// same job typed as a run list. Then save, reopen on a computer sized screen on
+// its walk list (no old drawing tool: the office draws on the job's site plan),
+// and the customer sees the plan.
 // It saves to a customer of its own (made through the API), never a real one; the quote and the customer
 // are deleted at the end.
 
@@ -132,46 +132,10 @@ try {
   await b2.locator('[data-step="yard"]').click(); await sleep(400)
   const reopened = await b2.locator('[data-walk-step]').count()
   check('the saved quote reopens on its walk list', reopened === 7, `${reopened} steps`)
-  // The office lays it out in the drawing tool (square corners from the turns, lengths kept).
-  await b2.locator('[data-walk-open-drawing]').click(); await sleep(800)
+  // The office draws the plan on the job's site plan once sold, never in the old drawing tool (Jonathan, Nov 6 2026).
+  check('no "Open in drawing tool" on the walk list', (await b2.locator('[data-walk-open-drawing]').count()) === 0)
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/desktop-layout-reopened.png` })
-  check('Open in drawing tool: the five sides in the drawing tool', (await b2.locator('[data-side-row]').count()) === 5 && (await b2.locator('[data-walk-drawing-note]').count()) === 1)
-  {
-  const p = d.page, b = b2
-  // Site plan: drawn as typed, with every post the quote is priced with.
-  const plan = b.locator('[data-site-plan]').first()
-  const drawn = await plan.evaluate(svg => ({
-    squares: svg.querySelectorAll('rect[width="12"]').length,
-    dots: [...svg.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '5.5').length,
-    open: [...svg.querySelectorAll('circle')].filter(c => c.getAttribute('r') === '3.2').length,
-    gates: svg.querySelectorAll('[data-plan-gate]').length,
-    // Gate hinge posts are drawn as dark squares (walk gate: one; double gate: two).
-    hinges: svg.querySelectorAll('[data-plan-hinge]').length,
-    text: svg.textContent,
-  }))
-  check('drawing tool: the plan draws 4 corner squares, 6 end and gate posts (3 of them hinge squares), 2 gate swings', drawn.squares === 4 && drawn.dots + drawn.hinges === 6 && drawn.hinges === 3 && drawn.gates === 2, JSON.stringify({ ...drawn, text: undefined }))
-  check('drawing tool: line posts drawn at the section count (57 sections, 7 runs = 50)', drawn.open === 50, String(drawn.open))
-  check('drawing tool: footage, sections, house, street and the permitting note are on the plan',
-    ['150\' 0"', 'Side 3 · 19 sec', 'Not to scale for permitting', "4' walk gate", "10' double gate"].every(t => drawn.text.includes(t)), drawn.text.slice(0, 200))
-  await p.locator('[data-plan-side="Side 3"]').click({ force: true }); await sleep(400)
-  check('drawing tool: tapping a side on the plan opens that side', (await b.locator('[data-side-open="true"]').getAttribute('data-side')) === 'Side 3')
-
-  const drawnPosts = (await b.locator('[data-post-counts] p').nth(1).textContent()).trim()
-  check('drawing tool: the same posts, 4 corner, 6 end (4 at gates)', /^4 corner · 6 end \(4 at gates\)/.test(drawnPosts), drawnPosts)
-  if ((await b.locator('[data-side="Side 1"][data-side-open="true"]').count()) === 0) await b.locator('[data-side-row="Side 1"]').click()
-  const leftRuns = (await b.locator('[data-side="Side 1"] [data-side-runs]').textContent()).trim()
-  check('drawing tool: the left return is split around its gate, with post spacing', /Piece 1: 13' 0" = 2 sections, posts 6' 6" apart/.test(leftRuns), leftRuns)
-  // Saved from the drawing tool with nothing changed: no question, the same price, Site plan needed off.
-  let asked = ''
-  d.page.once('dialog', dl => { asked = dl.message(); dl.dismiss() })
-  await b.locator('[data-step="price"]').click(); await sleep(400)
-  await d.page.locator('[data-quote-bar] [data-save-open]').click()
-  await d.page.locator('[data-save-submit]').click()
-  let drawnQuote = null
-  for (let i = 0; i < 25 && !drawnQuote; i++) { await sleep(1000); const l = await api('/api/saved-quotes'), x = (Array.isArray(l) ? l : l.quotes || []).find(q => q.id === saved.id); if (x?.layout?.planDone) drawnQuote = x }
-  check('saved from the drawing tool: not asked, the same price, the plan finished', !asked && !!drawnQuote && drawnQuote.finalPrice === saved.finalPrice, `${asked ? 'asked: ' + asked.slice(0, 80) : ''} $${saved.finalPrice} → $${drawnQuote?.finalPrice}`)
   await d.page.locator('[data-quote-builder] button[aria-label="Close"]').click().catch(() => {}); await sleep(400)
-  }
 
   // The crew sees runs by side with post spacing on the customer's quote.
   await d.page.goto(`${APP}/?customer=${saved.crmContactId}`)
@@ -181,7 +145,7 @@ try {
   await d.page.locator(`[data-customer-quote="${saved.id}"]`).first().click(); await sleep(800)
   const runTable = (await d.page.locator('[data-run-spacing]').first().textContent()).replace(/\s+/g, ' ')
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/desktop-quote-drawer-runs.png` })
-  check('the saved quote shows its site plan', await d.page.locator('[data-quote-plan] [data-site-plan]').count() > 0)
+  check('the saved quote shows its walk list sheet (the office draws the plan on the job once sold)', await d.page.locator('[data-quote-plan][data-walk-sheet]').count() > 0)
   check('the saved quote lists runs by side with post spacing', runTable.includes('Side 1 (1 of 2)') && runTable.includes(`7' 10 3/4"`), runTable.slice(0, 160))
 
   // The customer's link: the plan is on it, and no costs or margin are sent.
@@ -192,7 +156,7 @@ try {
     `cost ${pub.data.totalCOGS}, margin ${pub.data.gmPct}, ${pub.data.pullSheet.length} parts, price ${pub.data.finalPrice}`)
   await d.page.goto(`${APP}/#/quote/${token}`); await sleep(2500)
   if (process.env.SHOTS) await d.page.screenshot({ path: `${process.env.SHOTS}/customer-quote-with-plan.png`, fullPage: true })
-  check('the customer sees the site plan on their quote', await d.page.locator('[data-plan-section] [data-site-plan]').count() > 0)
+  check('the customer sees no plan picture until the office draws it', await d.page.locator('[data-plan-section] [data-site-plan]').count() === 0 && await d.page.locator('[data-walk-sheet]').count() === 0)
   check('desktop: no page errors', d.errors.length === 0, d.errors.join(' | '))
   await d.ctx.close()
 } catch (e) {

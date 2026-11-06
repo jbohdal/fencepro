@@ -53,7 +53,7 @@ export const tierSetBodySchema = z.object({
 // ── The starting sets ────────────────────────────────────────────────────────
 
 export const VINYL_STARTER: TierSpec[] = [
-  { key: 'good', name: 'Good', install: 'dig-set', width: 'cheapest', color: 'same', text: 'Posts set in concrete. Solid fence at the best price.' },
+  { key: 'good', name: 'Good', install: 'dig-set', width: 'cheapest', color: 'same', text: 'Posts set in concrete. A solid fence at the lowest price.' },
   { key: 'better', name: 'Better', install: 'no-dig', width: 'cheapest', color: 'same', text: 'Steel pipe driven deep, no concrete, faster install.' },
   { key: 'best', name: 'Best', install: 'no-dig', width: '6', color: 'same', text: 'More posts per foot for the strongest fence we build.' },
 ]

@@ -30,7 +30,7 @@ import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
-import { placeRecord } from '../lib/properties.js'
+import { placeRecord, dropMovedQuoteProperty } from '../lib/properties.js'
 import { DeleteError, deleteRecord } from '../lib/deletion.js'
 import { audit } from '../lib/auditLog.js'
 import { clientIdSchema, decideClientId } from '../lib/clientId.js'
@@ -576,6 +576,10 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     if (priceCheck.kind === 'unstamped') await priceCheckAudit((a, e, id, o) => audit(req, a, e, id, o), updated)
     if (minimum.kind === 'override') await minimumOverrideAudit((a, e, id, o) => audit(req, a, e, id, o), updated.id, minimum)
     await linkQuoteMedia(updated)
+    // Moved to another customer: the first one keeps the property only when it was already theirs (lib/properties.ts).
+    if (existing.crmContactId && updated.crmContactId !== existing.crmContactId && existing.propertyId && updated.propertyId !== existing.propertyId) {
+      if (await dropMovedQuoteProperty(prisma, existing.accountId, existing.propertyId, existing)) console.log(`[saved-quotes] quote ${existing.id} moved customers: took off the property its saves made for the first customer`)
+    }
     // Job costing: marked Sold (signed in person) now; its quoted cost is saved once. A quote already Sold keeps the one from its signing.
     if (updated.status === 'SOLD' && !updated.soldAt) await markEverSold(updated.accountId, updated.id)
     if (existing.status !== 'SOLD' && updated.status === 'SOLD') await snapshotAfterSigning(updated.accountId, updated.id, 'app')

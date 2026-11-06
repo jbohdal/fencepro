@@ -84,6 +84,7 @@ import { changeOrdersForContact, signByCustomer, customerView, contractAround } 
 import { quotesOf, jobsOf, quoteRowOf, customerPlanOf, isSigned, papersOf, billingOf } from '../lib/portalCustomer.js'
 import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
 import { plainStyleName } from '../lib/estimates.js'
+import { customerFenceName, soldRailsOf } from '../lib/customerFenceName.js'
 import { installDateOf, nyDay } from '../lib/warranties.js'
 import { signSchema as coSignSchema } from './changeOrderPublic.js'
 import { inboxFrom } from '../lib/portalInbox.js'
@@ -627,17 +628,18 @@ router.get('/projects', requirePortalAuth, async (req: PortalAuthRequest, res) =
     const today = nyDay(new Date())
     // A repair or a fence move says so ("Repair scheduled for ..."), from the job's quote's work.
     const quoteIds = jobs.map(j => j.quoteId).filter((x): x is string => !!x)
-    const works = quoteIds.length ? await prisma.savedQuote.findMany({ where: { id: { in: quoteIds }, accountId: c.accountId, deletedAt: null }, select: { id: true, work: true } }) : []
+    const works = quoteIds.length ? await prisma.savedQuote.findMany({ where: { id: { in: quoteIds }, accountId: c.accountId, deletedAt: null }, select: { id: true, work: true, fenceStyle: true, runRails: true, proposal: true } }) : []
     res.json({ success: true, data: await Promise.all(jobs.map(async j => {
       const permit = permits.get(j.id) ?? null
       // Ticked only from the job's records, whatever its status (audit Oct 26, 2026: a finished job ticked
       // "Materials Ordered" with nothing ordered): 811 marked once the good to dig day has come, the permit
       // approved or later, the materials ordered or later.
       const steps = projectStepsOf({ locatesDate: j.locatesDate, permit, materialsStatus: j.materialsStatus }, today)
-      const kind = workKindOf(works.find(w => w.id === j.quoteId)?.work)
+      const quote = works.find(w => w.id === j.quoteId) ?? null
+      const kind = workKindOf(quote?.work)
       // Finished: the day it was installed (the warranty's start, lib/warranties.ts).
       const installedOn = FINISHED_JOB.includes(j.status) ? await installDateOf(j) : null
-      return { id: j.id, style: await plainStyleName(j.fenceStyle), kind, status: j.status, scheduledDate: j.scheduledDate, installedOn, address: j.customerAddress, steps }
+      return { id: j.id, style: customerFenceName(await plainStyleName(j.fenceStyle), soldRailsOf(quote, j.fenceStyle)), kind, status: j.status, scheduledDate: j.scheduledDate, installedOn, address: j.customerAddress, steps }
     })) })
   } catch (err) {
     console.error('[portal-projects]', err)
@@ -779,7 +781,7 @@ router.post('/change-orders/:id/sign', requirePortalAuth, async (req: PortalAuth
   try {
     const b = coSignSchema.parse(req.body)
     const co = await prisma.changeOrder.findUnique({ where: { id: String(req.params.id) } })
-    const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { crmContactId: true, archivedAt: true, fenceStyle: true, finalPrice: true } }) : null
+    const q = co ? await prisma.savedQuote.findFirst({ where: { id: co.quoteId, accountId: co.accountId }, select: { crmContactId: true, archivedAt: true, fenceStyle: true, finalPrice: true, runRails: true } }) : null
     // Someone else's change order is "not found", the same as one that does not exist.
     if (!co || !q || q.archivedAt || !q.crmContactId || q.crmContactId !== req.portalAccount!.crmCustomerId) { res.status(404).json({ success: false, error: 'This change order is not available.' }); return }
     const { row, again } = await signByCustomer(co.accountId, co.id, { name: b.name, signature: b.signature, ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '') || null, via: 'portal' })

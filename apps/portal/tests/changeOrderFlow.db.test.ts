@@ -597,7 +597,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('change orders: everything follow
     const link1 = (await call(owner, 'POST', `/api/change-orders/${co1.json.data.id}/link`)).json.data.token
     await call(owner, 'PATCH', `/api/change-orders/${co1.json.data.id}`, { baseVersion: co1.json.data.version, status: 'sent' })
     const page1 = await call('', 'GET', `/p/co/${link1}`)
-    expect(page1.text).toContain('Add 10 ft of fence, 2 panels more (Back 50 ft → 60 ft)')
+    // The customer reads no panel counts (Jonathan, Nov 6 2026); the saved line and staff keep them.
+    expect(page1.text).toContain('Add 10 ft of fence (Back 50 ft → 60 ft)')
+    expect(page1.text).not.toContain('panels more')
     expect(page1.text).not.toContain('100 ft to 110 ft')
     expect((await call('', 'POST', `/p/co/${link1}/sign`, { name: 'Pat Customer', signature: SIG })).json.success).toBe(true)
     const row1 = (await prisma.changeOrder.findUnique({ where: { id: co1.json.data.id } }))!

@@ -25,6 +25,7 @@
 import crypto from 'crypto'
 import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
+import { customerFenceName, railsOf } from './customerFenceName.js'
 import { signedNow } from '../routes/saved-quotes.js'
 import { linkClosed } from '../routes/proposal.js'
 import type { OptionWarranty } from './warranties.js'
@@ -84,12 +85,13 @@ type QuoteRow = {
   id: string; accountId: string; proposal: unknown; chosenOption: number | null; fenceStyle: string; status: string; finalPrice: number
   acceptedAt: Date | null; soldAt: Date | null; work: unknown; customerName: string; customerPhone: string; customerEmail: string
   crmContactId: string | null; archivedAt: Date | null; shareToken: string | null; shareDisabledAt: Date | null; shareExpiresAt: Date | null
+  runRails?: unknown
 }
 
 export const QUOTE_SELECT = {
   id: true, accountId: true, proposal: true, chosenOption: true, fenceStyle: true, status: true, finalPrice: true, acceptedAt: true, soldAt: true,
   work: true, customerName: true, customerPhone: true, customerEmail: true, crmContactId: true, archivedAt: true, shareToken: true,
-  shareDisabledAt: true, shareExpiresAt: true,
+  shareDisabledAt: true, shareExpiresAt: true, runRails: true,
 } as const
 
 /** The option a signed quote was signed for: the accepted one, else the one of its style; null when none matches. */
@@ -139,7 +141,8 @@ async function optionsNow(q: QuoteRow, signed: boolean): Promise<{ options: Upda
   const oneBlock = p && typeof p.warranty === 'string' && p.warranty.trim() ? m.warrantyFromText(p.warranty, settings) as OptionWarranty | null : null
   const beforeOf = (o: any): OptionWarranty | null => (isObj(o?.warranty) && typeof o.warranty.text === 'string' ? o.warranty as OptionWarranty : oneBlock)
   const row = (o: any, i: number | null, now: OptionWarranty | null, before: OptionWarranty | null): UpdateOption => ({
-    index: i, label: String(o?.label || o?.fenceStyle || q.fenceStyle), fenceStyle: String(o?.fenceStyle || q.fenceStyle),
+    // The fence as the customer reads it: the sections used, never "(best price)" (Jonathan, Nov 6 2026).
+    index: i, label: customerFenceName(String(o?.label || o?.fenceStyle || q.fenceStyle), railsOf(o, (o?.fenceStyle || q.fenceStyle) === q.fenceStyle ? q.runRails : undefined)), fenceStyle: String(o?.fenceStyle || q.fenceStyle),
     finalPrice: Number(o?.finalPrice ?? q.finalPrice) || 0, warranty: now, before, changed: !!now && !sameWarranty(now, before),
   })
   if (!signed) return { options: opts.map((o, i) => row(o, i, (stamped[i]?.warranty ?? null) as OptionWarranty | null, beforeOf(o))), chosen: null }

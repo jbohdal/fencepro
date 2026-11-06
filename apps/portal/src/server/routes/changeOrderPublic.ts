@@ -20,7 +20,7 @@ import prisma from '../lib/prisma.js'
 import { phoneWords } from '../lib/installDays.js'
 import { plainZod } from '../lib/plainZod.js'
 import { byLink, shownLines, signByCustomer, needsSignature, contractAround, alsoInDrawing, alsoInDrawingWords } from '../lib/changeOrders.js'
-import { ownChangeWords } from '../lib/changeOrderMerge.js'
+import { ownChangeWords, customerLineWords } from '../lib/changeOrderMerge.js'
 import { CSS, esc, safeSvg } from './proposal.js'
 import { changeOrderPhonesFor } from '../lib/signedDocuments.js'
 
@@ -99,7 +99,7 @@ changeOrderPublic.get('/:token', async (req, res) => {
     <p class="small">${esc(q.customerAddress || '')}</p>
     ${co.reason ? `<p class="facts" data-co-why><b>Why:</b> ${esc(co.reason)}</p>` : ''}
     <section><h2>The change</h2><table class="lines"><tbody>
-      ${lines.map(l => `<tr><td>${esc(l.description || 'Change')}</td><td class="amt">${usd(l.amountCents)}</td></tr>`).join('')}
+      ${lines.map(l => `<tr><td>${esc(customerLineWords(l.description) || 'Change')}</td><td class="amt">${usd(l.amountCents)}</td></tr>`).join('')}
       <tr class="total"><td>${co.totalCents < 0 ? 'Total credit' : 'Total'}</td><td class="amt" data-co-total>${usd(co.totalCents)}</td></tr>
     </tbody></table>
     ${contract ? `<table class="lines" data-co-contract><tbody>

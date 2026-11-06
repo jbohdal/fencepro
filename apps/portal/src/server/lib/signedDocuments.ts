@@ -39,6 +39,7 @@ import { changeOrderPdf, changeOrderAcceptedText } from './changeOrderPdf.js'
 import { linesOf, contractAround } from './changeOrders.js'
 import { bookingTeam } from './appointmentRep.js'
 import { plainStyleName } from './estimates.js'
+import { customerFenceName, soldRailsOf } from './customerFenceName.js'
 import { signedFileUrl } from './portalFiles.js'
 import { quoteOnCustomerDollars, customerDollarsFrom, onCustomerDollars } from './customerDollars.js'
 
@@ -149,7 +150,8 @@ const safeName = (s: string) => s.replace(/[^\w .,'-]+/g, ' ').replace(/\s+/g, '
 export async function fileSignedContract(quoteId: string, madeBy: MadeBy = 'signing'): Promise<{ doc: Doc; made: boolean } | null> {
   const q = await prisma.savedQuote.findUnique({ where: { id: quoteId }, select: { ...CONTRACT_SELECT, crmContactId: true, acceptedIp: true, acceptedUserAgent: true } })
   if (!q || !q.acceptedAt) return null
-  const label = `Signed contract: ${await plainStyleName(q.fenceStyle)}`
+  // The fence as the customer reads it (sections used, never "(best price)"; Jonathan, Nov 6 2026).
+  const label = `Signed contract: ${customerFenceName(await plainStyleName(q.fenceStyle), soldRailsOf(q))}`
   const fileName = `Signed contract - ${safeName(q.customerName)}.pdf`
   const have = await prisma.signedDocument.findUnique({ where: { sourceKey: contractKey(q.id) } })
   if (have) return { doc: await complete(have, q.crmContactId, label, fileName), made: false }

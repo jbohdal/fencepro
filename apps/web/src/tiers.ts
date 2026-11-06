@@ -321,12 +321,14 @@ export function resolveTiers<S extends QuoteStyle & { isActive?: boolean; quotab
   }
   // Better at a fixed width on a quote of another fence (a dig set quote, the website's Good picked): Better is the best
   // price fence of its own kind when there is one, as on a best price quote, so the card reads the same whichever option
-  // is the main one (the website's Better = the opened draft's Better).
+  // is the main one (the website's Better = the opened draft's Better). Good too (Jonathan, Nov 6 2026: "Vinyl Good is
+  // the best price dig set"): Good at a fixed width is the best price fence of its kind, unless it is the quote's own fence.
   if (!opts.ownCardAsSent) {
-    const bi = out.findIndex(t => t.spec.key === 'better' && !t.off && !t.swapped && !t.added && t.style && t.style.name !== own.name && /^\d+$/.test(String(t.spec.width)))
-    const b = bi >= 0 ? out[bi] : null
-    const bp = b?.style ? styleParts(b.style.name, b.style as Parameters<typeof styleParts>[1]) : null
-    if (b && bp && !(b.style as { autoRailMix?: boolean }).autoRailMix) {
+    for (const key of ['good', 'better']) {
+      const bi = out.findIndex(t => t.spec.key === key && !t.off && !t.swapped && !t.added && t.style && t.style.name !== own.name && /^\d+$/.test(String(t.spec.width)))
+      const b = bi >= 0 ? out[bi] : null
+      const bp = b?.style ? styleParts(b.style.name, b.style as Parameters<typeof styleParts>[1]) : null
+      if (!b || !bp || (b.style as { autoRailMix?: boolean }).autoRailMix) continue
       const mix = styles.find(x => x.isActive !== false && isQuotable(x) && (x as { autoRailMix?: boolean }).autoRailMix && x.name !== b.style!.name && (() => {
         const xp = styleParts(x.name, x as Parameters<typeof styleParts>[1])
         return !!xp && xp.family === bp.family && xp.color === bp.color && xp.install === bp.install && xp.height === bp.height && (xp.model ?? null) === (bp.model ?? null)

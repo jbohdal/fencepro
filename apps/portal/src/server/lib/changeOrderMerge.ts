@@ -399,6 +399,20 @@ export function ownLineWords(description: string, sides: string | null): string 
   return (description.slice(0, m.index) + words + description.slice(m.index + m[0].length)).replace(/: still \d+ panels? in all/, ': same panels')
 }
 
+/**
+ * A fence line's words as the customer reads them: what changes, with no panel counts ("Add 10 ft of fence, 1 panel
+ * fewer (Side 3 60 ft → 70 ft)" reads "Add 10 ft of fence (Side 3 60 ft → 70 ft)"; Jonathan, Nov 6 2026). The saved
+ * words keep them, and staff screens show them.
+ */
+export function customerLineWords(description: string): string {
+  return String(description ?? '')
+    .replace(/, yet \d+ panels? more: a side split in two pieces needs a panel for each piece/g, '')
+    .replace(/, \d+ panels? (?:more|fewer)\b/g, '')
+    .replace(/: (?:still \d+ panels? (?:on that side|in all)|same panels)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 /** "the Back side's length" words for a clash: the same things two changes touch. */
 export function clashes(a: ChangeStep, b: ChangeStep): string[] {
   const t = new Set(singleTouches(a))

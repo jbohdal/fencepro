@@ -134,7 +134,7 @@ const offReason = (s: { isActive?: boolean; quotable?: boolean; held?: string } 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 
-/** What prices from a layout: runs, posts and gates (a drawing laid out from a walk list changes the price only when these do). */
+/** What prices from a layout: runs, posts and gates (a drawing laid out from a walk list prices differently only when these do). */
 function layoutKey(r: { runs: Array<{ ft: number }>; corners: number; ends: number; walkGates: number; dblGates: number; gateWidthsFt: unknown; linePosts: number } | null) {
   return r ? { runs: r.runs.map(x => Math.round(x.ft * 1000) / 1000), corners: r.corners, ends: r.ends, walk: r.walkGates, dbl: r.dblGates, widths: r.gateWidthsFt, lines: r.linePosts } : null
 }
@@ -636,10 +636,17 @@ export default function QuoteBuilder({
     // Missed only when nothing the builder prices from took it.
     if (w0 ? walkMissed && (!y0 || yardMissed) : yardMissed) setPlanEditMissed(true)
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
-  const [planDone, setPlanDone] = useState<boolean>(!!(init?.layout as { planDone?: boolean } | undefined)?.planDone)
-  // The office's bridge: a walked quote laid out in the drawing tool (square corners from the turns, lengths kept).
-  const [drawFromWalk, setDrawFromWalk] = useState<null | { price: number; key: string }>(null)
-  const walkMode = !!walk && !planDone && !drawFromWalk
+  const [planDone] = useState<boolean>(!!(init?.layout as { planDone?: boolean } | undefined)?.planDone)
+  // A walked quote stays on its walk list (Jonathan, Nov 6 2026): the office draws the plan on the job's site plan, and
+  // its done mark (layout.planDone) leaves the quote as walked. Only a quote drawn in the old tool from its walk list
+  // into a different fence (other feet, gates or posts) keeps opening on that drawing, so its price stays as saved.
+  const [walkMode] = useState<boolean>(() => {
+    if (!walk) return false
+    const y0 = init?.layout?.yard
+    if (!planDone || !y0) return true
+    const key = (y: YardLayout) => JSON.stringify(layoutKey(deriveLayout(y, 72)))
+    return key(y0) === key(walkToYard(walk))
+  })
   useEffect(() => { if (walkMode && walk) setYard(walkToYard(walk)) }, [walk, walkMode])
   const [corners, setCorners]           = useState(init?.corners ?? 0)
   const [ends, setEnds]                 = useState(init?.ends ?? 0)
@@ -1346,11 +1353,6 @@ export default function QuoteBuilder({
       if (!window.confirm(`${planChange.title}\n\n${lines}\n\nSave the quote with these prices?`)) return
       planAsked.current = true
     }
-    // A plan drawn from the walk list: a change to feet, gates or posts changes the price; asked before it is saved.
-    if (drawFromWalk && JSON.stringify(layoutKey(layoutResult)) !== drawFromWalk.key) {
-      const now = Math.round(calc.priced.price * 100)
-      if (!window.confirm(`The drawing changes the fence (a side's feet, a gate or a post), so the price changes:\n\nWas $${(drawFromWalk.price / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}\nNow $${(now / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n\nSave with the new price?`)) return
-    }
     // The switch shows commission on: what a save would do is asked first, so nothing changes silently. No signal: it is saved
     // as shown and the server holds to the rule when it arrives.
     if (hasSalesman && !opts.commissionOff && showCommission && !signedQuote && !directCo.current) {
@@ -1436,7 +1438,7 @@ export default function QuoteBuilder({
       // the crew sees post spacing exactly as priced.
       layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}),
         // The walk list as measured (kept as the salesperson's record), and whether the office has drawn the plan from it.
-        ...(walk && fromLayout ? { walk } : {}), ...(walk && fromLayout && (planDone || drawFromWalk) ? { planDone: true } : {}) },
+        ...(walk && fromLayout ? { walk } : {}), ...(walk && fromLayout && planDone ? { planDone: true } : {}) },
       corners: effCorners,
       ends: effEnds,
       walkGates: effWalk,
@@ -1850,16 +1852,7 @@ export default function QuoteBuilder({
                     address={init?.customerAddress || (init?.customerId ? getCustomerById(init.customerId)?.serviceAddress : '') || ''}
                     tape={walk && layoutResult ? tapeSteps(walk, layoutResult.runs, tapeRunFlags) : undefined}
                   />
-                  {/* The office: lay the walk list out in the drawing tool (square corners from the turns, lengths kept). */}
-                  {isFullRole(signedInRole()) && !signedQuote && (walk?.lines.some(l => l.steps.length) ?? false) && (
-                    <button type="button" className="btn btn-secondary w-full !min-h-[56px]" onClick={() => setDrawFromWalk({ price: Math.round(calc.priced.price * 100), key: JSON.stringify(layoutKey(layoutResult)) })} data-walk-open-drawing>Open in drawing tool (office)</button>
-                  )}
                 </>
-              )}
-              {entry === 'layout' && !walkMode && drawFromWalk && (
-                <p className="text-sm text-gray-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3" data-walk-drawing-note>
-                  Laid out from the walk list. Move corners and the house as they are; a change to a side's feet, a gate or a post changes the price, and you are asked before it is saved. <button type="button" className="underline font-semibold" onClick={() => { setDrawFromWalk(null); if (walk) setYard(walkToYard(walk)) }}>Back to the walk list</button>
-                </p>
               )}
               {entry === 'layout' && !walkMode && (
                 <LayoutEditor
