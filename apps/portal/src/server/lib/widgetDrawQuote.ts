@@ -29,6 +29,7 @@ import { findPartialLead, finishPartialLead } from './widgetPartialLead.js'
 import { pricingWithData } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId } from './intake.js'
 import { pushNewLeadSoon, newLeadLink } from './leadAssign.js'
+import { startLeadTextsSoon } from './leadTexts.js'
 import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId } from './pipelineStageModel.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
@@ -361,6 +362,8 @@ async function submitDrawnQuoteNow(input: DrawnSubmission): Promise<DrawnResult>
   }).catch(err => console.error('[widget] notification failed:', err))
   // A new lead, nobody assigned: the owner's push with a one tap Assign (lib/leadAssign.ts).
   if (!out.duplicate && out.contactId) pushNewLeadSoon(accountId, out.contactId, { name: input.name, source: 'ez_quote', address: input.address, fenceType: choice, feet: q.footageFt })
+  // The thanks and follow up texts, ready to send from the phone (lib/leadTexts.ts; no Twilio, Nov 6 2026).
+  if (!out.duplicate && out.contactId) startLeadTextsSoon({ accountId, contactId: out.contactId, name: input.name, phone: input.phone, cardId: out.cardId })
   return out
 }
 

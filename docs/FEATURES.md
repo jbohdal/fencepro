@@ -830,6 +830,23 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Also fixed: a deleted quote's proposal link could still be opened and signed; it now says the proposal is not available. **DEV**
 * Tests: tests/subcontractors.db.test.ts (the notice on proposals and contracts; the clock, papers, owner only, callbacks, inspection, stats, CSV). e2e sub-liens.mjs: 11 checks on a phone.
 
+## 9bd. No Twilio: lead texts, sub texts and the website watch (Nov 6 2026)
+
+Nothing in the app texts anyone by Twilio any more. Every text goes from a person's own phone: a button opens Messages with the words written, and the person presses send.
+
+- **A new website or phone lead** with a phone number gets four tasks, each with its text ready (lib/leadTexts.ts):
+  - "Text <name> thanks", due at once ("Thanks for reaching out ...").
+  - Follow ups 1, 2 and 3, due at 24 hours, 3 days and 7 days. The words are the ones Twilio used to send.
+  - The thanks is also a button on the lead's card and on its Assign screen, where the new lead push opens. The push now says "Tap to text them thanks and assign".
+  - A tap marks the thanks done. The follow ups close by themselves once the lead books a visit, its card is sold or lost, or the customer is gone.
+  - Until the lead is assigned, the tasks are on the owner's and office's Today; then they are on the Today of the person it was assigned to.
+  - The old lead list's Twilio texts and the 24h/3 day/7 day Twilio sender are off.
+- **Subs**: every message the sub build sends a sub (the packet link when assigned, the day-before link, the sign off reminder, date changes, change orders, 811 ticket in, callbacks, lien release, paid) is still emailed at once.
+  - It also waits as "Text <sub> now", with the words and the job link, on the job's sub panel and at the top of the Subs dashboard.
+  - The owner gets a push that it is waiting.
+  - "Not needed" takes it off. Both are recorded on the job's sub History.
+- **The website instant quote watch** (lib/doorWatch.ts): when it is down more than 10 minutes, the owner gets the bell, a push and an email. It no longer sends a text. UptimeRobot also emails him.
+
 ## 9bc. Every new quote opens on the walk list (Nov 6 2026)
 
 * Jonathan, Nov 6: "every NEW quote opens on the walk list. If it starts with a fence already in it, turn that into walk list steps (sides, feet, gates, corners) with the same price, and say 'Started from the customer's drawing, check the feet'. Old saved quotes keep opening as they do now." **LIVE**

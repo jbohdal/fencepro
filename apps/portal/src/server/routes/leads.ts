@@ -17,8 +17,6 @@ import { z } from 'zod'
 import prisma from '../lib/prisma.js'
 import { requireAuth } from '../middleware/auth.js'
 import { scoreLead, suggestStage, leadPriority } from '../lib/leadScoring.js'
-import { sendLeadConfirmation } from '../lib/sms.js'
-import { scheduleFollowUps } from '../lib/followUpScheduler.js'
 import { writeAuditLog } from '../middleware/audit.js'
 import { str } from '../lib/helpers.js'
 import { plainZod } from '../lib/plainZod.js'
@@ -172,12 +170,8 @@ router.post('/', verifyBotpressWebhook, async (req, res) => {
       },
     })
 
-    // Fire-and-forget: SMS confirmation + follow-up scheduling
-    if (data.phone) {
-      sendLeadConfirmation(data.phone, data.firstName).catch(() => {})
-      // Only schedule follow-ups if they didn't book yet
-      scheduleFollowUps(lead.id).catch(() => {})
-    }
+    // No automatic texts (Jonathan, Nov 6 2026: no Twilio). A website or phone lead's thanks and follow ups are
+    // tasks with the text ready, sent from the phone (lib/leadTexts.ts); this older lead list has no customer for them.
 
     await writeAuditLog(null, 'lead_created', {
       leadId: lead.id,

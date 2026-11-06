@@ -105,6 +105,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('website quotes not finished (dev
     const photos = await prisma.portalPhoto.findMany({ where: { crmCustomerId: { in: ids } }, select: { id: true, fileKey: true } })
     await prisma.portalPhoto.deleteMany({ where: { id: { in: photos.map(x => x.id) } } })
     for (const ph of photos) fs.rmSync(path.resolve(process.env.UPLOAD_DIR || './uploads', ph.fileKey), { force: true })
+    await (await import('../src/server/lib/leadTexts.js')).removeLeadTextsOf(ids)
     await prisma.crmContact.deleteMany({ where: { id: { in: ids } } })
     await prisma.notification.deleteMany({ where: { title: { contains: LAST } } })
   })

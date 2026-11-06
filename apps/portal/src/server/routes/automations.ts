@@ -54,6 +54,7 @@ import { walkthroughApi } from '../lib/automations/walkthroughAdapter.js'
 import { can, refuse, requireCan, roleOf } from '../lib/permissions.js'
 import { myTasksWhere, seesCompanyTasks, taskLinkFacts, taskSubjectGone } from '../lib/taskScope.js'
 import { closeTasksSoon } from '../lib/taskAutoClose.js'
+import { markThanksSent, openThanks } from '../lib/leadTexts.js'
 import { salesScopeOf, salesScopedRoute, inSalesScope, type SalesScope } from '../lib/salesScope.js'
 
 const router = Router()
@@ -604,6 +605,30 @@ router.patch('/tasks/:id', async (req: any, res) => {
     const task = await prisma.task.update({ where: { id: String(req.params.id) }, data: { status: status as any, completedAt: status === 'completed' ? new Date() : null } })
     res.json({ success: true, data: task })
   } catch (err) { fail(res, err, 'update the task') }
+})
+
+// ── A new lead's thanks text, sent from the phone (lib/leadTexts.ts; no Twilio, Nov 6 2026) ──
+
+// The lead's "Text <name> thanks" button (its card, its Assign screen): the text while it is still to send.
+router.get('/lead-thanks/:customerId', async (req: any, res) => {
+  try {
+    const id = String(req.params.customerId)
+    if (roleOf(req) === 'field_crew') { res.json({ success: true, data: null }); return }
+    const scope = await salesScopeOf(req)
+    if (scope && !scope.contactIds.has(id)) { res.json({ success: true, data: null }); return }
+    res.json({ success: true, data: await openThanks(id) })
+  } catch (err) { fail(res, err, 'load the thanks text') }
+})
+
+// Tapped: the text opened on the phone; its task on Today is done.
+router.post('/lead-thanks/:customerId/sent', async (req: any, res) => {
+  try {
+    const id = String(req.params.customerId)
+    if (roleOf(req) === 'field_crew') { res.status(403).json({ success: false, error: 'Not for the Installer.' }); return }
+    const scope = await salesScopeOf(req)
+    if (scope && !scope.contactIds.has(id)) { res.status(404).json({ success: false, error: 'Not found' }); return }
+    res.json({ success: true, data: { done: await markThanksSent(id) } })
+  } catch (err) { fail(res, err, 'mark the thanks sent') }
 })
 
 // ── Notifications (the bell) ──

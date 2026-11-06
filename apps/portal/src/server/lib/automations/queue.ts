@@ -592,6 +592,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
         try { await proposalOpenedSweep(now) } catch (err) { console.error('[automations] proposal opened push:', err) }
         // Automation tasks whose job says they are done (permit Approved, scheduled, materials ordered, job Paid) close by themselves.
         try { await closeFinishedTasks() } catch (err) { console.error('[automations] closing finished tasks:', err) }
+        // A new lead's follow up texts close once they book or the card is sold or lost (lib/leadTexts.ts).
+        try { await (await import('../leadTexts.js')).closeBookedLeadTexts(now) } catch (err) { console.error('[automations] closing booked lead texts:', err) }
         // A job waiting on its 811 locate moves on the day the locate becomes Clear to dig, once (lib/waitingStageMove.ts).
         try { await locatesClearSweep(now) } catch (err) { console.error('[automations] locate clear sweep:', err) }
         // Subs: the job link the day before, the sign off reminder, 811 and paper warnings (lib/subSweep.ts).

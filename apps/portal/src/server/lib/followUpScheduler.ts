@@ -9,7 +9,6 @@
 
 import prisma from './prisma.js'
 import { withLock } from './once.js'
-import { sendFollowUp } from './sms.js'
 
 const COMPANY_NAME = process.env.COMPANY_NAME || 'Getter Done Fence'
 
@@ -95,7 +94,7 @@ export async function processFollowUps(): Promise<number> {
     take: 50,
   })
 
-  let sent = 0
+  const sent = 0
 
   for (const followUp of due) {
     // Skip if lead has already booked or been contacted
@@ -115,19 +114,12 @@ export async function processFollowUps(): Promise<number> {
       continue
     }
 
-    const result = await sendFollowUp(followUp.lead.phone, followUp.message)
-
-    // No text consent: held back for good, with the reason (not a failure to try again).
+    // Never texted by Twilio any more (Jonathan, Nov 6 2026): a lead's follow ups are tasks with the text ready,
+    // sent from the phone (lib/leadTexts.ts). One still waiting here is closed, with why.
     await prisma.followUp.update({
       where: { id: followUp.id },
-      data: {
-        status: result.success ? 'sent' : result.blocked ? 'cancelled' : 'failed',
-        sentAt: result.success ? now : null,
-        errorMessage: result.error || null,
-      },
+      data: { status: 'cancelled', errorMessage: 'Not sent: follow up texts go from the phone now (Today tasks).' },
     })
-
-    if (result.success) sent++
   }
 
   if (sent > 0) console.log(`[FollowUp] Processed ${sent} follow-up messages`)

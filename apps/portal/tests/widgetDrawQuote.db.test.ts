@@ -77,6 +77,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the website quote drawn on the p
     await prisma.intakeLead.deleteMany({ where: { crmContactId: { in: ids } } })
     await prisma.crmContactNote.deleteMany({ where: { crmContactId: { in: ids } } })
     await prisma.customerPossibleMatch.deleteMany({ where: { contactId: { in: ids } } })
+    await (await import('../src/server/lib/leadTexts.js')).removeLeadTextsOf(ids)
     await prisma.crmContact.deleteMany({ where: { id: { in: ids } } })
     await prisma.widgetDraft.deleteMany({ where: { id: { in: made.draftIds } } })
     await prisma.notification.deleteMany({ where: { title: `Website quote: ${NAME}` } })

@@ -20,6 +20,7 @@ import { sendInstallPacket } from './installPacket'
 import { getQuotes } from './quoteStore'
 import { loadSchedule } from './scheduleStore'
 import { nextCrewDay } from '../../portal/src/server/lib/installDays'
+import SubTextsWaiting from './SubTextsWaiting'
 import { issueLabel } from '../../portal/src/server/lib/serviceTicketModel'
 
 type RawJob = { id: string; fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number; quoteId?: string | null; scheduledDate?: string | null; customerName?: string }
@@ -167,6 +168,8 @@ function AssignedSub({ job, s, onReload, onChange, onChanged }: { job: RawJob; s
         </div>
         {can('schedule.change') && !s.confirmedAt && <button type="button" className="text-sm underline text-gray-700 min-h-[44px]" onClick={onChange}>Change sub</button>}
       </div>
+      {/* Texts to the sub, ready to send from the phone (no Twilio; SubTextsWaiting.tsx). */}
+      <SubTextsWaiting jobId={job.id} version={s.events.length} />
 
       {s.submittedAt && !s.confirmedAt && (
         <div className="rounded-xl bg-green-50 border border-green-200 p-3 space-y-2" data-job-sub-confirm-box>

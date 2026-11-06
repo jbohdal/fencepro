@@ -34,7 +34,7 @@ import { floridaDay } from '../lib/automations/context.js'
 import {
   SUB_STATUSES, TRADES, SubError, papersOf, docKindsOf, subSettingsOf, SUB_SETTINGS_KEY, TEMPLATES, cleanRates, settingsRates, payTotal, refreshPay, type PayLine,
 } from '../lib/subcontractors.js'
-import { previewAssign, assignSub, unassignSub, newSubLink, linkOf, ensureSubCrew, dropSubCrew, type Actor } from '../lib/subAssign.js'
+import { previewAssign, assignSub, unassignSub, newSubLink, linkOf, ensureSubCrew, dropSubCrew, waitingSubTexts, markSubText, type Actor } from '../lib/subAssign.js'
 import { settingsOf as costSettingsOf } from '../lib/jobCosting.js'
 import { clearedCover, netPay } from '../lib/paymentClearing.js'
 import { lienReleaseOf } from '../lib/subPay.js'
@@ -190,6 +190,24 @@ router.get('/dashboard', async (req: any, res) => {
 })
 
 // ── The list ─────────────────────────────────────────────────────────────────
+
+// Texts to subs waiting to be sent from the phone (lib/subAssign.ts tellSub; no Twilio, Nov 6 2026): a job's, or all.
+router.get('/texts', async (req: any, res) => {
+  try {
+    const jobId = typeof req.query.jobId === 'string' && req.query.jobId ? req.query.jobId : undefined
+    res.json({ success: true, data: await waitingSubTexts(req.user.crmAccountId, jobId) })
+  } catch (err) { fail(res, err, 'load the texts waiting') }
+})
+
+// Tapped "Text <sub> now" (texted), or "Not needed" (dismissed): it leaves the lists.
+router.post('/texts/:textId', express.json({ limit: '2kb' }), async (req: any, res) => {
+  try {
+    const { done } = z.object({ done: z.enum(['texted', 'dismissed']) }).parse(req.body ?? {})
+    const ok = await markSubText(req.user.crmAccountId, String(req.params.textId), done, (await actorOf(req)).name)
+    if (!ok) { res.status(404).json({ success: false, error: 'That text is not waiting any more.' }); return }
+    res.json({ success: true, data: { done } })
+  } catch (err) { fail(res, err, 'mark the text') }
+})
 
 router.get('/', async (req: any, res) => {
   try {

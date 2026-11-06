@@ -85,23 +85,4 @@ export async function sendCustomerSms(to: string, body: string): Promise<SmsResu
   return sendSms(to, customerText(body, COMPANY_NAME))
 }
 
-/** Send the initial "thanks for reaching out" SMS to a new lead */
-export async function sendLeadConfirmation(phone: string, firstName?: string): Promise<SmsResult> {
-  const name = firstName ? ` ${firstName}` : ''
-  const body = `Thanks for reaching out${name}! We received your info and we'll confirm your estimate shortly.`
-  return sendCustomerSms(phone, body)
-}
-
-/** Send appointment confirmation */
-export async function sendAppointmentConfirmation(phone: string, dateStr: string, firstName?: string): Promise<SmsResult> {
-  const name = firstName ? ` ${firstName}` : ''
-  const body = `Hi${name}! Your fence estimate with ${COMPANY_NAME} is confirmed for ${dateStr}. We'll see you then!`
-  return sendCustomerSms(phone, body)
-}
-
-/** Send follow-up message */
-export async function sendFollowUp(phone: string, message: string): Promise<SmsResult> {
-  return sendCustomerSms(phone, message)
-}
-
 export { COMPANY_NAME }

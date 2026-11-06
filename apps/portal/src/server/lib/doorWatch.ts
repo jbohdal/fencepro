@@ -1,9 +1,10 @@
 /**
  * Watches the website instant quote (/p/quote) the way a customer reaches it:
  * through the public door, by its public address. If it does not answer for
- * more than 10 minutes, Jonathan gets a notification in the app (and a text,
- * once texting is set up and ALERT_PHONE is set); when it answers again, a
- * second one says so and for how long it was down.
+ * more than 10 minutes, Jonathan gets a notification in the app, a push to
+ * his phone and an email (Jonathan, Nov 6 2026: "switch it to an EZ Biz push
+ * to me plus email"; no Twilio text); when it answers again, a second one
+ * says so and for how long it was down.
  *
  * It runs on the Mac mini, so it cannot warn while the Mac itself or the
  * internet is down: those alerts arrive when it is back. An outside monitor
@@ -13,7 +14,8 @@
 import https from 'https'
 import { Resolver } from 'dns/promises'
 import prisma from './prisma.js'
-import { sendSms, isSmsServiceConfigured } from './sms.js'
+import { sendPush } from './automations/push.js'
+import { sendEmail } from './emailService.js'
 
 const DEFAULT_URL = 'https://jonathans-mac-mini.tail40fb4a.ts.net:8443/p/quote/api/config'
 const THRESHOLD_MS = 10 * 60_000
@@ -78,8 +80,18 @@ export async function checkPublicDoor(url: string): Promise<boolean> {
 async function alertJonathan(title: string, body: string) {
   await prisma.notification.create({ data: { title, body, type: title.includes('not answering') ? 'error' : 'success', link: '/settings' } })
     .catch(err => console.error('[door-watch] notification failed:', err))
-  const to = process.env.ALERT_PHONE
-  if (to && isSmsServiceConfigured()) await sendSms(to, `EZ Biz: ${title}. ${body}`).catch(err => console.error('[door-watch] text failed:', err))
+  // The owner: his push and his email (the outbound gate keeps both on the live install).
+  const owner = await prisma.crmUser.findFirst({ where: { role: 'super_admin', crmAccountId: { not: null } }, orderBy: { createdAt: 'asc' }, select: { id: true, email: true, crmAccountId: true } })
+    .catch(() => null)
+  if (owner?.crmAccountId) {
+    await sendPush(owner.crmAccountId, { title, body, url: '/settings', tag: 'door-watch' }, { userIds: [owner.id] })
+      .catch(err => console.error('[door-watch] push failed:', err))
+  }
+  if (owner?.email) {
+    const r = await sendEmail({ to: owner.email, subject: `EZ Biz: ${title}`, body: `<p>${body}</p>`, text: body })
+      .catch(err => ({ success: false, error: String(err) }))
+    if (!r.success) console.error('[door-watch] email failed:', r.error)
+  }
   console.log(`[door-watch] ${title}: ${body}`)
 }
 

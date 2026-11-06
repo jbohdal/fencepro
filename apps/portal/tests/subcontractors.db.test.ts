@@ -280,6 +280,39 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
     expect(after.some(c => c.id === subCrewId(subId))).toBe(false)
   })
 
+  test('no Twilio for subs: the packet link and every message to the sub wait as "Text <sub> now" with the words ready; email still goes', async () => {
+    const { tellSub } = await import('../src/server/lib/subAssign.js')
+    const add = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E Text Sub ${tag}`, phone: '(352) 555-0146', email: `text-${tag}@example.invalid` })
+    const subId = add.json.data.id as string
+    made.subs.push(subId)
+    const { jobId } = await soldJob()
+    expect((await call(owner, 'POST', '/api/subcontractors/assign', { jobId, subId, start: nextMonday(), override: true })).status).toBe(200)
+    let list = (await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data as any[]
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ jobId, phone: '(352) 555-0146', subName: `E2E Text Sub ${tag}` })
+    expect(list[0].what).toMatch(/^Your new job: /)
+    expect(list[0].text).toMatch(/^Getter Done Fence: You have the install at .+ starting .+\. Open the job sheet, pull sheet, 811 ticket and your pay: https?:\/\/\S+\/p\/sub\/\S+$/)
+    // A message to the sub: emailed at once, and its text waits too.
+    const sj = await prisma.subJob.findUniqueOrThrow({ where: { jobId }, include: { sub: true } })
+    await tellSub(accountId, sj, 'Install moved to Dec 1, 2026', 'The install at 7 Sub Rd moved from Nov 30, 2026 to Dec 1, 2026.')
+    const ev = ((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).events as any[]).slice(-2)
+    expect(ev.map(e => e.how)).toEqual([expect.stringMatching(/email/), 'text waiting'])
+    list = (await call(owner, 'GET', '/api/subcontractors/texts')).json.data.filter((t: any) => t.jobId === jobId)
+    expect(list.map((t: any) => t.what)).toEqual(['Install moved to Dec 1, 2026', expect.stringMatching(/^Your new job/)])
+    expect(list[0].text).toMatch(/^Getter Done Fence: The install at 7 Sub Rd moved from Nov 30, 2026 to Dec 1, 2026\. Open the job: /)
+    // Tapped, and Not needed: both leave the lists; a second tap finds nothing.
+    expect((await call(office, 'POST', `/api/subcontractors/texts/${list[0].textId}`, { done: 'texted' })).status).toBe(200)
+    expect((await call(office, 'POST', `/api/subcontractors/texts/${list[1].textId}`, { done: 'dismissed' })).status).toBe(200)
+    expect((await call(office, 'POST', `/api/subcontractors/texts/${list[1].textId}`, { done: 'texted' })).status).toBe(404)
+    expect((await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data).toEqual([])
+    // A sub with no phone: the email only, nothing waits.
+    const noPhone = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E NoPhone Sub ${tag}`, email: `np-${tag}@example.invalid` })
+    made.subs.push(noPhone.json.data.id)
+    const j2 = (await soldJob()).jobId
+    expect((await call(owner, 'POST', '/api/subcontractors/assign', { jobId: j2, subId: noPhone.json.data.id, start: nextMonday(), override: true })).status).toBe(200)
+    expect((await call(office, 'GET', `/api/subcontractors/texts?jobId=${j2}`)).json.data).toEqual([])
+  })
+
   test('Phase B: Received, Cleared, Bounced; ready to pay once the final payment cleared; lien release signed, then Mark paid', async () => {
     const billing = await import('../src/server/lib/contractBilling.js')
     const crypto = await import('crypto')

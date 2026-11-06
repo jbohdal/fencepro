@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 import { navigate, useNav } from './nav'
 import { tapDecision } from './leadAssignTap'
 import { useOwnerChangesSalesman } from './salesmanChoice'
+import LeadThanksButton from './LeadThanksButton'
 import { assignLead, loadLead, arrivedWords, useWaitingLeads, type AssignChoice, type LeadRep, type WaitingLead } from './leadAssign'
 
 const whoWords = (c: AssignChoice) => (c.me ? `${c.name} (me)` : c.name)
@@ -144,6 +145,7 @@ function OneLead({ customerId }: { customerId: string }) {
   return (
     <div className="card p-4" data-assign-lead={customerId}>
       <LeadFacts lead={state.lead} />
+      <div className="mt-3 empty:hidden"><LeadThanksButton customerId={customerId} firstName={state.lead.name} /></div>
       <AssignButtons lead={state.lead} choices={state.choices} rep={state.lead.rep} />
     </div>
   )
@@ -163,6 +165,7 @@ function WaitingList({ exclude }: { exclude?: string }) {
       {shown.map(l => (
         <div key={l.customerId} className="card p-4" data-waiting-lead={l.customerId}>
           <LeadFacts lead={l} />
+          <div className="mt-3 empty:hidden"><LeadThanksButton customerId={l.customerId} firstName={l.name} /></div>
           <AssignButtons lead={l} choices={data.choices} onDone={() => setAssigned(a => ({ ...a, [l.customerId]: l }))} />
         </div>
       ))}

@@ -15,6 +15,7 @@ import { loadPipelineStages } from './pipelineStages.js'
 import { roleStageId } from './pipelineStageModel.js'
 import { findPossibleMatches } from './customerMerge.js'
 import { pushNewLeadSoon, newLeadLink } from './leadAssign.js'
+import { startLeadTextsSoon } from './leadTexts.js'
 
 /** ez_quote_partial: a website instant quote the customer did not finish (lib/widgetPartialLead.ts). */
 export type IntakeSource = 'ez_quote' | 'ez_quote_partial' | 'retell' | 'website_chat'
@@ -193,6 +194,8 @@ async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<I
     name: displayName || input.phone || '', source: input.source, address: input.address, fenceType: input.fenceType, feet: input.feet,
     callbackAt: input.callbackAt, asked: input.source === 'website_chat' ? input.summary.split('\n')[0].replace(/^Booked an estimate on the website chat for /, 'estimate ').replace(/\.$/, '') : null,
   })
+  // The thanks and follow up texts, ready to send from the phone (lib/leadTexts.ts; no Twilio, Nov 6 2026).
+  startLeadTextsSoon({ accountId, contactId: contact.id, name: displayName || input.phone || '', phone: input.phone })
 
   return { intakeId: row.id, contactId: contact.id, duplicate: false, contactName: displayName }
 }

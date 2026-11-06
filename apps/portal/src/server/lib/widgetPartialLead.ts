@@ -47,6 +47,7 @@ import { withLock } from './once.js'
 import { pricingWithData } from './estimates.js'
 import { findOrCreateContact, resolveIntakeAccountId, splitName } from './intake.js'
 import { pushNewLead, pushNewLeadSoon, newLeadLink, type LeadPushDeps } from './leadAssign.js'
+import { startLeadTextsSoon } from './leadTexts.js'
 import { sameName } from './customerImport.js'
 import { applyPipelineDelta } from './pipelineDelta.js'
 import { callableContact, phoneDigits } from './widgetContact.js'
@@ -437,6 +438,8 @@ export async function finishPartialLead(accountId: string, row: Json, input: Dra
     },
   }).catch(err => console.error('[widget] notification failed:', err))
   if (first) pushNewLeadSoon(accountId, contactId, { name: input.name, source: 'ez_quote', address: input.address, fenceType: choice, feet: q.footageFt })
+  // The thanks and follow up texts, ready to send from the phone, once per customer (lib/leadTexts.ts; Nov 6 2026).
+  startLeadTextsSoon({ accountId, contactId, name: input.name, phone: input.phone, cardId: out.cardId })
   return out
 }
 

@@ -24,6 +24,7 @@ import { getJobs } from './jobStore'
 /** The fullest of a few addresses for one place (the longest one written; stored data is never rewritten). */
 const fullestAddress = (list: Array<string | null | undefined>) => list.map(a => (a || '').trim()).filter(Boolean).reduce((best, a) => (a.length > best.length ? a : best), '')
 import TextButton from './TextButton'
+import LeadThanksButton from './LeadThanksButton'
 import { isDonePhase } from './opsStageModel'
 /** "Fri, Oct 24, 2026" */
 const installedWords = (d: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : d }
@@ -176,6 +177,8 @@ export default function PipelineCardWindow({ lead, stages, quotes, next, onClose
           <button type="button" onClick={startQuote} className="btn btn-primary w-full h-14 text-lg" data-card-new-quote>
             <FilePlus2 size={22} aria-hidden="true" /> New quote
           </button>
+          {/* A new website or phone lead's thanks text, ready to send from the phone (LeadThanksButton.tsx). */}
+          <div className="empty:hidden"><LeadThanksButton customerId={lead.customerId} firstName={lead.firstName || name} className="btn btn-secondary w-full h-12" /></div>
           {lead.customerId && <div className="space-y-2 empty:hidden" data-card-service><ServiceRequestButton customerId={lead.customerId} /><ServiceTicketList customerId={lead.customerId} /></div>}
           <div className="grid grid-cols-4 gap-2">
             <a href={phone ? telHref(phone) : undefined} onClick={startCall} className={`${action} ${phone ? '' : off}`} data-card-call><Phone size={20} aria-hidden="true" />Call</a>

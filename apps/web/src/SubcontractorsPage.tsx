@@ -22,6 +22,7 @@ import {
   type SubRow, type SubDetail, type Sub, type SubRates, type SubsDashboard, type SubSettings, type SubStatus, type Trade, type DashJob,
 } from './subsApi'
 import { fetchWithAuth } from './crmAuth'
+import SubTextsWaiting from './SubTextsWaiting'
 import { navigate, pagePath } from './nav'
 
 type Tab = 'dashboard' | 'subs' | 'settings'
@@ -78,6 +79,8 @@ function Dashboard({ onOpenSub }: { onOpenSub: (id: string) => void }) {
   )
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      {/* Texts to subs, ready to send from the phone (no Twilio; SubTextsWaiting.tsx). */}
+      <div className="lg:col-span-2 empty:hidden"><SubTextsWaiting onOpenJob={openJob} /></div>
       <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden lg:col-span-2" data-dash="week">
         <h2 className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-100">The next 7 days</h2>
         <div className="divide-y divide-gray-100">

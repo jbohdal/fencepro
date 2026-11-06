@@ -87,6 +87,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('possible matches, merge and undo
     await prisma.savedQuote.deleteMany({ where: { accountId } })
     await prisma.intakeLead.deleteMany({ where: { accountId } })
     await prisma.crmContactNote.deleteMany({ where: { accountId } })
+    await (await import('../src/server/lib/leadTexts.js')).removeLeadTextsOf((await prisma.crmContact.findMany({ where: { accountId }, select: { id: true } })).map(c => c.id))
     await prisma.crmContact.deleteMany({ where: { accountId } })
     await prisma.accountKeyValue.deleteMany({ where: { accountId } })
     for (const m of ['pipelineState', 'businessState']) await prisma[m].deleteMany({ where: { accountId } }).catch(() => {})

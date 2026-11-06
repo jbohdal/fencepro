@@ -62,6 +62,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the call back moves with the lea
     await prisma.appointment.deleteMany({ where: { accountId } }).catch(() => {})
     await prisma.crmContactNote.deleteMany({ where: { accountId } }).catch(() => {})
     await prisma.pipelineState.deleteMany({ where: { accountId } })
+    await (await import('../src/server/lib/leadTexts.js')).removeLeadTextsOf((await prisma.crmContact.findMany({ where: { accountId }, select: { id: true } })).map(c => c.id))
     await prisma.crmContact.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { userId: { in: users } } }).catch(() => {})
     await prisma.crmUser.deleteMany({ where: { crmAccountId: accountId } })

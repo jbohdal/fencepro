@@ -58,6 +58,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     await prisma.customerPossibleMatch.deleteMany({ where: { accountId } })
     await prisma.appointment.deleteMany({ where: { accountId } }).catch(() => {})
     await prisma.pipelineState.deleteMany({ where: { accountId } })
+    await (await import('../src/server/lib/leadTexts.js')).removeLeadTextsOf((await prisma.crmContact.findMany({ where: { accountId }, select: { id: true } })).map(c => c.id))
     await prisma.crmContact.deleteMany({ where: { accountId } })
     await prisma.crmAuditLog.deleteMany({ where: { userId: { in: users } } }).catch(() => {})
     await prisma.crmUser.deleteMany({ where: { crmAccountId: accountId } })
@@ -86,7 +87,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     expect(mine).toHaveLength(1)
     expect(mine[0].channel).toBe('push')
     expect(mine[0].to).toBe(`Olive ${tag}`)
-    expect(mine[0].body).toBe(`Website quote · Ocala · Vinyl, Privacy, 6', White, 152 ft. Tap to assign. (/assign-lead?customer=${leadId})`)
+    expect(mine[0].body).toBe(`Website quote · Ocala · Vinyl, Privacy, 6', White, 152 ft. Tap to text them thanks and assign. (/assign-lead?customer=${leadId})`)
     // The bell entry for the lead opens the same Assign screen (review, Oct 28 2026: it opened the customer page).
     const bell = await prisma.notification.findFirst({ where: { title: `Website quote: Dana ${tag}` } })
     expect(bell!.link).toBe(`/assign-lead?customer=${leadId}`)
@@ -110,7 +111,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     expect(sent).toHaveLength(1)
     expect(sent[0].ids).toEqual([ownerId])
     expect(sent[0].msg.url).toBe(`/assign-lead?customer=${c.id}`)
-    expect(sent[0].msg.body).toBe('Phone call · Belleview · call back tomorrow 3 pm. Tap to assign.')
+    expect(sent[0].msg.body).toBe('Phone call · Belleview · call back tomorrow 3 pm. Tap to text them thanks and assign.')
     expect(sent[0].msg.actions).toEqual([{ action: `assign:${ownerId}`, title: 'Assign to Olive' }, { action: `assign:${salesId}`, title: 'Assign to Sally' }])
     await prisma.crmContact.delete({ where: { id: c.id } })
   })
@@ -128,6 +129,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('assigning website and phone lead
     expect((await pushNewLead(accountId, k.id, { name: 'Kim', source: 'ez_quote' }, spy)).pushed).toBe(false)
     expect(sent).toHaveLength(0)
     await prisma.pipelineState.update({ where: { accountId }, data: { leads: [] as any } })
+    await (await import('../src/server/lib/leadTexts.js')).removeLeadTextsOf([c.id, k.id])
     await prisma.crmContact.deleteMany({ where: { id: { in: [c.id, k.id] } } })
   })
 

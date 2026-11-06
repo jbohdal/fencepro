@@ -41,6 +41,7 @@ import { holdOutbound, realDeliveryAllowed } from './outboundGate.js'
 import { moveCallbacks, moveUpcomingVisits, loginForRep } from './leadCallback.js'
 import type { PushMessage, PushResult } from './automations/push.js'
 import { moveOpenQuotes, samePerson, type MovedQuote } from './quotesFollowCustomer.js'
+import { moveLeadTexts } from './leadTexts.js'
 
 /** Roles that may assign a lead: the owner, admin, manager and office. Never the Salesman or the Installer. */
 export const ASSIGNER_ROLES = new Set(['super_admin', 'admin', 'manager', 'office_staff'])
@@ -84,7 +85,8 @@ export function leadPushWords(l: LeadFacts): { title: string; body: string } {
   const what = [String(l.fenceType || '').trim(), l.feet && l.feet > 0 ? `${Math.round(l.feet)} ft` : ''].filter(Boolean).join(', ')
   const asked = what || (l.callbackAt ? `call back ${String(l.callbackAt).trim()}` : '') || String(l.asked || '').trim()
   const body = [sourceWords(l.source), town, asked].filter(Boolean).join(' · ')
-  return { title: `New lead: ${name}`, body: `${body}. Tap to assign.` }
+  // A lead that sent its details has a thanks text ready (lib/leadTexts.ts); one that did not finish the instant quote has none.
+  return { title: `New lead: ${name}`, body: `${body}. ${l.source === 'ez_quote_partial' ? 'Tap to assign.' : 'Tap to text them thanks and assign.'}` }
 }
 
 export interface Assignee { id: string; name: string; role: string; email: string }
@@ -351,6 +353,8 @@ export async function assignLead(input: { accountId: string; contactId: string; 
 
   await prisma.crmContact.update({ where: { id: contactId }, data: { salesRep: target.name } })
   const cardIds = await setCardsRep(accountId, contactId, target.name)
+  // The lead's thanks and follow up texts go on that person's Today (lib/leadTexts.ts).
+  await moveLeadTexts(contactId, target.name).catch(err => console.error('[lead-assign] moving the lead texts:', err))
   if (cardIds === null) {
     // The board was busy for every try: the customer carries the rep, which is enough for the Salesman's scope.
     console.warn(`[lead-assign] could not write the rep on the cards of ${contactId}; the customer has it`)

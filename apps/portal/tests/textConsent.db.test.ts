@@ -21,7 +21,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('texting consent (dev database)',
   const { default: contacts } = await import('../src/server/routes/crm-contacts.js')
   const { resolveSecret } = await import('../src/server/lib/secrets.js')
   const { recordWebsiteTextConsent, textAllowedTo } = await import('../src/server/lib/textConsent.js')
-  const { sendCustomerSms, sendFollowUp, sendLeadConfirmation } = await import('../src/server/lib/sms.js')
+  const { sendCustomerSms } = await import('../src/server/lib/sms.js')
   const { TEXT_CONSENT_WORDING, describeTextConsent } = await import('../src/server/lib/textConsentModel.js')
   const user = (await prisma.crmUser.findFirst({ where: { crmAccountId: { not: null } }, orderBy: { createdAt: 'asc' } }))!
   const accountId = user.crmAccountId!
@@ -115,8 +115,6 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('texting consent (dev database)',
     let r = await sendCustomerSms(c.phone, 'hello')
     expect(r).toMatchObject({ success: false, blocked: true })
     expect(r.error).toMatch(/has not agreed to texts/)
-    expect((await sendFollowUp(c.phone, 'hello')).blocked).toBe(true)
-    expect((await sendLeadConfirmation(c.phone, 'E2E')).blocked).toBe(true)
 
     await send('POST', `/api/crm-contacts/${c.id}/text-consent`, { consent: 'yes' })
     r = await sendCustomerSms(c.phone.replace(/\D/g, ''), 'hello')
