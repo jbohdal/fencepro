@@ -41,6 +41,7 @@ import { pdfDocument, pdfSafeText } from './pdfText.js'
 import { plainStyleName } from './estimates.js'
 import { customerFenceName, soldRailsOf } from './customerFenceName.js'
 import { publicDoorUrl } from './urls.js'
+import { formatPhonesIn } from './customerText.js'
 import { isDonePhase } from './opsStageModel.js'
 
 type Json = any
@@ -67,8 +68,8 @@ type Job = { id: string; quoteId: string | null; status: string; completedDate: 
 const JOB_SELECT = { id: true, quoteId: true, status: true, completedDate: true, finalFurnishingDate: true, scheduledDate: true, scheduledEndDate: true, deletedAt: true, archivedAt: true } as const
 
 const priceCents = (q: { finalPrice: number }) => Math.round((q.finalPrice || 0) * 100)
-/** Signed: Sold, or accepted on the link. */
-const isSigned = (q: { status: string; acceptedAt: Date | null; soldAt: Date | null }) => q.status === 'SOLD' || !!q.acceptedAt
+/** Signed: Sold, or accepted on the link; never a contract since marked Lost (cancelled; review Nov 6 2026). */
+const isSigned = (q: { status: string; acceptedAt: Date | null; soldAt: Date | null }) => q.status !== 'LOST' && (q.status === 'SOLD' || !!q.acceptedAt)
 const hasNotice = (q: { proposal: unknown }) => { const n = (q.proposal as Json)?.lienNotice; return typeof n === 'string' && !!n.trim() }
 
 /** A contract signed without the notice and over $2,500 (whatever its job). */
@@ -179,7 +180,9 @@ export async function addendumForJob(accountId: string, jobId: string) {
   const q = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: QUOTE_SELECT }) as Quote | null : null
   const row = q ? await prisma.lienNoticeAddendum.findUnique({ where: { quoteId: q.id } }) : null
   const review = await addendumReview(accountId)
-  const applies = !!q && (!!row || (contractMissesNotice(q) && !job.archivedAt && !(await jobInstalled(accountId, job))))
+  // A signed addendum stays with its contract. One not signed yet applies only while the contract still needs it:
+  // not deleted or Lost, still without the notice (review Nov 6 2026: a cancelled contract could still be signed).
+  const applies = !!q && (row?.signedAt ? true : row ? contractMissesNotice(q) : (contractMissesNotice(q) && !job.archivedAt && !(await jobInstalled(accountId, job))))
   if (!q || !applies) return { applies: false as const }
   const company = await companyOf(accountId)
   const facts: ContractFacts = row
@@ -206,7 +209,7 @@ export const messageOf = (firstName: string, company: string, url: string) =>
  */
 export async function sendAddendum(accountId: string, jobId: string, channel: 'email' | 'text' | 'copy', by: string) {
   const v = await addendumForJob(accountId, jobId)
-  if (!v.applies) throw new SubError(409, 'This contract does not need the addendum: it has the notice, is $2,500 or less, or the job is installed.')
+  if (!v.applies) throw new SubError(409, 'This contract does not need the addendum: it has the notice, is $2,500 or less, was cancelled or deleted, or the job is installed.')
   if (!v.reviewed) throw new SubError(409, ADDENDUM_LOCKED)
   if (v.state === 'signed') throw new SubError(409, `Already signed by ${v.addendum?.signedBy} on ${dayWords(ymdOf(new Date(v.addendum!.signedAt!)))}.`)
   if (channel === 'email' && !v.customer.email.trim()) throw new SubError(400, 'Email it: add an email to the customer first.')
@@ -227,13 +230,14 @@ export async function sendAddendum(accountId: string, jobId: string, channel: 'e
   const link = addendumUrl(row.token)
   const message = messageOf(v.customer.firstName, company.name, link)
   let how = channel === 'text' ? 'text from your phone' : 'link copied'
-  let sent = channel !== 'email'
+  // Text: sent from the office's phone on the tap. Copy link: nothing reached the customer yet, so not marked sent.
+  let sent = channel === 'text'
   if (channel === 'email') {
     const { sendEmail } = await import('./emailService.js')
     const r: Json = await sendEmail({
       to: v.customer.email.trim(), subject: `${company.name}: Florida construction lien notice for your fence contract`,
-      body: `<p>${message.replace(link, `<a href="${link}">${link}</a>`)}</p><p>${company.name}${company.phone ? `<br>${company.phone}` : ''}</p>`,
-      text: `${message}\n\n${company.name}${company.phone ? `\n${company.phone}` : ''}`,
+      body: `<p>${message.replace(link, `<a href="${link}">${link}</a>`)}</p><p>${company.name}${company.phone ? `<br>${formatPhonesIn(company.phone)}` : ''}</p>`,
+      text: `${message}\n\n${company.name}${company.phone ? `\n${formatPhonesIn(company.phone)}` : ''}`,
     }).catch(e => ({ success: false, error: String(e) }))
     sent = !!r.success
     how = r.success ? 'email' : r.held ? 'email held in the dev outbox, not sent' : r.notConfigured ? 'not sent: email is not set up' : `not sent: ${r.error ?? 'email failed'}`
@@ -249,8 +253,12 @@ export async function addendumByToken(token: string): Promise<Row | null> {
   if (!token || token.length < 20 || token.length > 100) return null
   const row = await prisma.lienNoticeAddendum.findUnique({ where: { token } })
   if (!row) return null
-  const q = await prisma.savedQuote.findFirst({ where: { id: row.quoteId, accountId: row.accountId }, select: { deletedAt: true } })
-  return q && !q.deletedAt ? row : null
+  // A signed one stays readable (the customer's copy); one not signed yet only while its contract still needs it.
+  const q = await prisma.savedQuote.findFirst({ where: { id: row.quoteId, accountId: row.accountId }, select: QUOTE_SELECT }) as Quote | null
+  if (!q || q.deletedAt) return null
+  if (row.signedAt) return row
+  const job = row.jobId ? await prisma.savedJob.findFirst({ where: { id: row.jobId, accountId: row.accountId }, select: { deletedAt: true } }) : null
+  return contractMissesNotice(q) && !job?.deletedAt ? row : null
 }
 
 const pngOf = (dataUrl: string): Buffer | null => {

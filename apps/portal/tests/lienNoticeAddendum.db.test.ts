@@ -204,4 +204,28 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('lien notice addendum (dev databa
     // Installed after it was signed: the job still shows the signed addendum.
     expect((await call(office, 'GET', `/api/lien-addenda/job/${jobId}`)).json.data.state).toBe('signed')
   }, 30_000)
+
+  test('a cancelled (Lost), deleted or since-noticed contract cannot be sent or signed; a copied link is not "sent"', async () => {
+    const before = (await call(owner, 'GET', '/api/lien-addenda')).json?.data?.reviewed ?? null
+    await call(owner, 'POST', '/api/lien-addenda/reviewed', { reviewed: true })
+    try {
+      const { jobId, quoteId } = await soldJob('Cancel', 6600)
+      const cp = await call(office, 'POST', `/api/lien-addenda/job/${jobId}/send`, { channel: 'copy' })
+      expect(cp.json.data.sent).toBe(false)
+      expect((await call(office, 'GET', `/api/lien-addenda/job/${jobId}`)).json.data.state).toBe('ready')
+      const token = cp.json.data.addendum.token as string
+      expect((await call('', 'GET', `/p/ln/${token}`)).status).toBe(200)
+      // Lost: the link shows nothing, signing and sending are refused.
+      await prisma.savedQuote.update({ where: { id: quoteId }, data: { status: 'LOST' } })
+      expect((await call('', 'GET', `/p/ln/${token}`)).status).toBe(404)
+      expect((await call('', 'POST', `/p/ln/${token}/sign`, { name: 'Pat', signature: 'data:image/png;base64,' + 'A'.repeat(200) })).status).not.toBe(200)
+      expect((await call(office, 'POST', `/api/lien-addenda/job/${jobId}/send`, { channel: 'text' })).status).toBe(409)
+      // Sold again but the notice was added to the contract: no second notice.
+      await prisma.savedQuote.update({ where: { id: quoteId }, data: { status: 'SOLD', proposal: { options: [], lienNotice: LIEN_NOTICE_713015 } as any } })
+      expect((await call('', 'GET', `/p/ln/${token}`)).status).toBe(404)
+      expect((await call(office, 'GET', `/api/lien-addenda/job/${jobId}`)).json.data.applies).toBe(false)
+    } finally {
+      if (!before) await call(owner, 'POST', '/api/lien-addenda/reviewed', { reviewed: false })
+    }
+  })
 })

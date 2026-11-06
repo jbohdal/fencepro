@@ -71,9 +71,9 @@ function Dashboard({ onOpenSub }: { onOpenSub: (id: string) => void }) {
       <span className="block text-xs text-gray-600">{j.address}{j.installDate ? ` · ${usDay(j.installDate)}` : ''}{extra ? ` · ${extra}` : ''}</span>
     </button>
   )
-  const box = (title: string, key: string, items: ReactNode[], empty: string) => (
+  const box = (title: string, key: string, items: ReactNode[], empty: string, count = items.length) => (
     <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden" data-dash={key}>
-      <h2 className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-100">{title} ({items.length})</h2>
+      <h2 className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-100">{title} ({count})</h2>
       {items.length ? <div className="divide-y divide-gray-100">{items}</div> : <p className="px-3 py-3 text-sm text-gray-500">{empty}</p>}
     </section>
   )
@@ -108,7 +108,7 @@ function Dashboard({ onOpenSub }: { onOpenSub: (id: string) => void }) {
         )),
         ...(liens.data.noNoticeSigned > 0 ? [<p key="signed" className="px-3 py-2 text-xs text-green-800" data-dash-no-notice-signed>{liens.data.noNoticeSigned} more signed the notice addendum: the notice is given.</p>] : []),
         ...(liens.data.noNoticeOlder > 0 && liens.data.noNotice.length > 0 ? [<p key="older" className="px-3 py-2 text-xs text-gray-600" data-dash-no-notice-older>Also {liens.data.noNoticeOlder} older contracts, already installed, signed before the notice.</p>] : []),
-      ], `None still to install. ${liens.data.noNoticeOlder} older contracts, already installed, were signed before the notice.`)}
+      ], `None still to install. ${liens.data.noNoticeOlder} older contracts, already installed, were signed before the notice.`, liens.data.noNotice.length)}
       {box('Open callbacks by sub', 'callbacks', d.callbacks.map(c => (
         <button key={c.subId} type="button" onClick={() => onOpenSub(c.subId)} className="w-full text-left px-3 py-2 min-h-[56px] hover:bg-orange-50"><span className="text-sm font-semibold text-gray-900">{c.sub}</span> <span className="text-sm text-gray-600">· {c.open} open</span></button>
       )), 'No open callbacks.')}

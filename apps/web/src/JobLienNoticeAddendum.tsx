@@ -49,7 +49,7 @@ export default function JobLienNoticeAddendum({ jobId, wrap = c => c }: { jobId:
       window.location.href = smsLink(customer.phone, customerText(r.data.message, getConfig().company?.name))
       return
     }
-    if (channel === 'copy') { await navigator.clipboard?.writeText(r.data.link).catch(() => {}); toast.success('Link copied'); return }
+    if (channel === 'copy') { await navigator.clipboard?.writeText(r.data.link).catch(() => {}); toast.success('Link copied', 'Not marked sent: paste it to the customer, or use Text it or Email it so it shows as sent.'); return }
     if (r.data.sent) toast.success('Emailed', `To ${customer.email}`)
     else toast.error('Not emailed', r.data.how)
   }
