@@ -57,7 +57,13 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the job window and the job flow,
     const inv = await prisma.contractInvoice.findMany({ where: { scheduleId: sched!.id, voidedAt: null }, orderBy: { sortOrder: 'asc' } })
     return { job, invoices: inv.map(i => i.amountCents) }
   }
-  const pay = (jobId: string, cents: number, n: string) => call('POST', '/api/payments', { id: `jspay${Date.now().toString(36)}${n}`, jobId, amountCents: cents, method: 'check', checkNumber: n })
+  // Recorded and, as the owner taps once the bank shows it, Cleared: a job reads Paid only when cleared (Nov 6 2026).
+  const pay = async (jobId: string, cents: number, n: string) => {
+    const id = `jspay${Date.now().toString(36)}${n}`
+    const r = await call('POST', '/api/payments', { id, jobId, amountCents: cents, method: 'check', checkNumber: n })
+    if (r.status === 201) await call('POST', `/api/payments/${id}/cleared`, {})
+    return r
+  }
   async function signWalkthrough(jobId: string) {
     await prisma.walkthrough.create({ data: { accountId, jobId, status: 'completed', homeownerSig: { name: 'Maria', signedAt: new Date().toISOString() } as any, repSig: { name: 'Jonathan', role: 'Owner', signedAt: new Date().toISOString() } as any, signedAt: new Date() } })
     return truth.closeOutIfDone(accountId, jobId, 'final walkthrough signed')
