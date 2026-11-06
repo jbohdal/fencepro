@@ -41,6 +41,7 @@ import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
 import { loadSchedule, crewName } from './scheduleStore'
 import JobSubPanel from './JobSubPanel'
 import JobLienPanel from './JobLienPanel'
+import JobLienNoticeAddendum from './JobLienNoticeAddendum'
 import { CustomerContact, LocatePanel, JobMilestones, JobFinancial, OpenCustomerProfile } from './JobTruth'
 import SalesmanOnQuote from './SalesmanOnQuote'
 import CommissionOnSale from './CommissionOnSale'
@@ -320,6 +321,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
         {isJobSource && seesPrices && <Section title="Payments"><PaymentsPanel jobId={job.id} /></Section>}
         {/* The lien clock, from the final furnishing date (the owner only; JobLienPanel.tsx). */}
         {isJobSource && can('liens.manage') && <JobLienPanel jobId={job.id} wrap={children => <Section title="Lien">{children}</Section>} />}
+        {/* Florida's lien notice addendum: a contract signed without the notice, not installed yet (owner and office; JobLienNoticeAddendum.tsx). */}
+        {isJobSource && can('billing.change') && <JobLienNoticeAddendum jobId={job.id} wrap={children => <Section title="Lien notice">{children}</Section>} />}
         {/* Warranty and service requests on this fence (ServiceRequests.tsx). */}
         {isJobSource && <Section title="Warranty and service"><div className="space-y-2" data-job-service>{!crew && <ServiceRequestButton jobId={job.id} />}<ServiceTicketList jobId={job.id} title="Requests on this job" /></div></Section>}
         {/* The warranty it was signed with, its dates, and whether service calls on it are covered. */}

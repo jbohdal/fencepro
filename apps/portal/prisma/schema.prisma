@@ -3909,3 +3909,45 @@ model LienCase {
 
   @@index([accountId])
 }
+
+/// Florida's construction lien notice (s. 713.015) as an addendum to a contract signed before the notice was on
+/// new contracts (Jonathan, Nov 6 2026: "prepare the signed notice addendum for the 11 contracts not installed yet,
+/// locked until I mark it attorney reviewed; don't send until then. Leave the installed ones alone.").
+/// lib/lienNoticeAddendum.ts. Made the first time the office sends it (only once the owner marked it reviewed);
+/// the contract's facts and the notice's words are kept as sent. One per quote.
+model LienNoticeAddendum {
+  id               String    @id @default(uuid())
+  accountId        String
+  quoteId          String    @unique
+  jobId            String?
+  crmContactId     String?
+  /// The customer's link: /p/ln/<token>.
+  token            String    @unique
+  /// The notice word for word (lib/contractTerms.ts LIEN_NOTICE_713015) as sent.
+  noticeText       String
+  customerName     String    @default("")
+  customerAddress  String    @default("")
+  /// The original contract: its price (cents), the day it was signed (YYYY-MM-DD, Florida) and the fence.
+  contractCents    Int
+  contractSignedOn String?
+  contractFence    String    @default("")
+  createdBy        String    @default("")
+  createdAt        DateTime  @default(now())
+  /// email | text | copy: the last way the office sent it, when, by whom, to where.
+  sentChannel      String?
+  sentAt           DateTime?
+  sentBy           String?
+  sentTo           String?
+  openCount        Int       @default(0)
+  lastOpenedAt     DateTime?
+  signedAt         DateTime?
+  signedBy         String?
+  signature        String?
+  signedIp         String?
+  signedUserAgent  String?
+  /// The stored signed PDF (SignedDocument kind lien_notice), with the contract's files.
+  signedDocumentId String?
+
+  @@index([accountId])
+  @@index([jobId])
+}

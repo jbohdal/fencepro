@@ -17,7 +17,7 @@ import { toast } from './toast'
 import { can, signedInRole } from './permissions'
 import {
   listSubs, getSub, addSub, saveSub, uploadDoc, removeDoc, docUrl, sendAgreement, subsDashboard, subSettings, saveSubSettings, markReviewed,
-  lienList, lienSample, ytdCsvUrl, LIEN_KIND_LABEL,
+  lienList, lienSample, ytdCsvUrl, LIEN_KIND_LABEL, ADDENDUM_STATE_LABEL, addendumList, markAddendumReviewed,
   money, centsOf, usDay, usDate, SUB_STATUS_LABEL, TRADES, TRADE_LABEL,
   type SubRow, type SubDetail, type Sub, type SubRates, type SubsDashboard, type SubSettings, type SubStatus, type Trade, type DashJob,
 } from './subsApi'
@@ -101,9 +101,12 @@ function Dashboard({ onOpenSub }: { onOpenSub: (id: string) => void }) {
         </button>
       )), 'No unpaid job is on the lien clock.')}
       {liens?.ok && (liens.data.noNotice.length > 0 || liens.data.noNoticeOlder > 0) && box("Not installed yet, signed over $2,500 without Florida's lien notice (713.015)", 'nonotice', [
+        // Each one's notice addendum (JobLienNoticeAddendum.tsx on the job): locked until you mark it reviewed (Settings tab).
         ...liens.data.noNotice.map(q => (
-          <div key={q.quoteId} className="px-3 py-2 text-sm text-gray-800" data-dash-no-notice>{q.customerName} · {money(q.priceCents)}{q.signedOn ? ` · signed ${usDate(q.signedOn)}` : ''}<span className="block text-xs text-gray-600">{q.address}</span></div>
+          <button key={q.quoteId} type="button" onClick={() => openJob(q.jobId)} className="w-full text-left px-3 py-2 min-h-[56px] hover:bg-orange-50 text-sm text-gray-800" data-dash-no-notice={q.addendum}>{q.customerName} · {money(q.priceCents)}{q.signedOn ? ` · signed ${usDate(q.signedOn)}` : ''}
+            <span className="block text-xs text-gray-600">{q.address} · addendum: {ADDENDUM_STATE_LABEL[q.addendum].toLowerCase()}</span></button>
         )),
+        ...(liens.data.noNoticeSigned > 0 ? [<p key="signed" className="px-3 py-2 text-xs text-green-800" data-dash-no-notice-signed>{liens.data.noNoticeSigned} more signed the notice addendum: the notice is given.</p>] : []),
         ...(liens.data.noNoticeOlder > 0 && liens.data.noNotice.length > 0 ? [<p key="older" className="px-3 py-2 text-xs text-gray-600" data-dash-no-notice-older>Also {liens.data.noNoticeOlder} older contracts, already installed, signed before the notice.</p>] : []),
       ], `None still to install. ${liens.data.noNoticeOlder} older contracts, already installed, were signed before the notice.`)}
       {box('Open callbacks by sub', 'callbacks', d.callbacks.map(c => (
@@ -468,6 +471,8 @@ Lienor: (the sub)`}</pre>
           take(r.data)
         }}>{s.reviews?.sub_lien_release ? 'Take the review mark off' : 'Mark reviewed by attorney'}</button>}
       </section>
+      {/* Florida's lien notice addendum for contracts signed before the notice, not installed yet (Jonathan, Nov 6 2026): its own mark. */}
+      {can('billing.change') && <AddendumReview owner={owner} />}
       {owner && (
         <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2" data-subs-lien-templates>
           <h2 className="text-lg font-semibold text-gray-900">Lien papers (owner only)</h2>
@@ -510,6 +515,34 @@ Lienor: (the sub)`}</pre>
         </>}
       </section>
     </div>
+  )
+}
+
+/**
+ * The customer lien notice addendum (713.015) for contracts signed before the notice and not installed yet: its own
+ * attorney review mark (the owner's), and how many are prepared. Server: routes/lienAddenda.ts.
+ */
+function AddendumReview({ owner }: { owner: boolean }) {
+  const [d, setD] = useState<{ reviewed: { at: string; by: string } | null; count: number; signed: number } | null>(null)
+  const load = () => { void addendumList().then(r => r.ok && setD({ reviewed: r.data.reviewed, count: r.data.list.length, signed: r.data.list.filter(x => x.state === 'signed').length })) }
+  useEffect(load, [])
+  if (!d) return null
+  return (
+    <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2" data-subs-addendum-template>
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="text-lg font-semibold text-gray-900">Customer lien notice addendum (713.015)</h2>
+        <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${d.reviewed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`} data-subs-addendum-review>{d.reviewed ? `Reviewed by ${d.reviewed.by}` : 'Attorney review required'}</span>
+      </div>
+      <p className="text-xs text-gray-600">Prepared for {d.count} contract{d.count === 1 ? '' : 's'} signed over $2,500 without Florida's lien notice whose job is not installed yet{d.signed ? ` (${d.signed} signed)` : ''}: one page with the notice word for word, as on new contracts, naming the original contract, for the customer to sign on their link. It cannot be sent, and its links show nothing, until you mark it reviewed. Read it on any of those jobs (Lien notice); the list is on the Dashboard.</p>
+      {owner && <button type="button" className="btn btn-secondary !min-h-[48px]" data-subs-addendum-mark onClick={async () => {
+        const on = !d.reviewed
+        if (on && !window.confirm('Mark the lien notice addendum reviewed by your attorney? The office can then send it to each customer on the list to sign.')) return
+        if (!on && !window.confirm('Take the review mark off? Nothing can be sent, and the customer links show nothing, until you mark it again.')) return
+        const r = await markAddendumReviewed(on)
+        if (!r.ok) { toast.error('Not changed', r.error); return }
+        load()
+      }}>{d.reviewed ? 'Take the review mark off' : 'Mark reviewed by attorney'}</button>}
+    </section>
   )
 }
 

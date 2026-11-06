@@ -23,6 +23,7 @@ import { SubError } from '../lib/subcontractors.js'
 import { lienView, saveLienFacts, makePaper, clockOf, ffdOf, sampleWords, LIEN_KIND_LABEL, LIEN_DEADLINE_DAYS } from '../lib/liens.js'
 import { plusDays } from '../lib/installDays.js'
 import { clearedCover } from '../lib/paymentClearing.js'
+import { addendumCandidates, addendumReview, stateOf } from '../lib/lienNoticeAddendum.js'
 
 type Json = any
 const router = Router()
@@ -56,12 +57,14 @@ router.get('/', async (req: any, res) => {
     // Signed contracts over $2,500 whose proposal did not carry Florida's 713.015 notice (signed before Nov 6 2026).
     // Only the ones that can still be acted on: work not finished yet (a signed notice can still be had before the
     // install); the rest are counted, not listed (Nov 6 2026 review: 537 old contracts were noise).
-    const signed = await prisma.savedQuote.findMany({ where: { accountId, deletedAt: null, OR: [{ status: 'SOLD' }, { acceptedAt: { not: null } }] }, select: { id: true, customerName: true, customerAddress: true, finalPrice: true, proposal: true, acceptedAt: true, soldAt: true } })
-    const missing = signed.filter(q => Math.round((q.finalPrice || 0) * 100) > 2_500_00 && !(q.proposal as Json)?.lienNotice)
-    const open = missing.length ? await prisma.savedJob.findMany({ where: { accountId, deletedAt: null, archivedAt: null, quoteId: { in: missing.map(q => q.id) }, completedDate: null, status: { notIn: ['completed', 'invoiced', 'paid'] as Json } }, select: { quoteId: true } }) : []
-    const noNotice = missing.filter(q => open.some(j => j.quoteId === q.id))
-      .map(q => ({ quoteId: q.id, customerName: q.customerName, address: q.customerAddress, priceCents: Math.round((q.finalPrice || 0) * 100), signedOn: (q.acceptedAt ?? q.soldAt)?.toISOString().slice(0, 10) ?? null }))
-    res.json({ success: true, data: { clocks, noNotice, noNoticeOlder: missing.length - noNotice.length } })
+    // The same list the notice addendum is prepared for (lib/lienNoticeAddendum.ts; Jonathan, Nov 6 2026), with each
+    // one's addendum state; a signed addendum is the notice given, so it leaves the list.
+    const [{ list, older }, review] = await Promise.all([addendumCandidates(accountId), addendumReview(accountId)])
+    const addenda = list.length ? await prisma.lienNoticeAddendum.findMany({ where: { accountId, quoteId: { in: list.map(c => c.quoteId) } } }) : []
+    const noNotice = list
+      .map(c => { const a = addenda.find(x => x.quoteId === c.quoteId) ?? null; return { ...c, addendum: stateOf(a, !!review), addendumSignedAt: a?.signedAt?.toISOString() ?? null } })
+      .filter(c => c.addendum !== 'signed')
+    res.json({ success: true, data: { clocks, noNotice, noNoticeOlder: older, noNoticeSigned: list.length - noNotice.length, addendumReviewed: review } })
   } catch (err) { fail(res, err, 'read the liens') }
 })
 

@@ -45,7 +45,7 @@ router.get('/:id/pdf', async (req: any, res) => {
     const out = await storedPdf(req.user.crmAccountId, String(req.params.id))
     if (!out) { res.status(404).json({ success: false, error: 'Not found' }); return }
     if (await refusedOutsideSalesScope(req, res, { quotes: out.doc.quoteId })) return
-    const name = out.doc.kind === 'contract' ? 'Signed contract.pdf' : 'Signed change order.pdf'
+    const name = out.doc.kind === 'contract' ? 'Signed contract.pdf' : out.doc.kind === 'lien_notice' ? 'Signed lien notice.pdf' : 'Signed change order.pdf'
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `inline; filename="${name}"`)
     res.setHeader('Cache-Control', 'private, no-store')

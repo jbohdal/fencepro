@@ -177,7 +177,11 @@ export interface LienCaseView {
   notarizedOn?: string | null; recordedOn?: string | null; instrumentNumber?: string; servedOn?: string | null; serveMethod?: string; serveTracking?: string; contestOn?: string | null; suitFiledOn?: string | null; releasedOn?: string | null
   actions: Array<{ id: string; kind: LienKind; at: string; day: string; how: string; by: string; note: string; owedCents: number }>
 }
-export interface LienView { clock: LienClock; case: LienCaseView; reviewed: Record<LienKind, boolean>; job: { id: string; customerName: string; address: string; finalFurnishingDate: string | null; ffdSet: boolean } }
+export interface LienView {
+  clock: LienClock; case: LienCaseView; reviewed: Record<LienKind, boolean>; job: { id: string; customerName: string; address: string; finalFurnishingDate: string | null; ffdSet: boolean }
+  /** Florida's 713.015 notice: on the contract, or given by the signed addendum. */
+  notice: { needed: boolean; given: boolean; how: 'contract' | 'addendum' | null; signedOn: string | null }
+}
 
 async function lienCall<T>(method: string, path: string, body?: unknown): Promise<Answer<T>> {
   const r = await sendJson(method, `/api/liens${path}`, body)
@@ -188,5 +192,35 @@ export const lienOf = (jobId: string) => lienCall<LienView>('GET', `/job/${encod
 export const saveLien = (jobId: string, b: Partial<LienCaseView> & { finalFurnishingDate?: string }) => lienCall<LienView>('PUT', `/job/${encodeURIComponent(jobId)}`, b)
 export const makeLienPaper = (jobId: string, kind: LienKind, how: string, note = '') => lienCall<{ action: LienCaseView['actions'][number]; view: LienView }>('POST', `/job/${encodeURIComponent(jobId)}/papers`, { kind, how, note })
 export const lienPaperUrl = (jobId: string, actionId: string) => `${API_ORIGIN}/api/liens/job/${encodeURIComponent(jobId)}/papers/${encodeURIComponent(actionId)}`
-export const lienList = () => lienCall<{ clocks: Array<LienClock & { jobId: string; customerName: string; address: string; recordedOn: string | null }>; noNotice: Array<{ quoteId: string; customerName: string; address: string; priceCents: number; signedOn: string | null }>; noNoticeOlder: number }>('GET', '')
+export const lienList = () => lienCall<{
+  clocks: Array<LienClock & { jobId: string; customerName: string; address: string; recordedOn: string | null }>
+  noNotice: Array<{ quoteId: string; jobId: string; customerName: string; address: string; priceCents: number; signedOn: string | null; jobStatus: string; addendum: AddendumState }>
+  noNoticeOlder: number; noNoticeSigned: number; addendumReviewed: { at: string; by: string } | null
+}>('GET', '')
+
+// ── The Florida lien notice addendum (owner and office; server: routes/lienAddenda.ts) ──
+
+export type AddendumState = 'locked' | 'ready' | 'sent' | 'signed'
+export const ADDENDUM_STATE_LABEL: Record<AddendumState, string> = { locked: 'Locked: attorney review', ready: 'Ready to send', sent: 'Sent, not signed yet', signed: 'Signed' }
+export interface AddendumSummary {
+  id: string; token: string; link: string; createdAt: string; createdBy: string
+  sentAt: string | null; sentChannel: 'email' | 'text' | 'copy' | null; sentBy: string | null; sentTo: string | null
+  openCount: number; lastOpenedAt: string | null; signedAt: string | null; signedBy: string | null; signedDocumentId: string | null
+}
+export type AddendumView = { applies: false } | {
+  applies: true; jobId: string; quoteId: string; state: AddendumState; reviewed: { at: string; by: string } | null; lockedWhy: string | null
+  title: string; contract: { customerName: string; address: string; priceCents: number; signedOn: string | null; fence: string }; contractLine: string; notice: string
+  customer: { name: string; firstName: string; phone: string; email: string }; addendum: AddendumSummary | null
+}
+async function addendumCall<T>(method: string, path: string, body?: unknown): Promise<Answer<T>> {
+  const r = await sendJson(method, `/api/lien-addenda${path}`, body)
+  if (r.result.ok) return { ok: true, data: r.json?.data as T }
+  return { ok: false, error: r.json?.error || 'Something went wrong.', status: r.status, json: r.json }
+}
+export const addendumOf = (jobId: string) => addendumCall<AddendumView>('GET', `/job/${encodeURIComponent(jobId)}`)
+export const addendumList = () => addendumCall<{ reviewed: { at: string; by: string } | null; older: number; list: Array<{ quoteId: string; jobId: string; customerName: string; address: string; priceCents: number; signedOn: string | null; jobStatus: string; state: AddendumState; addendum: AddendumSummary | null }> }>('GET', '')
+/** The owner only: the attorney review mark on the addendum (its own, not the sub agreement's). */
+export const markAddendumReviewed = (reviewed: boolean) => addendumCall<{ reviewed: { at: string; by: string } | null }>('POST', '/reviewed', { reviewed })
+export const sendAddendum = (jobId: string, channel: 'email' | 'text' | 'copy') =>
+  addendumCall<{ sent: boolean; how: string; link: string; message: string; addendum: AddendumSummary; view: AddendumView }>('POST', `/job/${encodeURIComponent(jobId)}/send`, { channel })
 export const lienSample = (kind: LienKind) => lienCall<{ title: string; text: string }>('GET', `/sample/${kind}`)
