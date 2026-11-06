@@ -80,6 +80,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     id.qMina = await quote({ crmContactId: id.mina, customerName: `Mina ${tag}`, status: 'DRAFT' })
     id.otto = await contact('Otto', OLIVE(), id.owner)
     id.qOtto = await quote({ crmContactId: id.otto, customerName: `Otto ${tag}`, status: 'SOLD', soldAt: new Date(), ownerId: id.owner, salesRep: OLIVE() })
+    id.jOtto = (await prisma.savedJob.create({ data: { accountId, quoteId: id.qOtto, crmContactId: id.otto, customerName: `Otto ${tag}`, salesRep: OLIVE(), quotePrice: 7000, contractValue: 7000, gmPct: 0.3 } })).id
     // Sally's open card on Cleo, and a won card of hers on Fay.
     await prisma.pipelineState.create({ data: { accountId, stages: [], leads: [
       { id: `${tag}-k-cleo`, stage: 'new_lead', firstName: 'Cleo', lastName: tag, customerId: id.cleo, quoteId: id.qCleoDraft, assignedRep: SALLY() },
@@ -227,6 +228,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope after the 
     stored.activity = await kvRows('fencepro_customer_activity')
     stored.jobcosting = await kvRows('fencepro_quote_shares')
     storedChecklists = (await checklistsRaw())!
+  })
+
+  test('a quote or job she never had (Otto\'s, Olive\'s): "not on your list", naming no one (privacy review, Nov 6 2026)', async () => {
+    const q = await call('GET', `/api/saved-quotes/${id.qOtto}`, tok.sally)
+    expect([q.status, q.json.code, q.json.error]).toEqual([404, 'NOT_YOURS', 'This quote is not on your list.'])
+    const j = await call('GET', `/api/saved-jobs/${id.jOtto}`, tok.sally)
+    expect([j.status, j.json.code, j.json.error]).toEqual([404, 'NOT_YOURS', 'This job is not on your list.'])
+    expect(JSON.stringify([q.json, j.json])).not.toContain('Olive')
   })
 
   test('1. the owner moves Cleo to Sam: her unsold quotes leave Sally\'s list (even the ones she wrote); the signed one and its job stay, and keep Cleo on her list', async () => {

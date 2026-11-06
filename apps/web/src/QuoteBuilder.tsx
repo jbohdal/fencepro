@@ -1735,7 +1735,8 @@ export default function QuoteBuilder({
             {signedQuote && init?.id && <SignedDocumentLinks quoteId={init.id} />}
             {planChange && <PlanChangeBanner title={planChange.title} signed={signedQuote} missed={planEditMissed} pairs={planPricePairs()} />}
             {sentQuote && sentPricesChanged && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-sent-changed-banner>Prices changed since this was sent ({priceText(init!.finalPrice)} then, {priceText(adjPrice)} now).</p>}
-            {(draftLine || repricedLine) && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-price-changed-banner>{draftLine || repricedLine}</p>}
+            {/* Opened from the site plan, the change is what moves the price: the Before/Now table says it (not "prices changed"). */}
+            {!planChange && (draftLine || repricedLine) && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-price-changed-banner>{draftLine || repricedLine}</p>}
           </div>
           <div className="flex items-center gap-3">
             {shownItems.length > 0 && (

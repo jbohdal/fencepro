@@ -341,7 +341,33 @@ export function movedAnswer(s: Pick<SalesScope, 'names'>, row: { id?: string; sa
   if (!row || row.deletedAt || !rep || isMine(s, rep)) return null
   return { success: false, code: 'MOVED', movedTo: rep, ...(row.id ? { movedId: row.id } : {}), error: `The owner moved this to ${rep}. It is off your list now.` }
 }
-const notFoundOrMoved = (res: any, s: SalesScope, row: any) => { const m = movedAnswer(s, row); if (m) res.status(404).json(m); else notFound(res) }
+/**
+ * Was this record ever the Salesman's (privacy review, Nov 6 2026: a job she never had said "The owner moved this to
+ * <another Salesman>")? She wrote it or entered its customer, she had a visit with its customer, or a move took it
+ * from her (the audit log keeps the Salesman it was moved from). Only then is she told who has it now.
+ */
+export async function wasHers(s: SalesScope, row: { id?: string; ownerId?: string | null; quoteId?: string | null; crmContactId?: string | null } | null | undefined): Promise<boolean> {
+  if (!row?.id) return false
+  if (row.ownerId && row.ownerId === s.userId) return true
+  if (s.madeQuoteIds?.has(row.id) || (row.quoteId && s.madeQuoteIds?.has(row.quoteId)) || s.madeContactIds?.has(row.id)) return true
+  if (row.crmContactId && (s.visitedContactIds?.has(row.crmContactId) || s.madeContactIds?.has(row.crmContactId))) return true
+  const ids = [row.id, row.quoteId].filter((x): x is string => !!x)
+  const logs = await prisma.crmAuditLog.findMany({ where: { entityId: { in: ids }, entityType: { in: ['SavedQuote', 'SavedJob', 'CrmContact'] } }, select: { oldValues: true }, orderBy: { createdAt: 'desc' }, take: 200 }).catch(() => [])
+  if (logs.some(l => isMine(s, (l.oldValues as any)?.salesRep))) return true
+  if (row.quoteId) {
+    const q = await prisma.savedQuote.findFirst({ where: { id: row.quoteId, accountId: s.accountId }, select: { ownerId: true } }).catch(() => null)
+    if (q?.ownerId && q.ownerId === s.userId) return true
+  }
+  return false
+}
+const NOT_ON_LIST: Record<string, string> = { contacts: 'This customer is not on your list.', quotes: 'This quote is not on your list.', jobs: 'This job is not on your list.' }
+/** A record she cannot open: moved away from her (who has it now), or never hers (only that it is not on her list, no name). */
+async function notFoundOrMoved(res: any, s: SalesScope, row: any, kind: string) {
+  const m = movedAnswer(s, row)
+  if (m && await wasHers(s, row)) { res.status(404).json(m); return }
+  if (row && !row.deletedAt && NOT_ON_LIST[kind]) { res.status(404).json({ success: false, code: 'NOT_YOURS', error: NOT_ON_LIST[kind] }); return }
+  notFound(res)
+}
 
 const MODEL: Record<Exclude<SalesKind, 'pipeline'>, (id: string, accountId: string) => Promise<any>> = {
   contacts: (id, accountId) => prisma.crmContact.findFirst({ where: { id, accountId }, select: { id: true, ownerId: true, salesRep: true, deletedAt: true } }),
@@ -372,12 +398,12 @@ export function salesScoped(kind: SalesKind) {
       if (!known) {
         // Not in the scope as read: the record itself may say it is the Salesman's (made a moment ago).
         const row = await MODEL[kind](first, scope.accountId).catch(() => null)
-        if (!row || !inSalesScope(kind, scope, row)) { notFoundOrMoved(res, scope, kind === 'appointments' ? null : row); return }
+        if (!row || !inSalesScope(kind, scope, row)) { await notFoundOrMoved(res, scope, kind === 'appointments' ? null : row, kind); return }
       }
     }
     if (!first && req.method === 'POST' && typeof req.body?.id === 'string' && kind !== 'pipeline') {
       const row = await MODEL[kind](req.body.id, scope.accountId).catch(() => null)
-      if (row && !inSalesScope(kind, scope, row)) { notFoundOrMoved(res, scope, kind === 'appointments' ? null : row); return }
+      if (row && !inSalesScope(kind, scope, row)) { await notFoundOrMoved(res, scope, kind === 'appointments' ? null : row, kind); return }
     }
     // The board answers "unchanged" by its version; the Salesman's cards also change when her scope does (a deal
     // moved away): a scope she has not seen yet sends the board (routes/pipeline.ts reads salesScopeChanged).
@@ -464,7 +490,7 @@ export async function refusedOutsideSalesScope(req: any, res: any, refs: Refs): 
   if (fresh && await allIn(fresh)) return false
   const o = outside as { kind: SalesRefKind; id: string } | null
   const row = o ? await MODEL[o.kind](o.id, scope.accountId).catch(() => null) : null
-  notFoundOrMoved(res, fresh ?? scope, row)
+  await notFoundOrMoved(res, fresh ?? scope, row, o?.kind ?? '')
   return true
 }
 

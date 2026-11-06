@@ -484,6 +484,15 @@ export function optionPairs(
   return out
 }
 
+/**
+ * The fence the plan is checked against: the job's fence now (the signed quote with its approved and signed change
+ * orders, from the server), else the quote's own (its walk list, else its drawing). Never the quote as first signed
+ * once a change order has gone through: a gate it added is the fence, not a question.
+ */
+export function fenceNowYard(rec: { current?: { yard?: YardLayout | null } | null; quote?: { layout?: unknown } | null }): YardLayout | null {
+  return rec.current?.yard ?? quoteYardOf(rec.quote?.layout ?? null)
+}
+
 // ── Labels ───────────────────────────────────────────────────────────────────
 
 const ft1 = (n: number) => `${Math.round(n * 10) / 10} ft`

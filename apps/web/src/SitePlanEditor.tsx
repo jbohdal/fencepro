@@ -24,7 +24,7 @@ import {
   historyOf, historyPush, historyReplace, historyUndo, historyRedo, movePost, setSideLength, snapSquare, snapEdges, snapToEdges,
   movePlan, turnPlan, planCenter, addSide, removeSide, addGate, removeGate, editGate, gatePlace, houseRect, moveHouseCorner,
   placeSurvey, scaleSurvey, moveSurvey, turnSurvey, surveyToFeet, feetToSurvey, sideFeetEdit, gateEdit, sideLabel, postFeet,
-  quoteYardOf, type History, type Pt, type GateInput,
+  fenceNowYard, type History, type Pt, type GateInput,
 } from './sitePlanEdit'
 import { getSitePlan, saveSitePlan, markSitePlanDone, reopenSitePlan, fetchParcel, uploadSurvey, makePermitSheet, serverUrl, type SitePlanRecord } from './sitePlanApi'
 import { openPlanChange, type PlanQuoteChange } from './planQuoteChange'
@@ -77,7 +77,9 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   const dirty = JSON.stringify(plan) !== savedJson || notes !== plan.notes
   const canEdit = rec.canEdit
   const settings = { ...DEFAULT_FLAG_SETTINGS, ...rec.settings }
-  const quoteYard = useMemo(() => quoteYardOf(rec.quote?.layout ?? null), [rec.quote?.layout])
+  // The plan is checked against the job's fence now (the signed quote with its approved and signed change orders), never
+  // the quote as first signed: a gate a signed change order added is the fence, not a question.
+  const quoteYard = useMemo(() => fenceNowYard(rec), [rec.current?.yard, rec.quote?.layout])  // eslint-disable-line react-hooks/exhaustive-deps
   const flags = useMemo(() => planFlags(plan, quoteYard, settings), [plan, quoteYard, settings.tolFt, settings.tolPct])  // eslint-disable-line react-hooks/exhaustive-deps
   const open = openFlags(plan, flags)
   const openKeys = new Set(open.map(f => f.key))
@@ -420,7 +422,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
             const r = ok ? await getSitePlan(jobId) : null
             setWaiting('')
             if (!r || !r.ok) { toast.error('Answer not recorded', 'The quote save has not reached the server yet. When it has, answer the question again.'); return }
-            setRec(x => ({ ...x, quote: r.data.quote }))
+            setRec(x => ({ ...x, quote: r.data.quote, current: r.data.current }))
             if (check && !check(r.data.quote?.layout)) { toast.error('Answer not recorded', 'The saved quote does not have the change. Open the quote to check it, then answer again.'); return }
             const next = done({ quote: true })
             if (next) { setHist(h => historyPush(h, next)); void save(next, `Quote saved: ${title}`) }
@@ -706,14 +708,15 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
             {tool === 'surveyScale' && plan.survey && scalePts.map((p, i) => { const s = toScreen(surveyToFeet(plan.origin, plan.survey!, p)); return <circle key={i} cx={s.x} cy={s.y} r={6} fill={ORANGE} stroke="white" strokeWidth={2} pointerEvents="none" /> })}
             {/* Move all and turn handles */}
             {canEdit && tool === 'select' && bounds && (() => {
+              // Both handles sit above the plan, clear of its posts and side labels (a small plan's middle is often a label).
               const c = toScreen(center)
-              const t = { x: c.x, y: bounds.minY - 34 }
+              const t = { x: c.x + 22, y: bounds.minY - 44 }
+              const m = { x: c.x - 22, y: bounds.minY - 44 }
               return (
                 <g>
-                  <line x1={c.x} y1={c.y} x2={t.x} y2={t.y} stroke="white" strokeDasharray="3 3" pointerEvents="none" />
                   <g className="cursor-move" onPointerDown={e => begin(e, { kind: 'all', last: toWorld(local(e).sx, local(e).sy), moved: false })} data-site-plan-move-all>
-                    <rect x={c.x - 15} y={c.y - 15} width={30} height={30} rx={6} fill="white" stroke="#111827" strokeWidth={2} />
-                    <path d={`M${c.x - 9},${c.y} H${c.x + 9} M${c.x},${c.y - 9} V${c.y + 9}`} stroke="#111827" strokeWidth={2} />
+                    <rect x={m.x - 15} y={m.y - 15} width={30} height={30} rx={6} fill="white" stroke="#111827" strokeWidth={2} />
+                    <path d={`M${m.x - 9},${m.y} H${m.x + 9} M${m.x},${m.y - 9} V${m.y + 9}`} stroke="#111827" strokeWidth={2} />
                     <title>Move all: drag to line the plan up with the photo</title>
                   </g>
                   <g className="cursor-grab" onPointerDown={e => { const w = toWorld(local(e).sx, local(e).sy); begin(e, { kind: 'turn', center, a0: Math.atan2(w.y - center.y, w.x - center.x), plan0: plan, moved: false }) }} data-site-plan-turn>
@@ -791,7 +794,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
 
           {canEdit && (
             <Section title="Line the plan up with the photo">
-              <p className="text-gray-600">Drag the square handle in the middle of the plan to move it all, and the round handle above it to turn it. Then adjust the corners.</p>
+              <p className="text-gray-600">Drag the square handle above the plan to move it all, and the round one beside it to turn it. Then adjust the corners.</p>
               <TurnBox onTurn={deg => push(p => turnPlan(p, deg))} />
             </Section>
           )}
@@ -810,7 +813,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
                       <p className="mt-1 text-gray-700" data-site-plan-flag-answered>
                         {co && rec.quote?.signed ? <span className="font-semibold text-amber-800" data-site-plan-flag-waiting>Waiting on CO-{co}. </span> : null}
                         {a.kind === 'keep' ? 'Kept the wheel number' : f.kind === 'length' ? 'Used the drawn length' : 'Quote changed to match the plan'}: {a.note} ({a.by}, {when(a.at)})
-                        {canEdit && <button type="button" className="ml-2 underline text-orange-700" onClick={() => push(p => { const answers = { ...p.answers }; delete answers[f.key]; return { ...p, answers } })}>Answer again</button>}
+                        {canEdit && <> <button type="button" className="ml-1 underline text-orange-700 whitespace-nowrap" onClick={() => push(p => { const answers = { ...p.answers }; delete answers[f.key]; return { ...p, answers } })} data-site-plan-answer-again>Answer again</button></>}
                       </p>
                     ) : canEdit && f.kind === 'length' ? (
                       <div className="mt-2 space-y-2">

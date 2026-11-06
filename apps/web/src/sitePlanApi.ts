@@ -7,7 +7,7 @@
 import { sendJson, API_ORIGIN } from './syncHttp'
 import { fetchWithAuth } from './crmAuth'
 import type { LatLng, SitePlanData, SiteParcel } from './sitePlanData'
-import type { QuoteLayoutRecord } from './yardLayout'
+import type { QuoteLayoutRecord, YardLayout } from './yardLayout'
 
 export interface SitePlanRevision { revision: number; by: string; at: string; note: string }
 export interface SitePlanRecord {
@@ -21,6 +21,8 @@ export interface SitePlanRecord {
   quote: { id: string; status: string; signed: boolean; layout: (Partial<QuoteLayoutRecord> & Record<string, unknown>) | null } | null
   settings: { tolFt: number; tolPct: number; setbackFt: number }
   canEdit: boolean
+  /** The job's fence now: the signed quote with its approved and signed change orders (the plan is checked against it). */
+  current?: { yard: YardLayout | null; runs?: number[]; runSections?: number[]; runRails?: unknown } | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the server's error body, read field by field

@@ -273,3 +273,20 @@ describe('change orders from the plan stack on the job as it is now', () => {
     expect((y3.sides[2].gates ?? []).map(g => g.distanceIn)).toEqual([ft(60), ft(100)])
   })
 })
+
+describe('the fence the plan is checked against', () => {
+  test('the job\'s fence now (a change order\'s gate in it) wins over the quote as first signed; no question for that gate', async () => {
+    const { fenceNowYard } = await import('../../web/src/sitePlanEdit')
+    const { planFlags } = await import('../../web/src/sitePlanData')
+    const s = plan.sides[2]
+    // CO-1's gate is on the plan now (applied when it was signed).
+    const withGate = addGate(plan, s.id, { fromEnd: 'a', distFt: 60, widthFt: 4, type: 'walk', swing: 'in', hinge: 'left' }) as SitePlanData
+    const signed = { quote: { layout: { walk, yard } } }
+    expect(planFlags(withGate, fenceNowYard(signed)).map(f => f.key)).toContain('gates')
+    const now = walkToYard(walkWithGate(walk, s.walkStepIds, ft(60), { widthIn: 48, type: 'walk' })!)
+    expect(fenceNowYard({ ...signed, current: { yard: now } })).toBe(now)
+    expect(planFlags(withGate, fenceNowYard({ ...signed, current: { yard: now } })).map(f => f.key)).not.toContain('gates')
+    // No fence from the server yet: the quote's walk list.
+    expect(fenceNowYard({ ...signed, current: null })!.sides.length).toBe(yard.sides.length)
+  })
+})

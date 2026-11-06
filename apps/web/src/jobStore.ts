@@ -283,7 +283,7 @@ export function getJobByQuoteId(quoteId: string): Job | null {
 export async function fetchJob(id: string): Promise<{ ok: true; job: Job } | { ok: false; notFound: boolean; error: string }> {
   const r = await sendJson('GET', `/api/saved-jobs/${encodeURIComponent(id)}`)
   if (r.result.ok && r.json?.data) return { ok: true, job: fromApi(r.json.data as SavedJobRecord) }
-  if (r.status === 404) return { ok: false, notFound: true, error: r.json?.code === 'MOVED' && typeof r.json.error === 'string' ? r.json.error : 'This job is not one of yours, or it was deleted.' }
+  if (r.status === 404) return { ok: false, notFound: true, error: (r.json?.code === 'MOVED' || r.json?.code === 'NOT_YOURS') && typeof r.json.error === 'string' ? r.json.error : 'This job is not on your list, or it was deleted.' }
   return { ok: false, notFound: false, error: r.status === 0 ? 'No signal. Try again when the phone has signal.' : r.json?.error || 'Could not open the job. Try again.' }
 }
 
