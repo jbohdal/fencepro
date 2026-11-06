@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { planFromYard, planFlags, openFlags, crewPosts, drawnFt, toFeet, fromFeet, feetBetween, propertyLineWarnings, sectionsAt, quoteSectionsOf, type SitePlanData } from '../../web/src/sitePlanData'
+import { applyChange, walkingOrder, planFromYard, planFlags, openFlags, crewPosts, drawnFt, toFeet, fromFeet, feetBetween, propertyLineWarnings, sectionsAt, quoteSectionsOf, type SitePlanData } from '../../web/src/sitePlanData'
 import { walkToYard, type WalkList } from '../../web/src/walkList'
 import { layoutForShape, deriveLayout } from '../../web/src/yardLayout'
 
@@ -140,5 +140,55 @@ describe('the crew\'s line posts spaced as the quote counted them (quoteSections
   test('no quote counts (or counts that do not line up with the runs): whole sections at the width', () => {
     const { sides } = crewPosts(plan, quoteSectionsOf(plan, yard, [1, 2], 8))
     expect(sides.map(s => s.pieces.map(p => p.sections))).toEqual([[2, 2], [15], [19]])
+  })
+})
+
+describe('review fixes (Nov 6 2026)', () => {
+  test('a closed pool square (back to start) closes on its first post: 4 posts, 4 sides, no "closes" flag', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'p', steps: [step(20, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(16, 'corner', { turn: 'right' }), step(40, 'corner', { turn: 'right' }), step(40, 'corner', { turn: 'right' }), step(40, 'start')] }] }
+    const y = walkToYard(w)
+    const p = planFromYard(y, OCALA, w)!
+    expect(p.posts.length).toBe(4)
+    expect(p.sides.map(s => Math.round(drawnFt(p, s)))).toEqual([40, 40, 40, 40])
+    expect(p.sides[3].b).toBe(p.sides[0].a)
+    expect(planFlags(p, y)).toEqual([])
+  })
+
+  test('two separate fence lines stay separate (no shared post)', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'x', steps: [step(30, 'corner', { turn: 'left' }), step(20, 'end')] }, { id: 'y', steps: [step(25, 'end')] }] }
+    const p = planFromYard(walkToYard(w), OCALA, w)!
+    expect(p.posts.length).toBe(5)
+    const used = new Map<string, number>()
+    for (const s of p.sides) for (const q of [s.a, s.b]) used.set(q, (used.get(q) ?? 0) + 1)
+    expect([...used.values()].sort()).toEqual([1, 1, 1, 1, 2])
+  })
+
+  test('the crew walks from the start post along the fence, whichever post it is', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'z', steps: [step(30, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(150, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(30, 'end')] }] }
+    const p = planFromYard(walkToYard(w), OCALA, w)!
+    p.startPostId = p.sides[4].b
+    expect(walkingOrder(p).map(o => `${o.side.name}${o.flip ? ' back' : ''}`)).toEqual(['Side 5 back', 'Side 4 back', 'Side 3 back', 'Side 2 back', 'Side 1 back'])
+    const { posts } = crewPosts(p, (_id, ft) => sectionsAt(ft, 8))
+    expect(posts.map(x => x.n)).toEqual(posts.map((_, i) => i + 1))
+    expect(posts[0].kind).toBe('end')
+  })
+
+  test('a change order put on the plan: a side 100 → 110 ft moves the fence beyond it; a gate is added; quoted feet follow', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'c', steps: [step(60, 'corner', { turn: 'right' }), step(100, 'corner', { turn: 'right' }), step(60, 'end')] }] }
+    const p = planFromYard(walkToYard(w), OCALA, w)!
+    const longer = applyChange(p, { id: 'c1', coId: 'co', coNumber: 2, kind: 'longer', sideId: p.sides[1].id, newFt: 110, by: 'Office', at: '' })
+    expect(longer.sides.map(s => Math.round(drawnFt(longer, s)))).toEqual([60, 110, 60])
+    expect(longer.sides[1].quotedFt).toBe(110)
+    const gated = applyChange(longer, { id: 'c2', coId: 'co', coNumber: 1, kind: 'gate', sideId: p.sides[0].id, gate: { id: 'g', atFt: 20, widthFt: 4, type: 'walk', swing: 'in', hinge: 'left' }, by: 'Office', at: '' })
+    expect(gated.sides[0].gates.length).toBe(1)
+    expect(gated.pending ?? []).toEqual([])
+  })
+
+  test('a gate count difference cannot be kept: the plan must match the quote or go through it', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'k', steps: [step(60, 'end')] }] }
+    const y = walkToYard(w), p = planFromYard(y, OCALA, w)!
+    p.sides[0].gates.push({ id: 'extra', atFt: 10, widthFt: 5, type: 'walk', swing: 'in', hinge: 'left' })
+    p.answers.gates = { kind: 'keep', note: 'not paid', by: 'Office', at: '' }
+    expect(openFlags(p, planFlags(p, y)).map(f => f.key)).toEqual(['gates'])
   })
 })

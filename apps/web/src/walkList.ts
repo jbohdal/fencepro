@@ -254,6 +254,34 @@ export function tapeSteps(w: WalkList, runs: Array<{ inches: number }>, flags: b
   return out
 }
 
+/**
+ * Where each walked side starts and ends on the rough sketch (feet, square corners, separate fence lines side by
+ * side, a branch from its tee), keyed by walkToYard's side id, with the walk steps that make it. A side that goes
+ * back to the start ends on the line's first post. The office site plan lays a walk list out with this.
+ */
+export function walkSideEnds(w: WalkList): Map<string, { a: { x: number; y: number }; b: { x: number; y: number }; steps: string[] }> {
+  const sk = sketchOf(w)
+  const sketch = new Map(w.lines.map((l, i) => [l.id, sk[i]]))
+  const out = new Map<string, { a: { x: number; y: number }; b: { x: number; y: number }; steps: string[] }>()
+  let n = 0
+  for (const line of lineOrder(w)) {
+    if (!line.steps.length) continue
+    const pts = sketch.get(line.id)?.points ?? []
+    n += 1
+    let from = 0, ids: string[] = []
+    line.steps.forEach((s, i) => {
+      ids.push(s.id)
+      const last = i === line.steps.length - 1
+      if (s.what === 'corner' || last) {
+        const b = s.what === 'start' ? pts[0] : pts[i + 1]
+        out.set(`w${line.id}_${n}`, { a: pts[from], b, steps: ids })
+        if (s.what === 'corner') { n += 1; from = i + 1; ids = [] }
+      }
+    })
+  }
+  return out
+}
+
 /** The runs, posts and gates the walk prices with (deriveLayout of walkToYard). */
 export function walkResult(w: WalkList, nearIn: number, teeAs: TeePost) {
   return deriveLayout(walkToYard(w), nearIn, { teeAs })

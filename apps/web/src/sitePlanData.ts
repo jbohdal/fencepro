@@ -16,7 +16,7 @@
 import { buildPlan, type Plan } from './sitePlanGeometry'
 import { deriveLayout, sideGates, type YardLayout, type GateSwing, type GateHinge } from './yardLayout'
 import { photoView, planShift } from './sitePlanPhoto'
-import type { WalkList } from './walkList'
+import { walkSideEnds, type WalkList } from './walkList'
 
 // ── The plan ──────────────────────────────────────────────────────────────────
 
@@ -91,6 +91,26 @@ export interface SitePlanData {
   answers: Record<string, FlagAnswer>
   /** Show the aerial photo on the permit sheet (off unless turned on). */
   permitAerial?: boolean
+  /**
+   * Changes made from the plan through a change order that is not signed or approved yet: drawn on the editor,
+   * never on the crew's or permit sheet or the customer's pages, put on the plan when the change order goes through
+   * (applyChange) and dropped when it is voided.
+   */
+  pending?: PendingChange[]
+}
+export interface PendingChange {
+  id: string
+  /** The change order it waits on. */
+  coId: string
+  coNumber: number | null
+  kind: 'gate' | 'longer'
+  sideId: string
+  /** 'gate': the gate added. */
+  gate?: SiteGate
+  /** 'longer': the side's new feet. */
+  newFt?: number
+  by: string
+  at: string
 }
 
 // ── True feet on the map ──────────────────────────────────────────────────────
@@ -148,6 +168,9 @@ export const planId = (p: string) => `${p}${Date.now().toString(36)}${(seq += 1)
 export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkList | null): SitePlanData | null {
   const result = deriveLayout(yard)
   const plan: Plan = buildPlan(yard, result)
+  // A walked quote is laid out from its walk list (square corners, separate lines side by side, a branch from its
+  // tee, back to start closing on the first post), as its rough sketch is.
+  const ends = walk ? walkSideEnds(walk) : null
   const aerial = yard.plan?.aerial
   const origin: LatLng | null = aerial ? { lat: aerial.lat, lng: aerial.lng } : at
   if (!origin) return null
@@ -159,7 +182,8 @@ export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkLis
     // The drawing's frame is the photo turned by rotDeg (sitePlanPhoto groundToFrame); back to the ground.
     toGround = p => { const f = { x: p.x + s.x, y: p.y + s.y }; return { x: f.x * c - f.y * sn, y: f.x * sn + f.y * c } }
   } else {
-    const mx = (plan.bounds.minX + plan.bounds.maxX) / 2, my = (plan.bounds.minY + plan.bounds.maxY) / 2
+    const pts = ends && ends.size ? [...ends.values()].flatMap(e => [e.a, e.b]) : [{ x: plan.bounds.minX, y: plan.bounds.minY }, { x: plan.bounds.maxX, y: plan.bounds.maxY }]
+    const mx = (Math.min(...pts.map(p => p.x)) + Math.max(...pts.map(p => p.x))) / 2, my = (Math.min(...pts.map(p => p.y)) + Math.max(...pts.map(p => p.y))) / 2
     toGround = p => ({ x: p.x - mx, y: p.y - my })
   }
   const posts: SitePost[] = []
@@ -171,35 +195,23 @@ export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkLis
     posts.push({ id, ...fromFeet(origin, g) })
     return id
   }
-  const stepsOf = new Map<string, string[]>()
-  if (walk) {
-    // walkToYard names a line's sides w<line>_<n>, a new side at each corner (walkList.ts).
-    let n = 0
-    for (const line of walk.lines) {
-      if (!line.steps.length) continue
-      n += 1
-      let ids: string[] = []
-      for (const s of line.steps) {
-        ids.push(s.id)
-        if (s.what === 'corner') { stepsOf.set(`w${line.id}_${n}`, ids); ids = []; n += 1 }
-      }
-      stepsOf.set(`w${line.id}_${n}`, ids)
-    }
-  }
   const sides: SiteSide[] = []
   for (const ps of plan.sides) {
     const ys = yard.sides.find(s => s.id === ps.sideId)
     if (!ys || ys.on === false || ps.placeholder) continue
-    const a = postAt(ps.a), b = postAt(ps.b)
+    const walked = !aerial ? ends?.get(ys.id) : undefined
+    const a = postAt(walked?.a ?? ps.a), b = postAt(walked?.b ?? ps.b)
     const len = Math.hypot(ps.b.x - ps.a.x, ps.b.y - ps.a.y) || 1
     const along = (p: { x: number; y: number }) => ((p.x - ps.a.x) * (ps.b.x - ps.a.x) + (p.y - ps.a.y) * (ps.b.y - ps.a.y)) / len
     const placed = ps.gates ?? (ps.gate ? [ps.gate] : [])
     const typed = sideGates(ys)
     const gates: SiteGate[] = placed.map((g, i) => {
       const d0 = along(g.a), d1 = along(g.b)
+      // A walked gate's place is its walked feet from the side's first post.
+      const walkedAt = walked && typed[i]?.position === 'distance' ? (typed[i].distanceIn ?? 0) / 12 : null
       return {
         id: planId('g'),
-        atFt: Math.round(Math.min(d0, d1) * 100) / 100,
+        atFt: Math.round((walkedAt ?? Math.min(d0, d1)) * 100) / 100,
         widthFt: typed[i] ? typed[i].widthIn / 12 : Math.abs(d1 - d0),
         type: g.type,
         swing: g.leafSwing.left,
@@ -209,7 +221,7 @@ export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkLis
     sides.push({
       id: planId('s'), name: ps.name, a, b,
       quotedFt: Math.round((ys.lengthIn / 12) * 100) / 100,
-      yardSideId: ys.id, walkStepIds: stepsOf.get(ys.id) ?? [], gates,
+      yardSideId: ys.id, walkStepIds: ends?.get(ys.id)?.steps ?? [], gates,
       teeFrom: ys.tee ? ys.tee.sideId : null,
     })
   }
@@ -217,6 +229,48 @@ export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkLis
   for (const s of sides) if (s.teeFrom) s.teeFrom = sides.find(x => x.yardSideId === s.teeFrom)?.id ?? null
   const house = plan.house ? [plan.house.map(p => fromFeet(origin, toGround(p)))] : []
   return { v: 1, origin, posts, sides, house, startPostId: sides[0]?.a ?? null, notes: '', parcel: null, survey: null, answers: {} }
+}
+
+// ── Change orders from the plan ───────────────────────────────────────────────
+
+/**
+ * A change order's change put on the plan: a gate added to its side, or a side made longer (its far post moved
+ * along it, and the fence beyond moved with it, so the other sides keep their feet). The side's quoted feet become
+ * the new feet: the quote is the signed one plus the change order. The change leaves `pending`.
+ */
+export function applyChange(plan: SitePlanData, c: PendingChange): SitePlanData {
+  const next: SitePlanData = JSON.parse(JSON.stringify(plan))
+  next.pending = (next.pending ?? []).filter(p => p.id !== c.id)
+  const side = next.sides.find(s => s.id === c.sideId)
+  if (!side) return next
+  if (c.kind === 'gate' && c.gate) side.gates = [...side.gates, { ...c.gate }].sort((x, y) => x.atFt - y.atFt)
+  if (c.kind === 'longer' && c.newFt && c.newFt > 0) {
+    const a = postOf(next, side.a), b = postOf(next, side.b)
+    if (a && b) {
+      const v = toFeet(a, b), len = Math.hypot(v.x, v.y) || 1
+      const to = fromFeet(a, { x: (v.x / len) * c.newFt, y: (v.y / len) * c.newFt })
+      const d = toFeet(b, to)
+      // The posts beyond the far post (not back through this side): moved by the same feet.
+      const moved = new Set<string>([side.b]), stack = [side.b]
+      while (stack.length) {
+        const p = stack.pop()!
+        for (const s of next.sides) {
+          if (s.id === side.id) continue
+          for (const [x, y] of [[s.a, s.b], [s.b, s.a]]) if (x === p && !moved.has(y)) { moved.add(y); stack.push(y) }
+        }
+      }
+      // A closed fence comes back to this side's first post: only the far post moves.
+      const keep = moved.has(side.a) ? new Set([side.b]) : moved
+      for (const post of next.posts) if (keep.has(post.id)) Object.assign(post, fromFeet(post, d))
+    }
+    side.quotedFt = Math.round(c.newFt * 100) / 100
+  }
+  if (c.kind === 'gate' && side.quotedFt == null) side.quotedFt = Math.round(drawnFt(next, side) * 100) / 100
+  return next
+}
+/** The plan as the editor shows it: with its change orders still waiting put on, each marked by `pending`. */
+export function withPending(plan: SitePlanData): SitePlanData {
+  return (plan.pending ?? []).reduce((p, c) => ({ ...applyChange(p, c), pending: plan.pending }), plan)
 }
 
 // ── Quoted vs drawn ───────────────────────────────────────────────────────────
@@ -260,7 +314,10 @@ export function planFlags(plan: SitePlanData, yard: YardLayout | null, s: FlagSe
 }
 /** Flags not answered yet ("Keep the wheel number" or "Use the drawn length"). */
 export function openFlags(plan: SitePlanData, flags: PlanFlag[]): PlanFlag[] {
-  return flags.filter(f => !plan.answers[f.key])
+  // The fence's makeup (sides, gates, gate widths, tees, closing) cannot be kept different from the quote: the crew
+  // and the customer would see a fence nobody priced. The plan is made to match, or the change goes through the
+  // quote (repriced, or a change order).
+  return flags.filter(f => { const a = plan.answers[f.key]; return !a || (f.kind === 'count' && a.kind === 'keep') })
 }
 /** Some fence line ends back at its own first post. */
 export function planCloses(plan: SitePlanData): boolean {
@@ -296,12 +353,9 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
     posts.push({ n, kind, at, sideId })
     if (postId) numbered.set(postId, n)
   }
-  // Walking order: the start post's side first, then sides in the plan's order.
-  const order = [...plan.sides].sort((x, y) => Number(y.a === plan.startPostId || y.b === plan.startPostId) - Number(x.a === plan.startPostId || x.b === plan.startPostId))
-  for (const side of order) {
+  for (const { side, flip } of walkingOrder(plan)) {
     let a = postOf(plan, side.a), b = postOf(plan, side.b)
     if (!a || !b) continue
-    const flip = side.b === plan.startPostId && side.a !== plan.startPostId
     if (flip) [a, b] = [b, a]
     const total = builtFt(plan, side) || drawnFt(plan, side)
     // A post `ft` along the side (built feet) sits at that share of the side as drawn on the map.
@@ -328,6 +382,44 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
     sides.push({ id: side.id, name: side.name, ft: Math.round(total * 100) / 100, pieces })
   }
   return { posts, sides }
+}
+
+/**
+ * The sides in the order the crew walks them: from the start post along the fence, each side turned to start at
+ * the post the crew is standing at, branches after the side they leave from; a fence line not joined to the start
+ * is walked next from one of its own end posts.
+ */
+export function walkingOrder(plan: SitePlanData): Array<{ side: SiteSide; flip: boolean }> {
+  const out: Array<{ side: SiteSide; flip: boolean }> = []
+  const left = new Set(plan.sides.map(s => s.id))
+  const at = (post: string) => plan.sides.filter(s => left.has(s.id) && (s.a === post || s.b === post))
+  const walkFrom = (post: string) => {
+    const stack = [post]
+    while (stack.length) {
+      const here = stack.pop()!
+      const next = at(here)
+      // Straight on first: the side that starts here as walked, then any other.
+      next.sort((x, y) => Number(y.a === here) - Number(x.a === here))
+      for (const side of next.reverse()) {
+        if (!left.has(side.id)) continue
+        left.delete(side.id)
+        const flip = side.a !== here
+        out.push({ side, flip })
+        stack.push(flip ? side.a : side.b)
+      }
+      // Sides branching from a tee on a side just walked start at their own first post.
+      for (const side of plan.sides) if (left.has(side.id) && side.teeFrom && out.some(o => o.side.id === side.teeFrom)) { left.delete(side.id); out.push({ side, flip: false }); stack.push(side.b) }
+    }
+  }
+  const uses = new Map<string, number>()
+  for (const s of plan.sides) for (const p of [s.a, s.b]) uses.set(p, (uses.get(p) ?? 0) + 1)
+  if (plan.startPostId && uses.has(plan.startPostId)) walkFrom(plan.startPostId)
+  while (left.size) {
+    const rest = plan.sides.filter(s => left.has(s.id) && !s.teeFrom)
+    const first = rest.find(s => uses.get(s.a) === 1 || uses.get(s.b) === 1) ?? rest[0] ?? plan.sides.find(s => left.has(s.id))!
+    walkFrom(uses.get(first.a) === 1 || uses.get(first.b) !== 1 ? first.a : first.b)
+  }
+  return out
 }
 
 /** Sections in a piece of fence: the quote's own per-piece count when it has one, else whole sections at the width. */
