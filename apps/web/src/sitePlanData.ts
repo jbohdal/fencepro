@@ -456,7 +456,9 @@ export function quoteSectionsOf(plan: SitePlanData, yard: YardLayout | null, run
   return (sideId, pieceFt) => {
     const side = plan.sides.find(s => s.id === sideId)
     const list = side?.yardSideId ? bySide.get(side.yardSideId) : undefined
-    const hit = list?.find(r => !r.used && r.sections > 0 && Math.abs(r.ft - pieceFt) <= 1)
+    const fits = (r: { ft: number; sections: number; used: boolean }) => !r.used && r.sections > 0 && Math.abs(r.ft - pieceFt) <= 1
+    // Its own side's run first; then a run of the same feet on any side (a change order's drawing names its sides its own way).
+    const hit = list?.find(fits) ?? [...bySide.values()].flat().find(fits)
     if (hit) { hit.used = true; return hit.sections }
     return sectionsAt(pieceFt, widthFt)
   }

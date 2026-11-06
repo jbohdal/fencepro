@@ -43,6 +43,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
   const runSections = deriveLayout(yard).runs.filter(r => r.ft > 0).map(r => Math.ceil(r.ft / 8))
   const layout = { yard, runSections, walk }
   const AT = { lat: 29.07, lng: -82.21 }
+  /** A change order's stored work as the change order code keeps it (lib/changeOrderWork.ts StoredWork), from a walk list. */
+  const workOf = (w: WalkList): any => {
+    const y = walkToYard(w)
+    const runs = deriveLayout(y).runs.filter(r => r.ft > 0)
+    return { fenceStyle: 'WV-6-Privacy', runs: runs.map(r => r.ft), sections: runs.reduce((t, r) => t + Math.ceil(r.ft / 8), 0), layout: { yard: y, runSections: runs.map(r => Math.ceil(r.ft / 8)) } }
+  }
   const fresh = () => JSON.parse(JSON.stringify(planFromYard(yard, AT, walk)))
 
   beforeAll(async () => {
@@ -217,11 +223,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     // Each side's line posts as the quote counted (8 ft sections): the 120 ft back, 15 sections 8 ft apart.
     expect(html).toContain('120 ft: 15 sections, posts 8 ft apart')
 
-    // Reopened: both, the plan marked not finished; "Site plan needed" back on the quote.
+    // Reopened: the crew sees the walk list as before, no site plan (an unfinished plan can still change); "Site plan needed" back on the quote.
     expect((await call('office', 'DELETE', `/api/site-plans/${jobId}/done`)).status).toBe(200)
     expect(((await prisma.savedQuote.findUniqueOrThrow({ where: { id: quoteId } })).layout as any).planDone).toBe(false)
     const open = await (await fetch(`${base}/p/i/${packetToken}`)).text()
-    expect(open).toContain('Site plan not finished yet')
+    expect(open).not.toContain('Site plan (installer sheet)')
     expect(open).toContain('data-packet-walk')
   })
 
@@ -253,7 +259,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
   test('a change order drawn on the plan waits: never on the crew\'s sheet or the done check; approved, it goes on (a revision says so); voided, it comes off', async () => {
     const { reconcilePlanChanges } = await import('../src/server/lib/sitePlans.js')
     const { editChangeOrder } = await import('../src/server/lib/changeOrders.js')
-    const co1 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 1, status: 'sent', reason: 'Add a gate', lines: [], totalCents: 45000, createdBy: 'Olive' } as any })
+    // CO-1's own work (as priced from its drawing): the back side with a 5 ft gate 40 ft in.
+    const walk1: WalkList = { v: 1, lines: [{ id: 'a', steps: [step(13, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(13, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(40, 'gate', { gate: { widthIn: 60, type: 'walk' } }), step(105, 'corner', { turn: 'right' }), step(120, 'end')] }] }
+    const co1 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 1, status: 'sent', reason: 'Add a gate', lines: [], totalCents: 45000, createdBy: 'Olive', work: workOf(walk1) } as any })
     const co2 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 2, status: 'sent', reason: 'Longer back', lines: [], totalCents: 30000, createdBy: 'Olive' } as any })
     const cur = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
     const back = cur.plan.sides[2]
@@ -271,11 +279,14 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     const done = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: saved.json.data.revision })
     expect(done.status).toBe(200)
 
-    // CO-1 approved: the gate goes on the plan as a new revision.
+    // CO-1 approved: the gate goes on the plan as a new revision; checked against the job's fence now (2 gates), the plan stays done.
     await prisma.changeOrder.update({ where: { id: co1.id }, data: { status: 'approved', approvedAt: new Date(), approvedBy: 'Olive Office' } })
     expect(await reconcilePlanChanges(accountId, quoteId)).toBe(1)
     let g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
     expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Olive Office', note: `Change order CO-1: added a 5 ft single gate on ${back.name}` }))
+    expect(g.doneAt).not.toBeNull()
+    expect(g.current).toEqual(expect.objectContaining({ fenceStyle: 'WV-6-Privacy', changeOrders: [1], runs: workOf(walk1).runs, runSections: workOf(walk1).layout.runSections }))
+    expect(g.current.yard.sides.length).toBe(4)
     expect(g.plan.sides[2].gates.map((x: any) => x.widthFt)).toContain(5)
     expect(g.plan.pending.map((p: any) => p.id)).toEqual(['pc2'])
     const html2 = await (await fetch(`${base}/p/i/${packetToken}`)).text()
@@ -285,8 +296,32 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     await editChangeOrder(accountId, co2.id, co2.version, { status: 'void' }, 'Olive')
     g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
     expect(g.plan.pending).toBeUndefined()
-    expect(g.revisions[0].note).toBe('Change order CO-2: voided, its change taken off the plan')
+    expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Olive', note: 'Change order CO-2: voided, its change taken off the plan' }))
     expect(g.plan.sides[1].quotedFt).toBe(120)
+  })
+
+  test('a side a change order made longer: the crew\'s sheet counts its sections as the change order priced them, never at the style width', async () => {
+    const { reconcilePlanChanges } = await import('../src/server/lib/sitePlans.js')
+    // CO-3: Side 1 from 30 ft to 40 ft (13 ft, the 4 ft gate, 23 ft), on top of CO-1's gate; priced with 6 ft panels on the 23 ft piece (4 sections).
+    const walk3: WalkList = { v: 1, lines: [{ id: 'a', steps: [step(13, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(23, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(40, 'gate', { gate: { widthIn: 60, type: 'walk' } }), step(105, 'corner', { turn: 'right' }), step(120, 'end')] }] }
+    const work3 = workOf(walk3)
+    work3.layout.runSections = work3.runs.map((ft: number) => (Math.abs(ft - 23) < 0.01 ? 4 : Math.ceil(ft / 8)))
+    const co3 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 3, status: 'sent', reason: 'Longer side', lines: [], totalCents: 20000, createdBy: 'Olive', work: work3 } as any })
+    const cur = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const side1 = cur.plan.sides[0]
+    const put = await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan: { ...cur.plan, pending: [{ id: 'pc3', coId: co3.id, coNumber: 3, kind: 'longer', sideId: side1.id, newFt: 40, by: 'Olive', at: '2026-11-06' }] }, baseRevision: cur.revision })
+    expect(put.status).toBe(200)
+    await prisma.changeOrder.update({ where: { id: co3.id }, data: { status: 'approved', approvedAt: new Date(), approvedBy: 'Pat (customer)', signedAt: new Date(), signedBy: 'Pat' } })
+    expect(await reconcilePlanChanges(accountId, quoteId)).toBe(1)
+    const g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Customer signed', note: `Change order CO-3: ${side1.name} made 40 ft` }))
+    expect(g.doneAt).not.toBeNull()
+    expect(g.current.changeOrders).toEqual([1, 3])
+    const html = await (await fetch(`${base}/p/i/${packetToken}`)).text()
+    // The crew's table and the plan agree with the price: 40 ft as 13 ft (2) + 23 ft (4, as priced; 3 at the 8 ft width).
+    expect(html).toContain('23 ft: 4 sections, posts 5.8 ft apart')
+    expect(html).toContain('40 ft')
+    expect(html).toContain('5 ft single gate')
   })
 
   test('only the latest permit sheet file is kept', async () => {

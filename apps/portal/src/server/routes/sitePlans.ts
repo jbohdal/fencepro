@@ -30,7 +30,7 @@ import { plainZod } from '../lib/plainZod.js'
 import { roleOf } from '../lib/permissions.js'
 import {
   planAccess, planPayload, planSchemaFor, savePlan, markDone, reopen, nameOf, PlanConflict, surveyFileOf, surveyUrl, planDir,
-  SURVEY_FILE, editsPlans, sitePlanSettings, siteModule, chosenStyleOf, asSold,
+  SURVEY_FILE, editsPlans, sitePlanSettings, siteModule, chosenStyleOf, asSold, currentFence,
 } from '../lib/sitePlans.js'
 import { parcelsAt } from '../lib/parcels.js'
 import { renderPermitSheet } from '../lib/sitePlanSheet.js'
@@ -227,7 +227,8 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
       contractorOf(accountId),
       siteModule(),
     ])
-    const style = chosenStyleOf(quote as any) || a.job.fenceStyle
+    // The fence as it is now (a change order can change the style).
+    const style = (await currentFence(accountId, a.job.quoteId))?.fenceStyle || chosenStyleOf(quote as any) || a.job.fenceStyle
     const { pdf, note } = await renderPermitSheet(m, {
       size: b.size, plan, revision: row.revision, drawnBy: rev?.by || 'Office',
       date: usDate(floridaDay(new Date())),

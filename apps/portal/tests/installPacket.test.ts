@@ -1,7 +1,7 @@
 /** Install packet links: open until turned off, or 30 days after the job is complete (longer while covered warranty work is open). */
 
 import { describe, test, expect } from 'vitest'
-import { packetClosed } from '../src/server/routes/installPacket.js'
+import { packetClosed, propertyLineBlock } from '../src/server/routes/installPacket.js'
 
 const day = 86_400_000
 describe('install packet links', () => {
@@ -23,5 +23,15 @@ describe('install packet links', () => {
     expect(packetClosed({ disabledAt: new Date() }, { completedDate: null }, now)).toBe('off')
     expect(packetClosed({ disabledAt: null }, null, now)).toBe('gone')
     expect(packetClosed({ disabledAt: null }, { completedDate: null, archivedAt: new Date() }, now)).toBe('gone')
+  })
+})
+
+describe('property line warnings on the crew\'s sheet', () => {
+  test('five sides past the line are one short sentence; sides inside the setback say how close', () => {
+    const past = ['Side 1', 'Side 2', 'Side 3', 'Side 4', 'Side 5'].map(s => `${s} crosses the property line. Check it against a survey.`)
+    expect(propertyLineBlock(past)).toBe('Side 1, Side 2, Side 3, Side 4 and Side 5 are on or past it.')
+    expect(propertyLineBlock(['Back crosses the property line. Check it against a survey.', 'Left is 1.5 ft from the property line, closer than the 3 ft setback.']))
+      .toBe('Back is on or past it. Left (1.5 ft) is closer than the 3 ft setback.')
+    expect(propertyLineBlock([])).toBe('')
   })
 })
