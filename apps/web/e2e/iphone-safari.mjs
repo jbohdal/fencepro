@@ -1033,7 +1033,8 @@ async function removeStyleRows() {
   const job = S.jobId ? lit(S.jobId) : "'-'", quote = lit(S.quoteId), contact = lit(S.contactId)
   sql(`BEGIN;
     DELETE FROM "CrmAuditLog" t WHERE ${ours('t')} OR "entityId" IN (${ID});
-    DELETE FROM "AutomationEffect" t WHERE ${ours('t')};
+    DELETE FROM "AutomationEffect" t WHERE ${ours('t')} OR "runId" IN (SELECT id FROM "AutomationRun" r WHERE ${ours('r')});
+    DELETE FROM "AutomationRun" t WHERE ${ours('t')};
     DELETE FROM "AutomationEvent" t WHERE ${ours('t')};
     DELETE FROM "Notification" t WHERE ${ours('t')};
     DELETE FROM "DeletionLog" t WHERE ${ours('t')};
@@ -1128,7 +1129,30 @@ async function cleanup() {
   const folder = fs.existsSync(path.join(PORTAL_DIR, 'uploads/portal', T.contactId))
   D = null // no screenshot for clean up
   await check('cleaned up (customer, card, quote, job, payments, receipt, media, portal login, documents, sign ins)', left === 0 && !folder, `${left} rows left, folder ${folder}`)
-  if (AREAS.includes('style')) { const rest = styleLeft(); await check('cleaned up the Change style quote: no table mentions it', rest.length === 0, rest.join(', ')) }
+  if (AREAS.includes('style')) {
+    // The signed sale's automations (the Signed Contract rule) run a moment after the signing, so their run can land
+    // after the rows above are gone (nightly Nov 5 2026: AutomationRun:1). Its runs, and their effects, are this
+    // quote's too: waited for and removed until two looks a few seconds apart find nothing.
+    let rest = styleLeft()
+    for (let i = 0, quiet = 0; i < 10 && quiet < 2; i++) {
+      removeStyleRuns()
+      await sleep(3000)
+      rest = styleLeft()
+      quiet = rest.length ? 0 : quiet + 1
+    }
+    await check('cleaned up the Change style quote: no table mentions it', rest.length === 0, rest.join(', '))
+  }
+}
+
+/** The automation runs (and their effects) that name the Change style quote, its customer or its job. */
+function removeStyleRuns() {
+  const mine = styleMarks()
+  if (!mine.length) return
+  const ours = alias => mine.map(m => `${alias}::text LIKE ${lit('%' + m + '%')}`).join(' OR ')
+  sql(`BEGIN;
+    DELETE FROM "AutomationEffect" e WHERE ${ours('e')} OR "runId" IN (SELECT id FROM "AutomationRun" r WHERE ${ours('r')});
+    DELETE FROM "AutomationRun" r WHERE ${ours('r')};
+    COMMIT;`)
 }
 
 try {
