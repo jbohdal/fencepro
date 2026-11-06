@@ -27,7 +27,9 @@ export default function LeadThanksButton({ customerId, firstName, className }: {
     return () => { live = false }
   }, [customerId])
   if (!customerId || !thanks?.phone) return null
-  const first = String(firstName ?? '').trim().split(/\s+/)[0] || 'them'
+  // A phone lead with no name ("Unknown", "+1 (352) ..."): "Text them thanks".
+  const word = String(firstName ?? '').trim().split(/\s+/)[0] ?? ''
+  const first = /^[A-Za-z][A-Za-z'.-]*$/.test(word) && !/^unknown$/i.test(word) ? word : 'them'
   return (
     <a href={smsLink(thanks.phone, customerText(thanks.text, getConfig().company?.name))} className={className ?? 'btn btn-primary w-full min-h-[48px] justify-center'} data-lead-thanks={customerId}
       onClick={() => { void sendJson('POST', `/api/automations/lead-thanks/${encodeURIComponent(customerId)}/sent`).then(r => { if (r.result.ok) setThanks(null) }) }}>

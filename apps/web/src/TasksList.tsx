@@ -12,12 +12,12 @@ import { toast } from './toast'
 
 const LINK = /(sms:[^\s]+|https?:\/\/[^\s]+|\/api\/automations\/[^\s]+)/g
 
-function Description({ text }: { text: string }) {
+function Description({ text, onSent }: { text: string; onSent?: () => void }) {
   const parts = text.split(LINK)
   return (
     <p className="text-sm text-gray-600 whitespace-pre-line break-words">
       {parts.map((p, i) => {
-        if (/^sms:/.test(p)) return <a key={i} href={p} className="btn btn-primary btn-sm my-1" data-task-sms>Send the text</a>
+        if (/^sms:/.test(p)) return <a key={i} href={p} onClick={() => onSent?.()} className="btn btn-primary btn-sm my-1" data-task-sms>Send the text</a>
         if (/^https?:\/\//.test(p)) return <a key={i} href={p} target="_blank" rel="noreferrer" className="inline-block max-w-full truncate align-bottom underline text-[color:var(--color-brand)]">{p.replace(/^https?:\/\//, '').slice(0, 48)}</a>
         if (/^\/api\/automations\//.test(p)) return <button key={i} type="button" className="underline text-[color:var(--color-brand)]" onClick={() => openPdf(p).catch(err => toast.error('Could not open it', (err as Error).message))}>Open the PDF</button>
         return <span key={i}>{p}</span>
@@ -108,7 +108,8 @@ export default function TasksList() {
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm font-semibold text-gray-900">{t.title}</p>
                 <p className="text-xs text-gray-500">{[t.jobName, due ? (due < today ? `overdue (${due})` : due === today ? 'due today' : `due ${due}`) : '', t.assignedTo ? `for ${t.assignedTo}` : ''].filter(Boolean).join(' · ')}</p>
-                {t.description && <Description text={t.description} />}
+                {/* A new lead's text (portal lib/leadTexts.ts): sending it is doing it (review Nov 6 2026), with Undo as for Mark done. */}
+                {t.description && <Description text={t.description} onSent={t.createdBy?.startsWith('lead-texts:') ? () => { void done(t) } : undefined} />}
               </div>
               <button type="button" className="btn btn-secondary btn-sm shrink-0" onClick={() => done(t)} data-task-done>Mark done</button>
             </li>

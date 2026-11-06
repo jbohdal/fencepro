@@ -111,6 +111,29 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('a new lead\'s texts, ready to se
     expect(after[1].description).toMatch(/Closed by itself on \d\d\/\d\d\/\d{4}: they booked a visit\.$/)
   })
 
+  test('the same person sending again (a new customer, the same phone) gets no second set; once booked, none at all', async () => {
+    const first = await lead('e', `Hana ${tag}`, `35255${n}05`)
+    expect((await tasksOf(first)).length).toBe(4)
+    const again = await lead('e2', `Hana ${tag}`, `(352) 55${String(n).slice(0, 1)}-${String(n).slice(1)}05`.replace(/^\((\d{3})\) (\d{2})(\d)-(\d+)$/, '($1) $2$3-$4'))
+    expect(await tasksOf(again)).toEqual([])
+    // Booked on the second customer: the first one's follow ups close too (the same phone).
+    await prisma.appointment.create({ data: { accountId, crmContactId: again, startAt: new Date(Date.now() + 86_400_000), endAt: new Date(Date.now() + 90_000_000) } as any })
+    await lt.closeBookedLeadTexts()
+    expect((await tasksOf(first)).filter(t => t.status === 'pending').map(t => t.title)).toEqual([`Text Hana ${tag} thanks`])
+  })
+
+  test('a phone lead with no name: "Thanks for reaching out!" and "Hi there", never the phone number', async () => {
+    const r = await recordIntake(accountId, { source: 'retell', sourceRef: `${tag}-f`, name: '', phone: `+1 (352) 55${n}06`.replace(/55(\d{4})06$/, '5$106'), summary: 'Phone call', leadSource: 'Phone', payload: {} })
+    await lt.leadTextsSettled()
+    const tasks = await tasksOf(r.contactId!)
+    expect(tasks[0].description).toMatch(/^Getter Done Fence: Thanks for reaching out! We received/)
+    expect(tasks[1].description).toMatch(/^Getter Done Fence: Hi there, we noticed/)
+    // Deleted: the thanks closes too (it has no card to hide it by).
+    await prisma.crmContact.update({ where: { id: r.contactId! }, data: { deletedAt: new Date() } })
+    await lt.closeBookedLeadTexts()
+    expect((await tasksOf(r.contactId!)).every(t => t.status === 'completed')).toBe(true)
+  })
+
   test('a lead that already booked gets only the thanks; one with no phone gets none', async () => {
     const id = await lead('d', `Gail ${tag}`, `35255${n}04`)
     await lt.removeLeadTextsOf([id])

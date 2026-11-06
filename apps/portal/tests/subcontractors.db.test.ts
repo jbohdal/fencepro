@@ -298,12 +298,37 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
     const ev = ((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).events as any[]).slice(-2)
     expect(ev.map(e => e.how)).toEqual([expect.stringMatching(/email/), 'text waiting'])
     list = (await call(owner, 'GET', '/api/subcontractors/texts')).json.data.filter((t: any) => t.jobId === jobId)
-    expect(list.map((t: any) => t.what)).toEqual(['Install moved to Dec 1, 2026', expect.stringMatching(/^Your new job/)])
+    // The move replaced the packet text still waiting (both are about when the install is).
+    expect(list.map((t: any) => t.what)).toEqual(['Install moved to Dec 1, 2026'])
     expect(list[0].text).toMatch(/^Getter Done Fence: The install at 7 Sub Rd moved from Nov 30, 2026 to Dec 1, 2026\. Open the job: /)
-    // Tapped, and Not needed: both leave the lists; a second tap finds nothing.
+    expect(await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`).then(r => r.json.data.length)).toBe(1)
+    // An 811 text waits beside it (not about the date). Tapped, and Not needed: both leave the lists; a second tap finds nothing.
+    await tellSub(accountId, { ...sj, events: (await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).events }, '811 ticket is in', 'The 811 locate ticket is in.')
+    list = (await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data
+    expect(list.map((t: any) => t.what)).toEqual(['811 ticket is in', 'Install moved to Dec 1, 2026'])
     expect((await call(office, 'POST', `/api/subcontractors/texts/${list[0].textId}`, { done: 'texted' })).status).toBe(200)
     expect((await call(office, 'POST', `/api/subcontractors/texts/${list[1].textId}`, { done: 'dismissed' })).status).toBe(200)
     expect((await call(office, 'POST', `/api/subcontractors/texts/${list[1].textId}`, { done: 'texted' })).status).toBe(404)
+    expect((await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data).toEqual([])
+    // A newer date replaces the one still waiting; another sub on the job takes the first sub's texts off the lists;
+    // a sub taken off the job is told by a text that waits after their row is gone.
+    const sj2 = await prisma.subJob.findUniqueOrThrow({ where: { jobId }, include: { sub: true } })
+    await tellSub(accountId, sj2, 'Install moved to Dec 2, 2026', 'The install at 7 Sub Rd moved to Dec 2, 2026.')
+    await tellSub(accountId, { ...sj2, events: (await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).events }, 'Install moved to Dec 3, 2026', 'The install at 7 Sub Rd moved to Dec 3, 2026.')
+    expect((await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data.map((t: any) => t.what)).toEqual(['Install moved to Dec 3, 2026'])
+    const other = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E Other Sub ${tag}`, phone: '3525550148', email: `other-${tag}@example.invalid` })
+    made.subs.push(other.json.data.id)
+    expect((await call(owner, 'POST', '/api/subcontractors/assign', { jobId, subId: other.json.data.id, start: nextMonday(), override: true })).status).toBe(200)
+    list = (await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data
+    // The first sub's move text is gone; they are told they are off the job, to their own phone; the new sub's packet waits.
+    expect(list.map((t: any) => [t.subName, t.phone, t.what]).sort()).toEqual([
+      [`E2E Other Sub ${tag}`, '3525550148', expect.stringMatching(/^Your new job: /)],
+      [`E2E Text Sub ${tag}`, '(352) 555-0146', expect.stringMatching(/^You are off the job at /)],
+    ])
+    expect((await call(office, 'DELETE', `/api/subcontractors/job/${jobId}`)).status).toBe(200)
+    list = (await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data
+    expect(list.filter((t: any) => t.subName === `E2E Other Sub ${tag}`).map((t: any) => t.what)).toEqual([expect.stringMatching(/^You are off the job at /)])
+    for (const t of list) expect((await call(office, 'POST', `/api/subcontractors/texts/${t.textId}`, { done: 'texted' })).status).toBe(200)
     expect((await call(office, 'GET', `/api/subcontractors/texts?jobId=${jobId}`)).json.data).toEqual([])
     // A sub with no phone: the email only, nothing waits.
     const noPhone = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E NoPhone Sub ${tag}`, email: `np-${tag}@example.invalid` })

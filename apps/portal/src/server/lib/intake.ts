@@ -195,7 +195,7 @@ async function recordIntakeNow(accountId: string, input: IntakeInput): Promise<I
     callbackAt: input.callbackAt, asked: input.source === 'website_chat' ? input.summary.split('\n')[0].replace(/^Booked an estimate on the website chat for /, 'estimate ').replace(/\.$/, '') : null,
   })
   // The thanks and follow up texts, ready to send from the phone (lib/leadTexts.ts; no Twilio, Nov 6 2026).
-  startLeadTextsSoon({ accountId, contactId: contact.id, name: displayName || input.phone || '', phone: input.phone })
+  startLeadTextsSoon({ accountId, contactId: contact.id, name: displayName || input.phone || '', firstName: displayName || null, phone: input.phone, booked: input.source === 'website_chat' })
 
   return { intakeId: row.id, contactId: contact.id, duplicate: false, contactName: displayName }
 }

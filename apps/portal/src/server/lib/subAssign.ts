@@ -152,7 +152,7 @@ export async function assignSub(accountId: string, actor: Actor, input: { jobId:
     payLines: pre.payLines as Json, payCents: pre.payCents, payEdited: false,
   }
   const row = before
-    ? await prisma.subJob.update({ where: { id: before.id }, data: { ...data, ...(sameSub ? {} : { linkNonce: t.nonce, tokenHash: t.hash, linkDisabledAt: null, checkout: undefined, report: undefined, checkin: undefined, submittedAt: null, confirmedAt: null, confirmedBy: null, flags: [] }), events: [...((before.events as Json[]) ?? []), event] as Json } })
+    ? await prisma.subJob.update({ where: { id: before.id }, data: { ...data, ...(sameSub ? {} : { linkNonce: t.nonce, tokenHash: t.hash, linkDisabledAt: null, checkout: undefined, report: undefined, checkin: undefined, submittedAt: null, confirmedAt: null, confirmedBy: null, flags: [] }), events: (sameSub ? [...((before.events as Json[]) ?? []), event] : dismissAll([...((before.events as Json[]) ?? []), event], 'another sub was assigned')) as Json } })
     : await prisma.subJob.create({ data: { id: rowId, accountId, jobId: input.jobId, linkNonce: t.nonce, tokenHash: t.hash, ...data, events: [event] as Json } })
   await ensureLocateTask(accountId, input.jobId, booked.days[0])
   // A new sub on the job (or a new link): the packet link, as a text ready to send from the phone.
@@ -180,6 +180,8 @@ export async function unassignSub(accountId: string, jobId: string, actor: Actor
   if (!sj) return null
   await prisma.subJob.delete({ where: { id: sj.id } })
   await logJob(jobId, `Sub taken off the job by ${actor.name}.`, actor)
+  // Their texts still waiting are no use now; "you are off this job" waits instead (review Nov 6 2026).
+  await offJobText(accountId, sj, `You are off the job at ${await jobAddress(jobId)}`, `The office took you off the install at ${await jobAddress(jobId)}. Its link no longer opens.`).catch(e => console.error('[subs] off job text:', e))
   return sj
 }
 
@@ -212,8 +214,10 @@ export async function afterInstallMoved(accountId: string, jobId: string, start:
   if (!sj) return
   if (crewId && crewId !== subCrewId(sj.subId)) {
     if (sj.submittedAt) return
-    await tellSub(accountId, { ...sj, linkDisabledAt: new Date() }, `You are off the job at ${await jobAddress(jobId)}`, `The office gave the install at ${await jobAddress(jobId)} to another crew. You are off this job; its link no longer opens.`, 'Taken off: booked on another crew')
+    await tellSub(accountId, { ...sj, linkDisabledAt: new Date() }, `You are off the job at ${await jobAddress(jobId)}`, `The office gave the install at ${await jobAddress(jobId)} to another crew. You are off this job; its link no longer opens.`, 'Taken off: booked on another crew', { textLater: true })
     await prisma.subJob.delete({ where: { id: sj.id } })
+    // The row is gone: the text waits on its own, on the job and the dashboard (review Nov 6 2026).
+    await offJobText(accountId, sj, `You are off the job at ${await jobAddress(jobId)}`, `The office gave the install at ${await jobAddress(jobId)} to another crew. You are off this job; its link no longer opens.`).catch(e => console.error('[subs] off job text:', e))
     const { logScheduleChange } = await import('./jobActivity.js')
     await logScheduleChange(jobId, `Sub ${sj.sub.businessName} taken off: the install was booked on another crew.`, { name: 'Schedule' }).catch(() => {})
     return
@@ -262,7 +266,7 @@ async function logJob(jobId: string, text: string, actor: Actor) {
  * automatically."). Both are kept on the job's sub record as events; a link is in every email and text so they
  * can open the job. Returns whether the email went.
  */
-export async function tellSub(accountId: string, sj: Json, subject: string, body: string, what = subject): Promise<boolean> {
+export async function tellSub(accountId: string, sj: Json, subject: string, body: string, what = subject, opts: { textLater?: boolean } = {}): Promise<boolean> {
   const sub = sj.sub ?? await prisma.subcontractor.findUnique({ where: { id: sj.subId } })
   const to = String(sub?.email ?? '').trim()
   const event = { at: new Date().toISOString(), what, how: to ? 'email' : 'not sent: no email on file', to }
@@ -278,9 +282,9 @@ export async function tellSub(accountId: string, sj: Json, subject: string, body
     }).catch(e => ({ success: false, error: String(e) }) as Json)
     event.how = r.success ? 'email' : r.held ? 'email (dev outbox, not sent)' : r.notConfigured ? 'not sent: email not set up' : `not sent: ${r.error ?? 'email failed'}`
   }
-  const text = subTextEvent(sub, `${company}: ${body}${link ? ` Open the job: ${link}` : ''}`, subject)
+  const text = opts.textLater ? null : subTextEvent(sub, `${company}: ${body}${link ? ` Open the job: ${link}` : ''}`, subject)
   const cur = await prisma.subJob.findUnique({ where: { id: sj.id }, select: { events: true } })
-  await prisma.subJob.update({ where: { id: sj.id }, data: { events: [...((cur?.events as Json[]) ?? []), event, ...(text ? [text] : [])] as Json } })
+  await prisma.subJob.update({ where: { id: sj.id }, data: { events: [...replaceOlder((cur?.events as Json[]) ?? [], text), event, ...(text ? [text] : [])] as Json } })
   if (text) await pushTextWaiting(accountId, sj, sub, subject, text.textId)
   return event.how === 'email'
 }
@@ -289,7 +293,35 @@ export async function tellSub(accountId: string, sj: Json, subject: string, body
 function subTextEvent(sub: Json, words: string, subject: string): Json | null {
   const phone = String(sub?.phone ?? '').trim()
   if (!phone.replace(/\D/g, '')) return null
-  return { at: new Date().toISOString(), what: `Text waiting: ${subject}`, how: 'text waiting', to: phone, textId: crypto.randomUUID(), text: words }
+  return { at: new Date().toISOString(), what: `Text waiting: ${subject}`, how: 'text waiting', to: phone, textId: crypto.randomUUID(), text: words, subName: String(sub?.businessName ?? ''), kind: DATE_TEXT.test(subject) ? 'date' : null }
+}
+
+/** Texts about when the install is (the packet, the day before, a move): a newer one replaces any still waiting (review Nov 6 2026). */
+const DATE_TEXT = /^(Your new job|Your job (tomorrow|today)|Install moved)/
+function replaceOlder(events: Json[], text: Json | null): Json[] {
+  if (text?.kind !== 'date') return events
+  const at = new Date().toISOString()
+  return events.map(e => e?.how === 'text waiting' && e.kind === 'date' && !e.textedAt && !e.dismissedAt ? { ...e, dismissedAt: at, by: 'replaced by a newer text' } : e)
+}
+
+/** Every text still waiting is no longer to send (the sub changed): kept in History, off the lists. */
+function dismissAll(events: Json[], why: string): Json[] {
+  const at = new Date().toISOString()
+  return events.map(e => e?.how === 'text waiting' && !e.textedAt && !e.dismissedAt ? { ...e, dismissedAt: at, by: why } : e)
+}
+
+const OFF_KEY = 'sub_texts_off_job'
+/** "You are off this job": the sub's row is gone, so the text waits in the company's list (with the job it was for). */
+async function offJobText(accountId: string, sj: Json, subject: string, body: string) {
+  const sub = sj.sub ?? await prisma.subcontractor.findUnique({ where: { id: sj.subId } })
+  const company = String((await configOf(accountId))?.company?.name || 'Getter Done Fence')
+  const text = subTextEvent(sub, `${company}: ${body}`, subject)
+  if (!text) return
+  const row = await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: OFF_KEY } } })
+  const list = (((row?.value as Json)?.texts as Json[]) ?? []).filter(t => Date.parse(t.at) > Date.now() - 30 * 86_400_000)
+  const value = { texts: [...list, { ...text, jobId: sj.jobId }] } as Json
+  await prisma.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: OFF_KEY } }, create: { accountId, key: OFF_KEY, value, updatedBy: 'subcontractors' }, update: { value, updatedBy: 'subcontractors' } })
+  await pushTextWaiting(accountId, sj, sub, subject, text.textId)
 }
 
 /** "Text <sub> now": a push to the owner (and admins) that a text is ready on the job and the Subs dashboard. */
@@ -309,7 +341,7 @@ export async function queuePacketText(accountId: string, sj: Json, start: Ymd): 
   const text = subTextEvent(sub, `${company}: You have the install at ${address} starting ${usDate(start)}. Open the job sheet, pull sheet, 811 ticket and your pay: ${linkOf(sj)}`, subject)
   if (!text) return
   const cur = await prisma.subJob.findUnique({ where: { id: sj.id }, select: { events: true } })
-  await prisma.subJob.update({ where: { id: sj.id }, data: { events: [...((cur?.events as Json[]) ?? []), text] as Json } })
+  await prisma.subJob.update({ where: { id: sj.id }, data: { events: [...replaceOlder((cur?.events as Json[]) ?? [], text), text] as Json } })
   await pushTextWaiting(accountId, sj, sub, subject, text.textId)
 }
 
@@ -325,8 +357,15 @@ export async function waitingSubTexts(accountId: string, jobId?: string): Promis
     if (!job) continue
     for (const e of ((r.events as Json[]) ?? [])) {
       if (e?.how !== 'text waiting' || !e.textId || e.textedAt || e.dismissedAt) continue
-      out.push({ subJobId: r.id, jobId: r.jobId, textId: e.textId, at: e.at, what: String(e.what).replace(/^Text waiting: /, ''), text: e.text, phone: e.to, subName: r.sub?.businessName ?? '', customerName: job.customerName ?? '' })
+      out.push({ subJobId: r.id, jobId: r.jobId, textId: e.textId, at: e.at, what: String(e.what).replace(/^Text waiting: /, ''), text: e.text, phone: e.to, subName: e.subName || r.sub?.businessName || '', customerName: job.customerName ?? '' })
     }
+  }
+  // "You are off this job" texts: their sub's row is gone.
+  const off = await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: OFF_KEY } } })
+  const offTexts = (((off?.value as Json)?.texts as Json[]) ?? []).filter(t => !t.textedAt && !t.dismissedAt && (!jobId || t.jobId === jobId))
+  if (offTexts.length) {
+    const offJobs = await prisma.savedJob.findMany({ where: { id: { in: offTexts.map(t => t.jobId) } }, select: { id: true, customerName: true } })
+    for (const t of offTexts) out.push({ subJobId: '', jobId: t.jobId, textId: t.textId, at: t.at, what: String(t.what).replace(/^Text waiting: /, ''), text: t.text, phone: t.to, subName: t.subName ?? '', customerName: offJobs.find(j => j.id === t.jobId)?.customerName ?? '' })
   }
   return out.sort((a, b) => b.at.localeCompare(a.at))
 }
@@ -335,8 +374,15 @@ export async function waitingSubTexts(accountId: string, jobId?: string): Promis
 export async function markSubText(accountId: string, textId: string, done: 'texted' | 'dismissed', by: string): Promise<boolean> {
   const rows = await prisma.subJob.findMany({ where: { accountId }, select: { id: true, events: true } })
   const row = rows.find(r => ((r.events as Json[]) ?? []).some(e => e?.textId === textId && !e.textedAt && !e.dismissedAt))
-  if (!row) return false
   const at = new Date().toISOString()
+  if (!row) {
+    const off = await prisma.accountKeyValue.findUnique({ where: { accountId_key: { accountId, key: OFF_KEY } } })
+    const texts = ((off?.value as Json)?.texts as Json[]) ?? []
+    if (!texts.some(t => t.textId === textId && !t.textedAt && !t.dismissedAt)) return false
+    const value = { texts: texts.map(t => t.textId === textId ? { ...t, ...(done === 'texted' ? { textedAt: at } : { dismissedAt: at }), by } : t) } as Json
+    await prisma.accountKeyValue.update({ where: { accountId_key: { accountId, key: OFF_KEY } }, data: { value } })
+    return true
+  }
   const events = ((row.events as Json[]) ?? []).map(e => e?.textId === textId ? { ...e, ...(done === 'texted' ? { textedAt: at } : { dismissedAt: at }), by } : e)
   await prisma.subJob.update({ where: { id: row.id }, data: { events: events as Json } })
   return true

@@ -22,8 +22,10 @@
  * texts is needed: the person sends it from their own phone.
  *
  * The follow ups close by themselves once the lead books (an appointment on
- * the customer), its card is finished (sold, lost) or the customer is gone;
- * a lead that booked when it came in (the website chat) gets no follow ups.
+ * the customer, or on another customer with the same phone), its card is
+ * finished (sold, lost) or the customer is gone; the thanks closes on the
+ * last two only. A lead that booked when it came in (the website chat) gets
+ * no follow ups, and the same person sending again gets no second set.
  * The automation worker's sweep checks every 5 minutes (closeBookedLeadTexts).
  *
  * Whose list: nobody's until the lead is assigned (the owner's and the
@@ -47,7 +49,7 @@ const smsLink = (phone: string, body: string) => `sms:${phone.replace(/[^\d+]/g,
 
 /** The texts, in order: when each is due after the lead came in, its task title and its words. */
 export const LEAD_TEXTS: Array<{ kind: LeadTextKind; afterHours: number; title: (name: string) => string; words: (first: string) => string }> = [
-  { kind: 'thanks', afterHours: 0, title: n => `Text ${n} thanks`, words: f => `Thanks for reaching out ${f}! We received your info and we'll confirm your estimate shortly.` },
+  { kind: 'thanks', afterHours: 0, title: n => `Text ${n} thanks`, words: f => `Thanks for reaching out${f === 'there' ? '' : ` ${f}`}! We received your info and we'll confirm your estimate shortly.` },
   { kind: 'f1', afterHours: 24, title: n => `Text ${n}: follow up 1 of 3`, words: f => `Hi ${f}, we noticed you were looking into fence options. Would you like to schedule a free estimate? Just reply with a good time!` },
   { kind: 'f2', afterHours: 72, title: n => `Text ${n}: follow up 2 of 3`, words: f => `Hey ${f}, just following up. We'd love to help with your fence project. Want us to swing by for a quick estimate?` },
   { kind: 'f3', afterHours: 168, title: n => `Text ${n}: follow up 3 of 3`, words: f => `Hi ${f}, last check-in from us! If you're still considering a fence, we're here to help. Feel free to reach out anytime.` },
@@ -61,7 +63,8 @@ const contactOf = (createdBy: string | null): string | null => (createdBy?.start
 
 /** The whole text as the customer reads it: "Getter Done Fence: Thanks for reaching out Jane! ... Reply STOP to opt out." */
 export function leadText(kind: LeadTextKind, firstName: string | null | undefined, company = COMPANY()): string {
-  const first = String(firstName ?? '').trim().split(/\s+/)[0] || 'there'
+  const word = String(firstName ?? '').trim().split(/\s+/)[0] ?? ''
+  const first = /^[A-Za-z][A-Za-z'.-]*$/.test(word) && !/^unknown$/i.test(word) ? word : 'there'
   return customerText(LEAD_TEXTS.find(t => t.kind === kind)!.words(first), company)
 }
 
@@ -71,7 +74,13 @@ export function leadTextDescription(kind: LeadTextKind, phone: string, firstName
   return `${text}\n${smsLink(phone, text)}`
 }
 
-export interface LeadTextStart { accountId: string; contactId: string; name: string; firstName?: string | null; phone?: string | null; cardId?: string | null; arrivedAt?: Date; assignedTo?: string | null }
+export interface LeadTextStart {
+  accountId: string; contactId: string; name: string; phone?: string | null; cardId?: string | null; arrivedAt?: Date; assignedTo?: string | null
+  /** The name the texts say "Hi" to; null when the lead gave none ("Hi there"). Left out: the first word of `name`. */
+  firstName?: string | null
+  /** Booked when it came in (a website chat booking): the thanks only. */
+  booked?: boolean
+}
 
 /** In the background, beside the lead's push: never slows or fails the intake. */
 const inFlight = new Set<Promise<unknown>>()
@@ -85,23 +94,45 @@ export async function leadTextsSettled(): Promise<void> {
   while (inFlight.size) await Promise.allSettled([...inFlight])
 }
 
-/** Make the lead's four tasks (three when it already booked; none without a phone). Once per customer: a second lead from the same person makes none. */
+/** The last 10 digits of a phone: how the same person is known across customers (each website lead is a new customer). */
+const digitsOf = (phone: string | null | undefined) => String(phone ?? '').replace(/\D/g, '').slice(-10)
+
+/** Customers of the company with this phone number (this one included). */
+async function samePhone(accountId: string, contactId: string, phone: string): Promise<string[]> {
+  const d = digitsOf(phone)
+  if (d.length < 7) return [contactId]
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "CrmContact" WHERE "accountId" = ${accountId} AND "deletedAt" IS NULL AND right(regexp_replace(coalesce(phone, ''), '\\D', '', 'g'), 10) = ${d}`
+  return [...new Set([contactId, ...rows.map(r => r.id)])]
+}
+
+/**
+ * Make the lead's four tasks (only the thanks when it already booked; none without a phone). Once per person: a
+ * second lead from the same phone number (a new customer each time) makes none while the first one's texts are
+ * open, and none at all once that person booked a visit (review Nov 6 2026).
+ */
 export async function startLeadTexts(s: LeadTextStart): Promise<number> {
   const phone = String(s.phone ?? '').trim()
   if (!phone.replace(/\D/g, '')) return 0
   const at = s.arrivedAt ?? new Date()
-  const booked = await prisma.appointment.count({ where: { accountId: s.accountId, crmContactId: s.contactId, deletedAt: null } })
+  const people = await samePhone(s.accountId, s.contactId, phone)
+  const booked = s.booked || await prisma.appointment.count({ where: { accountId: s.accountId, crmContactId: { in: people }, deletedAt: null } }) > 0
   const card = s.cardId ?? await cardOf(s.accountId, s.contactId)
   const name = String(s.name || '').trim() || 'the new lead'
-  return withLock(`lead-texts:${s.contactId}`, async tx => {
+  const first = s.firstName !== undefined ? s.firstName : name
+  return withLock(`lead-texts:${digitsOf(phone) || s.contactId}`, async tx => {
     const had = await tx.task.count({ where: { createdBy: { startsWith: `${PREFIX}${s.contactId}:` } } })
     if (had) return 0
+    // The same person already has texts waiting, or booked from an earlier lead: nothing more to send.
+    const others = people.filter(id => id !== s.contactId)
+    if (others.length && await tx.task.count({ where: { status: { in: ['pending', 'in_progress'] }, OR: others.map(id => ({ createdBy: { startsWith: `${PREFIX}${id}:` } })) } })) return 0
+    if (others.length && booked && !s.booked) return 0
     let made = 0
     for (const t of LEAD_TEXTS) {
       if (booked && t.kind !== 'thanks') continue
       await tx.task.create({
         data: {
-          title: t.title(name).slice(0, 200), description: leadTextDescription(t.kind, phone, s.firstName || name),
+          title: t.title(name).slice(0, 200), description: leadTextDescription(t.kind, phone, first),
           assignedTo: s.assignedTo?.trim() || null, jobId: card, jobName: name,
           dueDate: new Date(at.getTime() + t.afterHours * HOUR), createdBy: leadTextKey(s.contactId, t.kind), priority: t.kind === 'thanks' ? 'high' : 'normal',
         },
@@ -149,12 +180,17 @@ const day = (d: Date) => d.toLocaleDateString('en-US', { timeZone: 'America/New_
  */
 export async function closeBookedLeadTexts(now = new Date()): Promise<number> {
   const open = await prisma.task.findMany({ where: { createdBy: { startsWith: PREFIX }, status: { in: ['pending', 'in_progress'] } }, select: { id: true, createdBy: true, description: true } })
-  const follow = open.filter(t => kindOf(t.createdBy) !== 'thanks')
+  const follow = open
   if (!follow.length) return 0
   const ids = [...new Set(follow.map(t => contactOf(t.createdBy)!).filter(Boolean))]
-  const contacts = await prisma.crmContact.findMany({ where: { id: { in: ids } }, select: { id: true, accountId: true, deletedAt: true, archivedAt: true } })
+  const contacts = await prisma.crmContact.findMany({ where: { id: { in: ids } }, select: { id: true, accountId: true, deletedAt: true, archivedAt: true, phone: true } })
   const byId = new Map(contacts.map(c => [c.id, c]))
-  const booked = new Set((await prisma.appointment.findMany({ where: { crmContactId: { in: ids }, deletedAt: null }, select: { crmContactId: true } })).map(a => a.crmContactId))
+  // Booked: an appointment on the customer, or on another customer with the same phone (the same person, an earlier lead).
+  const booked = new Set<string>()
+  for (const c of contacts) {
+    const people = c.accountId && c.phone ? await samePhone(c.accountId, c.id, c.phone) : [c.id]
+    if (await prisma.appointment.count({ where: { crmContactId: { in: people }, deletedAt: null } })) booked.add(c.id)
+  }
   const accounts = [...new Set(contacts.map(c => c.accountId).filter((x): x is string => !!x))]
   const finished = new Set<string>()
   for (const accountId of accounts) {
@@ -173,7 +209,8 @@ export async function closeBookedLeadTexts(now = new Date()): Promise<number> {
     const id = contactOf(t.createdBy)!
     const c = byId.get(id)
     const why = !c || c.deletedAt || c.archivedAt ? 'the customer is no longer on file' : booked.has(id) ? 'they booked a visit' : finished.has(id) ? 'their card is sold or lost' : null
-    if (!why) continue
+    // The thanks stays to send after they book; it closes only when the customer is gone or the card finished.
+    if (!why || (kindOf(t.createdBy) === 'thanks' && why === 'they booked a visit')) continue
     const r = await prisma.task.updateMany({
       where: { id: t.id, status: { in: ['pending', 'in_progress'] } },
       data: { status: 'completed', completedAt: now, description: `${t.description ?? ''}\nClosed by itself on ${day(now)}: ${why}.`.slice(0, 4000) },
