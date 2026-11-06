@@ -101,14 +101,15 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     return () => ro.disconnect()
   }, [])
   const [view, setView] = useState({ cx: 0, cy: 0, k: 3 })
+  const [linesShown, setLinesShown] = useState(true)
   const fit = useCallback(() => {
-    const pts = [...plan.posts, ...plan.house.flat()].map(p => toFeet(plan.origin, p))
+    const pts = [...plan.posts, ...plan.house.flat(), ...(linesShown ? plan.parcel?.rings.flat() ?? [] : [])].map(p => toFeet(plan.origin, p))
     if (!pts.length) { setView({ cx: 0, cy: 0, k: 3 }); return }
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
     const w = Math.max(40, Math.max(...xs) - Math.min(...xs)), h = Math.max(40, Math.max(...ys) - Math.min(...ys))
-    const k = Math.min(30, Math.max(0.4, Math.min((size.w - 80) / w, (size.h - 80) / h)))
+    const k = Math.min(30, Math.max(0.4, Math.min((size.w - 140) / w, (size.h - 140) / h)))
     setView({ cx: (Math.min(...xs) + Math.max(...xs)) / 2, cy: (Math.min(...ys) + Math.max(...ys)) / 2, k })
-  }, [plan, size.w, size.h])
+  }, [plan, size.w, size.h, linesShown])
   const fitted = useRef(false)
   useEffect(() => { if (!fitted.current && size.w > 100) { fitted.current = true; fit() } }, [fit, size.w])
   const toScreen = (f: Pt): Pt => ({ x: size.w / 2 + (f.x - view.cx) * view.k, y: size.h / 2 - (f.y - view.cy) * view.k })
@@ -235,7 +236,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
       if (!d.moved && Math.hypot(sx - d.sx, sy - d.sy) < 3) return
       let p = w, note = ''
       if (!e.shiftKey) {
-        const sq = snapSquare(plan, d.id, p)
+        const sq = snapSquare(plan, d.id, p, 4, 14 / view.k)
         if (sq.held) { p = sq.at; note = 'Square to the side next to it' }
         const ed = snapToEdges(p, edges, Math.max(1.5, 8 / view.k))
         if (ed.held) { p = ed.at; note = 'On the property line or the house' }
@@ -483,7 +484,6 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   }
 
   // ── Property lines ──
-  const [linesShown, setLinesShown] = useState(true)
   const [parcelNote, setParcelNote] = useState('')
   async function showLines() {
     setBusy('lines')
@@ -569,13 +569,13 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   const content = (
     <div className={`fixed inset-0 z-[60] bg-white flex flex-col ${away ? 'hidden' : ''}`} data-site-plan-editor={jobId} role="dialog" aria-label="Site plan">
       {/* Top bar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50 flex-wrap">
-        <div className="min-w-0 mr-2">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="min-w-0 flex-1 mr-2">
           <h2 className="text-base font-bold text-gray-900 truncate">Site plan · {rec.job.customerName}</h2>
           <p className="text-xs text-gray-600 truncate">{rec.job.address}{rec.revision > 0 ? ` · Revision ${rec.revision}` : ' · Not saved yet'}{rec.doneAt ? ` · Done ${when(rec.doneAt)}${rec.doneBy ? ` by ${rec.doneBy}` : ''}` : ''}{dirty ? ' · Unsaved changes' : ''}</p>
         </div>
         {canEdit && (
-          <div className="flex items-center gap-1" role="toolbar" aria-label="Tools">
+          <div className="flex items-center gap-1 shrink-0" role="toolbar" aria-label="Tools">
             <ToolButton on={tool === 'select'} onClick={() => pickTool('select')} label="Select and move" data="select" />
             <ToolButton on={tool === 'addSide'} onClick={() => pickTool('addSide')} label="Draw a side" data="add-side" />
             <ToolButton on={tool === 'houseRect'} onClick={() => pickTool('houseRect')} label="House: drag a box" data="house-rect" />
@@ -584,10 +584,9 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
             <button type="button" className="w-11 h-11 grid place-items-center rounded-lg border border-gray-300 bg-white disabled:opacity-30" disabled={!hist.future.length} onClick={redo} aria-label="Redo" title="Redo (Ctrl+Y)" data-site-plan-redo><Redo2 size={18} /></button>
           </div>
         )}
-        <div className="flex-1" />
         {canEdit && (
           <>
-            <input className="border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm w-48" placeholder="Note for this save (optional)" value={saveNote} onChange={e => setSaveNote(e.target.value)} data-site-plan-save-note />
+            <input className="border border-gray-300 rounded-lg px-2 min-h-[44px] text-sm w-40 xl:w-56" placeholder="Note for this save (optional)" value={saveNote} onChange={e => setSaveNote(e.target.value)} data-site-plan-save-note />
             <button type="button" className="btn btn-primary min-h-[44px]" disabled={!dirty || busy === 'save'} onClick={() => void save()} data-site-plan-save>{busy === 'save' ? 'Saving…' : 'Save'}</button>
           </>
         )}
@@ -648,7 +647,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
               return (
                 <g key={p.id}>
                   <circle cx={s.x} cy={s.y} r={on ? 8 : 6} fill={on ? ORANGE : 'white'} stroke="#111827" strokeWidth={2} className={canEdit ? 'cursor-move' : 'cursor-pointer'} onPointerDown={e => onPostDown(e, p.id)} data-site-plan-post={p.id} />
-                  {plan.startPostId === p.id && <text x={s.x + 10} y={s.y - 10} fontSize={12} fontWeight={700} fill="#065f46" stroke="white" strokeWidth={4} paintOrder="stroke" pointerEvents="none">Start here</text>}
+                  {plan.startPostId === p.id && <text x={s.x + 10} y={s.y + 20} fontSize={12} fontWeight={700} fill="#065f46" stroke="white" strokeWidth={4} paintOrder="stroke" pointerEvents="none">Start here</text>}
                 </g>
               )
             })}
@@ -680,7 +679,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
             })()}
           </svg>
           {/* Map notes */}
-          <div className="absolute left-3 bottom-3 flex flex-col gap-1 pointer-events-none">
+          <div className="absolute right-3 bottom-3 flex flex-col items-end gap-1 pointer-events-none">
             {linesShown && (plan.parcel || parcelNote) && (
               <p className="bg-white/90 rounded px-2 py-1 text-xs text-gray-800 max-w-sm" data-site-plan-lines-note>
                 {plan.parcel ? <>Approximate property lines from county records, not a survey.{plan.parcel.source ? ` From ${plan.parcel.source}.` : ''}{plan.parcel.id ? ` Parcel ${plan.parcel.id}.` : ''}</> : parcelNote}
@@ -760,7 +759,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
                       </p>
                     ) : canEdit ? (
                       <div className="mt-2 space-y-2">
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2">
                           <input className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 min-h-[44px]" placeholder="Why (needed to keep it)" value={keepNote[f.key] ?? ''} onChange={e => setKeepNote(n => ({ ...n, [f.key]: e.target.value }))} data-site-plan-keep-note={f.key} />
                           <button type="button" className="btn btn-secondary min-h-[44px] whitespace-nowrap" disabled={!(keepNote[f.key] ?? '').trim()} onClick={() => { answer(f.key, { kind: 'keep', note: keepNote[f.key].trim() }); setKeepNote(n => ({ ...n, [f.key]: '' })) }} data-site-plan-keep={f.key}>{f.kind === 'length' ? 'Keep the wheel number' : 'Keep the quote'}</button>
                         </div>
@@ -773,6 +772,18 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
                 )
               })}
             </ul>
+            {/* Answered questions the plan no longer raises (the quote now has the drawn feet): kept as a record. */}
+            {(() => {
+              const now = new Set(flags.map(f => f.key))
+              const past = Object.entries(plan.answers).filter(([key]) => !now.has(key))
+              if (!past.length) return null
+              const what = (key: string) => key.startsWith('len:') ? (plan.sides.find(x => x.id === key.slice(4))?.name ?? 'A side') : key === 'gates' || key === 'gateWidths' ? 'Gates' : key === 'sides' ? 'Number of sides' : key === 'tees' ? 'Tees' : key === 'closed' ? 'Closes or not' : key
+              return (
+                <ul className="space-y-1 text-gray-700" data-site-plan-flags-done>
+                  {past.map(([key, a]) => <li key={key}>{what(key)}: {a.kind === 'keep' ? 'kept the quote' : 'quote changed'}. {a.note} ({a.by}, {when(a.at)})</li>)}
+                </ul>
+              )
+            })()}
           </Section>
 
           <Section title="Property lines">

@@ -61,6 +61,9 @@ describe('posts and sides', () => {
     const ang = Math.atan2(near.at.y - q.y, near.at.x - q.x)
     expect(Math.abs(ang - base)).toBeLessThan(1e-6)
     expect(snapSquare(lone, side3.b, off(10)).held).toBe(false)
+    // A long side: 3 degrees off is about 7.9 ft at 150 ft; held only when that is within the drag's reach.
+    expect(snapSquare(lone, side3.b, off(3), 4, 5).held).toBe(false)
+    expect(snapSquare(lone, side3.b, off(3), 4, 10).held).toBe(true)
     void s
   })
 

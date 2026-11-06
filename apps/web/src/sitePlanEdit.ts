@@ -83,10 +83,17 @@ interface Ray { from: Pt; angle: number }
 /**
  * Square or 45 degrees to the neighbouring side: for each side on the dragged
  * post, the angle at its other post against that post's other side is held to
- * a multiple of 45 degrees when it is within `tolDeg` of one. Two such sides:
- * the post goes where both hold. Returns the spot and whether it was held.
+ * a multiple of 45 degrees when it is within `tolDeg` of one and that puts it
+ * no farther than `maxMoveFt` from where it was dragged (a long side 4 degrees
+ * off would jump the post feet away). Two such sides: the post goes where both
+ * hold. Returns the spot and whether it was held.
  */
-export function snapSquare(plan: SitePlanData, postId: string, want: Pt, tolDeg = 4): { at: Pt; held: boolean } {
+export function snapSquare(plan: SitePlanData, postId: string, want: Pt, tolDeg = 4, maxMoveFt = Infinity): { at: Pt; held: boolean } {
+  const onRay = (ray: Ray, p: Pt): Pt => {
+    const d = { x: Math.cos(ray.angle), y: Math.sin(ray.angle) }
+    const t = (p.x - ray.from.x) * d.x + (p.y - ray.from.y) * d.y
+    return { x: ray.from.x + d.x * t, y: ray.from.y + d.y * t }
+  }
   const rays: Ray[] = []
   for (const s of plan.sides) {
     if (s.a !== postId && s.b !== postId) continue
@@ -105,12 +112,8 @@ export function snapSquare(plan: SitePlanData, postId: string, want: Pt, tolDeg 
     const held = base + k * step
     if (Math.abs(wrap(now - held)) <= (tolDeg * Math.PI) / 180 && k % 4 !== 0) rays.push({ from: q, angle: held })
   }
+  for (let i = rays.length - 1; i >= 0; i--) { const p = onRay(rays[i], want); if (Math.hypot(p.x - want.x, p.y - want.y) > maxMoveFt) rays.splice(i, 1) }
   if (!rays.length) return { at: want, held: false }
-  const onRay = (ray: Ray, p: Pt): Pt => {
-    const d = { x: Math.cos(ray.angle), y: Math.sin(ray.angle) }
-    const t = (p.x - ray.from.x) * d.x + (p.y - ray.from.y) * d.y
-    return { x: ray.from.x + d.x * t, y: ray.from.y + d.y * t }
-  }
   if (rays.length >= 2) {
     const [r1, r2] = rays
     const d1 = { x: Math.cos(r1.angle), y: Math.sin(r1.angle) }, d2 = { x: Math.cos(r2.angle), y: Math.sin(r2.angle) }
@@ -119,7 +122,7 @@ export function snapSquare(plan: SitePlanData, postId: string, want: Pt, tolDeg 
       const t = ((r2.from.x - r1.from.x) * d2.y - (r2.from.y - r1.from.y) * d2.x) / den
       const p = { x: r1.from.x + d1.x * t, y: r1.from.y + d1.y * t }
       // Only when both hold near where the post was dragged (else the nearer one alone).
-      if (Math.hypot(p.x - want.x, p.y - want.y) < 10) return { at: p, held: true }
+      if (Math.hypot(p.x - want.x, p.y - want.y) <= Math.min(10, maxMoveFt)) return { at: p, held: true }
     }
   }
   return { at: onRay(rays[0], want), held: true }
@@ -465,11 +468,11 @@ export function optionPairs(
 // ── Labels ───────────────────────────────────────────────────────────────────
 
 const ft1 = (n: number) => `${Math.round(n * 10) / 10} ft`
-/** A side's label on the map: "Quoted 150 ft / Drawn 142 ft" when they differ by a tenth of a foot or more, else one number. */
+/** A side's label on the map: "Quoted 150 ft / Drawn 142 ft" when they differ by half a foot or more, else one number. */
 export function sideLabel(plan: SitePlanData, side: SiteSide): string {
   const drawn = drawnFt(plan, side)
   if (side.quotedFt == null) return ft1(drawn)
   if (plan.answers[`len:${side.id}`]?.kind === 'keep') return `${ft1(side.quotedFt)} (wheel)`
-  if (Math.abs(drawn - side.quotedFt) < 0.1) return ft1(side.quotedFt)
+  if (Math.abs(drawn - side.quotedFt) < 0.5) return ft1(side.quotedFt)
   return `Quoted ${ft1(side.quotedFt)} / Drawn ${ft1(drawn)}`
 }
