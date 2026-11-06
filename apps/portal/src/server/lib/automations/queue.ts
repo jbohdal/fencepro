@@ -594,6 +594,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
         try { await closeFinishedTasks() } catch (err) { console.error('[automations] closing finished tasks:', err) }
         // A job waiting on its 811 locate moves on the day the locate becomes Clear to dig, once (lib/waitingStageMove.ts).
         try { await locatesClearSweep(now) } catch (err) { console.error('[automations] locate clear sweep:', err) }
+        // Subs: the job link the day before, the sign off reminder, 811 and paper warnings (lib/subSweep.ts).
+        try { await (await import('../subSweep.js')).subSweep(now) } catch (err) { console.error('[automations] sub sweep:', err) }
       }
     }
     // A lead still not assigned: one push again 2 hours after it came in, one at 8 am the next day (lib/leadRepush.ts).

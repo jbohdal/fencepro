@@ -294,6 +294,8 @@ export async function scheduleInstall(accountId: string, actor: Actor & { name?:
     const words = scheduleWords(rescheduled ? 'moved' : 'scheduled', { start, end, crew: crew.name, was: rescheduled ? existing.scheduledDate : undefined })
     await logScheduleChange(existing.id, r.logNote ? `${words}. ${r.logNote}` : words, { userId: actor.userId, name: actor.name })
   }
+  // The "Call in 811" task follows the install day, and the job's sub is told it moved (lib/subAssign.ts).
+  await import('./subAssign.js').then(m => m.afterInstallMoved(accountId, existing.id, start, rescheduled ? existing.scheduledDate : null, crew.id)).catch(e => console.error('[schedule] sub follow:', e))
   return {
     calendar: await calendarWords(accountId),
     job, days, crew: { id: crew.id, name: crew.name },
@@ -472,6 +474,10 @@ export async function applyRainDay(accountId: string, from: Ymd, shift: number, 
     await bumpBoard(tx, accountId, settings)
   })
   for (const r of rained) await logScheduleChange(r.jobId, r.body, { name: 'Rain day' })
+  // Each moved job's "Call in 811" task follows its new start, and its sub is told (lib/subAssign.ts).
+  for (const m of moves) {
+    if (m.jobId && m.startTo !== m.startFrom) await import('./subAssign.js').then(x => x.afterInstallMoved(accountId, m.jobId!, m.startTo, m.startFrom)).catch(e => console.error('[rain day] sub follow:', e))
+  }
   return withTexts(accountId, moves)
 }
 

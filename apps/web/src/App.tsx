@@ -48,6 +48,7 @@ import MyProfileDialog from './MyProfileDialog'
 const PLStatementPage = lazy(() => import('./PLStatementPage'))
 const BalanceSheetPage = lazy(() => import('./BalanceSheetPage'))
 const VendorsPage = lazy(() => import('./VendorsPage'))
+const SubcontractorsPage = lazy(() => import('./SubcontractorsPage'))
 const AccountsPayablePage = lazy(() => import('./AccountsPayablePage'))
 const PendingOrdersPage = lazy(() => import('./PendingOrdersPage'))
 const SitePlansPage = lazy(() => import('./SitePlansPage'))
@@ -164,6 +165,8 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Schedule',    icon: CalendarClock, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Service',     icon: ShieldCheck, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Dispatch',    icon: MapPin, roles: ['owner', 'admin', 'ops_manager'] },
+      // Subs: owner and office only (subs.view); never the Salesman or the Installer (Jonathan, Nov 6 2026).
+      { name: 'Subcontractors', icon: HardHat, roles: ['owner', 'admin', 'ops_manager'] },
       { name: 'Site Plans',   icon: Map, roles: ['owner', 'admin', 'ops_manager', 'salesman'] },
       { name: 'Inventory',   icon: Package, roles: ['owner', 'admin', 'ops_manager', 'shop'] },
     ],
@@ -1454,6 +1457,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           {active === 'Balance Sheet' && <BalanceSheetPage />}
           {active === 'Accounts Payable' && <AccountsPayablePage />}
           {active === 'Vendors'   && <VendorsPage />}
+          {active === 'Subcontractors' && <SubcontractorsPage />}
           {active === 'Customers' && <CustomersPage
             onNewQuote={(c) => {
             if (c) openQuoteFor(c)

@@ -754,4 +754,10 @@ async function planFollows(accountId: string, quoteId: string, by?: string): Pro
     const { reconcilePlanChanges } = await import('./sitePlans.js')
     await reconcilePlanChanges(accountId, quoteId, undefined, { by })
   } catch (e) { console.error('[change-orders] site plan:', e) }
+  // The job's sub (lib/subAssign.ts): their pay is worked out again from the job as it is now, and they are told.
+  try {
+    const job = await prisma.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })
+    const co = job ? await prisma.changeOrder.findFirst({ where: { accountId, quoteId, deletedAt: null, status: { in: ['approved', 'void'] } }, orderBy: { updatedAt: 'desc' }, select: { number: true } }) : null
+    if (job && co) await (await import('./subAssign.js')).afterChangeOrder(accountId, job.id, co.number)
+  } catch (e) { console.error('[change-orders] sub pay:', e) }
 }

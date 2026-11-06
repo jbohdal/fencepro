@@ -35,20 +35,28 @@ export type Action =
   | 'service.decide'
   /** Save a discount that takes a price under the minimum job price: the owner only. */
   | 'quotes.underMinimum'
+  /**
+   * Subcontractors (Jonathan, Nov 6 2026): the subs, their papers, rates, jobs and pay; assigning a sub to a job.
+   * Owner, admin, manager and office; never the Salesman (Christa) or the Installer.
+   */
+  | 'subs.view'
+  /** A sub's W9 file: the owner only. */
+  | 'subs.w9'
 
 const FULL: Action[] = [
+  'subs.view',
   'settings.change', 'prices.change', 'automations.change', 'records.archive', 'ops.delete',
   'schedule.change', 'billing.change', 'finance.change', 'quotes.change', 'permits.change',
   'packets.change', 'inventory.stock', 'records.import', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide',
 ]
 
 export const ALLOWED: Record<CrmRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts', 'quotes.underMinimum']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts', 'quotes.underMinimum', 'subs.w9']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
   // Jonathan, Oct 25, 2026: "office staff like me and sales i think its ok to see cost but installer and
   // subcontractor no see price". The office and the Salesman see costs; the installer sees no price and no cost.
-  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide']),
+  office_staff: new Set(['records.archive', 'ops.delete', 'schedule.change', 'billing.change', 'quotes.change', 'permits.change', 'packets.change', 'inventory.stock', 'costs.view', 'prices.view', 'invoices.manage', 'payments.record', 'service.decide', 'subs.view']),
   sales_rep: new Set(['quotes.change', 'records.archive', 'payments.record', 'costs.view', 'prices.view']),
   field_crew: new Set([]),
 }
@@ -79,6 +87,8 @@ export const REFUSAL: Record<Action, string> = {
   'billing.amounts': 'Only the owner or an admin can change an invoice amount or the contract amount.',
   'service.decide': 'Only the owner and the office decide warranty coverage. Ask Jonathan.',
   'quotes.underMinimum': 'Only the owner can go under the minimum job price. Ask Jonathan.',
+  'subs.view': 'Only the owner and the office can see subcontractors.',
+  'subs.w9': 'Only the owner can open a W9.',
 }
 
 export function roleCan(role: string | null | undefined, action: Action): boolean {

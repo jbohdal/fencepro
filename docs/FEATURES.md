@@ -1,6 +1,6 @@
 # Getter Done Fence (EZ Biz): feature list
 
-Last updated: Oct 20, 2026 (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
+Last updated: Nov 6, 2026 (kept by Claude Code in the repo as docs/FEATURES.md; updated with every change). One place for every feature, rule and decision, so nothing gets lost.
 
 Status key:
 * **LIVE**: built and running on the Mac mini
@@ -756,6 +756,32 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Make main on a reopened quote prices the new main option at the price its card showed (it had used the old main's margin: aluminum $15,250 became $15,755). **DEV**
 * Built for approval on their own branches: unsent drafts take a new Target Profit when opened (night/draft-margin); hourly crew values never reach a Subcontractor price (night/hourly-1-extra-hours, night/hourly-2-old-draft, night/hourly-3-default-sub). **DEV**
 * Tests: salesmanPicks, tanAutoNd, fenceRates, salesmanNoMargin, makeMainPrice, discountOptions; e2e salesman-picks.mjs, discount-options.mjs, make-main-saved.mjs. Every saved quote priced before and after (tests/savedQuotesPriceSame.db.test.ts): no quote's own price changes; Good or Better options on 46 quotes now use the best price mix (23 unsent drafts change on open and save). Kit proof 10 of 10.
+
+## 9az. Subcontractors, Phase A: subs, papers, assigning, 811, the sub's link (Nov 6 2026)
+
+* Operations > Subcontractors, owner and office only (subs.view). The Salesman (Christa) and the Installer see no sub, no sub pay, no papers. A W9 opens for the owner only (subs.w9). There is no field for an SSN or EIN anywhere. **DEV**
+* A sub record: business name, contact, phone, email, address, how they are paid, notes, trades (vinyl, chain link, aluminum, wood, farm, gates, tear out), crew size. Status is Active, Inactive, or Do not use (needs a reason). **DEV**
+* Their rates are shown beside Settings > Pricing > Subcontractor rates (per foot or section by fence category, walk gate, double gate, tear out, extra hour), each blank to follow Settings, with Reset. Money is in cents. **DEV**
+* Papers: W9, general liability, workers' comp or the Florida exemption, the signed Subcontractor Agreement (with version and date), and a license. The owner can add types. Each is a PDF or photo with an expiry date. Papers expiring within 30 days show on the dashboard, and the owner gets one push each. Assigning with liability or workers' comp missing or expired is refused; the owner may override, and the override is recorded on the job. **DEV**
+* The Subcontractor Agreement: the starting words (pay after the final payment clears, workmanship callbacks free for [NUMBER] months, insurance kept current, a lien release with each final payment, material picked up and returned at the shop, we call 811, independent contractor). It is locked "Attorney review required" until the owner marks it reviewed; new words take the review off. The sub signs it on a link with a finger signature, and the signed PDF is filed on the sub. **DEV, NEEDS JONATHAN** (attorney review, callback months)
+* Assigning is the one thing done by hand, in 3 taps from the job window: Assign sub, the sub, Confirm. It shows the days, clashes with the sub's other bookings, papers and pay. The install is booked on the Schedule as the sub's own crew row, so the board, clash warnings and Google Calendar name them. **DEV**
+* Then automatically:
+  * Their pay is worked out from their rates on the job as it is now (approved change orders included). It is editable, with Reset; a change order works it out again and emails the sub.
+  * A "Call in 811" task for the owner and office is due 3 business days before the install; entering the ticket closes it and emails the sub. The owner gets a push when there is no ticket 2 business days before, or the ticket expires before the install ends.
+  * The link is emailed the day before the install. If they have not signed off by the end of the last day: a reminder, and a push to the owner.
+  * Moving the install (Schedule or a rain day) moves the 811 task and emails the sub.
+  * **DEV**
+* Texts to subs: none. Everything to a sub goes by email until the Twilio campaign is confirmed to cover subcontractors. **NEEDS JONATHAN**
+* The sub's link /p/sub/<token>, no login: one per job. Only a keyed hash is stored. It closes 30 days after the job is complete, and the office can turn it off or make a new one.
+  * It shows the job sheet as the install packet does (the installer sheet once the site plan is done, else the walk list), the pull sheet, gates, plain fence name, install days, the notes the office chose, the 811 ticket and its expiry (no ticket: red "Do not dig, 811 ticket not in yet"), and their pay for this job. It never shows the customer's price, margin, phone or other jobs.
+  * Check out at the shop: each line ticked, a trailer photo; the job's materials become loaded.
+  * On the job: started, finished, feet, gates, problems, before and after photos, sign off with name and date. "Report a problem" (damage or a site issue) pushes the owner.
+  * Check in: leftover counts and a photo; they go into shop stock in Inventory.
+  * What does not add up (footage, gates, material out minus used minus returned) is flagged for the owner.
+  * **DEV**
+* Signed off: the job shows "Installed, confirm", and the owner gets a push. One tap moves it to Complete and sets the final furnishing date (the sub's finish day, editable): lien clock day 0 for Phase C. **DEV**
+* Subs dashboard (Phase A part): this week by day, 811 not called or expiring, material out, waiting on the sub, waiting on the owner's confirm, papers expiring. Phase B and C add payments cleared, pay owed, liens, callbacks and 1099 totals. **DEV**
+* Tests: tests/subcontractors.db.test.ts (the whole job, and the agreement); e2e subcontractors.mjs (24 checks on a phone: add, papers, 3 tap assign, 811 task, the link as the sub, check out, sign off, check in, confirm, dashboard).
 
 ## 10. Reliability (top priority)
 

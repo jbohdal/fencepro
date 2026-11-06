@@ -40,7 +40,7 @@ function hasRateDefaults(c: any): boolean {
   return Array.isArray(c?.materials) && c.materials.some((m: any) => set(m?.rateDefaults) || (Array.isArray(m?.dims) && m.dims.some((d: any) => Array.isArray(d?.options) && d.options.some((o: any) => set(o?.rateDefaults)))))
 }
 
-async function settingsOf(accountId: string): Promise<{ pricing: PricingSettings; styles: any[]; items: any[] }> {
+export async function settingsOf(accountId: string): Promise<{ pricing: PricingSettings; styles: any[]; items: any[] }> {
   const [b, inv] = await Promise.all([
     prisma.businessState.findUnique({ where: { accountId }, select: { config: true } }),
     prisma.inventoryState.findUnique({ where: { accountId }, select: { items: true } }),

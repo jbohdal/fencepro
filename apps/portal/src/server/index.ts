@@ -47,6 +47,8 @@ import tierSetRoutes from './routes/tier-sets.js'
 import voiceRoutes from './routes/voice.js'
 import mediaRoutes from './routes/media.js'
 import { packetPublic, packetStaff } from './routes/installPacket.js'
+import { subLinkPublic } from './routes/subLinkPublic.js'
+import { subSignPublic } from './routes/subSignPublic.js'
 import { walkthroughPublic, walkthroughStaff } from './routes/walkthroughs.js'
 import { startMediaWorker } from './lib/media.js'
 import { startVoiceWorker } from './lib/voiceTranscribe.js'
@@ -89,6 +91,7 @@ import { ensureStylesOnHoldAll } from './lib/stylesOnHold.js'
 import { ensureCostReviewAll } from './lib/costReview.js'
 import { ensureWoodAll, ensureWoodRealKitsAll } from './lib/woodSeed.js'
 import vendorInvoiceRoutes from './routes/vendor-invoices.js'
+import subcontractorRoutes from './routes/subcontractors.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
@@ -348,6 +351,8 @@ app.use('/api/parcels', parcelRoutes)  // Property lines from the county's parce
 app.use('/p/quote', quoteWidget)
 app.use('/p/tiles', aerialTiles)  // The aerial photo tiles for every map and the website quote (routes/aerialTiles.ts)
 app.use('/p/i', packetPublic)
+app.use('/p/sub-sign', subSignPublic) // A sub signs the agreement or a lien release (routes/subSignPublic.ts)
+app.use('/p/sub', subLinkPublic) // A sub's job link, no login (routes/subLinkPublic.ts)
 app.use('/api/walkthroughs', walkthroughStaff)
 app.use('/p/w', walkthroughPublic)
 app.use('/p/co', changeOrderPublic)  // A change order's customer link (routes/changeOrderPublic.ts)
@@ -370,6 +375,7 @@ app.use('/api/pipeline', pipelineRoutes)
 app.use('/api/inventory-state', inventoryStateRoutes)
 app.use('/api/vendor-state', vendorStateRoutes)
 app.use('/api/vendor-invoices', vendorInvoiceRoutes) // Vendor invoices update Inventory prices (lib/vendorInvoices.ts)
+app.use('/api/subcontractors', subcontractorRoutes) // Subcontractors: owner and office (lib/subcontractors.ts)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
 app.use('/api/ops-stages', opsStagesRoutes)

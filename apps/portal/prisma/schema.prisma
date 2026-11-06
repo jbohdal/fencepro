@@ -1996,6 +1996,9 @@ model SavedJob {
   /// locateTicket = the Sunshine 811 ticket number, locateCalledDate = the day it was called in.
   locatesDate     String?
   locatesExpDate  String?
+  /// The last day work was done or material furnished (Florida's final furnishing date; lien clock day 0). Set when
+  /// the office confirms the install (lib/subLink.ts confirmInstalled); editable.
+  finalFurnishingDate String?
   locateTicket    String?
   locateCalledDate String?
   locateUpdatedBy String?
@@ -3709,4 +3712,144 @@ model ServiceWorkCost {
   updatedAt       DateTime @updatedAt
 
   @@index([accountId, fixedOn])
+}
+
+// ── Subcontractors (Jonathan, Nov 6 2026) ────────────────────────────────────
+// A sub is kept like a team member, with no login and no access to the app.
+// Assigning a sub to a job is the one thing done by hand; the rest follows
+// (lib/subcontractors.ts). Owner and office only (subs.view); a W9 file is the
+// owner's only (subs.w9). Never a field for an SSN or EIN.
+
+/// One subcontractor: who they are, how they are paid, their own rates.
+model Subcontractor {
+  id           String    @id @default(uuid())
+  accountId    String
+  businessName String
+  contactName  String    @default("")
+  phone        String    @default("")
+  email        String    @default("")
+  address      String    @default("")
+  /// How Jonathan pays them ("Check", "Zelle to 352...", typed).
+  payMethod    String    @default("")
+  notes        String    @default("")
+  /// vinyl | chain | aluminum | wood | farm | gates | tear_out
+  trades       Json      @default("[]")
+  crewSize     Int?
+  /// Their own rates, in cents, over Settings' sub rates: { perUnit: { Vinyl: 450 }, walkGate, dblGate, tearOutSection, tearOutGate, extraHour } (lib/subcontractors.ts SubRates).
+  rates        Json      @default("{}")
+  /// active | inactive | do_not_use
+  status       String    @default("active")
+  statusReason String    @default("")
+  /// Their vendor under Finance → Vendors, for the Subcontractor bills.
+  vendorId     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  documents SubDocument[]
+  jobs      SubJob[]
+  signs     SubSignRequest[]
+
+  @@index([accountId])
+}
+
+/// A sub's paper: W9, liability certificate, workers' comp or the Florida exemption, the signed agreement, a license.
+model SubDocument {
+  id         String    @id @default(uuid())
+  accountId  String
+  subId      String
+  /// w9 | liability | workers_comp | wc_exemption | agreement | license | a type the owner added ("other")
+  kind       String
+  /// The type's name as shown ("General liability certificate", or the owner's own type).
+  label      String    @default("")
+  fileName   String    @default("")
+  mime       String    @default("")
+  bytes      Int       @default(0)
+  path       String    @default("")
+  sha256     String    @default("")
+  /// YYYY-MM-DD; none for a W9.
+  expiresOn  String?
+  /// The agreement's version and the day it was signed.
+  version    String?
+  signedOn   String?
+  uploadedBy String    @default("")
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  sub Subcontractor @relation(fields: [subId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([subId])
+}
+
+/// A sub on one job (one sub per job): the assignment, their pay, their link and what they report.
+model SubJob {
+  id             String    @id @default(uuid())
+  accountId      String
+  jobId          String    @unique
+  subId          String
+  assignedAt     DateTime  @default(now())
+  assignedBy     String    @default("")
+  /// Papers missing or expired when assigned, and the owner's override: { missing: string[], by, at }.
+  docOverride    Json?
+  /// Their pay for this job: the lines worked out from their rates, in cents, and the total (edited by hand when payEdited).
+  payLines       Json      @default("[]")
+  payCents       Int       @default(0)
+  payEdited      Boolean   @default(false)
+  /// The sub's link (no login): the token is an HMAC of this row's id and linkNonce with the server secret
+  /// (lib/subcontractors.ts linkToken); only its sha256 is kept. A new nonce is a new link (the old one stops).
+  linkNonce      String
+  tokenHash      String    @unique
+  linkDisabledAt DateTime?
+  lastOpenedAt   DateTime?
+  /// What the office chose to show the sub (gate codes, notes).
+  subNotes       String    @default("")
+  /// Check out at the shop, the job report, check in at the shop (lib/subLink.ts).
+  checkout       Json?
+  report         Json?
+  checkin        Json?
+  submittedAt    DateTime?
+  confirmedAt    DateTime?
+  confirmedBy    String?
+  /// What does not add up (footage, gates, material out − used − returned).
+  flags          Json      @default("[]")
+  /// Sent, reminded, notified: [{ at, what, how, to }].
+  events         Json      @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  sub Subcontractor @relation(fields: [subId], references: [id])
+
+  @@index([accountId])
+  @@index([subId])
+}
+
+/// Something a sub signs on a link (no login): the Subcontractor Agreement (and in Phase B the final lien release).
+model SubSignRequest {
+  id         String    @id @default(uuid())
+  accountId  String
+  subId      String
+  jobId      String?
+  /// agreement | lien_release
+  kind       String
+  version    String    @default("")
+  /// The words as sent; what is signed is exactly these.
+  text       String
+  linkNonce  String    @default("")
+  tokenHash  String    @unique
+  sentAt     DateTime  @default(now())
+  sentTo     String    @default("")
+  signedAt   DateTime?
+  signedName String?
+  signature  String?
+  signedIp   String?
+  /// The PDF of the signed paper, filed as a SubDocument.
+  documentId String?
+  voidedAt   DateTime?
+  createdAt  DateTime  @default(now())
+
+  sub Subcontractor @relation(fields: [subId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([subId])
 }

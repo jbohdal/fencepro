@@ -59,6 +59,10 @@ export async function saveLocate(accountId: string, jobId: string, input: Locate
     oldValues: { locateTicket: existing.locateTicket, locateCalledDate: existing.locateCalledDate, locatesDate: existing.locatesDate, locatesExpDate: existing.locatesExpDate },
     newValues: { ...fields, by },
   })
+  // A ticket entered: the "Call in 811" task closes and the job's sub is told (lib/subAssign.ts).
+  if ((updated.locateTicket ?? '') !== (existing.locateTicket ?? '') && updated.locateTicket?.trim()) {
+    await import('./subAssign.js').then(m => m.afterLocateSaved(accountId, jobId)).catch(e => console.error('[locate] sub follow:', e))
+  }
   // The locate just became Clear to dig: a job waiting on it moves on (lib/waitingStageMove.ts). Only at that change.
   const today = floridaDay(new Date())
   if (!locateClear(existing, today) && locateClear(updated, today)) return (await stageFollowsLocateAndPermit(accountId, jobId, LOCATE_REASON, `811 locate saved, ${by}`)) ?? updated

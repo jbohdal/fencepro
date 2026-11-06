@@ -39,6 +39,7 @@ import { can, isCrewLogin } from './permissions'
 import { archiveRecord, deleteRecord } from './recordArchive'
 import { ScheduleInstallButton, bookedWords } from './ScheduleInstall'
 import { loadSchedule, crewName } from './scheduleStore'
+import JobSubPanel from './JobSubPanel'
 import { CustomerContact, LocatePanel, JobMilestones, JobFinancial, OpenCustomerProfile } from './JobTruth'
 import SalesmanOnQuote from './SalesmanOnQuote'
 import CommissionOnSale from './CommissionOnSale'
@@ -245,6 +246,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
               <div className="my-2"><SalesmanOnQuote quoteId={job.rawJob?.quoteId || undefined} jobId={job.id} salesRep={job.salesRep} label="Sales Rep" /></div>
               {job.rawJob?.quoteId && <div className="my-2"><CommissionOnSale quoteId={job.rawJob.quoteId} salesRep={job.salesRep} /></div>}
               {can('schedule.change') && !inSideLane && !closed && <div className="mt-2"><ScheduleInstallButton jobId={job.id} scheduledDate={job.scheduledDate} word={W} /></div>}
+              {/* The job's sub (Jonathan, Nov 6 2026): assign in 3 taps; pay, link, sign off and "Installed, confirm" follow. */}
+              {can('subs.view') && job.rawJob && !inSideLane && <JobSubPanel job={{ ...job.rawJob, id: job.id }} />}
             </div>
           ) : (
             <>

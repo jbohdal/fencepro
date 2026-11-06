@@ -486,7 +486,7 @@ packetStaff.post('/crew/:jobId/:kind', async (req: any, res) => {
 
 // ── Public: the packet ────────────────────────────────────────────────────────
 
-async function load(token: string) {
+export async function load(token: string) {
   const p = await prisma.installPacket.findUnique({ where: { token } }).catch(() => null)
   if (!p) return null
   const job = await prisma.savedJob.findUnique({ where: { id: p.jobId } }).catch(() => null)
@@ -495,14 +495,14 @@ async function load(token: string) {
   return { p, job, work }
 }
 
-function headers(res: any, nonce: string) {
+export function headers(res: any, nonce: string) {
   res.setHeader('Content-Security-Policy', `default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`)
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Robots-Tag', 'noindex')
   res.setHeader('Cache-Control', 'no-store')
 }
 
-const page = (title: string, body: string, nonce: string, script = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+export const page = (title: string, body: string, nonce: string, script = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>${esc(title)}</title><meta name="robots" content="noindex"><style>${CSS}${PACKET_CSS}</style></head><body>${body}${script ? `<script nonce="${nonce}">${script}</script>` : ''}</body></html>`
 
 // Photos and video on a packet, through the public door (same signed links as the app).
@@ -519,6 +519,20 @@ packetPublic.get('/:token', async (req, res) => {
       <main class="wrap"><section><h1>This install packet is not active</h1><p>${closed === 'expired' ? 'Packets close 30 days after the job is complete.' : closed === 'off' ? 'This link was turned off. Ask the office for a new one.' : 'Ask the office for a current link.'}</p>${snap.companyPhone ? `<p>Office: <a href="tel:${esc(snap.companyPhone.replace(/[^\d+]/g, ''))}"><b>${esc(phone(snap.companyPhone))}</b></a></p>` : ''}</section></main>`, nonce))
     return
   }
+  const out = await packetPage(found, { token: String(req.params.token), visit: req.query.visit !== undefined })
+  res.type('html').send(page(out.title, out.body, nonce, out.script))
+})
+
+/** What the packet page needs: the packet, its job and the job's open work orders (load). */
+type Found = NonNullable<Awaited<ReturnType<typeof load>>>
+
+/**
+ * The install packet's page, shared by the crew's packet link and the sub's link (lib/subLink.ts, Nov 6 2026).
+ * `sub`: the sub's page: their own sections (`top`, after the fence: `after`), only the notes the office chose for
+ * them, the 811 locate read only (we call in 811, never the sub), no customer phone and no crew photo box.
+ */
+export async function packetPage(found: Found, opts: { token: string; visit: boolean; sub?: { top: string; after: string; notes: string } }): Promise<{ title: string; body: string; script: string }> {
+  const sub = opts.sub
   const { p, job, work } = found
   // The crew days as booked on the Schedule (Schedule install: one entry a day).
   const bookedDays = [...new Set((await prisma.scheduledGridJob.findMany({ where: { accountId: p.accountId, deletedAt: null, stagingJobId: p.jobId }, select: { date: true } })).map(g => g.date).filter(isYmd))].sort()
@@ -560,7 +574,7 @@ packetPublic.get('/:token', async (req, res) => {
   const loc = locateOf(job_)
   // A service visit (covered warranty work on a job already installed, or opened from the visit): the work order's
   // items and notes only, never the original fence's pull sheet and steps (review Oct 27 2026: 416 pickets).
-  const service = await serviceVisit(job_, work, req.query.visit !== undefined)
+  const service = await serviceVisit(job_, work, opts.visit)
   // A service visit leaves out the original install's 811 locate and its "do not dig before" warning (review Oct 27
   // 2026: a gate latch fix said "811 is not clear to dig until 10/29/2026"). A warranty request records only its issue
   // and notes, nothing that says new posts or digging, so it shows no 811 line.
@@ -579,32 +593,34 @@ packetPublic.get('/:token', async (req, res) => {
   const pinned = items.filter(m => m.kind === 'photo' && m.pin).map(m => ({ url: fix(m.markupUrl ?? m.url) ?? '', caption: m.caption || '', category: m.category }))
   const sitePlan = service ? null : await installerPlanSection(p.accountId, job_, { locateText: locateWords(loc, todayFl()).text + (loc.ticket ? ` (ticket ${loc.ticket})` : ''), photos: pinned }).catch(err => { console.error('[packet] site plan:', err); return null })
   const oldSheet = !sitePlan?.done
-  const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">${W} packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
+  const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">${sub ? 'Your job' : `${W} packet`}${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
     <button type="button" id="print" class="printbtn noprint">Print / PDF</button></header>
   <main class="wrap">
     <h1>${esc(job_.customerName)}</h1>
-    <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
+    <p><a href="${esc(map)}" class="maplink">${esc(job_.customerAddress)}</a>${job_.customerPhone && !sub ? ` · <a href="tel:${esc(job_.customerPhone.replace(/[^\d+]/g, ''))}">${esc(phone(job_.customerPhone))}</a>` : ''}</p>
     <p class="facts" data-packet-install="${esc(job_.scheduledDate || '')}">${service ? `Original ${installWord(s.work).toLowerCase()}` : W}: ${esc(installWhen(job_.scheduledDate, job_.scheduledEndDate, job_.estimatedDays, bookedDays))}${job_.crewAssigned ? ` · Crew: ${esc(await crewNameFor(job_.accountId, job_.crewAssigned))}` : ''}</p>
     ${coChange && !service ? `<section class="notes" data-packet-change-order><h2>${esc(packetChangeHeading(coChange))}</h2>${coChange.all.map(a => `<p data-packet-co-item="${a.number}">${coChange.all.length > 1 ? `CO-${a.number}: ` : ''}<b>${esc(a.what)}</b> (approved ${esc(a.approvedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}${a.rev ? `, contract rev ${a.rev}` : ''}).</p>`).join('')}<p>${coChange.all.length ? `The fence, runs and pull sheet below are the new ones, with ${coChange.all.length > 1 ? 'every change above' : 'this change'}.` : 'The fence, runs and pull sheet below are the job as it is now.'}${s.planSvg ? '' : ' The site plan is left out until the office sends the new drawing.'}</p>${coLines.length ? `<h3>Pull sheet changes</h3><ul>${coLines.map(l => `<li data-packet-co-line><b>${esc(partWithPair(l.item))}</b>: ${esc(l.was)} → ${esc(l.now)}</li>`).join('')}</ul>` : ''}</section>` : ''}
     ${coChange?.voided?.length && !service ? `<section class="notes" data-packet-voided>${coChange.voided!.map(v => `<p>CO-${v.number} was voided on ${esc(v.voidedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' }))}: its change is off the job. The fence and pull sheet here are the job as it is now. Go by the feet here, not the site plan, if they differ.</p>`).join('')}</section>` : ''}
     ${typed.length && !service ? `<section class="notes" data-packet-typed><h2>Also agreed on change orders</h2><ul>${typed.map(t => `<li>${esc(t)}</li>`).join('')}</ul><p class="small">These are not on the pull sheet.</p></section>` : ''}
-    ${s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
-    ${fromCustomer.length ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
-    ${crewNotes.length ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
+    ${sub ? sub.top : ''}
+    ${sub ? (sub.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(sub.notes)).replace(/\n/g, '<br>')}</p></section>` : '') : s.notes ? `<section class="notes" data-packet-notes><h2>Gate codes and notes</h2><p>${esc(forCrew(onceEach(s.notes))).replace(/\n/g, '<br>')}</p></section>` : ''}
+    ${fromCustomer.length && !sub ? `<section class="notes" data-packet-customer-notes><h2>Customer notes</h2><ul>${fromCustomer.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
+    ${crewNotes.length && !sub ? `<section class="notes"><h2>Crew notes</h2><ul>${crewNotes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></section>` : ''}
     ${await workOrders(work)}
     ${service ? '<p class="small" data-packet-service-only>This visit is the work order above. The original fence\'s pull sheet and install steps are left out.</p>' : ''}
     ${s.work && !service ? `<section class="notes" data-packet-work><h2>${esc(s.work.title)}</h2><ol>${s.work.steps.map(x => `<li>${esc(forCrew(x))}</li>`).join('')}</ol>${s.work.gateHardware.length ? `<h3>Gate hardware</h3><ul>${s.work.gateHardware.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<p class="small">The pull sheet below is only the NEW material.</p></section>` : ''}
-    ${service ? '' : `<section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 && !service ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
+    ${service || sub ? '' : `<section data-packet-locate-section><h2>811 locate</h2>${s.work?.needs811 && !service ? '<p data-packet-811><b>New posts go in the ground: an 811 locate ticket is needed before digging.</b></p>' : ''}
       <p class="facts" id="locStatus" data-packet-locate-status="${esc(locateStatus(loc, todayFl()))}">${esc(locateWords(loc, todayFl()).text)}</p>
       ${(() => { const w = locateStartWarning(loc, todayFl(), s.work ? s.work.needs811 : true); return `<p id="locWarn" data-packet-locate-warn style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;font-weight:700"${w ? '' : ' hidden'}>${w ? `⚠ ${esc(w)}` : ''}</p>` })()}
       <div id="locOnFile">${locateOnFile(loc, job_.locateUpdatedBy, job_.locateUpdatedAt)}</div>
-      <div id="locForm" data-packet-locate-form${hasLocate(loc) ? ' hidden' : ''}>
+      ${sub ? '<p class="small">We call in 811; the office enters the ticket.</p>' : ''}
+      <div id="locForm" data-packet-locate-form${hasLocate(loc) || sub ? ' hidden' : ''}>
       <div class="row"><label class="field">Ticket number<input id="ticket" value="${esc(loc.ticket ?? '')}" data-was="${esc(loc.ticket ?? '')}" maxlength="40" autocomplete="off"></label>
       <label class="field">Called in<input id="lcalled" type="date" value="${esc(loc.calledDate ?? '')}"></label></div>
       <div class="row"><label class="field">Good to dig<input id="ldate" type="date" value="${esc(loc.goodDate ?? '')}"></label>
       <label class="field">Expires<input id="lexp" type="date" value="${esc(loc.expDate ?? '')}"></label></div>
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button></div>
-      <p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>
+      ${sub ? '' : `<p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>`}
     </section>`}
     ${sitePlan ? sitePlan.html : ''}
     <section data-packet-fence><h2>${s.work?.type === 'repair' || service ? 'The existing fence' : 'The fence'}</h2>
@@ -628,21 +644,22 @@ packetPublic.get('/:token', async (req, res) => {
         return `<figure>${media}<figcaption><b>${esc(m.category)}</b>${m.source === 'crew' ? ' · from the crew' : ''}<br>${esc(forCrew(m.caption || ''))}</figcaption></figure>`
       }).join('')}</div>` : '<p class="small">No photos are shared with the crew yet. Photos from the quote and the site visit show here, and the job photos set to Crew or Customer.</p>'}
     </section>
-    <section class="noprint"><h2>Add photos</h2>
+    ${sub ? sub.after : ''}
+    ${sub ? '' : `<section class="noprint"><h2>Add photos</h2>
       <p class="small">Photos and video you add here go to the office.</p>
       <label class="field">What they show<select id="cat">${CREW_CATEGORIES.map(c => `<option>${c}</option>`).join('')}</select></label>
       <label class="field">Note (optional)<input id="note" maxlength="500"></label>
       <label class="btn filebtn">Choose photos or video<input id="files" type="file" accept="image/*,video/*" multiple hidden></label>
       <p id="upMsg" class="small"></p>
       <div id="sent" class="media" aria-live="polite"></div>
-    </section>
+    </section>`}
   </main>`
   const script = `
   (function(){
     document.getElementById('print').addEventListener('click',function(){window.print()});
     // A plan wider than the phone opens scrolled to Start here.
     var sp=document.querySelector('.siteplan[data-start-x]');if(sp&&sp.scrollWidth>sp.clientWidth)sp.scrollLeft=Math.max(0,Number(sp.getAttribute('data-start-x'))-sp.clientWidth/2);
-    var tok=${JSON.stringify(String(req.params.token))};
+    var tok=${JSON.stringify(opts.token)};
     // An empty date box shows "Not set" (Safari greys in today's date, which reads as filled in); a tap opens the picker.
     ['lcalled','ldate','lexp'].forEach(function(id){var el=document.getElementById(id);if(!el)return;
       var hint=document.createElement('span');hint.className='small unsethint';hint.textContent='Not set';el.parentNode.appendChild(hint);
@@ -667,7 +684,7 @@ packetPublic.get('/:token', async (req, res) => {
     }
     var saveBtn=document.getElementById('saveLocate');if(saveBtn)saveBtn.addEventListener('click',function(){saveLoc(false)});
     var files=document.getElementById('files'),msg=document.getElementById('upMsg');
-    files.addEventListener('change',function(){
+    if(files)files.addEventListener('change',function(){
       var list=[].slice.call(files.files);if(!list.length)return;var i=0,wait=3000;
       // Each photo keeps one id, so one sent again after the signal dropped is saved once.
       var ids=list.map(function(){return Date.now().toString(36)+Math.random().toString(36).slice(2,12)});
@@ -688,8 +705,8 @@ packetPublic.get('/:token', async (req, res) => {
       next();
     });
   })();`
-  res.type('html').send(page(`${W} packet: ${job_.customerName}`, body, nonce, script))
-})
+  return { title: `${W} packet: ${job_.customerName}`, body, script }
+}
 
 /**
  * The walkthrough's photos, the newest of each spot only (its caption, "Final walkthrough: Side: Left return"):
@@ -793,16 +810,27 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
   // Sent again after the signal dropped: the first one stands.
   const cid = typeof req.body?.cid === 'string' && /^[a-z0-9]{6,40}$/.test(req.body.cid) ? `crew-${req.body.cid}` : null
   if (cid && await prisma.mediaItem.findUnique({ where: { clientId: cid } })) { drop(); res.json({ success: true }); return }
+  await saveCrewMedia({ accountId: found.p.accountId, job: found.job! }, file, { cid, category, caption: String(req.body?.caption || ''), takenBy: 'Crew (install packet)' })
+  res.json({ success: true })
+})
+
+/**
+ * A photo or video from the crew or a sub, saved on the job (Internal until the office marks it Customer). `cid`:
+ * the phone's id, so one sent again after the signal dropped is kept once. Returns the media id (null: a repeat).
+ */
+export async function saveCrewMedia(at: { accountId: string; job: { id: string; quoteId?: string | null; crmContactId?: string | null } }, file: { path: string; originalname?: string; mimetype: string; size: number },
+  o: { cid: string | null; category: string; caption: string; takenBy: string }): Promise<string | null> {
+  const { cid } = o
   const id = crypto.randomUUID()
   const ext = path.extname(file.originalname || '').slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || (file.mimetype.startsWith('video/') ? 'mp4' : 'jpg')
-  const final = path.join(mediaDir(found.p.accountId), `${id}.${ext}`)
+  const final = path.join(mediaDir(at.accountId), `${id}.${ext}`)
   fs.renameSync(file.path, final)
   try {
     await prisma.mediaItem.create({
     data: {
-      id, accountId: found.p.accountId, clientId: cid ?? `crew-${id}`, kind: file.mimetype.startsWith('video/') ? 'video' : 'photo', mime: file.mimetype,
-      path: final, bytes: file.size, jobId: found.job!.id, quoteKey: found.job!.quoteId ?? null, customerId: found.job!.crmContactId ?? null,
-      takenBy: 'Crew (install packet)', takenAt: new Date(), caption: String(req.body?.caption || '').slice(0, 500), category,
+      id, accountId: at.accountId, clientId: cid ?? `crew-${id}`, kind: file.mimetype.startsWith('video/') ? 'video' : 'photo', mime: file.mimetype,
+      path: final, bytes: file.size, jobId: at.job.id, quoteKey: at.job.quoteId ?? null, customerId: at.job.crmContactId ?? null,
+      takenBy: o.takenBy, takenAt: new Date(), caption: o.caption.slice(0, 500), category: o.category,
       // Internal until the office marks it Customer.
       visibility: 'internal', source: 'crew',
     },
@@ -811,11 +839,11 @@ packetPublic.post('/:token/media', crewUpload.single('file'), async (req: any, r
     // The same photo arrived twice at the same moment: the first one stands.
     if (!isUniqueViolation(e)) throw e
     fs.rmSync(final, { force: true })
-    res.json({ success: true }); return
+    return null
   }
   processMediaQueue().catch(err => console.error('[media] queue:', err))
-  res.json({ success: true })
-})
+  return id
+}
 
 const PACKET_CSS = `
 a[href^="tel:"],.maplink{white-space:nowrap;display:inline-block;padding:15px 0;margin:-15px 0}

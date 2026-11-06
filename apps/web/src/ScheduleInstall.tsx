@@ -25,6 +25,8 @@
 
 import { locateOf, locateShortWarning } from '../../portal/src/server/lib/locates'
 import { useEffect, useMemo, useState } from 'react'
+import { jobSub } from './subsApi'
+import { can as canDo } from './permissions'
 import { canTextHere } from './textingDevice'
 import { newId } from './recordSync'
 import { loadSchedule, SCHEDULE_UPDATED_EVENT } from './scheduleStore'
@@ -220,6 +222,9 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
   const [error, setError] = useState('')
   const [start, setStart] = useState(startAt || '')
   const [crew, setCrew] = useState('')
+  // The job's sub (Subcontractors): booking another crew takes them off the job, so it is said before the tap.
+  const [subOnJob, setSubOnJob] = useState<{ subId: string; businessName: string; submittedAt: string | null } | null>(null)
+  useEffect(() => { if (canDo('subs.view')) void jobSub(jobId).then(r => setSubOnJob(r.ok && r.data ? r.data : null)) }, [jobId])
   const [days, setDays] = useState(0)
   const [weekends, setWeekends] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -321,6 +326,11 @@ export function ScheduleInstallDialog({ jobId, start: startAt, onClose, onDone }
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base h-12 min-h-[48px] bg-white appearance-auto">
                 {crews.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {subOnJob && !subOnJob.submittedAt && crew && crew !== `sub-${subOnJob.subId}` && (
+                <span className="block text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-1" data-si-sub-off>
+                  {subOnJob.businessName} comes off this job: their link stops and they get an email.
+                </span>
+              )}
             </label>
           </div>
 
