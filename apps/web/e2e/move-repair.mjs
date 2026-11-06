@@ -25,6 +25,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // changes Settings: takes turns with the other tests that do
 import { chromium } from 'playwright'
+import { walkFence } from './lib.mjs'
 import fs from 'fs'
 import path from 'path'
 
@@ -73,15 +74,8 @@ async function settingsTab() { await page.locator('span:text-is("Settings"):visi
 async function newQuote() { await page.locator('button:has-text("New quote"):visible').first().click(); await sleep(700) }
 async function straight(ft, gate) {
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="straight"]').click(); await sleep(300)
-  if (!(await b.locator('[data-side="Fence"] [data-side-length]').isVisible().catch(() => false))) await b.locator('[data-side-row="Fence"]').click()
-  await b.locator('[data-side="Fence"] [data-side-length]').click()
-  for (const k of String(ft)) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(300)
-  if (gate) {
-    if (!(await b.locator('[data-side="Fence"] [data-gate-choice]').isVisible().catch(() => false))) await b.locator('[data-side-row="Fence"]').click()
-    await b.locator('[data-side="Fence"] [data-gate-choice] button:has-text("Walk gate")').click(); await sleep(300)
-  }
+  // The walk list (Nov 5 2026): a straight fence, a 4 ft walk gate in its middle when asked.
+  await walkFence(page, gate ? [[(ft - 4) / 2, 'gate', { w: 4 }], [(ft - 4) / 2, 'end']] : [[ft, 'end']])
 }
 async function pickStyle(label) { await b.locator('[data-style-list]').selectOption({ label }); await sleep(400) }
 async function save() {
@@ -147,7 +141,7 @@ try {
   await b.locator('[data-move-old-walk]').fill('1')
   check('Move: old sections and posts fill in from the footage, per run either side of the gate (2 × 9 = 18 sections, 20 posts)', (await b.locator('[data-move-old-sections]').getAttribute('placeholder')).startsWith('18') && (await b.locator('[data-move-old-posts]').getAttribute('placeholder')).startsWith('20'))
   check('Move: old post type defaults from the style (no dig)', await b.locator('[data-move-panel] [data-post-type="nd"][aria-pressed="true"]').count() === 1)
-  await b.locator('[data-move-old-side]').selectOption({ label: 'Fence' }); await sleep(400)
+  await b.locator('[data-move-old-side]').selectOption({ label: 'Side 1' }); await sleep(400)
   check('Move: the old line is drawn dashed on the plan', await b.locator('[data-move-old-plan] [data-plan-old-line]').count() === 1)
   await shot('dev-move-1-job-type-and-old-line', b.locator('[data-job-type]'))
   await shot('dev-move-2-old-line-dashed', b.locator('[data-move-old-plan]'))
@@ -167,7 +161,8 @@ try {
   saved = await newest(x => x.work?.type === 'move')
   check('Move saved: job type, inputs and every cost line kept with it', !!saved && saved.work.move.oldFt === 100 && saved.work.priced.lines.length >= 10 && Math.abs(saved.finalPrice - movePrice) < 0.01)
   check('Move saved: the pull sheet is only NEW material (no tear out, no panels beyond the damage allowance)', saved.pullSheet.every(i => !/Tear Out/.test(i.item)) && saved.pullSheet.some(i => /Post, Line/.test(i.item)))
-  check('Move saved: the proposal is a move with one option at the price', saved.proposal.kind === 'move' && saved.proposal.options.length === 1 && saved.proposal.options[0].finalPrice === saved.finalPrice && /<svg/.test(saved.proposal.planSvg || '') && /data-plan-old-line/.test(saved.proposal.planSvg))
+  check('Move saved: the proposal is a move with one option at the price', saved.proposal.kind === 'move' && saved.proposal.options.length === 1 && saved.proposal.options[0].finalPrice === saved.finalPrice)
+  check('Move saved: walked, so no site plan picture for the customer until the office draws it', !!saved.layout?.walk && !saved.layout?.planDone && !saved.proposal.planSvg)
 
   // Sending: 2 photos first, or Send anyway with a reason.
   await page.goto(`${APP}/?customer=${saved.crmContactId}`); await page.waitForSelector('[data-global-appointment]'); await sleep(1200)
@@ -195,7 +190,7 @@ try {
   await cp.setViewportSize({ width: 412, height: 915 })
   await cp.goto(`${API}/p/${token}`); await sleep(1500)
   check('Customer page: the 2 photos marked Customer show (the internal one does not), and load', await cp.locator('img[src*="/media/"]').count() === 2 && await cp.locator('img[src*="/media/"]').first().evaluate(i => i.complete && i.naturalWidth > 0))
-  check('Customer page: site plan with the dashed old line, one price', await cp.locator('.plan svg [data-plan-old-line]').count() === 1 && await cp.locator('.opt').count() === 1)
+  check('Customer page: no site plan picture (the plan is not drawn yet), no rough sketch, one price', await cp.locator('.plan svg').count() === 0 && !/Rough sketch/.test(await cp.content()) && await cp.locator('.opt').count() === 1)
   if (SHOTS) await cp.screenshot({ path: path.join(SHOTS, 'dev-move-5-customer-proposal.png'), fullPage: true })
   // Accept: the job is made, then its crew packet.
   await cp.locator('#name').fill(CUSTOMER)
@@ -218,7 +213,7 @@ try {
     const t = (await crew.locator('body').textContent()).replace(/\s+/g, ' ')
     check('Crew packet: label and stack the sections in order, which posts come out and how, gate hardware', t.includes('Fence move: what to do') && t.includes('number each section and gate in order') && t.includes('Pull all 20 old posts (no dig: pull the pipe and donuts)') && t.includes('Gate hardware') && t.includes('Hinge'))
     check('Crew packet: 811 ticket needed, the pull sheet is only the NEW material, no prices', t.includes('an 811 locate ticket is needed') && t.includes('only the NEW material') && !/\$\d/.test(t.replace(/Office[^·]*/, '')))
-    check('Crew packet: post spacing on the new line and the dashed old line on the plan', t.includes('Posts apart') && await crew.locator('.plan svg [data-plan-old-line]').count() === 1)
+    check('Crew packet: post spacing on the new line and the fence as walked (table and rough sketch)', t.includes('Posts apart') && t.includes('Rough sketch, not to scale') && t.includes('Side 1'))
     if (SHOTS) await crew.screenshot({ path: path.join(SHOTS, 'dev-move-6-crew-packet.png'), fullPage: true })
     await crew.close()
   }

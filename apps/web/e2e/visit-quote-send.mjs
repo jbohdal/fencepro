@@ -19,7 +19,7 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit, devices } from 'playwright'
-import { signInByCookie, STAFF_COOKIE, ACCESS_TOKEN, makeTestLogin, removeTestLogin, pickFence } from './lib.mjs'
+import { signInByCookie, STAFF_COOKIE, ACCESS_TOKEN, makeTestLogin, removeTestLogin, pickFence, walkFence } from './lib.mjs'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -87,10 +87,7 @@ async function phone(browser) {
   const go = async loc => { await loc.tap(); await sleep(350) }
   await page.waitForSelector('[data-step="yard"]', { timeout: 20000 })
   await go(page.locator('[data-step="yard"]'))
-  await go(page.locator('[data-shape="straight"]'))
-  await go(page.locator('[data-side-length]').first())
-  for (const k of ['1', '8', '0']) await go(page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
-  await go(page.locator('[data-ftin-pad] [data-pad-done]'))
+  await walkFence(page, [[180, 'end']])
   await go(page.locator('[data-step="style"]'))
   // Her picker (Nov 2 2026): Vinyl, its first choices kept; no style list for a Salesman.
   await pickFence(page, 'vinyl')

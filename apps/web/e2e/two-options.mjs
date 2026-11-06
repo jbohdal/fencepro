@@ -15,6 +15,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
+import { walkFence } from './lib.mjs'
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || APP
 const TOKEN = process.env.E2E_ACCESS_TOKEN || '', SHOTS = process.env.SHOTS || ''
 const local = u => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(u)
@@ -37,11 +38,7 @@ const b = page.locator('[data-quote-builder]')
 async function quoteOn(label, ft = 124) {
   await page.goto(`${APP}/quotes?quote=new`); await b.waitFor({ timeout: 60000 }); await sleep(800)
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="straight"]').click(); await sleep(300)
-  if (!(await b.locator('[data-side="Fence"] [data-side-length]').isVisible().catch(() => false))) await b.locator('[data-side-row="Fence"]').click()
-  await b.locator('[data-side="Fence"] [data-side-length]').click()
-  for (const k of String(ft)) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(300)
+  await walkFence(page, [[ft, 'end']])
   await b.locator('[data-step="style"]').click(); await sleep(300)
   await b.locator('[data-style-list]').selectOption({ label }); await sleep(400)
   await b.locator('[data-step="price"]').click(); await sleep(1200)

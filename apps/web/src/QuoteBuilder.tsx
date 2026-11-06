@@ -65,7 +65,9 @@ import {
 } from './moveRepair'
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal, pricingForMain, type MainPricingKey } from './proposal'
-import { signedInRole, can } from './permissions'
+import { signedInRole, can, isFullRole } from './permissions'
+import WalkListStep from './WalkListStep'
+import { emptyWalk, tapeSteps, walkToYard, type WalkList } from './walkList'
 import { sendJson } from './syncHttp'
 import { jobMinimumCents, newlyUnderMinimum, underMinimumWarning, type MinimumOption } from './discountMinimum'
 import { salesmanSwitchDefault, seesCommission, clearedCommission } from './salesmanCommission'
@@ -129,6 +131,11 @@ const offReason = (s: { isActive?: boolean; quotable?: boolean; held?: string } 
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+
+/** What prices from a layout: runs, posts and gates (a drawing laid out from a walk list changes the price only when these do). */
+function layoutKey(r: { runs: Array<{ ft: number }>; corners: number; ends: number; walkGates: number; dblGates: number; gateWidthsFt: unknown; linePosts: number } | null) {
+  return r ? { runs: r.runs.map(x => Math.round(x.ft * 1000) / 1000), corners: r.corners, ends: r.ends, walk: r.walkGates, dbl: r.dblGates, widths: r.gateWidthsFt, lines: r.linePosts } : null
+}
 
 // ── Save Modal ────────────────────────────────────────────────────────────────
 
@@ -600,6 +607,15 @@ export default function QuoteBuilder({
   const [entry, setEntry]               = useState<'layout' | 'advanced'>(() =>
     init?.layout?.yard ? 'layout' : (init?.runs?.length ? 'advanced' : 'layout'))
   const [yard, setYard]                 = useState<YardLayout | null>(init?.layout?.yard ?? null)
+  // The walk list (walkList.ts; Jonathan, Nov 5 2026): a new quote is walked with the wheel, not drawn; one saved with a
+  // walk list reopens on it until the office draws its plan. An older quote's drawing opens in the drawing tool as before.
+  const [walk, setWalk] = useState<WalkList | null>(() => (init?.layout as { walk?: WalkList } | undefined)?.walk
+    ?? (!init?.layout?.yard && !init?.runs?.length ? emptyWalk() : null))
+  const [planDone, setPlanDone] = useState<boolean>(!!(init?.layout as { planDone?: boolean } | undefined)?.planDone)
+  // The office's bridge: a walked quote laid out in the drawing tool (square corners from the turns, lengths kept).
+  const [drawFromWalk, setDrawFromWalk] = useState<null | { price: number; key: string }>(null)
+  const walkMode = !!walk && !planDone && !drawFromWalk
+  useEffect(() => { if (walkMode && walk) setYard(walkToYard(walk)) }, [walk, walkMode])
   const [corners, setCorners]           = useState(init?.corners ?? 0)
   const [ends, setEnds]                 = useState(init?.ends ?? 0)
   const [walkGates, setWalkGates]       = useState(init?.walkGates ?? 0)
@@ -1230,17 +1246,17 @@ export default function QuoteBuilder({
 
   // A yard shape just picked opens on its first side.
   useEffect(() => {
-    if (yard && step === 'yard' && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
+    if (yard && !walkMode && step === 'yard' && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
   }, [yard?.shape])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Steps and the bottom bar ──
   const sidesOn = yard ? yard.sides.filter(s => s.on).length : 0
   const sidesDone = yard ? yard.sides.filter(s => s.on && s.lengthIn > 0).length : 0
-  const nextSide = entry === 'layout' && yard ? nextEmptySide(yard, openSide) : null
+  const nextSide = entry === 'layout' && yard && !walkMode ? nextEmptySide(yard, openSide) : null
   function goStep(k: StepKey) {
     setStep(k)
     // The Yard step opens on the first side still to fill in.
-    if (k === 'yard' && entry === 'layout' && yard && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
+    if (k === 'yard' && entry === 'layout' && yard && !walkMode && !openSide) setOpenSide(nextEmptySide(yard, null)?.id ?? null)
     document.querySelector('[data-quote-builder]')?.scrollTo({ top: 0 })
     document.querySelector('[data-quote-scroll]')?.scrollTo({ top: 0 })
   }
@@ -1290,6 +1306,11 @@ export default function QuoteBuilder({
     notes: string
     leadTemp: number
   }, opts: { pricesChecked?: boolean; commissionOff?: boolean } = {}) {
+    // A plan drawn from the walk list: a change to feet, gates or posts changes the price; asked before it is saved.
+    if (drawFromWalk && JSON.stringify(layoutKey(layoutResult)) !== drawFromWalk.key) {
+      const now = Math.round(calc.priced.price * 100)
+      if (!window.confirm(`The drawing changes the fence (a side's feet, a gate or a post), so the price changes:\n\nWas $${(drawFromWalk.price / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}\nNow $${(now / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}\n\nSave with the new price?`)) return
+    }
     // The switch shows commission on: what a save would do is asked first, so nothing changes silently. No signal: it is saved
     // as shown and the server holds to the rule when it arrives.
     if (hasSalesman && !opts.commissionOff && showCommission && !signedQuote && !directCo.current) {
@@ -1325,7 +1346,7 @@ export default function QuoteBuilder({
       photoOverride: init?.work?.photoOverride ?? null,
     }) : undefined
     const runSecs = calc.perRunSections.filter((_, i) => effRuns[i].ft > 0)
-    const workPlan = fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo}
+    const workPlan = fromLayout && yard && !walkMode ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo}
       oldLine={jobType === 'move' && moveIn.oldLinePlan ? { ...moveIn.oldLinePlan, ft: moveIn.oldFt, label: `Old line ${Math.round(moveIn.oldFt)} ft` } : null}
       damaged={jobType === 'repair' ? repairIn.tapped : undefined} />) : undefined
     const workProposal = work && style && savedWork ? (() => {
@@ -1373,7 +1394,9 @@ export default function QuoteBuilder({
         : undefined,
       // The yard as drawn, and each run's sections, so the quote redraws and
       // the crew sees post spacing exactly as priced.
-      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}) },
+      layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}),
+        // The walk list as measured (kept as the salesperson's record), and whether the office has drawn the plan from it.
+        ...(walk && fromLayout ? { walk } : {}), ...(walk && fromLayout && (planDone || drawFromWalk) ? { planDone: true } : {}) },
       corners: effCorners,
       ends: effEnds,
       walkGates: effWalk,
@@ -1419,7 +1442,7 @@ export default function QuoteBuilder({
         wholeDollar: !keepCents,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
-        planSvg: fromLayout && yard ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} noSections={tiers.some(t => (t.added || t.ownWords) && !t.off && !!t.option && t.option.sections !== sections)} />) : undefined,
+        planSvg: fromLayout && yard && !walkMode ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} noSections={tiers.some(t => (t.added || t.ownWords) && !t.off && !!t.option && t.option.sections !== sections)} />) : undefined,
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
@@ -1447,7 +1470,7 @@ export default function QuoteBuilder({
       const direct = directCo.current
       directCo.current = false
       if (changed.filter(k => k !== 'status').length) { setPending({ quote, kind: 'locked' }); if (direct) startChangeOrder(quote); return }
-      if (direct) { toast.info('Nothing changed yet', 'Change the drawing first (footage, gates, style or height), then tap Make change order. Or type the change from the job\'s Change order button.'); return }
+      if (direct) { toast.info('Nothing changed yet', `Change the ${walkMode ? 'walk list' : 'drawing'} first (footage, gates, style or height), then tap Make change order. Or type the change from the job's Change order button.`); return }
       // The quote as signed is what is saved (the builder may show the work as changed by approved change orders).
       onSave(keepPrices(signedQuoteOf(init), { ...quote, date: init.date }))
       return
@@ -1662,7 +1685,7 @@ export default function QuoteBuilder({
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
-            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? `Change order: change the ${jobType === 'repair' ? 'repair list' : entry === 'layout' ? 'drawing' : 'run list'}, then tap Make change order.` : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
+            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? `Change order: change the ${jobType === 'repair' ? 'repair list' : entry === 'layout' ? (walkMode ? 'walk list' : 'drawing') : 'list of lengths'}, then tap Make change order.` : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
             {/* Another change order still open is in this drawing and its price: said, not only in a passing toast (round 3 recheck). */}
             {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
             {coNoWorkNote && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-no-work-note>{coNoWorkNote}</p>}
@@ -1699,7 +1722,8 @@ export default function QuoteBuilder({
               ref={voiceRef}
               on={voiceOn}
               onToggle={toggleVoice}
-              layout={entry === 'layout' ? yard : null}
+              layout={entry === 'layout' && !walkMode ? yard : null}
+              walkList={entry === 'layout' && walkMode}
               setLayout={fn => setYard(prev => fn(prev))}
               widthFt={style ? widthFt : null}
               styles={FENCE_STYLES}
@@ -1761,17 +1785,39 @@ export default function QuoteBuilder({
           <div className={step === 'yard' ? 'space-y-6' : 'hidden'} data-step-panel="yard">
             {jobType !== 'new' && (
               <p className="text-sm text-gray-800 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2" data-yard-job-hint>
-                {jobType === 'move' ? 'Fence move: draw the NEW fence line here. The old line is entered at the Style step.' : 'Repair: drawing the existing fence is optional. With it you can tap the damaged sections and see a new fence price beside the repair.'}
+                {jobType === 'move' ? (walkMode ? 'Fence move: walk the NEW fence line here. The old line is entered at the Style step.' : 'Fence move: draw the NEW fence line here. The old line is entered at the Style step.') : (walkMode ? 'Repair: walking the existing fence is optional. With it you can tap the damaged sections and see a new fence price beside the repair.' : 'Repair: drawing the existing fence is optional. With it you can tap the damaged sections and see a new fence price beside the repair.')}
               </p>
             )}
             <div data-yard-section>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-semibold text-gray-500">{entry === 'layout' ? 'Yard layout' : 'Fence runs (advanced)'}</h3>
                 {entry === 'layout'
-                  ? <button type="button" onClick={toAdvanced} className="btn btn-quiet btn-sm" data-to-advanced>Advanced: type runs</button>
+                  ? <button type="button" onClick={toAdvanced} className={`btn btn-quiet btn-sm${walkMode ? ' !min-h-[56px]' : ''}`} data-to-advanced>Advanced: type the lengths</button>
                   : <button type="button" onClick={() => setEntry('layout')} className="btn btn-quiet btn-sm" data-to-layout>{yard ? 'Back to the yard layout' : 'Use a yard layout'}</button>}
               </div>
-              {entry === 'layout' && (
+              {entry === 'layout' && walkMode && (
+                <>
+                  <WalkListStep
+                    walk={walk}
+                    onChange={setWalk}
+                    onDone={() => goStep(style ? 'price' : 'style')}
+                    locked={signedQuote && !changeOrder}
+                    voice={voiceOn}
+                    address={init?.customerAddress || (init?.customerId ? getCustomerById(init.customerId)?.serviceAddress : '') || ''}
+                    tape={walk && layoutResult ? tapeSteps(walk, layoutResult.runs, tapeRunFlags) : undefined}
+                  />
+                  {/* The office: lay the walk list out in the drawing tool (square corners from the turns, lengths kept). */}
+                  {isFullRole(signedInRole()) && !signedQuote && (walk?.lines.some(l => l.steps.length) ?? false) && (
+                    <button type="button" className="btn btn-secondary w-full !min-h-[56px]" onClick={() => setDrawFromWalk({ price: Math.round(calc.priced.price * 100), key: JSON.stringify(layoutKey(layoutResult)) })} data-walk-open-drawing>Open in drawing tool (office)</button>
+                  )}
+                </>
+              )}
+              {entry === 'layout' && !walkMode && drawFromWalk && (
+                <p className="text-sm text-gray-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3" data-walk-drawing-note>
+                  Laid out from the walk list. Move corners and the house as they are; a change to a side's feet, a gate or a post changes the price, and you are asked before it is saved. <button type="button" className="underline font-semibold" onClick={() => { setDrawFromWalk(null); if (walk) setYard(walkToYard(walk)) }}>Back to the walk list</button>
+                </p>
+              )}
+              {entry === 'layout' && !walkMode && (
                 <LayoutEditor
                   layout={yard}
                   onChange={setYard}
@@ -1922,14 +1968,15 @@ export default function QuoteBuilder({
             {/* 6 ft or 8 ft per run (both entry modes) */}
             <div>
               {/* Smart Rail Optimizer (advisory) */}
-              {showOptimizer && optimizerResult && (
+              {/* On the walk list, only for a fence that does mix widths: a fixed width fence's what-if read as its own quote. */}
+              {showOptimizer && optimizerResult && !(walkMode && !isAutoMix) && (
                 <div className="mt-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h4 className="text-xs font-bold text-orange-700">6 ft or 8 ft wide, per run</h4>
+                      <h4 className="text-xs font-bold text-orange-700">{walkMode ? '6 ft or 8 ft wide, for each stretch of fence' : '6 ft or 8 ft wide, per run'}</h4>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {isAutoMix
-                          ? `Each run is priced both ways, all parts and labor. The cheaper width is used; 8 ft is kept when it costs no more than ${Math.round(optSettings.costPreferenceThreshold * 100)}% extra.`
+                          ? `Each ${walkMode ? 'stretch' : 'run'} is priced both ways, all parts and labor. The cheaper width is used; 8 ft is kept when it costs no more than ${Math.round(optSettings.costPreferenceThreshold * 100)}% extra.`
                           : 'What auto mix would choose for these runs. This style stays at its own width.'}
                       </p>
                     </div>
@@ -1939,7 +1986,7 @@ export default function QuoteBuilder({
                     {optimizerResult.perRun.map(r => (
                       <div key={r.index} className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 border border-orange-100">
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-500 w-12">Run {r.index + 1}</span>
+                          <span className="text-gray-500 min-w-12">{walkMode && layoutResult?.runs[r.index] ? `${layoutResult.runs[r.index].sideName}${layoutResult.runs[r.index].pieces > 1 ? ` piece ${layoutResult.runs[r.index].piece}` : ''}` : `Run ${r.index + 1}`}</span>
                           <span className="text-gray-700 font-medium w-16">{r.footage} ft</span>
                           <span className={`px-2 py-0.5 rounded font-semibold ${r.railType === '8ft' ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
                             {r.railType === '8ft' ? '8' : '6'} ft wide
@@ -2688,7 +2735,7 @@ export default function QuoteBuilder({
               {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>{heldNotSaved(style!.label || style!.name, style!.held!, canPrice)}</p>}
               {subRateMissing && <p className="text-xs text-red-700 text-center" data-sub-rate-missing-save>{subRateMissing}</p>}
               {minimumHeld && <p className="text-xs text-red-700 text-center" data-below-minimum-save>{underMinimumWarning(underMinimum, minimumCents, mayGoUnder)}</p>}
-              {!canSave && !heldChanged && !subRateMissing && !minimumHeld && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? 'Select a style, draw the new line and enter the old line footage' : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
+              {!canSave && !heldChanged && !subRateMissing && !minimumHeld && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? `Select a style, ${walkMode ? 'walk' : 'draw'} the new line and enter the old line footage` : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && shownItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4" data-pull-sheet>
                 <div className="flex items-center justify-between mb-3">
@@ -2733,7 +2780,7 @@ export default function QuoteBuilder({
             </p>
             <div className={`flex items-center gap-2 mt-1 ${signedQuote ? 'flex-wrap md:flex-nowrap' : ''}`}>
               <p className="text-xl font-bold tabular-nums text-gray-900 shrink-0 whitespace-nowrap mr-auto" data-bar-price data-builder-cents={Math.round(adjPrice * 100)}>{fmt(shownPrice)}{priced.priceMethod === 'manual' && <span className="block text-xs font-semibold text-amber-700" data-bar-price-typed>Set by hand: parts do not change it</span>}</p>
-              <button type="button" className="btn btn-secondary shrink-0 min-h-[48px] px-3" onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
+              <button type="button" className={`btn btn-secondary shrink-0 min-h-[48px] px-3${step === 'yard' && walkMode ? ' !min-h-[56px]' : ''}`} onClick={() => setPhotosOpen(true)} data-photos-open aria-label={`Photos and video (${mediaItems.length})`}>
                 <Camera size={18} aria-hidden="true" /><span className="tabular-nums">{mediaItems.length}</span>
               </button>
               {signedQuote ? (
@@ -2741,13 +2788,13 @@ export default function QuoteBuilder({
                 // On a phone its own row under the price, full width, so neither the price (round 2: "$7,02") nor
                 // "Make change order" (round 5, iPhone 13: "Make / hange / order") is cut off; one row on a computer.
                 <div className="flex items-center gap-2 w-full md:w-auto md:shrink-0" data-co-make-row>
-                  {step !== 'price' && <button type="button" onClick={barNext} className="btn btn-secondary shrink-0 min-h-[52px] px-4" data-bar-next>{step === 'yard' && nextSide ? 'Next side' : 'Next'}</button>}
+                  {step !== 'price' && <button type="button" onClick={barNext} className={`btn btn-secondary shrink-0 min-h-[52px] px-4${step === 'yard' && walkMode ? ' !min-h-[56px]' : ''}`} data-bar-next>{step === 'yard' && nextSide ? 'Next side' : 'Next'}</button>}
                   <button disabled={!canSave} onClick={makeChangeOrderNow} className="btn btn-primary min-h-[52px] px-3 text-base font-semibold flex-1 min-w-0 whitespace-nowrap md:flex-none md:min-w-[160px]" data-co-make>Make change order</button>
                 </div>
               ) : step === 'price' ? (
                 <button disabled={!canSave || checkingPrices} onClick={() => { void openSave() }} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-save-open>{init?.id ? 'Update quote' : 'Save quote'}</button>
               ) : (
-                <button type="button" onClick={barNext} className="btn btn-primary btn-lg shrink-0 md:min-w-[160px]" data-bar-next>{barNextLabel}</button>
+                <button type="button" onClick={barNext} className={`btn btn-primary btn-lg shrink-0 md:min-w-[160px]${step === 'yard' && walkMode ? ' !min-h-[56px]' : ''}`} data-bar-next>{barNextLabel}</button>
               )}
             </div>
             {heldChanged && <p className="text-xs font-semibold text-amber-800 mt-1 leading-snug" data-held-bar-reason>{heldBarReason(canPrice)}</p>}

@@ -32,10 +32,10 @@ export default function FarmRunsPanel({ style, runs }: {
   return (
     <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-3" data-farm-runs>
       <div>
-        <p className="text-xs font-semibold text-gray-800">Farm fence runs ({f.style.label}, {feetInches(target)} target spacing). Internal only.</p>
+        <p className="text-xs font-semibold text-gray-800">Farm fence sides ({f.style.label}, {feetInches(target)} target spacing). Internal only.</p>
         <div className="mt-1 overflow-x-auto">
           <table className="w-full text-xs text-gray-700">
-            <thead><tr className="text-left text-gray-500"><th className="py-1 pr-2">Run</th><th className="pr-2">Length</th><th className="pr-2">Spans</th><th className="pr-2">Spacing</th><th>Boards a row</th></tr></thead>
+            <thead><tr className="text-left text-gray-500"><th className="py-1 pr-2">Side</th><th className="pr-2">Length</th><th className="pr-2">Spans</th><th className="pr-2">Spacing</th><th>Boards a row</th></tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className="border-t border-gray-200" data-farm-run={i}>
@@ -51,13 +51,13 @@ export default function FarmRunsPanel({ style, runs }: {
       {plan && (
         <div className="space-y-1" data-farm-rolls>
           <p className="text-xs font-semibold text-gray-800">Wire: {plan.rolls.length} roll{plan.rolls.length === 1 ? '' : 's'} (200 ft), {plan.leftFt} ft left over, {plan.splices.length ? `${plan.splices.length} splice${plan.splices.length === 1 ? '' : 's'}` : 'no splices'}</p>
-          <p className={small}>Every run is one piece of wire. A run is cut from a roll's leftover only when the whole run fits; a run longer than a roll is the only place two rolls are spliced.</p>
+          <p className={small}>Every side is one piece of wire. A side is cut from a roll's leftover only when the whole side fits; a side longer than a roll is the only place two rolls are spliced.</p>
           <ul className="text-xs text-gray-700 space-y-0.5" data-farm-roll-plan>
             {plan.rolls.map((r, i) => (
-              <li key={i}>Roll {i + 1}: {r.pieces.map(p => `run ${p.run} (${p.ft} ft)`).join(' + ')}{r.leftFt > 0 ? `, ${r.leftFt} ft left` : ''}</li>
+              <li key={i}>Roll {i + 1}: {r.pieces.map(p => `side ${p.run} (${p.ft} ft)`).join(' + ')}{r.leftFt > 0 ? `, ${r.leftFt} ft left` : ''}</li>
             ))}
           </ul>
-          {plan.splices.length > 0 && <p className={small} data-farm-splices>Splices: {[...new Set(plan.splices.map(x => x.run))].map(run => `run ${run}${plan.splices.filter(x => x.run === run).length > 1 ? ` (${plan.splices.filter(x => x.run === run).length})` : ''}`).join(', ')}: longer than a roll.</p>}
+          {plan.splices.length > 0 && <p className={small} data-farm-splices>Splices: {[...new Set(plan.splices.map(x => x.run))].map(run => `side ${run}${plan.splices.filter(x => x.run === run).length > 1 ? ` (${plan.splices.filter(x => x.run === run).length})` : ''}`).join(', ')}: longer than a roll.</p>}
         </div>
       )}
       {f.style.x && (

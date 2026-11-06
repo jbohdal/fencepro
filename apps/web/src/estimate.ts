@@ -73,6 +73,8 @@ export { planTanTall, planTanTallParts } from './tanTall'
 export { followBorrowedPrices, borrowedPrice } from './priceAge'
 // Settings → Price List → Vinyl Colors (server lib/vinylColors.ts).
 export { planVinylColor, planArchiveVinylColor, planUndoVinylColor, inputFromColor, kitLineCounts } from './vinylColorForm'
+export { walkSheetSvg, walkToYard, yardToWalk } from './walkList'
+export { sitePlanNeeded } from './yardLayout'
 export { planStyleForm, planArchiveStyle, planStylePrices, stylePartRows, proposedParts, stylesOfMaterial, STYLE_DIM } from './styleForm'
 export { isUnsentDraft } from './draftMargin'
 export { catalogOf as fenceCatalogOf, DEFAULT_CATALOG as DEFAULT_FENCE_CATALOG } from './fenceCatalog'

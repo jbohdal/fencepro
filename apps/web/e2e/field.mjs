@@ -17,6 +17,7 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, webkit, devices } from 'playwright'
+import { walkFence, backyardOf } from './lib.mjs'
 import { execSync } from 'child_process'
 import { startSignal } from './signal.mjs'
 import fs from 'fs'
@@ -208,12 +209,7 @@ async function flowA(dev, signal, proxy) {
   const b = page.locator('[data-quote-builder]')
   await b.waitFor()
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="backyard"]').click()
-  await b.locator('[data-side="Left return"] [data-side-length]').click()
-  for (const [keys, last2] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await page.locator(last2 ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
-  }
+  await walkFence(page, backyardOf([30, 120, 150, 100, 30]))
   await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
   // Photos have their own button in the bottom bar.
@@ -292,8 +288,10 @@ async function flowA(dev, signal, proxy) {
   const notes = cid ? await api(`/api/crm-contacts/${cid}/notes`) : []
   const wantNotes = signal === 'none' ? 2 : 1
   check(`${wantNotes === 1 ? 'one note' : 'both notes'}, no duplicate`, Array.isArray(notes) && notes.length === wantNotes, String(notes?.length))
-  const quotes = (await api('/api/saved-quotes')).filter(q => q.crmContactId === cid)
-  check('one quote with the backyard layout', quotes.length === 1 && quotes[0].layout?.yard?.shape === 'backyard', String(quotes.length))
+  const listed = await api('/api/saved-quotes')
+  if (!Array.isArray(listed)) console.log('saved-quotes answered:', JSON.stringify(listed).slice(0, 200))
+  const quotes = (Array.isArray(listed) ? listed : []).filter(q => q.crmContactId === cid)
+  check('one quote with the backyard as walked', quotes.length === 1 && quotes[0].layout?.walk?.lines?.[0]?.steps?.length === 5, String(quotes.length))
   const media = quotes[0] ? await api(`/api/media?quoteKey=${quotes[0].id}`) : []
   check('3 photos on the server', Array.isArray(media) && media.length === 3, String(media?.length))
   check('no page errors', errors.length === 0, errors.join(' | '))

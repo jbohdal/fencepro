@@ -52,7 +52,7 @@ import { customerDollarsFrom, noDepositCancellationFrom } from '../lib/customerD
 import { heldPriceRefusal, refuseHeldPrice } from '../lib/heldStylePrice.js'
 import { makePreviewToken } from '../lib/proposalViews.js'
 import { stampQuoteWarranties } from '../lib/warranties.js'
-import { stampQuoteTerms } from '../lib/contractTerms.js'
+import { stampQuoteTerms, isWalkedNoPlan } from '../lib/contractTerms.js'
 import { workKindOf } from '../lib/installDays.js'
 import { stampOwnTier, proposalSent, styleRecords } from '../lib/ownTier.js'
 import { pricingModule } from '../lib/estimates.js'
@@ -131,6 +131,22 @@ const quoteSchema = z.object({
   layout: z.object({
     yard: z.object({ shape: z.string(), closed: z.boolean(), sides: z.array(z.object({}).passthrough()).max(60) }).passthrough().nullable(),
     runSections: z.array(z.number()).max(200),
+    // Kept (Nov 5 2026: they were dropped on every save): vinyl tees priced as line posts, a typed run list's gate widths.
+    teeLinePosts: z.number().int().min(0).max(100).optional(),
+    gateWidths: z.object({ walk: z.array(z.number()).max(40), dbl: z.array(z.number()).max(40) }).optional().nullable(),
+    // The walk list as measured on site (web walkList.ts), and whether the office has drawn the plan from it.
+    walk: z.object({
+      v: z.literal(1),
+      lines: z.array(z.object({
+        id: z.string().max(64), fromTee: z.string().max(64).optional().nullable(), branchTurn: z.enum(['left', 'right']).optional(),
+        steps: z.array(z.object({
+          id: z.string().max(64), feetIn: z.number().min(0).max(1_000_000), what: z.enum(['corner', 'gate', 'tee', 'end', 'start']),
+          turn: z.enum(['left', 'right']).optional().nullable(),
+          gate: z.object({ widthIn: z.number().min(0).max(1200), type: z.enum(['walk', 'double']) }).optional().nullable(),
+        })).max(200),
+      })).max(40),
+    }).optional().nullable(),
+    planDone: z.boolean().optional(),
   }).optional().nullable(),
   corners: z.number().int().default(0),
   ends: z.number().int().default(0),
@@ -331,7 +347,7 @@ router.post('/', requireUser, requireAccount, requireCan('quotes.change'), async
     // Each proposal option's warranty, from Settings → Warranties now (lib/warranties.ts).
     if (data.proposal) data.proposal = await stampQuoteWarranties(req.user.crmAccountId, data.proposal, null, false) as any
     // The terms the customer reads and signs (Settings → Contract Templates) and the company's address, frozen on the proposal (lib/contractTerms.ts).
-    if (data.proposal) data.proposal = await stampQuoteTerms(req.user.crmAccountId, data.proposal, null, false, { repair: workKindOf(data.work) === 'repair' }) as any
+    if (data.proposal) data.proposal = await stampQuoteTerms(req.user.crmAccountId, data.proposal, null, false, { repair: workKindOf(data.work) === 'repair', walked: isWalkedNoPlan(data.layout) }) as any
     // A best price quote's own option shown as its tier, frozen now: a new proposal has not been sent (lib/ownTier.ts).
     if (data.proposal) data.proposal = await stampOwnTier(data.proposal, data.fenceStyle, null, false) as any
     // A style held now for missing costs (8 ft tall with no piece costs): no price on it is saved (lib/heldStylePrice.ts).
@@ -460,7 +476,7 @@ router.patch('/:id', requireUser, requireAccount, requireCan('quotes.change'), a
     // Each proposal option's warranty: a sent or signed proposal keeps the words it went out with (lib/warranties.ts).
     if (data.proposal) data.proposal = await stampQuoteWarranties(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing)) as any
     // Its terms and the company's address: a sent or signed proposal keeps the ones it went out with (lib/contractTerms.ts).
-    if (data.proposal) data.proposal = await stampQuoteTerms(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing), { repair: workKindOf(data.work === undefined ? existing.work : data.work) === 'repair' }) as any
+    if (data.proposal) data.proposal = await stampQuoteTerms(existing.accountId, data.proposal, existing, existing.status !== 'DRAFT' || await signedNow(existing), { repair: workKindOf(data.work === undefined ? existing.work : data.work) === 'repair', walked: isWalkedNoPlan(data.layout === undefined ? existing.layout : data.layout) }) as any
     // A best price quote's own option shown as its tier: a sent proposal keeps the cards and prices it went out with;
     // a draft saved before folding was frozen is frozen as it showed when it is sent now (lib/ownTier.ts).
     const sentBefore = proposalSent(existing) || await signedNow(existing)

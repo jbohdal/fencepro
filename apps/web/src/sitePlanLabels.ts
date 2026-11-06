@@ -186,7 +186,7 @@ export function planObstacles(plan: Plan, sc: PlanScreen): PlanObstacles {
   const fence = plan.sides.map(sd => ({ x1: sc.toX(sd.a.x), y1: sc.toY(sd.a.y), x2: sc.toX(sd.b.x), y2: sc.toY(sd.b.y) }))
   const house = plan.house ? plan.house.map(p => ({ x: sc.toX(p.x), y: sc.toY(p.y) })) : null
   const boxes: Box[] = []
-  for (const sd of plan.sides) if (sd.gate) for (const l of screenLeaves(sd.gate, sc)) boxes.push(l.box)
+  for (const sd of plan.sides) for (const g of sd.gates ?? (sd.gate ? [sd.gate] : [])) for (const l of screenLeaves(g, sc)) boxes.push(l.box)
   // "Not to scale for permitting", top left.
   boxes.push({ x0: 10, y0: 8, x1: 12 + textWidth('Not to scale for permitting', 10.5), y1: 22 })
   const bottom = plan.street ? sc.H - 26 : sc.H - 2

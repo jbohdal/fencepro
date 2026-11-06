@@ -189,6 +189,7 @@ interface Snapshot {
   posts?: { corners: number; ends: number; gatePosts: number }
   runs?: Array<{ label: string; length: string; sections: number; spacing: string }>
   gates?: string[]
+  walkRows?: string[]
   skips?: string[]
   pullSheet?: Array<{ item: string; qty: number }>
   crewNotes?: string[]
@@ -208,6 +209,7 @@ const snapSchema = z.object({
   posts: z.object({ corners: z.number(), ends: z.number(), gatePosts: z.number() }).optional(),
   runs: z.array(z.object({ label: z.string().max(200), length: z.string().max(40), sections: z.number(), spacing: z.string().max(40) })).max(200).optional(),
   gates: z.array(z.string().max(300)).max(60).optional(),
+  walkRows: z.array(z.string().max(200)).max(200).optional(),
   skips: z.array(z.string().max(300)).max(60).optional(),
   // Quantities only: a cost sent here is dropped.
   pullSheet: z.array(z.object({ item: z.string().max(300), qty: z.number() }).strip()).max(400).optional(),
@@ -504,7 +506,8 @@ packetPublic.get('/:token', async (req, res) => {
     <section data-packet-fence><h2>${s.work?.type === 'repair' || service ? 'The existing fence' : 'The fence'}</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
       ${postsLine(s.posts, s.work?.type)}
-      ${safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
+      ${s.walkRows?.length ? `<h3>Fence as measured (walk list), in walking order</h3><table data-packet-walk><tbody>${s.walkRows.map((r, k) => `<tr><td>${k + 1}</td><td>${esc(r)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${safeSvg(s.planSvg) && s.walkRows?.length ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Rough sketch from the walk list, not to scale. The office draws the site plan.</p>` : safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
       ${s.runs?.length && !service ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}

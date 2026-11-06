@@ -111,6 +111,8 @@ interface PacketInput {
   job: any
   permit: any
   quote: any | null
+  /** A walked quote whose plan the office has not drawn yet: the walk list sheet (table and rough sketch, not to scale). */
+  walkSvg?: string | null
   parcel: ParcelInfo | null
 }
 
@@ -128,7 +130,9 @@ export async function packetInputFor(accountId: string, jobId: string, opts: { l
   const contractor = await contractorOf(accountId)
   const opt = quote?.proposal && quote.chosenOption != null ? (quote.proposal as any)?.options?.[quote.chosenOption] : null
   const fenceText = await plainStyleName(opt?.fenceStyle || job.fenceStyle) || String(opt?.label || job.fenceStyle || '')
-  return { company: contractor.name, contractor, fenceText, job, permit: { ...permit, parcelId: permit.parcelId || parcel?.parcel || '' }, quote, parcel }
+  const layout = (quote?.layout ?? null) as any
+  const walkSvg = layout?.walk && !layout.planDone ? (await pricingModule() as any).walkSheetSvg(layout.walk) as string : null
+  return { company: contractor.name, contractor, fenceText, job, permit: { ...permit, parcelId: permit.parcelId || parcel?.parcel || '' }, quote, parcel, walkSvg }
 }
 
 /**
@@ -209,7 +213,8 @@ export function renderPacket(p: PacketInput): Promise<Buffer> {
     if (portal) { doc.moveDown(0.3).font('Helvetica').fontSize(9).fillColor('#6b7280').text(`File online: ${portal.name}, ${portal.url}. ${portal.note}`, { width: W }) }
 
     heading('Site plan')
-    const svg = String((q?.proposal as any)?.planSvg || '')
+    // The office's drawn plan; a walked quote not drawn yet: the walk list as measured (table and rough sketch, not to scale).
+    const svg = String(p.walkSvg || (q?.proposal as any)?.planSvg || '')
     if (svg) {
       const top = doc.y
       const room = doc.page.height - 60 - top
@@ -217,7 +222,7 @@ export function renderPacket(p: PacketInput): Promise<Buffer> {
       if (room < 200) { doc.addPage(); box.y = 50; box.h = doc.page.height - 110 }
       drawSvg(doc, svg, box)
     } else {
-      doc.font('Helvetica').fontSize(10).fillColor('#6b7280').text('No site plan was drawn for this job\'s quote. Draw one in the quote (Layout) and make the packet again.', { width: W })
+      doc.font('Helvetica').fontSize(10).fillColor('#6b7280').text('No site plan was drawn for this job\'s quote. Draw one in the quote and make the packet again.', { width: W })
     }
     doc.end()
   })

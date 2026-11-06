@@ -1,3 +1,4 @@
+import { walkFence, backyardOf } from './lib.mjs'
 // The quote window on a computer, a tablet and a phone, on the dev copy.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
@@ -57,12 +58,7 @@ const inside = (a, b) => a && b && a.x >= b.x - 1 && a.y >= b.y - 1 && a.x + a.w
 
 async function fillBackyard(page) {
   const b = page.locator('[data-quote-builder]')
-  await b.locator('[data-shape="backyard"]').click(); await sleep(400)
-  await b.locator('[data-side="Left return"] [data-side-length]').click()
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '2', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
-  }
+  await walkFence(page, backyardOf([30, 120, 150, 120, 30]))
   await sleep(400)
 }
 
@@ -88,8 +84,9 @@ async function bigScreen(browser, size, tag) {
   check(`${tag}: Back goes to the Customer step, nothing lost`, await b.locator('[data-step="customer"][aria-selected="true"]').count() === 1 && await b.locator('input[placeholder^="Customer name"]').inputValue() === 'Window test (e2e)')
   await next.click(); await sleep(300)
   await fillBackyard(page)
-  const plan = await box(page.locator('[data-layout-plan-col]')), sides = await box(page.locator('[data-layout-sides-col]'))
-  check(`${tag}: Yard step: the plan on the left, the sides on the right`, plan && sides && plan.x + plan.width <= sides.x + 1 && Math.abs(plan.y - sides.y) < 40, JSON.stringify({ plan, sides }))
+  // The walk list (Nov 5 2026): the steps and the rough sketch inside the window, nothing wider than it.
+  const list = await box(page.locator('[data-walk-list]')), sketch = await box(page.locator('[data-walk-sketch]')), qw = await box(b)
+  check(`${tag}: Yard step: the walk list and its sketch fit the window`, list && sketch && qw && list.x >= qw.x - 1 && list.x + list.width <= qw.x + qw.width + 1 && sketch.x + sketch.width <= qw.x + qw.width + 1, JSON.stringify({ list, sketch, qw }))
   const bb2 = await box(bar)
   check(`${tag}: the footer has not moved`, Math.abs(bb2.y - bb.y) <= 2 && Math.abs(bb2.height - bb.height) <= 30)
   if (SHOTS && tag === 'computer') await page.screenshot({ path: `${SHOTS}/dev-quote-window-desktop-yard.png` })

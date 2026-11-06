@@ -15,7 +15,7 @@ describe('tape measure check', () => {
     expect(tapeChecks([run(81)], [8])).toHaveLength(0)
     expect(tapeChecks([run(79)], [8])).toHaveLength(0)
     expect(tapeChecks([run(4)], [8])).toHaveLength(0)                  // shorter than one section
-    expect(tapeChecks([run(80)], [8])[0]).toBe('Back (80): Check this run with a tape measure. A few inches either way changes the section count.')
+    expect(tapeChecks([run(80)], [8])[0]).toBe('Back (80): Check this length with a tape measure. A few inches either way changes the number of sections.')
   })
 })
 

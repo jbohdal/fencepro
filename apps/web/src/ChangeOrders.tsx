@@ -712,7 +712,7 @@ export function QuickChangeOrderModal({
           {prefill?.note && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-co-modal-no-work-note>{prefill.note}</p>}
           {/* The cut's note follows the owner's box: with the full credit given it says what the contract becomes (review Nov 3 2026). */}
           {prefill?.warnings?.map(w => (prefill.cut && w === prefill.cut.warning && fullCredit && underMinimum ?cutFullCreditNote(contractCents, total, floorCents) : w)).map(w => <p key={w} className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-co-warning>{w}</p>)}
-          {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>{prefill.work.request.jobType === 'move' || prefill.work.request.jobType === 'repair' ? 'Once approved, the pull sheet, install packet, crew days and job costing follow this work, and the next change order starts from it.' : 'From the yard drawing: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new drawing.'}</p>}
+          {prefill?.work && <p className="text-xs text-gray-700 bg-gray-50 rounded-lg px-3 py-2" data-co-from-drawing>{prefill.work.request.jobType === 'move' || prefill.work.request.jobType === 'repair' ? 'Once approved, the pull sheet, install packet, crew days and job costing follow this work, and the next change order starts from it.' : 'From the yard: once approved, the pull sheet, install packet, site plan, crew days and job costing follow the new fence.'}</p>}
           <div>
             <label htmlFor="co-reason" className="text-xs text-gray-600 font-semibold mb-1 block">Reason for the change <span className="font-normal text-gray-500">(required; the customer sees it)</span></label>
             <input id="co-reason" required maxLength={1000} enterKeyHint="done" autoCapitalize="sentences"
@@ -1039,7 +1039,7 @@ export function ChangeOrderPanel({ quoteId, originalPrice, customerName = '', hi
               {co.reason && <p className="text-xs text-gray-500 mt-1 italic">{co.reason}</p>}
               {/* Its own change, side by side; never its drawing's whole fence, which counts other change orders
                   open when it was drawn (round 3 recheck: CO-1 read "New drawing: 156 ft" on a 152 ft job). */}
-              {co.work && <p className="text-xs text-gray-600 mt-1" data-co-work>{co.change ? `Its change: ${co.change}.` : `New drawing: ${workWords(co.work)}.`}{co.status === 'approved' && co.jobWork ? ` The job with it: ${workWords(co.jobWork)}.` : ''}</p>}
+              {co.work && <p className="text-xs text-gray-600 mt-1" data-co-work>{co.change ? `Its change: ${co.change}.` : `New fence: ${workWords(co.work)}.`}{co.status === 'approved' && co.jobWork ? ` The job with it: ${workWords(co.jobWork)}.` : ''}</p>}
               {co.work && co.status !== 'approved' && co.status !== 'void' && (co.alsoInDrawing ?? []).map(a => (
                 <p key={a.number} className="text-xs text-gray-500 mt-0.5" data-co-also-in-drawing={a.number}>Its drawing also shows CO-{a.number}{a.change ? ` (${a.change})` : ''}: not part of this change order ({a.status === 'void' ? 'cancelled' : a.signed ? 'signed' : 'not signed yet'}).</p>
               ))}

@@ -4,14 +4,14 @@
  */
 
 import { styleLabel } from './fenceCatalog'
-import { formatFtIn, type YardLayout } from './yardLayout'
+import { formatFtIn, sideGates, type YardLayout } from './yardLayout'
 import { earnedProfitPct } from './targetMargin'
 import type { FenceStyle } from './configStore'
 
 /** "Back (150' 0")" for a layout run, "Run 2 (81' 0")" for a typed one. */
 export interface NamedRun { ft: number; label: string }
 
-const TAPE = 'Check this run with a tape measure. A few inches either way changes the section count.'
+const TAPE = 'Check this length with a tape measure. A few inches either way changes the number of sections.'
 
 /**
  * A run that lands right on a whole number of sections, or up to 6 inches
@@ -44,8 +44,8 @@ export function gateChecks(layout: YardLayout | null): string[] {
     for (const s of layout.sides) if (s.on && !(s.lengthIn > 0)) out.push(`${s.name} has no length yet. Enter it, or turn it off if there is no fence there.`)
   }
   for (const s of layout.sides) {
-    if (!s.on || !s.gate || !(s.lengthIn > 0)) continue
-    if (s.gate.widthIn > s.lengthIn) out.push(`${s.name}: the gate (${formatFtIn(s.gate.widthIn)}) is wider than the side (${formatFtIn(s.lengthIn)}).`)
+    if (!s.on || !(s.lengthIn > 0)) continue
+    for (const g of sideGates(s)) if (g.widthIn > s.lengthIn) out.push(`${s.name}: the gate (${formatFtIn(g.widthIn)}) is wider than the side (${formatFtIn(s.lengthIn)}).`)
     else if (s.lengthIn < 72) out.push(`${s.name} is under 6 ft (${formatFtIn(s.lengthIn)}) and has a gate. Check the measurement and the gate width.`)
   }
   return out

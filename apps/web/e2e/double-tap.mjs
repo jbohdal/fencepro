@@ -1,3 +1,4 @@
+import { walkFence, backyardOf } from './lib.mjs'
 // Double taps on the main create buttons, on a phone, on the dev copy.
 //
 //   cd apps/web && pnpm -s build
@@ -96,12 +97,7 @@ try {
   const b = page.locator('[data-quote-builder]')
   await b.waitFor()
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="backyard"]').click()
-  await b.locator('[data-side="Left return"] [data-side-length]').click()
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
-  }
+  await walkFence(page, backyardOf([30, 120, 150, 100, 30]))
   await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
   await b.locator('[data-step="price"]').click()

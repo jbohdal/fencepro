@@ -585,6 +585,12 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                   )}
                 </div>
 
+                {/* A walked side with more than one gate (walkList.ts): its gates as walked; changed on the walk list. */}
+                {s.gates && s.gates.length > 1 ? (
+                  <p className="text-sm text-gray-800 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2" data-side-gates-walked>
+                    {s.gates.length} gates as walked: {s.gates.map(g => `${formatFtIn(g.widthIn)} ${g.type === 'double' ? 'double' : 'single'} at ${formatFtIn(g.distanceIn ?? 0)}`).join('; ')}. To change them, go back to the walk list.
+                  </p>
+                ) : (
                 <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-xl p-1" data-gate-choice>
                   {([null, 'walk', 'double'] as Array<GateType | null>).map(t => (
                     <button key={t ?? 'none'} type="button"
@@ -596,6 +602,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                     </button>
                   ))}
                 </div>
+                )}
 
                 <div className="flex items-center gap-2">
                   <p className="flex-1 text-sm text-gray-700" data-side-ends>{endsLine(startF, endF)}{s.gate ? ` · ${formatFtIn(s.gate.widthIn)} gate ${s.gate.position === 'middle' ? 'in the middle' : s.gate.position === 'distance' ? (r?.gateAtIn != null ? `${ftText(r.gateAtIn)} from ${sideEndName(layout, i, 'start')}, ${ftText(Math.max(0, s.lengthIn - r.gateAtIn - s.gate.widthIn))} to ${sideEndName(layout, i, 'end')}` : `${formatFtIn(s.gate.distanceIn ?? 0)} from the start`) : FINISH_NEAR[s.gate.position === 'start' ? startF : endF]}` : ''}</p>
@@ -635,7 +642,7 @@ export default function LayoutEditor({ layout, onChange, result, runSections, ne
                       <p key={k} className="tabular-nums">
                         {runsHere.length > 1 ? `Piece ${k + 1}: ` : ''}{formatFtIn(run.inches)}
                         {hasStyle && run.sections > 0 ? <> = <span className="font-semibold">{run.sections} sections</span>, posts {postSpacing(run.ft, run.sections)} apart</> : ''}
-                        {run.tape && <span className="block text-amber-800 text-xs font-semibold" data-tape-flag>Check this run with a tape measure. A few inches either way changes the section count.</span>}
+                        {run.tape && <span className="block text-amber-800 text-xs font-semibold" data-tape-flag>Check this length with a tape measure. A few inches either way changes the number of sections.</span>}
                       </p>
                     ))}
                   </div>

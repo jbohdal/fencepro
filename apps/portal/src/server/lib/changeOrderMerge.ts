@@ -339,7 +339,7 @@ const GATE_IN: Record<string, number> = { walk: 48, double: 120 }
 const gateKind = (g: Json) => (g?.type === 'double' ? 'double' : 'walk')
 const gateFt = (g: Json) => Math.round(((num(g?.widthIn) || GATE_IN[gateKind(g)]) / 12) * 100) / 100
 /** "the Back side", "the Left side" (a name that says side already), "the Left return" (as changeOrderDraft.ts names it). */
-export const theSide = (name: string) => `the ${/(^|\s)(side|return|run)$/i.test(name) ? name : `${name} side`}`
+export const theSide = (name: string) => (/^side \d+$/i.test(name) ? name : `the ${/(^|\s)(side|return|run)$/i.test(name) ? name : `${name} side`}`)
 
 /**
  * The gates a change puts in, takes out or changes, side by side (round 3
@@ -352,8 +352,18 @@ export function sideGateChanges(base: WorkShape, mine: WorkShape): Array<{ kind:
   if (!base.yard || !mine.yard || !Array.isArray(base.yard.sides) || !Array.isArray(mine.yard.sides)) return []
   const bMap = new Map<string, Json>((base.yard.sides as Json[]).filter(s => s?.id).map(s => [String(s.id), s]))
   const out: Array<{ kind: 'added' | 'removed' | 'changed'; words: string }> = []
+  const gatesOf = (x: Json) => (Array.isArray(x?.gates) && x.gates.length ? x.gates : x?.gate ? [x.gate] : []) as Json[]
   for (const m of mine.yard.sides as Json[]) {
     const b = bMap.get(String(m?.id ?? ''))
+    // A walked side with more than one gate (web walkList.ts): each gate it did not have before is put in, each it lost taken out.
+    if ((b && Array.isArray(b.gates) && b.gates.length) || (Array.isArray(m?.gates) && m.gates.length)) {
+      const before = b && b.on !== false ? gatesOf(b) : [], after = m?.on !== false ? gatesOf(m) : []
+      const same = (x: Json, y: Json) => gateKind(x) === gateKind(y) && gateFt(x) === gateFt(y) && num(x?.distanceIn) === num(y?.distanceIn)
+      const where = theSide(sideName(m))
+      for (const g of after) if (!before.some(h => same(g, h))) out.push({ kind: 'added', words: `a ${gateKind(g)} gate in ${where} (${gateFt(g)} ft)` })
+      for (const g of before) if (!after.some(h => same(g, h))) out.push({ kind: 'removed', words: `the ${gateKind(g)} gate in ${where} taken out` })
+      continue
+    }
     const was = b && b.on !== false ? b.gate : null, now = m?.on !== false ? m?.gate : null
     const where = theSide(sideName(m))
     if (now && !was) {

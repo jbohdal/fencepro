@@ -29,6 +29,7 @@ import { styleLabel } from './fenceCatalog'
 import { workScope, type SavedWork } from './moveRepair'
 import { jobInstallWord } from './jobWork'
 import { hasDrawing } from './jobDrawing'
+import WalkSheetView from './WalkSheetView'
 import { CustomerContact, JobMilestones, OpenCustomerProfile } from './JobTruth'
 import { JobTimeline } from './ChangeOrders'
 import { backLinkWords } from './customerPage'
@@ -141,6 +142,9 @@ export default function JobPage() {
         <Row label="Pull sheet" value={job.pullSheetPulled ? 'Pulled' : 'Not pulled yet'} />
         <Row label="Drawing" value={hasDrawing({ drawingComplete: job.drawingComplete }, quote as any) ? 'Done' : 'Not yet'} />
       </Card>
+
+      {/* Walked on site (walkList.ts): the fence as measured, and "Site plan needed" until the office draws it. */}
+      <WalkSheetView layout={(quote as { layout?: Parameters<typeof WalkSheetView>[0]['layout'] } | undefined)?.layout} />
 
       <Card title="The work">
         {scope ? (

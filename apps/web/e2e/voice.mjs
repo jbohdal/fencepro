@@ -3,9 +3,9 @@
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
 //   E2E_ACCESS_TOKEN=<dev staff token> VOICE_CLIP=/path/to/phrase.m4a node e2e/voice.mjs
 //
-// 1. Guided walk: a stand-in for the phone's speech recognition "hears" a
-//    scripted conversation, so the prompts, read back, the "fifteen or
-//    fifty?" question, a side turned off and "done" are all checked.
+// 1. The walk list: a stand-in for the phone's speech recognition "hears"
+//    each length said at the mic by the feet box; what it heard is shown,
+//    nothing is guessed, and the tape measure mark shows on its step.
 // 2. Record and transcribe later: live voice fails with "network", the
 //    phone records (a stand-in recorder hands over VOICE_CLIP, a real spoken
 //    sentence; test machines have no microphone), the clip waits on the
@@ -88,21 +88,9 @@ const go = async (b, k) => { await b.locator(`[data-step="${k}"]`).click(); awai
 const browser = await chromium.launch()
 let clipIds = []
 try {
-  // ── 1. Guided walk ──
+  // ── 1. The walk list (Nov 5 2026): the mic by the feet box at each step ──
   {
-    const { ctx, page, errors, b } = await phone(browser, [
-      'thirty with a four foot gate in the middle', // Left return
-      'one twenty',                                  // Left side → 15 sections exactly: tape reminder
-      'yes',                                         // … keep it
-      'fifteen',                                     // Back → "Back: fifteen or fifty?"
-      'one fifty',                                   // … the length said again
-      'one twenty',                                  // Right side → tape reminder
-      'yes',
-      'no right return',                             // Right return off
-      'note gate code is 4512',                      // then a note
-      "what's the total",
-      'done',
-    ])
+    const { ctx, page, errors, b } = await phone(browser, ['thirty feet', 'one twenty', 'the trampoline goes here'])
     // Remembered per user: off, then on and still on when the quote screen opens again.
     await voiceOff(b)
     check('Voice switch off: typing is the default', (await b.locator('[data-voice-switch]').getAttribute('aria-checked')) === 'false')
@@ -110,57 +98,35 @@ try {
     await b.locator('button[aria-label="Close"]').click(); await sleep(300)
     await page.locator('button:has-text("New quote"):visible').first().click(); await sleep(1500)
     check('the Voice switch is remembered for this user', (await b.locator('[data-voice-switch]').getAttribute('aria-checked')) === 'true')
+    check('the voice panel says where to talk: the mic by the feet box', (await b.locator('[data-voice-walk-list]').textContent().catch(() => '')).includes('tap the mic by the feet box') && (await b.locator('[data-voice-walk]').isDisabled().catch(() => true)))
     await go(b, 'yard')
-    await b.locator('[data-shape="backyard"]').click()
+    const feet = async () => b.locator('[data-walk-feet]').inputValue()
+    const msg = async () => (await b.locator('[data-walk-msg]').textContent().catch(() => '')) || ''
+    await b.locator('[data-walk-voice]').click(); await sleep(900)
+    check('"thirty feet" fills the feet box and says what it heard', (await feet()) === '30' && /Heard 30 ft/.test(await msg()), `${await feet()} | ${await msg()}`)
+    await b.locator('[data-walk-corner]').click(); await b.locator('[data-walk-right]').click(); await sleep(300)
+    await b.locator('[data-walk-voice]').click(); await sleep(900)
+    check('"one twenty" fills 120', (await feet()) === '120', await feet())
+    await b.locator('[data-walk-end]').click(); await sleep(300)
+    check('the two steps are on the list', (await b.locator('[data-walk-step]').allInnerTexts()).join(' | ').includes('Side 2: 120 ft, End post'))
+    await b.locator('[data-walk-another]').click(); await sleep(300)
+    await b.locator('[data-walk-voice]').click(); await sleep(900)
+    check('not understood: said plainly on screen, nothing guessed', /no feet in it\. Type the feet instead/.test(await msg()) && (await feet()) === '', await msg())
     await go(b, 'style')
     await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
-    await go(b, 'customer')
-    await voiceOn(b)
-    await b.locator('[data-voice-walk]').click()
-    await page.waitForFunction(() => window.__script.length === 0, null, { timeout: 30000 }).catch(() => {})
-    await sleep(1500)
-    const spoken = await page.evaluate(() => window.__spoken)
-    check('it asks for each side by name', ['Left return?', 'Left side?', 'Back?', 'Right side?', 'Right return?'].every(t => spoken.includes(t)), spoken.slice(0, 6).join(' | '))
-    check('it reads back what it understood', spoken.includes('Left return, 30 feet, 4 foot walk gate in the middle'), spoken.find(t => t.startsWith('Left return,')) || 'none')
-    check('it asks "fifteen or fifty?" instead of taking 15 ft', spoken.includes('Back: fifteen or fifty?'))
-    check('it gives the tape measure reminder on a run that lands on whole sections', spoken.some(t => t.startsWith("Left side 120' 0\" lands right on 15 sections")))
-    check('sides filled in: 30, 120, 150, 120', (await len(b, 'Left return')).startsWith("30' 0\"") && (await len(b, 'Left side')).startsWith("120' 0\"") && (await len(b, 'Back')).startsWith("150' 0\"") && (await len(b, 'Right side')).startsWith("120' 0\""),
-      [await len(b, 'Left return'), await len(b, 'Back')].join(' | '))
-    check('"no right return" turns that side off', (await b.locator('[data-side="Right return"] [data-side-row]').textContent()).includes('· off'))
     await go(b, 'yard')
-    // Open the left return (a tap on an open side's row closes it).
-    if (!(await b.locator('[data-side-open="true"][data-side="Left return"]').count())) await b.locator('[data-side-row="Left return"]').click()
-    check('the walk gate is on the left return', (await b.locator('[data-side="Left return"] [data-side-ends]').textContent()).includes("4' 0\" gate"))
-    check('"note …" adds a crew note', (await b.locator('[data-voice-notes]').textContent().catch(() => '')).includes('gate code is 4512'))
-    check('"what\'s the total" says footage, sections and price', spoken.some(t => /^\d+ feet, \d+ sections, [\d,]+ dollars\.$/.test(t)), spoken.find(t => / sections, /.test(t)) || 'none')
-    check('a mic on the open side for one quick entry', await b.locator('[data-side-open="true"] [data-side-mic]').count() === 1)
+    check('120 ft at 8 ft wide: the tape measure mark on that step', await b.locator('[data-walk-step] [data-tape-flag]').count() === 1)
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/1-phone-voice-walk-list.png` })
+    check('walk list voice: no page errors', errors.length === 0, errors.join(' | '))
     await go(b, 'customer')
-    if (SHOTS) { await b.locator('[data-voice-panel]').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/1-phone-voice-walk.png` }) }
-    check('walk: no page errors', errors.length === 0, errors.join(' | '))
-    await voiceOff(b)
-    await ctx.close()
-  }
-
-  // ── Something it cannot understand is shown and said back ──
-  {
-    const { ctx, page, errors, b } = await phone(browser, ['the trampoline goes here', 'done'])
-    await go(b, 'yard')
-    await b.locator('[data-shape="backyard"]').click()
-    await go(b, 'customer')
-    await voiceOn(b)
-    await b.locator('[data-voice-walk]').click()
-    await page.waitForFunction(() => window.__script.length === 0, null, { timeout: 20000 }).catch(() => {})
-    await sleep(800)
-    const spoken = await page.evaluate(() => window.__spoken)
-    check('not understood: shown on screen', (await b.locator('[data-voice-unknown]').textContent().catch(() => '')).includes('trampoline'))
-    check('not understood: said back, nothing guessed', spoken.some(t => t.startsWith('I did not understand')) && (await len(b, 'Left return')) === 'no length')
-    check('unknown: no page errors', errors.length === 0, errors.join(' | '))
     await voiceOff(b)
     await ctx.close()
   }
 
   // ── 2. Live voice fails: record, keep while offline, upload, transcribe on the Mac, apply ──
-  if (CLIP) {
+  // It fills in a drawn yard's named sides: a quote drawn before the walk list (Nov 5 2026). A new quote is walked,
+  // and the walk list's mic is live voice only, so this runs only when asked (VOICE_DRAWN=1).
+  if (CLIP && process.env.VOICE_DRAWN) {
     const { ctx, page, errors, b } = await phone(browser, [], 'network')
     await voiceOn(b)
     await go(b, 'yard')

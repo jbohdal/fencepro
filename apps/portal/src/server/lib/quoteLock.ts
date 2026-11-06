@@ -104,6 +104,8 @@ export function layoutGeometry(layout: unknown) {
       sides: (Array.isArray(yard.sides) ? yard.sides : []).map((s: Json) => ({
         on: !!s?.on, lengthIn: Number(s?.lengthIn ?? 0), startFinish: s?.startFinish ?? null, endFinish: s?.endFinish ?? null,
         gate: isObj(s?.gate) ? { type: s.gate.type ?? null, widthIn: s.gate.widthIn ?? null, position: s.gate.position ?? null, distanceIn: s.gate.distanceIn ?? null } : null,
+        // A walked side's gates (more than one): part of the geometry too.
+        ...(Array.isArray(s?.gates) && s.gates.length ? { gates: s.gates.map((g: any) => ({ type: g?.type ?? null, widthIn: g?.widthIn ?? null, position: g?.position ?? null, distanceIn: g?.distanceIn ?? null })) } : {}),
         skip: isObj(s?.skip) ? { kind: s.skip.kind ?? null, lengthIn: s.skip.lengthIn ?? null, position: s.skip.position ?? null, distanceIn: s.skip.distanceIn ?? null } : null,
       })),
     } : null,

@@ -1,3 +1,4 @@
+import { walkFence, backyardOf } from './lib.mjs'
 // Photos and video, end to end on the dev copy.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
@@ -64,14 +65,8 @@ try {
   await page.locator('button:has-text("New quote"):visible').first().click()
   const b = page.locator('[data-quote-builder]')
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="backyard"]').click()
-  await b.locator('[data-side="Left return"] [data-side-length]').click()
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '2', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
-  }
-  await b.locator('[data-side-row="Left return"]').click()
-  await b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")').click()
+  // The left return (30 ft) with a 4 ft walk gate in its middle, then the rest of the backyard.
+  await walkFence(page, [[13, 'gate', { w: 4 }], ...backyardOf([13, 120, 150, 120, 30])])
   await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" })
   await b.locator('[data-step="yard"]').click()
@@ -108,7 +103,6 @@ try {
   check('offline: the top bar says 3 waiting', /^3 /.test(badge), badge)
   check('offline: the quote marks them waiting', (await b.locator('[data-media-waiting]').textContent().catch(() => '')).includes('3 waiting'))
   check('offline: three captures shown, kept on the phone', await b.locator('[data-media-item="waiting"]').count() === 3)
-  check('the plan shows the photo pins', await b.locator('[data-layout-editor] [data-plan-pin]').count() === 3)
   if (SHOTS) { await b.locator('[data-media-gallery]').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/3-phone-waiting-offline.png` }) }
 
   // ── Back online: they upload, chunk by chunk ──
@@ -122,7 +116,7 @@ try {
   // ── Open a photo: caption written for us, mark it up, share with the customer ──
   await b.locator('[data-media-item]').first().click(); await sleep(600)
   const cap = await page.locator('[data-viewer-caption]').inputValue()
-  check('auto caption: side, distance, facing and the nearest feature, then category and who', /^Left side, about \d+ ft from the left return corner, looking toward the .+\. .+ \d+ ft (to the left|to the right|ahead|behind)\. Site walk, .+, Jonathan Bohdal\.$/.test(cap), cap)
+  check('auto caption: side, distance, facing and the nearest feature, then category and who', /^Side \d, about \d+ ft from (the corner of sides \d and \d|the house|its end), looking toward the .+\. .+ \d+ ft (to the left|to the right|ahead|behind)\. Site walk, .+, Jonathan Bohdal\.$/.test(cap) && !/the side \d/.test(cap), cap)
   await page.locator('[data-viewer-markup]').click()
   await page.locator('[data-markup-canvas]').waitFor(); await sleep(800)
   const cv = await page.locator('[data-markup-canvas]').boundingBox()

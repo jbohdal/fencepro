@@ -5,6 +5,7 @@
  * at /p/i/<link> (routes/installPacket.ts); it never shows prices.
  */
 
+import { walkPieceRows, walkSketchSvg, walkTable } from './walkList'
 import { can } from './permissions'
 import { locateOf, locateWords } from '../../portal/src/server/lib/locates'
 import { getJob, refreshJobs } from './jobStore'
@@ -18,7 +19,7 @@ import SitePlan from './SitePlan'
 import { bakedBackdrop } from './aerialBake'
 import type { AerialBackdrop } from './sitePlanPhoto'
 import { buildPlan } from './sitePlanGeometry'
-import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL } from './yardLayout'
+import { deriveLayout, formatFtIn, postSpacing, GATE_LABEL, sitePlanNeeded } from './yardLayout'
 import { gateWhereText } from './gateSlide'
 import { quotePlanWidth } from './QuotePlan'
 import { savedRunSections } from './quoteCalc'
@@ -42,6 +43,8 @@ export interface PacketSnapshot {
   posts?: { corners: number; ends: number; gatePosts: number }
   runs?: Array<{ label: string; length: string; sections: number; spacing: string }>
   gates?: string[]
+  /** Walked, no site plan yet: the walk list as measured, one row per side (the plan picture is then the rough sketch). */
+  walkRows?: string[]
   skips?: string[]
   pullSheet?: Array<{ item: string; qty: number }>
   crewNotes?: string[]
@@ -130,6 +133,12 @@ export function buildPacketSnapshot(job: { fenceStyle?: string; notes?: string; 
     snap.planSvg = renderToStaticMarkup(<SitePlan layout={yard} result={derived} runSections={runSections} widthFt={plan!.widthFt} pins={pins} title="Site plan" aerial={photo}
       oldLine={mv?.oldLinePlan ? { ...mv.oldLinePlan, ft: mv.oldFt, label: `Old line ${Math.round(mv.oldFt)} ft` } : null}
       damaged={quote.work?.type === 'repair' ? quote.work.repair?.tapped : undefined} />)
+    // Walked, not drawn yet ("Site plan needed"): the walk list as measured, a table and a rough sketch (not to scale).
+    if (sitePlanNeeded(quote.layout) && quote.layout?.walk) {
+      snap.planSvg = walkSketchSvg(quote.layout.walk)
+      snap.walkRows = walkPieceRows(quote.layout.walk)
+      snap.gates = walkTable(quote.layout.walk).filter(r => r.gates !== '—').map(r => `${r.side}: ${r.gates} (feet from the side's start)`)
+    }
   } else {
     const g: string[] = []
     if (quote.walkGates) g.push(`${quote.walkGates} walk gate${quote.walkGates > 1 ? 's' : ''}`)

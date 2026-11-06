@@ -54,36 +54,28 @@ try {
   await shot('1-customer')
   await tap(bar.locator('[data-bar-next]'), 'Next: Yard')
 
-  await tap(b.locator('[data-shape="backyard"]'), 'Backyard')
-  check('Yard: the plan on top, one row per side, the first side open', (await b.locator('[data-plan-wrap] svg').count()) === 1 && (await b.locator('[data-side-row]').count()) === 5 && (await b.locator('[data-side-open="true"]').getAttribute('data-side')) === 'Left return')
-  check('a side shows only the length, mic, gate choice and one ends line; the rest is behind More options',
-    (await b.locator('[data-side-open="true"] [data-finish]').count()) === 0 && (await b.locator('[data-side-open="true"] [data-side-ends]').textContent()).includes('Meets the house at the start, corner at the end'))
-
-  const sides = [['Left return', '30', true], ['Left side', '120'], ['Back', '150'], ['Right side', '120'], ['Right return', '30']]
-  for (const [name, ft, gate] of sides) {
-    const open = b.locator(`[data-side-open="true"][data-side="${name}"]`)
-    check(`${name} is the open side`, (await open.count()) === 1)
-    await tap(open.locator('[data-side-length]'), `${name} length`)
-    await pad([...ft])
-    if (gate) {
-      await tap(open.locator('[data-gate-choice] button:has-text("Walk gate")'), 'Walk gate')
-      check("the walk gate is 4' wide", /4' 0" gate/.test(await open.locator('[data-side-ends]').textContent()), await open.locator('[data-side-ends]').textContent())
-    }
-    if (name === 'Back') await shot('2-yard-side-open')
-    const label = (await bar.locator('[data-bar-next]').textContent()).trim()
-    check(`after ${name}: the bar says ${name === 'Right return' ? 'Next: Style' : 'Next side'}`, label === (name === 'Right return' ? 'Next: Style' : 'Next side'), label)
-    if (name !== 'Right return') await tap(bar.locator('[data-bar-next]'), `Next side after ${name}`)
+  // The walk list (Nov 5 2026): no drawing at the house, each side walked and typed.
+  check('Yard: the walk list, "Stand where the fence starts.", the feet box ready', /Stand where the fence starts/.test(await b.locator('[data-walk-prompt]').innerText()) && (await b.locator('[data-walk-feet]').count()) === 1)
+  const walkSteps = [[13, 'gate', 4], [13, 'corner'], [120, 'corner'], [150, 'corner'], [120, 'corner'], [30, 'end']]
+  for (const [ft, what, w] of walkSteps) {
+    await b.locator('[data-walk-feet]').fill(String(ft)); await sleep(150)
+    if (what === 'gate') {
+      await tap(b.locator('[data-walk-gate]'), 'Gate')
+      await tap(b.locator(`[data-walk-gate-width="${w}"]`), `${w} ft`)
+      await tap(b.locator('[data-walk-gate-kind="walk"]'), 'Single')
+    } else if (what === 'corner') {
+      await tap(b.locator('[data-walk-corner]'), 'Corner')
+      await tap(b.locator('[data-walk-right]'), 'Turns right')
+    } else await tap(b.locator('[data-walk-end]'), 'End post')
+    if (ft === 150) await shot('2-yard-walk')
   }
+  const list = await b.locator('[data-walk-step]').allInnerTexts()
+  check('the step list: the gate, then a side per corner, the end post last', list.length === 6 && /Gate 4 ft single/.test(list[0]) && /End post/.test(list[5]), list.join(' | '))
+  check('the total at the top: 450 ft walked', /450 ft/.test(await b.locator('[data-walk-total]').innerText()), await b.locator('[data-walk-total]').innerText())
   const facts = (await bar.locator('[data-bar-facts]').textContent()).trim()
-  check('bottom bar: 5 of 5 sides, 446 ft of fence (450 less the 4 ft gate), 4 corner, 4 end', facts === '5 of 5 sides · 446 ft · 4 corner, 4 end', facts)
-  check('every row has its check mark and length', (await b.locator('[data-side-row] .bg-green-600').count()) === 5)
+  check('bottom bar: 446 ft of fence (450 less the 4 ft gate), 4 corner, 4 end', /446 ft · 4 corner, 4 end/.test(facts), facts)
+  check('a rough sketch, not to scale', /not to scale/i.test(await b.locator('[data-walk-sketch]').innerHTML()))
   await shot('3-yard-done')
-
-  // More options holds the rest.
-  await tap(b.locator('[data-side-open="true"] [data-side-more]'), 'More options')
-  check('More options: start, end, house, gaps, rename, turn off, delete', (await b.locator('[data-side-options] [data-finish]').count()) === 2 && (await b.locator('[data-side-options] [data-add-skip]').count()) === 1 && (await b.locator('[data-side-options] button:has-text("Turn this side off")').count()) === 1)
-  await shot('4-yard-more-options')
-  await tap(b.locator('[data-side-open="true"] [data-side-more]'), 'Close More options')
 
   await tap(bar.locator('[data-bar-next]'), 'Next: Style')
   check('Style step', (await b.locator('[data-step="style"][aria-selected="true"]').count()) === 1)
@@ -99,13 +91,7 @@ try {
   await tap(b.locator('[data-step="customer"]'), 'Customer tab')
   check('nothing lost: the customer name is still there', (await b.locator('input[placeholder^="Customer name"]').inputValue()) === 'Steps test (e2e)')
   await tap(b.locator('[data-step="yard"]'), 'Yard tab')
-  check('nothing lost: the five lengths are still there', (await b.locator('[data-side-len]').allTextContents()).join(',') === `30' 0",120' 0",150' 0",120' 0",30' 0"`)
-  // Plan sides are thin lines: tapped where they are drawn (on screen, no scroll).
-  const back = page.locator('[data-plan-side="Back"]').first()
-  const bb = await back.boundingBox()
-  if (!bb || bb.y < 0 || bb.y + bb.height > page.viewportSize().height) offscreen.push('Back on the plan')
-  await back.tap({ force: true }); await sleep(300)
-  check('tapping a side on the plan opens it', (await b.locator('[data-side-open="true"]').getAttribute('data-side')) === 'Back')
+  check('nothing lost: the walked steps are still there', (await b.locator('[data-walk-step]').count()) === 6)
 
   // Photos have their own button with a count.
   check('Photos and video live in the bottom bar with a count', /\d/.test(await bar.locator('[data-photos-open]').textContent()) && (await b.locator('[data-step-panel] [data-quote-media]').count()) === 0)

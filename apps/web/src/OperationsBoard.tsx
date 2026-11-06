@@ -15,6 +15,8 @@
  * unchanged.
  */
 
+import { sitePlanNeeded } from './yardLayout'
+import { getQuotes } from './quoteStore'
 import { can, isCrewLogin } from './permissions'
 import { stageName as pipelineStageName, roleId as pipelineRoleId } from './pipelineStagesStore'
 import { styleLabel } from './fenceCatalog'
@@ -114,6 +116,9 @@ function cardDays(start: string, end?: string | null): string {
   return end && end > start ? `${one(start)} to ${one(end)}` : one(start)
 }
 
+/** The Stage filter's choice for walked jobs whose plan the office has not drawn yet. */
+const SITE_PLAN_FILTER = '__site_plan_needed'
+
 export default function OperationsBoard() {
   const [jobs, setJobs] = useState<UnifiedJob[]>(() => buildUnifiedList())
   // The stages (Settings > Operations Stages): columns, order, names and colors. A change shows at once.
@@ -210,7 +215,9 @@ export default function OperationsBoard() {
           && j.rawJob && daysSince(j.rawJob.completedDate || j.rawJob.updatedAt) > 2
         if (arch) return false
       }
-      if (stageFilter && j.opsStage !== stageFilter) return false
+      // "Site plan needed": a walked job whose plan the office has not drawn yet (walkList.ts).
+      if (stageFilter === SITE_PLAN_FILTER) { const q = j.rawJob?.quoteId ? getQuotes().find(x => x.id === j.rawJob!.quoteId) : undefined; if (!sitePlanNeeded(q?.layout)) return false }
+      else if (stageFilter && j.opsStage !== stageFilter) return false
       if (crewFilter && crewLabel(j.crewAssigned) !== crewFilter) return false
       if (styleFilter && opsStyleName(j.fenceType) !== styleFilter) return false
       if (!search) return true
@@ -804,6 +811,7 @@ function ControlsBar({
             <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} aria-label="Stage filter" data-ops-stage-filter className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All stages</option>
               {stageOptions.map(s => <option key={s.id} value={s.id}>{s.name}{s.hidden ? ' (hidden)' : ''}</option>)}
+          <option value={SITE_PLAN_FILTER}>Site plan needed</option>
             </select>
             <select value={crewFilter} onChange={e => onCrewFilterChange(e.target.value)} className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm">
               <option value="">All crews</option>
@@ -850,6 +858,7 @@ function ControlsBar({
         <select value={stageFilter} onChange={e => onStageFilterChange(e.target.value)} aria-label="Stage filter" data-ops-stage-filter className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All stages</option>
           {stageOptions.map(s => <option key={s.id} value={s.id}>{s.name}{s.hidden ? ' (hidden)' : ''}</option>)}
+          <option value={SITE_PLAN_FILTER}>Site plan needed</option>
         </select>
         <select value={crewFilter} onChange={e => onCrewFilterChange(e.target.value)} className="border border-gray-300 rounded-lg h-9 px-2.5 text-sm bg-white">
           <option value="">All crews</option>

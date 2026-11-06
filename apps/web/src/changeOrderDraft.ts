@@ -105,8 +105,10 @@ export interface DraftInput {
 const gatesWords = (walk: number, dbl: number) => [walk ? plural(walk, 'walk gate') : '', dbl ? plural(dbl, 'double gate') : ''].filter(Boolean).join(' and ')
 /** " in the Back side", " in the Left side and the Left return" (a name that says side already). */
 function inSides(names: string[]): string {
-  const sides = names.filter(Boolean).map(n => (/(^|\s)(side|return|run)$/i.test(n) ? n : `${n} side`))
-  return sides.length ? ` in the ${sides.length === 1 ? sides[0] : `${sides.slice(0, -1).join(', the ')} and the ${sides[sides.length - 1]}`}` : ''
+  const sides = names.filter(Boolean).map(n => (/(^|\s)(side|return|run)$|^side \d+$/i.test(n) ? n : `${n} side`))
+  // Walked sides are numbered (walkList.ts): "in Side 2", not "in the Side 2".
+  const the = (n: string) => (/^side \d+$/i.test(n) ? n : `the ${n}`)
+  return sides.length ? ` in ${sides.length === 1 ? the(sides[0]) : `${sides.slice(0, -1).map(the).join(', ')} and ${the(sides[sides.length - 1])}`}` : ''
 }
 
 const dollars = (cents: number) => `$${(Math.abs(cents) / 100).toLocaleString('en-US')}`

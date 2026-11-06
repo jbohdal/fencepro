@@ -43,6 +43,8 @@ interface Props {
   quoteKey: string
   readBack: boolean
   rate: number
+  /** The quote is on the walk list: each length is said with the mic by the feet box, not here. */
+  walkList?: boolean
 }
 
 type Mode = 'idle' | 'walking' | 'quick' | 'recording'
@@ -320,7 +322,7 @@ const VoicePanel = forwardRef<VoiceHandle, Props>(function VoicePanel(p, ref) {
             {mode === 'recording' && <button type="button" className="btn btn-danger" onClick={stopRec} data-voice-stop-rec><Square size={16} aria-hidden="true" /> Stop and save</button>}
             {(mode === 'walking' || mode === 'quick') && <button type="button" className="btn btn-danger" onClick={stopAll} data-voice-stop><Square size={16} aria-hidden="true" /> Stop</button>}
           </div>
-          {!p.layout && <p className="text-xs text-gray-600">Pick a yard shape first, then the app asks for each side.</p>}
+          {!p.layout && <p className="text-xs text-gray-600" data-voice-walk-list>{p.walkList ? 'On the Yard step, tap the mic by the feet box to say each length.' : 'Pick a yard shape first, then the app asks for each side.'}</p>}
           {status && <p className="text-sm text-gray-800" data-voice-status>{status}</p>}
           {heard && <p className="text-sm text-gray-700" data-voice-heard>Heard: “{heard}”</p>}
           {notUnderstood && <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-2 py-1" data-voice-unknown>Did not understand: “{notUnderstood}”</p>}

@@ -566,7 +566,7 @@ export default function SitePlan({ layout, result, runSections, widthFt = 8, noS
           {sd.placeholder && <line x1={toX(sd.a.x)} y1={toY(sd.a.y)} x2={toX(sd.b.x)} y2={toY(sd.b.y)} stroke={LIGHT} strokeWidth={3} strokeDasharray="8 6" />}
           {sd.fence.map((f, k) => <line key={k} x1={toX(f.a.x)} y1={toY(f.a.y)} x2={toX(f.b.x)} y2={toY(f.b.y)} stroke={PURPLE} strokeWidth={4} strokeLinecap="round" />)}
           {sd.skip && <line x1={toX(sd.skip.a.x)} y1={toY(sd.skip.a.y)} x2={toX(sd.skip.b.x)} y2={toY(sd.skip.b.y)} stroke={GRAY} strokeWidth={3} strokeDasharray="7 6" />}
-          {sd.gate && <GateSwing gate={sd.gate} sc={sc} />}
+          {(sd.gates ?? (sd.gate ? [sd.gate] : [])).map((g, k) => <GateSwing key={k} gate={g} sc={sc} />)}
           {onSideTap && (
             <line x1={toX(sd.a.x)} y1={toY(sd.a.y)} x2={toX(sd.b.x)} y2={toY(sd.b.y)} stroke="transparent" strokeWidth={30}
               style={{ cursor: 'pointer' }} onClick={() => onSideTap(sd.sideId)} data-plan-side={sd.name} />

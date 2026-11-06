@@ -11,7 +11,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
-import { signInByCookie, pickStyle } from './lib.mjs'
+import { signInByCookie, pickStyle, walkFence, sidesOf } from './lib.mjs'
 import { devSignIn, DEV_SALES_EMAIL } from './devSignIn.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
@@ -46,15 +46,7 @@ async function quoteUpToPrice(page, name, styleText, shape = 'backyard', sides =
   await page.locator('button:has-text("New quote"):visible').first().tap(); await sleep(800)
   await b.locator('input[placeholder^="Customer name"]').fill(name)
   await bar.locator('[data-bar-next]').tap(); await sleep(300)
-  await b.locator(`[data-shape="${shape}"]`).tap(); await sleep(300)
-  for (const [side, ft, gate] of sides) {
-    const open = b.locator(`[data-side-open="true"][data-side="${side}"]`)
-    await open.locator('[data-side-length]').tap(); await sleep(150)
-    for (const d of ft) { await page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`).tap(); await sleep(60) }
-    await page.locator('[data-ftin-pad] [data-pad-done]').tap(); await sleep(150)
-    if (gate) { await open.locator(`[data-gate-choice] button:has-text("${gate}")`).tap(); await sleep(200) }
-    if (side !== sides[sides.length - 1][0]) { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
-  }
+  await walkFence(page, sidesOf(sides, shape === 'perimeter'))
   await bar.locator('[data-bar-next]').tap(); await sleep(400)
   await pickStyle(page, styleText)
   await bar.locator('[data-bar-next]').tap()
@@ -146,7 +138,7 @@ try {
   check('saved: two options, the server\'s prices', q?.proposal?.options?.length === 2 && Math.round(q.proposal.options[0].finalPrice) === Math.round(clPrice), JSON.stringify(q?.proposal?.options?.map(o => [o.tier?.label, o.fenceStyle, o.finalPrice, o.warranty?.name, o.badge])))
   const chain = q.proposal.options.find(o => /^CL/.test(o.fenceStyle) || o.fenceStyle.startsWith('chain'))
   check('saved: the chain link option has its own pull sheet, snapshot from the server', chain.snapshot?.pullSheet?.length > 3 && chain.snapshot.totalCOGS > 0 && !chain.snapshot.pullSheet.some(l => /Emily/.test(l.item)))
-  check('the drawing on a mixed proposal shows no one style\'s section count', !!q.proposal.planSvg && !/\d section/.test(q.proposal.planSvg))
+  check('walked: no site plan picture on the mixed proposal yet (so no one style\'s section count)', !q.proposal.planSvg)
   const ta = (await (await christa.ctx.request.post(`${API}/api/saved-quotes/${q.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
   check('the Salesman gets the link', !!ta?.shareToken)
   await christa.ctx.request.patch(`${API}/api/saved-quotes/${q.id}`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { status: 'SENT' } })
@@ -215,10 +207,12 @@ try {
     await pg.waitForSelector('[data-co-panel]', { timeout: 40000 }); await sleep(1000)
     await pg.locator(`[data-co-button="${quote.id}"]`).first().tap()
     await pg.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
-    await pg.locator('[data-plan-label="Back"]').first().dispatchEvent('click') // WebKit's tap check does not see a drawn label as hittable
-    await pg.waitForSelector('[data-ftin-pad]', { timeout: 10000 })
-    for (const d of '148') { await pg.locator(`[data-ftin-pad] [data-pad-key="${d}"]`).tap(); await sleep(60) }
-    await pg.locator('[data-ftin-pad] [data-pad-action]').tap()
+    // The walk list (Nov 5 2026): the back's stretch after its gate, 59 ft → 79 ft (the back 128 → 148 ft).
+    await pg.locator('[data-quote-builder] [data-step="yard"]').tap().catch(() => {}); await sleep(400)
+    await pg.locator('[data-walk-step]', { hasText: 'Side 3: 59 ft, Corner' }).first().tap(); await sleep(300)
+    await pg.locator('[data-walk-edit-feet]').fill('79')
+    await pg.locator('[data-walk-edit-save]').tap(); await sleep(500)
+    await pg.locator('[data-quote-bar] [data-co-make]').tap()
     await pg.waitForSelector('[data-co-modal]', { timeout: 20000 }); await sleep(1500)
     const line = await pg.locator('[data-co-line-description]').first().inputValue()
     const amt = Number(await pg.locator('[data-co-line-amount]').first().inputValue())

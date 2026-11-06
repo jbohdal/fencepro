@@ -227,7 +227,7 @@ function PremiumTemplate({ quote, template, interactive, onAccept, accepted, exp
           )}
         </section>
 
-        {quoteHasPlan(quote) && (
+        {quoteHasPlan(quote, { customer: true }) && (
           <section style={{ marginBottom: 48 }} data-plan-section>
             <SectionHeading color={template.primaryColor} accent={template.accentColor}>Site Plan</SectionHeading>
             <QuotePlan quote={quote} />
@@ -353,7 +353,7 @@ function ModernTemplate({ quote, template, interactive, onAccept, accepted, expi
               <Fact label="Gates" value={gateSummary} />
               <Fact label="Sections" value={sectionsCell(quote.sections, quote.work)} />
             </div>
-            {quoteHasPlan(quote) && <div style={{ marginTop: 20 }} data-plan-section><QuotePlan quote={quote} /></div>}
+            {quoteHasPlan(quote, { customer: true }) && <div style={{ marginTop: 20 }} data-plan-section><QuotePlan quote={quote} /></div>}
           </NumberedSection>
 
           {template.showProjectPhotos && photos.length > 0 && (
@@ -462,7 +462,7 @@ function ClassicTemplate({ quote, template, interactive, onAccept, accepted, exp
         </p>
       </section>
 
-      {quoteHasPlan(quote) && (
+      {quoteHasPlan(quote, { customer: true }) && (
         <section style={{ marginBottom: 32 }} data-plan-section>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: template.primaryColor, borderBottom: `1px solid ${template.primaryColor}`, paddingBottom: 6, marginBottom: 12 }}>Site Plan</h3>
           <QuotePlan quote={quote} />
@@ -581,7 +581,7 @@ function BoldTemplate({ quote, template, interactive, onAccept, accepted, expire
               </div>
             ))}
           </div>
-          {quoteHasPlan(quote) && <div style={{ marginTop: 24 }} data-plan-section><QuotePlan quote={quote} /></div>}
+          {quoteHasPlan(quote, { customer: true }) && <div style={{ marginTop: 24 }} data-plan-section><QuotePlan quote={quote} /></div>}
         </section>
 
         {template.showProjectPhotos && photos.length > 1 && (

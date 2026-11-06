@@ -12,7 +12,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import { execFileSync } from 'child_process'
-import { signInByCookie, pickStyle } from './lib.mjs'
+import { signInByCookie, pickStyle, walkFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -101,10 +101,7 @@ try {
     await page.locator('button:has-text("New quote"):visible').first().tap(); await sleep(800)
     await b.locator('input[placeholder^="Customer name"]').fill(name)
     await bar.locator('[data-bar-next]').tap(); await sleep(300)
-    await b.locator('[data-shape="straight"]').tap(); await sleep(300)
-    await b.locator('[data-side-length]').first().tap()
-    for (const k of ['1', '5', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).tap()
-    await page.locator('[data-ftin-pad] [data-pad-done]').tap(); await sleep(300)
+    await walkFence(page, [[150, 'end']])
     await bar.locator('[data-bar-next]').tap(); await sleep(400)
     await pickStyle(page, 'White Vinyl Privacy.*6 ft tall.*8 ft.*No dig')
     await bar.locator('[data-bar-next]').tap()

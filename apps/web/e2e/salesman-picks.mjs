@@ -13,7 +13,7 @@ import './devOnly.mjs'
 import { webkit } from 'playwright'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
-import { signInByCookie, pickStyle } from './lib.mjs'
+import { signInByCookie, pickStyle, walkFence, sidesOf } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -53,15 +53,7 @@ async function toStyle(page, name) {
   await b.locator('input[placeholder^="Customer name"]').fill(name)
   await b.locator('input[type="tel"]').first().fill('3525550142').catch(() => {})
   await bar.locator('[data-bar-next]').tap(); await sleep(300)
-  await b.locator('[data-shape="backyard"]').tap(); await sleep(300)
-  for (const [side, ft, gate] of sides) {
-    const open = b.locator(`[data-side-open="true"][data-side="${side}"]`)
-    await open.locator('[data-side-length]').tap(); await sleep(150)
-    for (const d of ft) { await page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`).tap(); await sleep(60) }
-    await page.locator('[data-ftin-pad] [data-pad-done]').tap(); await sleep(150)
-    if (gate) { await open.locator(`[data-gate-choice] button:has-text("${gate}")`).tap(); await sleep(200) }
-    if (side !== sides[sides.length - 1][0]) { await bar.locator('[data-bar-next]').tap(); await sleep(200) }
-  }
+  await walkFence(page, sidesOf(sides))
   await bar.locator('[data-bar-next]').tap(); await sleep(600)
   return b
 }

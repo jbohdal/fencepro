@@ -5,12 +5,18 @@
  */
 
 import SitePlan from './SitePlan'
-import { deriveLayout, type YardLayout } from './yardLayout'
+import { deriveLayout, sitePlanNeeded, type YardLayout } from './yardLayout'
+import { walkSheetSvg } from './walkList'
 import { gateWhereText, layoutPanelFt, savedQuoteNearIn } from './gateSlide'
 import { DEFAULT_FENCE_STYLES } from './configDefaults'
 import type { SavedQuote } from './QuotesPage'
 
-export function quoteHasPlan(quote: Pick<SavedQuote, 'layout'>): boolean {
+/**
+ * Has a plan to show. A walked quote whose plan the office has not drawn yet ("Site plan needed"): the customer sees
+ * no picture (price and options only); staff see the walk list sheet (QuotePlan).
+ */
+export function quoteHasPlan(quote: Pick<SavedQuote, 'layout'>, opts: { customer?: boolean } = {}): boolean {
+  if (sitePlanNeeded(quote.layout)) return !opts.customer
   return !!quote.layout?.yard
 }
 
@@ -28,6 +34,10 @@ export function quotePlanWidth(yard: YardLayout, quote: { fenceStyle?: string; r
 }
 
 export default function QuotePlan({ quote, style, caption = true }: { quote: Pick<SavedQuote, 'layout' | 'runs'> & { fenceStyle?: string }; style?: PlanStyle | null; caption?: boolean }) {
+  // Walked, not drawn yet: the walk list as measured (table and rough sketch, not to scale).
+  if (sitePlanNeeded(quote.layout) && quote.layout?.walk) {
+    return <figure style={{ margin: 0 }} data-quote-plan data-walk-sheet dangerouslySetInnerHTML={{ __html: walkSheetSvg(quote.layout.walk).replace('<svg ', '<svg style="width:100%;height:auto" ') }} />
+  }
   const yard = quote.layout?.yard
   if (!yard) return null
   const { widthFt, nearIn } = quotePlanWidth(yard, quote, style)

@@ -6,7 +6,7 @@
 // Leaves two quotes named "Mixed e2e work ..." for the caller to remove.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { webkit } from 'playwright'
-import { signInByCookie, pickFence } from './lib.mjs'
+import { signInByCookie, pickFence, walkFence } from './lib.mjs'
 import { devSignIn, DEV_SALES_EMAIL } from './devSignIn.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001', API = process.env.API_URL || APP
@@ -31,10 +31,7 @@ async function quote(name, feet, job) {
   await page.locator('button:has-text("New quote"):visible').first().tap(); await sleep(800)
   await b.locator('input[placeholder^="Customer name"]').fill(name)
   await bar.locator('[data-bar-next]').tap(); await sleep(300)
-  await b.locator('[data-shape="straight"]').tap(); await sleep(300)
-  await b.locator('[data-side-open="true"][data-side="Fence"] [data-side-length]').tap(); await sleep(150)
-  for (const d of feet) { await page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`).tap(); await sleep(60) }
-  await page.locator('[data-ftin-pad] [data-pad-done]').tap(); await sleep(200)
+  await walkFence(page, [[feet, 'end']])
   await bar.locator('[data-bar-next]').tap(); await sleep(500)
   // Her picker (Nov 2 2026): Material > Style > Height > Color; the width is the best price.
   await pickFence(page, 'vinyl', { style: 'privacy', height: '6', color: 'white' })

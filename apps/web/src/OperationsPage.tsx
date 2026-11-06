@@ -12,6 +12,7 @@ import { soldStyleLabel } from './soldStyleLabel'
 import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
 import { hasDrawing } from './jobDrawing'
+import WalkSheetView from './WalkSheetView'
 import { workScope, type SavedWork } from './moveRepair'
 import { isRepairJob, jobInstallWord } from './jobWork'
 import { InstallPacketPanel, fetchCrewInstall, crewInstallCached, CREW_INSTALL_EVENT, type CrewInstall } from './installPacket'
@@ -225,6 +226,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           {job.rawJob ? <CustomerContact job={job.rawJob} /> : null}
           {/* The property's gate code, tenant and access notes (PropertyNotes.tsx). */}
           {job.rawJob ? <PropertyNotes customerId={job.rawJob.customerId} propertyId={job.rawJob.propertyId} address={job.rawJob.customerAddress} /> : null}
+          {/* Walked on site: the fence as measured, "Site plan needed" until the office draws it (walkList.ts). */}
+          {job.rawJob?.quoteId ? <WalkSheetView layout={getQuotes().find(q => q.id === job.rawJob!.quoteId)?.layout} /> : null}
           {job.rawJob?.customerEmail && <Field label="Email" value={job.rawJob.customerEmail} />}
         </Section>
 

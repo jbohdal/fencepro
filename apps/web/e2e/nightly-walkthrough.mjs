@@ -41,7 +41,7 @@ import fs from 'fs'
 import path from 'path'
 import zlib from 'zlib'
 import { execFileSync } from 'child_process'
-import { pickFence } from './lib.mjs'
+import { pickFence, walkFence, backyardOf } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -260,12 +260,7 @@ async function officeAddsLead(o, first, last, phone, source, salesman = null) {
 async function drawBackyard(who, b, stylePattern) {
   const page = who.page
   await tap(who, b.locator('[data-step="yard"]'))
-  await tap(who, b.locator('[data-shape="backyard"]'))
-  await tap(who, b.locator('[data-side="Left return"] [data-side-length]'))
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await tap(who, page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
-    await tap(who, page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
-  }
+  await walkFence(page, backyardOf([30, 120, 150, 100, 30]))
   await tap(who, b.locator('[data-step="style"]'))
   // A Salesman has no style list (Nov 2 2026): her picker takes [material, picks] (lib.mjs pickFence).
   return Array.isArray(stylePattern) ? pickFence(page, ...stylePattern) : pickStyle(b, stylePattern)

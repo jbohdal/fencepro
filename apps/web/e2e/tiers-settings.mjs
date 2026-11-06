@@ -11,6 +11,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
+import { walkFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -73,10 +74,7 @@ try {
   await page.waitForSelector('[data-quote-window]', { timeout: 30000 }); await sleep(800)
   const b = page.locator('[data-quote-builder]')
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="straight"]').click(); await sleep(300)
-  await b.locator('[data-side-open="true"] [data-side-length]').click()
-  for (const k of ['1', '5', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(300)
+  await walkFence(page, [[150, 'end']])
   await b.locator('[data-step="style"]').click()
   await b.locator('[data-step-panel="style"] select').first().selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" }); await sleep(500)
   await b.locator('[data-step="price"]').click(); await sleep(800)

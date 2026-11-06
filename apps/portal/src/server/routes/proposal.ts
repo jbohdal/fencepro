@@ -44,7 +44,7 @@ import { clientIpOf } from '../lib/staffDevices.js'
 import { fileSignedContract, plainIp } from '../lib/signedDocuments.js'
 import { proposalPhotos, quoteCustomer, belongsToQuote } from '../lib/quoteMedia.js'
 import { svgWithNamespace } from '../lib/planSvg.js'
-import { currentTerms, companyAddress, termsOn, type Term } from '../lib/contractTerms.js'
+import { currentTerms, companyAddress, termsOn, isWalkedNoPlan, type Term } from '../lib/contractTerms.js'
 import { OFFICE_NOTICE_ROLE } from '../lib/notificationService.js'
 import { customerFenceName, customerIncluded, railsOf } from '../lib/customerFenceName.js'
 import { optionSeen } from '../lib/optionSeen.js'
@@ -194,10 +194,10 @@ export function standingOptionOf(options: Array<Pick<ProposalOption, 'fenceStyle
  * signed before), the company's address, the option the quote was made with
  * selected, and any option that is the same fence twice hidden.
  */
-export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; chosenOption?: number | null; fenceStyle: string; finalPrice: number; status?: string | null; soldAt?: Date | null; firstViewedAt?: Date | null; viewCount?: number | null }, p: Proposal, signed = false): Promise<{ p: Proposal; view: ProposalPageView }> {
+export async function proposalPage(q: { accountId: string; acceptedAt: Date | null; chosenOption?: number | null; fenceStyle: string; finalPrice: number; status?: string | null; soldAt?: Date | null; firstViewedAt?: Date | null; viewCount?: number | null; layout?: unknown }, p: Proposal, signed = false): Promise<{ p: Proposal; view: ProposalPageView }> {
   const m = await pricingModule()
   const frozen = await termsOn(p)
-  const asSigned = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId, { repair: p.kind === 'repair' }))
+  const asSigned = frozen ?? (q.acceptedAt ? [] : await currentTerms(q.accountId, { repair: p.kind === 'repair', walked: isWalkedNoPlan(q.layout) }))
   // Not signed before Oct 29 2026: the proposal's own deposit in Payment Terms (D2) and the new permit sentence
   // (#32), as the contract will print them (lib/contractPdf.ts). Signed before: as signed. No deposit: the
   // Cancellation Policy's no deposit sentence, unless signed before that rule.
@@ -614,7 +614,7 @@ export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, si
   // Not signed before Oct 29 2026: frozen with the proposal's own deposit and the new permit sentence, as the page
   // showed them (proposalPage, lib/customerDollars.ts).
   const frozenWas = await termsOn(p)
-  const termsWere = frozenWas ?? await currentTerms(q.accountId, { repair: p?.kind === 'repair' })
+  const termsWere = frozenWas ?? await currentTerms(q.accountId, { repair: p?.kind === 'repair', walked: isWalkedNoPlan(q.layout) })
   const termsAsShown = await quoteOnCustomerDollars(q) ? (await pricingModule()).termsAsAsked(termsWere, p?.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : termsWere
   const termsNow = frozenWas && sameValue(termsAsShown, frozenWas) ? null : termsAsShown
   // The quote becomes the option the customer chose, exactly as it was priced. In one transaction with the row held: a

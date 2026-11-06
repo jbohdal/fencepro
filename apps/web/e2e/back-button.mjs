@@ -13,6 +13,7 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
+import { walkFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -98,8 +99,8 @@ async function pipelineFlow(browser, phone) {
   await card.click(); await sleep(800)
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
   await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
-  // A new quote offers yard shapes; the customer's draft already has its sides: change a length instead.
-  if (await page.locator('[data-shape="backyard"]').count()) await page.locator('[data-shape="backyard"]').click()
+  // A new quote opens on the walk list; the customer's draft already has its sides: change a length instead.
+  if (await page.locator('[data-walk]').count()) await walkFence(page, [[30, 'corner']])
   else { const len = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first(); await len.fill(String((parseFloat(await len.inputValue()) || 50) + 5)) }
   await sleep(500)
   let asked = ''
@@ -113,7 +114,7 @@ async function pipelineFlow(browser, phone) {
   // The close button asks too.
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
   await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
-  if (await page.locator('[data-shape="straight"]').count()) await page.locator('[data-shape="straight"]').click()
+  if (await page.locator('[data-walk]').count()) await walkFence(page, [[57, 'end']])
   else { const len = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first(); await len.fill(String((parseFloat(await len.inputValue()) || 50) + 7)) }
   await sleep(400)
   asked = ''

@@ -154,7 +154,7 @@ export function locationText(s: Pick<Signature, 'lat' | 'lng' | 'accuracyM'> | n
 // ── Required photos ───────────────────────────────────────────────────────────
 
 /** The parts of a yard layout this needs (see web/src/yardLayout.ts). */
-export interface LayoutSides { sides: Array<{ id: string; name: string; on: boolean; gate?: { type: 'walk' | 'double' } | null }> }
+export interface LayoutSides { sides: Array<{ id: string; name: string; on: boolean; gate?: { type: 'walk' | 'double' } | null; gates?: Array<{ type: 'walk' | 'double' }> | null }> }
 
 /**
  * Each side, each gate and one wide shot. From the quote's yard layout when
@@ -165,7 +165,11 @@ export function photoSlots(from: { layout?: LayoutSides | null; sideCount?: numb
   const sides = from.layout?.sides?.filter(s => s.on) ?? []
   if (sides.length) {
     for (const s of sides) out.push({ key: `side:${s.id}`, label: `Side: ${s.name}`, kind: 'side', clientId: null })
-    for (const s of sides) if (s.gate) out.push({ key: `gate:${s.id}`, label: `${s.gate.type === 'double' ? 'Double gate' : 'Walk gate'} on ${s.name}`, kind: 'gate', clientId: null })
+    for (const s of sides) {
+      // A walked side can have more than one gate (web walkList.ts): a photo of each; a drawn side keeps its one key.
+      const gs: any[] = Array.isArray(s.gates) && s.gates.length ? s.gates : s.gate ? [s.gate] : []
+      gs.forEach((g, k) => out.push({ key: k === 0 ? `gate:${s.id}` : `gate:${s.id}:${k + 1}`, label: `${g.type === 'double' ? 'Double gate' : 'Walk gate'}${gs.length > 1 ? ` ${k + 1}` : ''} on ${s.name}`, kind: 'gate', clientId: null }))
+    }
     // A repair's gates (rehung or replaced) when its drawing has none.
     const drawn = out.filter(x => x.kind === 'gate').length
     for (let i = drawn + 1; i <= Math.min(30, Math.round(from.repairGates ?? 0)); i++) out.push({ key: `gate:${i}`, label: `Gate ${i} (repaired)`, kind: 'gate', clientId: null })

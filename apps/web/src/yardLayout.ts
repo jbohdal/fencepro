@@ -57,7 +57,11 @@ export interface YardSide {
   /** 'corner' joins the next side that is on; with no next side it stops here. */
   endFinish: EndFinish
   gate?: SideGate | null
+  /** More than one gate on a side (a walked side: yard made from the walk list, walkList.ts). Set: it replaces `gate`. */
+  gates?: SideGate[] | null
   skip?: SideSkip | null
+  /** A walked fence line back to its start (walkList.ts): this side's end corner joins that side's start. */
+  joinsSideId?: string | null
   /** Drawing direction in degrees (0 = right, 90 = up the page), for the site plan. */
   heading?: number
   /** A backyard return: where it meets the house (drawing only). Back corner when unset. */
@@ -152,6 +156,15 @@ export interface QuoteLayoutRecord {
   gateWidths?: { walk: number[]; dbl: number[] } | null
   /** A quote from the website quote: the customer's drawing as they drew it (never changed by the builder). */
   widgetDrawing?: WidgetDrawingRecord | null
+  /** The walk list as measured on site (walkList.ts): `yard` is made from it until the office draws the plan. */
+  walk?: import('./walkList').WalkList | null
+  /** The office has drawn the plan (the walk list laid out in the drawing tool and saved): "Site plan needed" is off. */
+  planDone?: boolean
+}
+
+/** A walked quote whose plan the office has not drawn yet ("Site plan needed"). */
+export function sitePlanNeeded(layout: { walk?: unknown; planDone?: boolean } | null | undefined): boolean {
+  return !!layout?.walk && !layout.planDone
 }
 
 /** What the website quote keeps of the customer's drawing on the quote (server lib/widgetDrawQuote.ts). */
@@ -239,10 +252,17 @@ export function layoutForShape(shape: YardShape): YardLayout {
 // ── Joins ─────────────────────────────────────────────────────────────────────
 
 function prevIndex(layout: YardLayout, i: number): number | null {
-  if (i > 0) return i - 1
+  // A walked line back to start: the side whose end joins this one is before it.
+  const id = layout.sides[i]?.id
+  const back = id ? layout.sides.findIndex(s => s.joinsSideId === id) : -1
+  if (back >= 0 && back !== i) return back
+  if (i > 0 && !layout.sides[i - 1].joinsSideId) return i - 1
+  if (i > 0) return null
   return layout.closed && layout.sides.length > 1 ? layout.sides.length - 1 : null
 }
 function nextIndex(layout: YardLayout, i: number): number | null {
+  const j = layout.sides[i]?.joinsSideId
+  if (j) { const k = layout.sides.findIndex(s => s.id === j); return k >= 0 && k !== i ? k : null }
   if (i < layout.sides.length - 1) return i + 1
   return layout.closed && layout.sides.length > 1 ? 0 : null
 }
@@ -305,6 +325,12 @@ export interface SideResult {
   /** Inches from the side's start: each fence piece, the gate and the skip. */
   pieceSpans: Array<[number, number]>
   gateSpan: [number, number] | null
+  /** Every gate on the side, in order along it (one for a drawn side; a walked side can have more). */
+  gateSpans?: Array<[number, number]>
+  gateTypes?: GateType[]
+  gateWidthsIn?: number[]
+  /** The side's gates in the same order as gateSpans. */
+  gateList?: SideGate[]
   skipSpan: [number, number] | null
   skipAtIn: number | null
   finishes: { start: EndFinish; end: EndFinish }
@@ -380,6 +406,11 @@ export function isTee(layout: YardLayout, i: number): boolean {
   return j >= 0 && j < i
 }
 
+/** A side's gates: its walked gates, else its one drawn gate. */
+export function sideGates(s: Pick<YardSide, 'gate' | 'gates'>): SideGate[] {
+  return s.gates?.length ? s.gates : s.gate ? [s.gate] : []
+}
+
 export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: TeePost } = {}): LayoutResult {
   const sides: SideResult[] = layout.sides.map((s, i) => deriveSide(layout, i, nearIn))
   const runs = sides.flatMap(r => r.runs)
@@ -406,12 +437,11 @@ export function deriveLayout(layout: YardLayout, nearIn = 96, opts: { teeAs?: Te
   })
 
   const on = layout.sides.filter(s => s.on && s.lengthIn > 0)
-  const walkGates = sides.filter(r => r.gateAtIn !== null && layout.sides.find(s => s.id === r.sideId)?.gate?.type === 'walk').length
-  const dblGates = sides.filter(r => r.gateAtIn !== null && layout.sides.find(s => s.id === r.sideId)?.gate?.type === 'double').length
-  const gateWidth = (type: GateType) => sides.flatMap(r => {
-    const g = r.gateAtIn !== null ? layout.sides.find(s => s.id === r.sideId)?.gate : null
-    return g && g.type === type ? [ftOf(g.widthIn)] : []
-  })
+  // Every gate that fits, in side order (a drawn side has one; a walked side can have more).
+  const placed = sides.flatMap(r => (r.gateTypes ?? []).map((type, k) => ({ type, widthIn: r.gateWidthsIn![k] })))
+  const walkGates = placed.filter(g => g.type === 'walk').length
+  const dblGates = placed.filter(g => g.type === 'double').length
+  const gateWidth = (type: GateType) => placed.filter(g => g.type === type).map(g => ftOf(g.widthIn))
   const ov = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : null)
 
   return {
@@ -475,20 +505,22 @@ function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {
   if (!s.on || L <= 0) return base
 
   // Cut-outs along the side: the gate opening and the skip.
-  const cuts: Array<{ from: number; to: number; kind: 'gate' | 'skip' }> = []
-  if (s.gate && s.gate.widthIn > 0) {
-    const g = s.gate.widthIn
+  const cuts: Array<{ from: number; to: number; kind: 'gate' | 'skip'; gate?: SideGate }> = []
+  for (const sg of sideGates(s)) {
+    if (!(sg.widthIn > 0)) continue
+    const g = sg.widthIn
     if (g > L - EPS) {
-      base.notes.push(`the ${GATE_LABEL[s.gate.type].toLowerCase()} (${formatFtIn(g)}) is wider than the side, so it was left off.`)
-    } else {
-      const near = Math.min(nearIn, L - g)
-      const at = s.gate.position === 'start' ? near
-        : s.gate.position === 'end' ? L - g - near
-        : s.gate.position === 'distance' ? Math.min(Math.max(0, s.gate.distanceIn ?? 0), L - g)
-        : (L - g) / 2
-      cuts.push({ from: at, to: at + g, kind: 'gate' })
-      base.gateAtIn = at
+      base.notes.push(`the ${GATE_LABEL[sg.type].toLowerCase()} (${formatFtIn(g)}) is wider than the side, so it was left off.`)
+      continue
     }
+    const near = Math.min(nearIn, L - g)
+    const at = sg.position === 'start' ? near
+      : sg.position === 'end' ? L - g - near
+      : sg.position === 'distance' ? Math.min(Math.max(0, sg.distanceIn ?? 0), L - g)
+      : (L - g) / 2
+    if (cuts.some(c => at < c.to - EPS && at + g > c.from + EPS)) { base.notes.push(`two gates overlap, so one was left off.`); continue }
+    cuts.push({ from: at, to: at + g, kind: 'gate', gate: sg })
+    if (base.gateAtIn === null) base.gateAtIn = at
   }
   if (s.skip && s.skip.lengthIn > 0) {
     const k = s.skip.lengthIn
@@ -496,8 +528,7 @@ function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {
       base.notes.push('the skip is as long as the side, so it was left off.')
     } else {
       const at = s.skip.position === 'distance' ? Math.min(Math.max(0, s.skip.distanceIn ?? 0), L - k) : (L - k) / 2
-      const gate = cuts[0]
-      if (gate && at < gate.to - EPS && at + k > gate.from + EPS) {
+      if (cuts.some(gate => at < gate.to - EPS && at + k > gate.from + EPS)) {
         base.notes.push('the skip overlaps the gate, so the skip was left off.')
       } else {
         cuts.push({ from: at, to: at + k, kind: 'skip' })
@@ -517,13 +548,16 @@ function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {
   if (L - pos > EPS) pieces.push([pos, L])
 
   const touches = (x: number) => pieces.some(([a, b]) => Math.abs(a - x) < EPS || Math.abs(b - x) < EPS)
-  const gate = cuts.find(c => c.kind === 'gate')
-  const atGate = (x: number) => !!gate && (Math.abs(gate.from - x) < EPS || Math.abs(gate.to - x) < EPS)
+  const gateCuts = cuts.filter(c => c.kind === 'gate')
+  const gate = gateCuts[0]
+  const atGate = (x: number) => gateCuts.some(g => Math.abs(g.from - x) < EPS || Math.abs(g.to - x) < EPS)
 
   base.touchesStart = touches(0) || atGate(0)
   base.touchesEnd = touches(L) || atGate(L)
-  // A gate hangs between two posts; one at a side end is that end's post.
-  if (gate) base.gatePosts = [gate.from, gate.to].filter(x => x > EPS && x < L - EPS).length
+  // A gate hangs between two posts; one at a side end is that end's post. Two gates side by side share the post between them.
+  const gatePostAt: number[] = []
+  for (const g of gateCuts) for (const x of [g.from, g.to]) if (x > EPS && x < L - EPS && !gatePostAt.some(y => Math.abs(y - x) < EPS)) gatePostAt.push(x)
+  base.gatePosts = gatePostAt.length
   const skip = cuts.find(c => c.kind === 'skip')
   if (skip) base.skipPosts = [skip.from, skip.to].filter(x => x > EPS && x < L - EPS && touches(x) && !atGate(x)).length
 
@@ -533,6 +567,10 @@ function deriveSide(layout: YardLayout, i: number, nearIn: number): SideResult {
   base.fenceIn = pieces.reduce((t, [a, b]) => t + (b - a), 0)
   base.pieceSpans = pieces
   base.gateSpan = gate ? [gate.from, gate.to] : null
+  base.gateSpans = gateCuts.map(g => [g.from, g.to] as [number, number])
+  base.gateTypes = gateCuts.map(g => g.gate!.type)
+  base.gateWidthsIn = gateCuts.map(g => g.gate!.widthIn)
+  base.gateList = gateCuts.map(g => g.gate!)
   base.skipSpan = skip ? [skip.from, skip.to] : null
   return base
 }
@@ -589,13 +627,14 @@ export interface SidePiece {
  * posts come from). Empty when the side is not split (one piece, nothing to
  * add to the side's own label).
  */
-export function sidePieces(side: Pick<YardSide, 'gate' | 'skip'>, r: Pick<SideResult, 'pieceSpans' | 'gateSpan' | 'skipSpan'>): SidePiece[] {
+export function sidePieces(side: Pick<YardSide, 'gate' | 'gates' | 'skip'>, r: Pick<SideResult, 'pieceSpans' | 'gateSpan' | 'skipSpan' | 'gateSpans' | 'gateList'>): SidePiece[] {
   if (!r.gateSpan && !r.skipSpan) return []
   const out: SidePiece[] = r.pieceSpans.map(([a, b]) => ({ kind: 'fence', fromIn: a, toIn: b, text: formatPieceLen(b - a) }))
-  if (r.gateSpan && side.gate) {
-    const [a, b] = r.gateSpan
-    out.push({ kind: 'gate', fromIn: a, toIn: b, text: `${formatPieceLen(b - a)} ${side.gate.type === 'double' ? 'double gate' : 'walk gate'}` })
-  }
+  const spans = r.gateSpans ?? (r.gateSpan ? [r.gateSpan] : [])
+  spans.forEach(([a, b], k) => {
+    const g = r.gateList?.[k] ?? side.gate
+    if (g) out.push({ kind: 'gate', fromIn: a, toIn: b, text: `${formatPieceLen(b - a)} ${g.type === 'double' ? 'double gate' : 'walk gate'}` })
+  })
   if (r.skipSpan && side.skip) {
     const [a, b] = r.skipSpan
     out.push({ kind: 'skip', fromIn: a, toIn: b, text: `${formatPieceLen(b - a)} ${side.skip.kind === 'existing' ? 'existing fence' : 'no fence'}` })

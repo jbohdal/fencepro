@@ -226,3 +226,50 @@ export async function pickFence(page, material, picks = {}) {
   await simple.locator('[data-style-plain-name]').waitFor({ timeout: 10000 })
   return (await simple.locator('[data-style-plain-name]').textContent()).trim()
 }
+
+/**
+ * The fence a backyard drawing used to give (30, 120, 150, 120, 30 ft, a corner between each side, an end
+ * post at the house on each end), as walked on the Yard step's walk list (Nov 5 2026: no drawing at the house).
+ */
+export const BACKYARD_WALK = [[30, 'corner'], [120, 'corner'], [150, 'corner'], [120, 'corner'], [30, 'end']]
+
+/**
+ * Walks a fence on the Yard step's walk list: each step is [feet, what, extra], what one of corner (extra 'left' or
+ * 'right', right by default), gate (extra { w: feet, kind: 'walk' | 'double' }), tee, end, start (back to start).
+ * Opens the Yard step first when the walk list is not showing. Leaves the finish screen up ("Done, show me prices").
+ */
+export async function walkFence(page, steps) {
+  const b = page.locator('[data-quote-builder]')
+  if (!(await page.locator('[data-walk]').isVisible().catch(() => false))) { await b.locator('[data-step="yard"]').click(); await sleep(300) }
+  await page.locator('[data-walk]').waitFor({ timeout: 15000 })
+  for (const [feet, what, extra] of steps) {
+    await page.locator('[data-walk-feet]').fill(String(feet)); await sleep(120)
+    if (what === 'corner') {
+      await page.locator('[data-walk-corner]').click(); await sleep(120)
+      await page.locator(extra === 'left' ? '[data-walk-left]' : '[data-walk-right]').click()
+    } else if (what === 'gate') {
+      const w = extra?.w ?? 4
+      await page.locator('[data-walk-gate]').click(); await sleep(120)
+      if (await page.locator(`[data-walk-gate-width="${w}"]`).count()) await page.locator(`[data-walk-gate-width="${w}"]`).click()
+      else await page.locator('[data-walk-gate-other]').fill(String(w))
+      await page.locator(`[data-walk-gate-kind="${extra?.kind ?? 'walk'}"]`).click()
+    } else await page.locator(`[data-walk-${what}]`).click()
+    await sleep(150)
+  }
+}
+
+/** A backyard's side lengths in feet, as walk steps: a corner after each side but the last, an end post there. */
+export const backyardOf = lens => lens.map((ft, i) => [ft, i === lens.length - 1 ? 'end' : 'corner'])
+
+/**
+ * The old drawing's side list ([name, feet, 'Walk gate' | 'Double gate']) as walk steps: a corner after each side
+ * but the last, an end post there (back to start when `closed`); a gate in a side's middle, 4 ft single or 10 ft
+ * double, as the drawing's gate choice made it.
+ */
+export const sidesOf = (sides, closed = false) => sides.flatMap(([, ft, gate], i) => {
+  const feet = Number(ft), last = i === sides.length - 1
+  const end = [last ? (closed ? 'start' : 'end') : 'corner']
+  if (!gate) return [[feet, ...end]]
+  const w = /double/i.test(gate) ? 10 : 4, half = (feet - w) / 2
+  return [[half, 'gate', { w, kind: w === 10 ? 'double' : 'walk' }], [half, ...end]]
+})

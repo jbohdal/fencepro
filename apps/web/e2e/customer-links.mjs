@@ -1,3 +1,4 @@
+import { walkFence, backyardOf } from './lib.mjs'
 // Customer links are set only by a pick (or Create new), never guessed from a
 // phone or email; the quote's property address is the quote's own. On the dev
 // copy, desktop Chromium and a phone size WebKit.
@@ -196,7 +197,12 @@ async function run(phone) {
     check(`${size}: saved as a new customer (not A), the quote at its own property`, !!N && N.id !== A.id && !!saved2 && saved2.customerAddress === PROP2, JSON.stringify(saved2 && { c: saved2.crmContactId, a: saved2.customerAddress }))
     check(`${size}: the new customer (no address typed) has the property as theirs`, N?.serviceAddress === PROP2, N?.serviceAddress)
     await sleep(1500)
-    check(`${size}: A and B are unchanged after both saves`, JSON.stringify(await contact(A.id)) === snapA && JSON.stringify(await contact(B.id)) === snapB)
+    const diffOf = (was, now) => Object.keys({ ...JSON.parse(was), ...now }).filter(k => JSON.stringify(JSON.parse(was)[k]) !== JSON.stringify(now[k])).map(k => `${k}: ${JSON.stringify(JSON.parse(was)[k])} → ${JSON.stringify(now[k])}`.slice(0, 160)).join('; ')
+    const aNow = await contact(A.id), bNow = await contact(B.id)
+    // Their property lists may grow (Properties, Nov 5 2026: a quote saved at an address puts it on the customer's
+    // properties); the customer record itself does not change.
+    const own = c => { const { propertyAddresses, activeProperties, ...rest } = typeof c === 'string' ? JSON.parse(c) : c; return JSON.stringify(rest) }
+    check(`${size}: A and B are unchanged after both saves (their own records; properties may be added)`, own(aNow) === own(snapA) && own(bNow) === own(snapB), `A: ${diffOf(snapA, aNow)} | B: ${diffOf(snapB, bNow)}`)
 
     // ── 4. A quote from a card linked to X, with Y of the same name on file: X's id, never Y's ──
     const LAST4 = `Links Twin ${tag}`; made.lasts.push(LAST4)
@@ -219,12 +225,7 @@ async function run(phone) {
     const b = s.page.locator('[data-quote-builder]')
     await b.waitFor({ timeout: 30000 })
     await s.press(b.locator('[data-step="yard"]').first())
-    await s.press(b.locator('[data-shape="backyard"]'))
-    await s.press(b.locator('[data-side="Left return"] [data-side-length]'))
-    for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-      for (const k of keys) await s.press(s.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
-      await s.press(s.page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
-    }
+    await walkFence(s.page, backyardOf([30, 120, 150, 100, 30]))
     await s.press(b.locator('[data-step="style"]').first())
     await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig' })
     await s.press(b.locator('[data-step="price"]').first())

@@ -7,6 +7,7 @@
 
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
+import { walkFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -37,40 +38,38 @@ try {
   const go = async k => { await b.locator(`[data-step="${k}"]`).click(); await sleep(200) }
   // Tape measure: 80 ft at 8 ft wide.
   await go('yard')
-  await b.locator('[data-shape="straight"]').click()
-  await b.locator('[data-side-length]').first().click()
-  for (const k of ['8', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click()
+  // The walk list (Nov 5 2026): a straight fence walked, 80 ft to the end post.
+  await walkFence(page, [[80, 'end']])
   await go('style')
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: "White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig" }); await sleep(400)
   await go('yard')
   const w1 = await warnings()
-  check('80 ft at 8 ft wide asks for a tape measure check', w1.includes("Fence (80' 0\"): Check this run with a tape measure. A few inches either way changes the section count."), w1.slice(0, 160))
-  check('and marks the run on its side', await b.locator('[data-tape-flag]').count() === 1)
+  check('80 ft at 8 ft wide asks for a tape measure check', w1.includes("Side 1 (80' 0\"): Check this length with a tape measure. A few inches either way changes the number of sections."), w1.slice(0, 160))
+  check('and marks the step on the walk list', await b.locator('[data-walk-step] [data-tape-flag]').count() === 1)
   if (SHOTS) { await b.locator('[data-tape-flag]').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/1-phone-tape-check.png` }) }
 
-  // 80' 4" still warns; 80' 7" does not.
-  await b.locator('[data-side-length]').first().click()
-  for (const k of ['8', '0', 'unit', '4']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(300)
+  // Fix the step: 80' 4" still warns; 80' 7" does not.
+  const fix = async (feet, what) => {
+    await b.locator('[data-walk-step]').first().click(); await sleep(200)
+    await page.locator('[data-walk-edit-feet]').fill(feet)
+    if (what) await page.locator(`[data-walk-edit-what="${what}"]`).click()
+    await page.locator('[data-walk-edit-save]').click(); await sleep(300)
+  }
+  await fix('80 4')
   check("80' 4\" still warns", (await warnings()).includes('tape measure'))
-  await b.locator('[data-side-length]').first().click()
-  for (const k of ['8', '0', 'unit', '7']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(300)
+  await fix('80 7')
   check("80' 7\" does not", !(await warnings()).includes('tape measure'))
 
-  // A gate on a side under 6 ft.
-  await b.locator('[data-side-length]').first().click()
-  await page.locator('[data-ftin-pad] [data-pad-key="5"]').click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click()
-  await b.locator('[data-gate-choice] button:has-text("Walk gate")').click(); await sleep(300)
-  check('a gate on a 5 ft side warns', (await warnings()).includes("Fence is under 6 ft (5' 0\") and has a gate"))
+  // A gate on a side under 6 ft: the one step taken away, then 6 in, a 4 ft gate, 6 in to the end post (a 5 ft side).
+  const takeAway = async () => { await b.locator('[data-walk-step]').first().click(); await sleep(200); page.once('dialog', d => d.accept()); await page.locator('[data-walk-edit-delete]').click(); await sleep(300) }
+  await takeAway()
+  await walkFence(page, [[0.5, 'gate', { w: 4 }], [0.5, 'end']])
+  const gw = await warnings()
+  check('a gate on a 5 ft side warns', gw.includes("Side 1 is under 6 ft (5' 0\") and has a gate"), gw.slice(0, 200))
 
-  // Margin and price per foot, from a price typed by hand.
-  await b.locator('[data-gate-choice] button:has-text("No gate")').click()
-  await b.locator('[data-side-length]').first().click()
-  for (const k of ['1', '5', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click()
+  // Margin and price per foot, from a price typed by hand: 150 ft, no gate.
+  await takeAway(); await takeAway()
+  await walkFence(page, [[150, 'end']])
   await go('price')
   await b.locator('input[placeholder="Calculated"]').last().fill('1500'); await sleep(400)
   const w2 = await warnings()

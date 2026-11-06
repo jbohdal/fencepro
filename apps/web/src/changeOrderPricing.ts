@@ -39,7 +39,7 @@
 import { calculateQuote, isChainLink, type QuoteCalcInput, type QuoteRun, type QuoteStyle } from './quoteCalc'
 import { calculateLinePostsPerRun } from './sectionCount'
 import { priceMove, type MoveInputs, type NewLine, type WorkCommon } from './moveRepair'
-import { deriveLayout, gateWidthsOf, teePostFor, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type TeePost, type YardLayout } from './yardLayout'
+import { deriveLayout, gateWidthsOf, sideGates, teePostFor, type SideGate, TYPED_DBL_GATE_FT, TYPED_WALK_GATE_FT, type TeePost, type YardLayout } from './yardLayout'
 
 /** The work a change order starts from. */
 export interface ChangeBase {
@@ -83,9 +83,32 @@ function gateOpenings(before: YardLayout, now: ChangeNow): DrawnGates | null {
   const opts = { teeAs: now.teeAs }
   const isNew = (id: string) => { const b = was.get(id); return !(b?.on && b.gate) }
   const drawnNow = deriveLayout(now.yard, now.nearIn, opts)
-  const gatePosts = drawnNow.sides.filter(r => r.gateAtIn !== null && isNew(r.sideId)).reduce((t, r) => t + r.gatePosts, 0)
+  // A walked side can carry more than one gate (walkList.ts): there, gate by gate, the ones it did not have before
+  // are new. A drawn side (one gate at most) reads as it always has.
+  const multi = (id: string) => { const b = was.get(id), s = now.yard.sides.find(x => x.id === id); return !!(b?.gates?.length || s?.gates?.length) }
+  const sameGate = (a: SideGate, b: SideGate) => a.type === b.type && Math.abs(a.widthIn - b.widthIn) < 0.01 && Math.abs((a.distanceIn ?? -1) - (b.distanceIn ?? -1)) < 0.01 && a.position === b.position
+  const newGates = (id: string): SideGate[] => {
+    const b = was.get(id), s = now.yard.sides.find(x => x.id === id)
+    const had = b?.on ? sideGates(b) : []
+    return (s ? sideGates(s) : []).filter(g => !had.some(h => sameGate(g, h)))
+  }
+  const gatePosts = drawnNow.sides.reduce((t, r) => {
+    if (!multi(r.sideId)) return t + (r.gateAtIn !== null && isNew(r.sideId) ? r.gatePosts : 0)
+    // The posts of the new gates inside the side, a post shared with an older gate not counted again.
+    const fresh = newGates(r.sideId), L = r.lengthIn
+    const at = new Set<number>(), old = new Set<number>()
+    ;(r.gateList ?? []).forEach((g, k) => { const span = r.gateSpans![k]; for (const x of span) if (x > 0.01 && x < L - 0.01) (fresh.includes(g) ? at : old).add(Math.round(x * 100)) })
+    return t + [...at].filter(x => !old.has(x)).length
+  }, 0)
   const closed = now.yard.sides.map(s => {
     const b = was.get(s.id)
+    if (multi(s.id)) {
+      if (!(b?.on && b.lengthIn > 0)) return s
+      const fresh = newGates(s.id)
+      if (!fresh.length) return s
+      const keep = sideGates(s).filter(g => !fresh.includes(g))
+      return { ...s, gate: keep.length === 1 ? keep[0] : null, gates: keep.length > 1 ? keep : null }
+    }
     return s.gate && isNew(s.id) && b?.on && b.lengthIn > 0 ? { ...s, gate: null } : s
   })
   const whole = deriveLayout({ ...now.yard, sides: closed }, now.nearIn, opts)

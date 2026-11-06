@@ -34,7 +34,7 @@ import { chromium, webkit, devices } from 'playwright'
 import crypto from 'crypto'
 import fs from 'fs'
 import { execFileSync } from 'child_process'
-import { pickFence } from './lib.mjs'
+import { pickFence, walkFence, backyardOf } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -304,12 +304,7 @@ try {
   await b.waitFor({ timeout: 30000 })
   currentStep = 'salesman saves the quote'
   await tap(S, b.locator('[data-step="yard"]'))
-  await tap(S, b.locator('[data-shape="backyard"]'))
-  await tap(S, b.locator('[data-side="Left return"] [data-side-length]'))
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await tap(S, S.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
-    await tap(S, S.page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
-  }
+  await walkFence(S.page, backyardOf([30, 120, 150, 100, 30]))
   await tap(S, b.locator('[data-step="style"]'))
   // Her picker (Nov 2 2026): Material > Style > Height > Color; the width and install are worked out for her.
   await pickFence(S.page, 'vinyl', { style: 'privacy', height: '6', color: 'white' })
@@ -392,10 +387,7 @@ try {
   await tap(S, S.page.locator('[data-save-outcome]'))
   await S.page.waitForSelector('[data-quote-builder] [data-step="yard"]', { timeout: 30000 })
   await tap(S, S.page.locator('[data-step="yard"]'))
-  await tap(S, S.page.locator('[data-shape="straight"]'))
-  await tap(S, S.page.locator('[data-side-length]').first())
-  for (const k of ['1', '8', '0']) await tap(S, S.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
-  await tap(S, S.page.locator('[data-ftin-pad] [data-pad-done]'))
+  await walkFence(S.page, [[180, 'end']])
   await tap(S, S.page.locator('[data-step="style"]'))
   // Her picker (Nov 2 2026): Material > Style > Height > Color; the width and install are worked out for her.
   await pickFence(S.page, 'vinyl', { style: 'privacy', height: '6', color: 'white' })

@@ -14,7 +14,7 @@
  * lengths. The drawing is a picture of the job, not a survey.
  */
 
-import { deriveLayout, formatFtIn, sidePieces, type GateHinge, type GateSwing, type HouseRect, type LayoutResult, type PlanPoint, type SidePiece, type YardLayout, type YardSide } from './yardLayout'
+import { deriveLayout, formatFtIn, sidePieces, type SideGate, type GateHinge, type GateSwing, type HouseRect, type LayoutResult, type PlanPoint, type SidePiece, type YardLayout, type YardSide } from './yardLayout'
 import { autoTile } from './aerialTiles'
 import {
   chainEnds, chainVertices, cornerAngles, houseCorners, houseFitted, houseRectOf, houseTouching, norm180, norm360, segmentsMeet, sideCrossings, specFromVertices, teeAnchor,
@@ -59,6 +59,8 @@ export interface PlanSide {
   fence: PlanSegment[]
   skip: (PlanSegment & { kind: 'existing' | 'none' }) | null
   gate: PlanGate | null
+  /** Every gate on the side, in order (a walked side can have more than one; `gate` is the first). */
+  gates?: PlanGate[]
   /** Each piece of a side split by a gate or skip, with its own length (empty when not split). */
   pieces: PlanPiece[]
   label: string
@@ -641,13 +643,22 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
 
     const fence = r.pieceSpans.map(([f, t]) => ({ a: pt(f), b: pt(t) }))
     const skip = r.skipSpan && s.skip ? { a: pt(r.skipSpan[0]), b: pt(r.skipSpan[1]), kind: s.skip.kind } : null
-    let gate: PlanSide['gate'] = null
-    if (r.gateSpan && s.gate) {
-      const ga = pt(r.gateSpan[0]), gb = pt(r.gateSpan[1])
-      gate = gateOf(s, r.finishes, ga, gb, dir, inward, out)
-      const hingeA = gate.leaves.some(l => l.hinge === ga), hingeB = gate.leaves.some(l => l.hinge === gb)
-      posts.push({ ...ga, kind: 'gate', hinge: hingeA }, { ...gb, kind: 'gate', hinge: hingeB })
-    }
+    // Each gate that fits (one on a drawn side; a walked side can have more), its two posts (one shared between two gates side by side).
+    const gates: PlanGate[] = []
+    const spans = r.gateSpans ?? (r.gateSpan ? [r.gateSpan] : [])
+    spans.forEach(([f, t], k) => {
+      const g = r.gateList?.[k] ?? s.gate
+      if (!g) return
+      const ga = pt(f), gb = pt(t)
+      const pg = gateOf(g, s, r.finishes, ga, gb, dir, inward, out)
+      gates.push(pg)
+      const hingeA = pg.leaves.some(l => l.hinge === ga), hingeB = pg.leaves.some(l => l.hinge === gb)
+      for (const [q, h] of [[ga, hingeA], [gb, hingeB]] as const) {
+        const had = posts.find(x => x.kind === 'gate' && Math.abs(x.x - q.x) < 1e-6 && Math.abs(x.y - q.y) < 1e-6)
+        if (had) { if (h) had.hinge = true } else posts.push({ ...q, kind: 'gate', hinge: h })
+      }
+    })
+    const gate: PlanSide['gate'] = gates[0] ?? null
     const pieces: PlanPiece[] = sidePieces(s, r).map(p => ({ ...p, a: pt(p.fromIn), b: pt(p.toIn) }))
 
     // Line posts: evenly spaced inside each piece at its section count.
@@ -674,7 +685,7 @@ export function buildPlan(layout: YardLayout, result: LayoutResult = deriveLayou
 
     const sideSections = r.runs.reduce((t, _, k) => t + (runSections?.[runIndex - r.runs.length + k] ?? 0), 0)
     sides.push({
-      sideId: s.id, name: s.name, a, b, fence, skip, gate, pieces, out, placeholder,
+      sideId: s.id, name: s.name, a, b, fence, skip, gate, ...(gates.length > 1 ? { gates } : {}), pieces, out, placeholder,
       label: placeholder ? `${s.name}: tap to enter` : formatFtIn(L),
       sublabel: placeholder ? '' : `${s.name}${sideSections > 0 && !opts.noSections ? ` · ${sideSections} section${sideSections === 1 ? '' : 's'}` : ''}`,
     })
@@ -723,8 +734,7 @@ function houseAttachOf(layout: YardLayout, ends: SideEnds[]): Plan['houseAttach'
  * a walk gate hinges on the end nearest the house (a side meeting the house),
  * otherwise on the end nearest the side's start.
  */
-function gateOf(s: YardSide, finishes: { start: string; end: string }, ga: PlanPoint, gb: PlanPoint, dir: PlanPoint, inward: PlanPoint, out: PlanPoint): PlanGate {
-  const g = s.gate!
+function gateOf(g: SideGate, s: YardSide, finishes: { start: string; end: string }, ga: PlanPoint, gb: PlanPoint, dir: PlanPoint, inward: PlanPoint, out: PlanPoint): PlanGate {
   // Facing out of the yard, left is a quarter turn counterclockwise (y up).
   const leftVec = { x: -out.y, y: out.x }
   const bIsLeft = dir.x * leftVec.x + dir.y * leftVec.y > 0

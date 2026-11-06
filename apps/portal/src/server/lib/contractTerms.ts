@@ -22,11 +22,11 @@ async function settingsOf(accountId: string): Promise<{ sections: unknown; compa
   return { sections: b?.contractSections ?? null, company: (b?.config as any)?.company ?? null }
 }
 
-/** Today's terms from Settings → Contract Templates, as a proposal shows them (a repair's say repair: termsForRepair). */
-export async function currentTerms(accountId: string, opts: { repair?: boolean } = {}): Promise<Term[]> {
+/** Today's terms from Settings → Contract Templates, as a proposal shows them (a repair's say repair: termsForRepair; walked, termsForWalked). */
+export async function currentTerms(accountId: string, opts: { repair?: boolean; walked?: boolean } = {}): Promise<Term[]> {
   const [m, s] = await Promise.all([pricingModule(), settingsOf(accountId)])
   const terms: Term[] = m.proposalTerms(s.sections)
-  return opts.repair ? termsForRepair(terms) : terms
+  return opts.repair ? termsForRepair(terms) : opts.walked ? termsForWalked(terms) : terms
 }
 
 /** The company's address from Settings → Company ('' when it is not filled in). */
@@ -43,6 +43,23 @@ export async function termsOn(proposal: unknown): Promise<Term[] | null> {
 /** The stock first sentence of Settings → Contract Templates' Scope and Exclusions (web/src/contractTerms.ts). */
 export const STOCK_SCOPE_OPENING = 'Installation is per plan and scope above.'
 export const REPAIR_SCOPE_OPENING = 'Repair work is per the items listed above.'
+/** A walked quote with no finished site plan (Jonathan, Nov 5 2026). */
+export const WALKED_SCOPE_OPENING = 'Installation is per the measurements and scope above. Final fence layout is confirmed on site before install; any change in length, gates or layout is handled by a written change order.'
+
+/** Walked, the plan not drawn yet (layout.walk without layout.planDone): the quote is priced from the walk list. */
+export function isWalkedNoPlan(layout: unknown): boolean {
+  const l = layout as { walk?: unknown; planDone?: unknown } | null | undefined
+  return !!l && typeof l === 'object' && !!l.walk && !l.planDone
+}
+
+/**
+ * A walked quote's terms (Jonathan, Nov 5 2026): the stock opening of Scope and Exclusions, "Installation is per
+ * plan and scope above.", reads WALKED_SCOPE_OPENING; a quote with a finished site plan keeps the stock words, and
+ * words Jonathan typed in their place stay as they are.
+ */
+export function termsForWalked(terms: Term[]): Term[] {
+  return terms.map(t => (t.key === 'scope_exclusions' && t.text.startsWith(STOCK_SCOPE_OPENING) ? { ...t, text: WALKED_SCOPE_OPENING + t.text.slice(STOCK_SCOPE_OPENING.length) } : t))
+}
 
 /** The stock phrase of Settings → Contract Templates' Property and Access, and what a repair's says. */
 export const STOCK_ACCESS_DAY = 'on the day of installation'
@@ -69,11 +86,12 @@ export function termsForRepair(terms: Term[]): Term[] {
  * was sent or signed, so it keeps the terms and address it went out with.
  * `repair`: the quote is a repair (its work), so the terms say repair (termsForRepair).
  */
-export async function stampQuoteTerms(accountId: string, proposal: unknown, existing: { proposal?: unknown } | null, frozen: boolean, opts: { repair?: boolean } = {}): Promise<unknown> {
+export async function stampQuoteTerms(accountId: string, proposal: unknown, existing: { proposal?: unknown } | null, frozen: boolean, opts: { repair?: boolean; walked?: boolean } = {}): Promise<unknown> {
   if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal) || !Array.isArray((proposal as any).options)) return proposal
   const [m, s] = await Promise.all([pricingModule(), settingsOf(accountId)])
   const out = m.stampTerms(proposal, s.sections, existing?.proposal ?? null, frozen) as Record<string, any>
   if (!frozen && opts.repair && Array.isArray(out.terms)) out.terms = termsForRepair(out.terms)
+  else if (!frozen && opts.walked && Array.isArray(out.terms)) out.terms = termsForWalked(out.terms)
   const company = out.company && typeof out.company === 'object' ? { ...out.company } : {}
   const was = (existing?.proposal as any)?.company?.address
   if (frozen) {

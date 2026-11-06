@@ -10,6 +10,7 @@
 // Nothing is saved.
 import './devOnly.mjs'
 import { chromium } from 'playwright'
+import { walkFence } from './lib.mjs'
 import { signInByCookie } from './lib.mjs'
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const SHOTS = process.env.SHOTS || ''
@@ -33,14 +34,8 @@ try {
   // ── 1. The yard, drawn, then typed ──
   await page.goto(`${APP}/quotes?quote=new`); await b.waitFor({ timeout: 60000 }); await sleep(800)
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="straight"]').click(); await sleep(300)
-  if (!(await b.locator('[data-side="Fence"] [data-side-length]').isVisible().catch(() => false))) await b.locator('[data-side-row="Fence"]').click()
-  await b.locator('[data-side="Fence"] [data-side-length]').click()
-  for (const k of '100') await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(300)
-  await b.locator('[data-gate-choice] button', { hasText: 'Double gate' }).click(); await sleep(300)
-  await b.locator('[data-side-more]').first().click(); await sleep(300)
-  await b.locator('[data-gate-size="12"]').click(); await sleep(300)
+  // The walk list (Nov 5 2026): 44 ft, a 12 ft double gate, 44 ft to the end post (a 100 ft side).
+  await walkFence(page, [[44, 'gate', { w: 12, kind: 'double' }], [44, 'end']])
   await b.locator('[data-step="style"]').click(); await sleep(300)
   await b.locator('[data-style-list]').selectOption({ label: STYLE }); await sleep(400)
   await b.locator('[data-step="price"]').click()
@@ -68,7 +63,7 @@ try {
   await b.locator('[data-step="yard"]').click(); await sleep(400)
   await b.locator('[data-to-layout]').click(); await sleep(400)
   await b.locator('[data-step="price"]').click()
-  check('back to the drawing: the drawn price', (await price()) === drawn)
+  check('back to the walk list: the walked price', (await price()) === drawn)
   await page.locator('[data-quote-close]').first().click().catch(() => {}); await sleep(600)
 
   // ── 2. Settings → Fence styles ──

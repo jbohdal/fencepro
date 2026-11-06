@@ -18,7 +18,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { execFileSync } from 'child_process'
-import { pickFence } from './lib.mjs'
+import { pickFence, walkFence, backyardOf } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || APP
@@ -171,12 +171,7 @@ async function main() {
     const b = page.locator('[data-quote-builder]')
     await b.waitFor({ timeout: 20000 })
     await tap(S, b.locator('[data-step="yard"]'))
-    await tap(S, b.locator('[data-shape="backyard"]'))
-    await tap(S, b.locator('[data-side="Left return"] [data-side-length]'))
-    for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-      for (const k of keys) await tap(S, page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`))
-      await tap(S, page.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]'))
-    }
+    await walkFence(page, backyardOf([30, 120, 150, 100, 30]))
     await tap(S, b.locator('[data-step="style"]'))
 
     // Her picker (Nov 2 2026): Chain link, 4 ft, Green; the install is the Better option's (No dig).

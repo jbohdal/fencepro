@@ -21,6 +21,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium } from 'playwright'
 import { execFileSync } from 'node:child_process'
+import { walkFence } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -315,10 +316,7 @@ async function phone(browser) {
   // The quote screen is in 4 steps: Yard (one straight 180 ft side), Style, Price, then Save.
   const go = async loc => { await loc.click(); await sleep(300) }
   await go(s.page.locator('[data-step="yard"]')).catch(e => console.log('yard:', String(e).slice(0, 120)))
-  await go(s.page.locator('[data-shape="straight"]')).catch(e => console.log('shape:', String(e).slice(0, 120)))
-  await go(s.page.locator('[data-side-length]').first()).catch(() => {})
-  for (const k of ['1', '8', '0']) await go(s.page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`)).catch(() => {})
-  await go(s.page.locator('[data-ftin-pad] [data-pad-done]')).catch(() => {})
+  await walkFence(s.page, [[180, 'end']]).catch(e => console.log('walk:', String(e).slice(0, 120)))
   await go(s.page.locator('[data-step="style"]')).catch(() => {})
   await s.page.locator('[data-step-panel="style"] select').first().selectOption({ index: 1 }).catch(e => console.log('style:', String(e).slice(0, 120)))
   await go(s.page.locator('[data-step="price"]')).catch(() => {})

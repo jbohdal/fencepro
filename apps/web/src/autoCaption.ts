@@ -41,6 +41,9 @@ export function cornerName(a: string, b: string): string {
   const fb = [da, db].find(d => d === 'front' || d === 'back')
   const lr = [da, db].find(d => d === 'left' || d === 'right')
   if (fb && lr) return `${fb} ${lr} corner`
+  // Walked sides are numbered (walkList.ts): "corner of sides 3 and 4".
+  const na = al.match(/^side (\d+)$/)?.[1], nb = bl.match(/^side (\d+)$/)?.[1]
+  if (na && nb) return `corner of sides ${na} and ${nb}`
   return `corner of the ${al} and the ${bl}`
 }
 
@@ -87,14 +90,14 @@ export function autoCaption(input: CaptionInput): string {
       const r = result.sides[i]
       const startWord = r.finishes.start === 'house' ? 'the house' : r.finishes.start === 'corner' ? `the ${corners.find(c => dist(c.pt, best!.side.a) < 0.5)?.name ?? 'corner'}` : r.finishes.start === 'existing' ? 'the existing fence' : 'its end'
       if (best.d <= 25) parts.push(`${s.name}, about ${round5(best.t * L)} ft from ${startWord}`)
-      else parts.push(`In the yard, about ${round5(best.d)} ft from the ${s.name.toLowerCase()}`)
+      else parts.push(`In the yard, about ${round5(best.d)} ft from ${/^side \d+$/i.test(s.name) ? s.name.toLowerCase() : `the ${s.name.toLowerCase()}`}`)
     }
 
     // Which way it faced: the corner or side it points at.
     if (angle !== null) {
       const targets: Array<{ name: string; pt: PlanPoint }> = [
         ...corners.map(c => ({ name: `the ${c.name}`, pt: c.pt })),
-        ...plan.sides.map(sd => ({ name: `the ${sd.name.toLowerCase()}`, pt: { x: (sd.a.x + sd.b.x) / 2, y: (sd.a.y + sd.b.y) / 2 } })),
+        ...plan.sides.map(sd => ({ name: /^side \d+$/i.test(sd.name) ? sd.name.toLowerCase() : `the ${sd.name.toLowerCase()}`, pt: { x: (sd.a.x + sd.b.x) / 2, y: (sd.a.y + sd.b.y) / 2 } })),
       ].filter(tg => dist(tg.pt, at) > 3)
       let face: { name: string; off: number } | null = null
       for (const tg of targets) {
@@ -108,7 +111,7 @@ export function autoCaption(input: CaptionInput): string {
     // The nearest gate, corner, house wall, skip or existing fence.
     const feats: Array<{ name: string; pt: PlanPoint }> = [...corners.map(c => ({ name: c.name, pt: c.pt }))]
     for (const sd of plan.sides) {
-      if (sd.gate) feats.push({ name: sd.gate.type === 'double' ? 'double gate' : 'walk gate', pt: { x: (sd.gate.a.x + sd.gate.b.x) / 2, y: (sd.gate.a.y + sd.gate.b.y) / 2 } })
+      for (const g of sd.gates ?? (sd.gate ? [sd.gate] : [])) feats.push({ name: g.type === 'double' ? 'double gate' : 'walk gate', pt: { x: (g.a.x + g.b.x) / 2, y: (g.a.y + g.b.y) / 2 } })
       if (sd.skip) feats.push({ name: sd.skip.kind === 'existing' ? 'existing fence' : 'gap in the fence', pt: closestOnSegment(at, sd.skip.a, sd.skip.b).pt })
     }
     if (plan.house) {

@@ -22,7 +22,7 @@ import { chromium } from 'playwright'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import { pickFence } from './lib.mjs'
+import { pickFence, walkFence, backyardOf } from './lib.mjs'
 
 const APP = process.env.APP_URL || 'http://localhost:4001'
 const API = process.env.API_URL || 'http://localhost:4001'
@@ -154,12 +154,7 @@ try {
   const b = sp.locator('[data-quote-builder]')
   await b.waitFor({ timeout: 15000 })
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="backyard"]').click()
-  await b.locator('[data-side="Left return"] [data-side-length]').click()
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '0', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await sp.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await sp.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
-  }
+  await walkFence(sp, backyardOf([30, 120, 150, 100, 30]))
   await b.locator('[data-step="style"]').click()
   // Her picker (Nov 2 2026): Material > Style > Height > Color; no style list, the width is the best price.
   check('quote: no full style list for the salesman', (await b.locator('[data-style-list]').count()) === 0)

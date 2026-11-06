@@ -1,3 +1,4 @@
+import { walkFence, backyardOf } from './lib.mjs'
 // Instant proposal, end to end on the dev copy.
 //
 //   APP_URL=http://localhost:4001 API_URL=http://localhost:4001 \
@@ -92,14 +93,8 @@ try {
   await p.locator('button:has-text("New quote"):visible').first().click()
   const b = p.locator('[data-quote-builder]')
   await b.locator('[data-step="yard"]').click()
-  await b.locator('[data-shape="backyard"]').click()
-  await b.locator('[data-side="Left return"] [data-side-length]').click()
-  for (const [keys, last] of [[['3', '0'], 0], [['1', '2', '0'], 0], [['1', '5', '0'], 0], [['1', '2', '0'], 0], [['3', '0'], 1]]) {
-    for (const k of keys) await p.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await p.locator(last ? '[data-ftin-pad] [data-pad-done]' : '[data-ftin-pad] [data-pad-next]').click()
-  }
-  await b.locator('[data-side-row="Left return"]').click()
-  await b.locator('[data-side="Left return"] [data-gate-choice] button:has-text("Walk gate")').click()
+  // The left return (30 ft) with a 4 ft walk gate in its middle, then the rest of the backyard.
+  await walkFence(p, [[13, 'gate', { w: 4 }], ...backyardOf([13, 120, 150, 120, 30])])
   await b.locator('[data-step="style"]').click()
   await b.locator('select').filter({ hasText: 'Select a fence style' }).selectOption({ label: 'White Vinyl Privacy, 6 ft tall, 8 ft sections, No dig' }); await sleep(400)
   await b.locator('[data-step="price"]').click()
@@ -109,7 +104,9 @@ try {
   check('tiers: Good, Better, Best show under the price', tierNames.join(',') === 'good,better,best', tierNames.join(','))
   check('tiers: Better is marked Most popular and priced above Good', (await b.locator('[data-tier="better"]').textContent()).includes('Most popular') && await tierPrice('better') > await tierPrice('good'),
     `good ${await tierPrice('good')}, better ${await tierPrice('better')}`)
-  check('tiers: each says which width prices lower', (await b.locator('[data-tier="good"] [data-tier-width]').textContent()).includes('ft wide prices lower for this yard'))
+  // A tier picks its width only when Settings leave it to the best price (Nov 2 2026: Vinyl Good and Better are 8 ft).
+  const widthNotes = await b.locator('[data-tier] [data-tier-width]').allTextContents()
+  check('tiers: one left to the best price says which width prices lower', widthNotes.every(t => t.includes('ft wide prices lower for this yard')), widthNotes.join(' | '))
   if (SHOTS) { await b.locator('[data-tiers]').scrollIntoViewIfNeeded(); await p.screenshot({ path: `${SHOTS}/2a-phone-good-better-best.png` }) }
   await b.locator('[data-compare-toggle]').click(); await sleep(500)
   const rows = await b.locator('[data-compare-row]').count()
@@ -140,7 +137,7 @@ try {
   check('saved: Better and Best first, then the tan option ticked (3 options)', q.proposal.options.slice(0, 2).map(o => o.tier?.label).join(',') === 'Better,Best' && offered.length === 3 && offered.includes(OWN) && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
   const rec = q.proposal.recommended
   check('saved: Most popular (Better) is the recommended option', q.proposal.options[rec]?.tier?.label === 'Better' && q.proposal.options[rec].badge === 'Most popular', `${rec}`)
-  check('the proposal carries the site plan, deposit and financing', !!q?.proposal.planSvg?.startsWith('<svg') && q.proposal.depositPct === 50 && q.proposal.financing?.months === 60)
+  check('walked: the proposal carries no site plan picture (until the office draws it), the deposit and financing', !q?.proposal.planSvg && q.proposal.depositPct === 50 && q.proposal.financing?.months === 60)
   const sixIndex = offered.indexOf(SIX), tanIndex = offered.indexOf(TAN)
   const sixOpt = q.proposal.options[sixIndex]
   const token = (await api(`/api/saved-quotes/${quoteId}/share-token`, { method: 'POST' })).shareToken
@@ -158,7 +155,7 @@ try {
   const opts = await c.page.locator('.opt').count()
   check('customer page: every option offered, tiers side by side, Better marked Most popular', opts === offered.length && await c.page.locator('.opts.tiers').count() === 1 && (await c.page.locator('.opt').nth(rec).textContent()).includes('Most popular'))
   check('customer page: each tier says what makes it better', ['Steel pipe driven deep, no concrete, faster install.', 'More posts per foot for the strongest fence we build.'].every(t => pageText.includes(t)))
-  check('customer page: site plan, monthly payment, deposit, warranty, what is included', ['Site plan', 'As low as $', '/month for 60 months', 'Deposit', '50% to schedule', 'Warranty', "What's included", '446 ft of new fence'].every(t => pageText.includes(t)), pageText.slice(0, 200))
+  check('customer page: no site plan picture yet; monthly payment, deposit, warranty, what is included', !pageText.includes('Site plan') && ['As low as $', '/month for 60 months', 'Deposit', '50% to schedule', 'Warranty', "What's included", '446 ft of new fence'].every(t => pageText.includes(t)), pageText.slice(0, 200))
   check('customer page: the tan option shows its style photo', await c.page.locator('.opt').nth(tanIndex).locator('img.photo').count() === 1)
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/3-customer-proposal-top.png` })
   await c.page.locator('.opt').nth(sixIndex).click(); await sleep(200)

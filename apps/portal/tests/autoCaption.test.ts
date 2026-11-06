@@ -20,7 +20,7 @@ describe('corner names', () => {
     expect(cornerName('Left side', 'Back')).toBe('back left corner')
     expect(cornerName('Back', 'Right side')).toBe('back right corner')
     expect(cornerName('Left return', 'Left side')).toBe('left return corner')
-    expect(cornerName('Side 1', 'Side 2')).toBe('corner of the side 1 and the side 2')
+    expect(cornerName('Side 1', 'Side 2')).toBe('corner of sides 1 and 2')
   })
 })
 

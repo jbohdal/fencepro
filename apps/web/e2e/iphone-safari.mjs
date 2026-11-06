@@ -816,15 +816,15 @@ async function drawYard() {
   await waitFor('input[placeholder^="Customer name"]', 15000)
   await D.type('input[placeholder^="Customer name"]', STYLE_NAME)
   await D.tap(bar)
-  await D.tap('[data-shape="backyard"]')
-  const sides = [['Left return', '20', 'Walk gate'], ['Left side', '95'], ['Back', '128', 'Double gate'], ['Right side', '95'], ['Right return', '20']]
-  for (const [i, [side, feet, gate]] of sides.entries()) {
-    const open = `[data-side-open="true"][data-side="${side}"]`
-    await D.tap(`${open} [data-side-length]`)
-    for (const d of feet) await D.tap(`[data-ftin-pad] [data-pad-key="${d}"]`)
-    await D.tap('[data-ftin-pad] [data-pad-done]')
-    if (gate) await tapText(`${open} [data-gate-choice] button`, new RegExp(gate))
-    if (i < sides.length - 1) await D.tap(bar)
+  // The walk list (Nov 5 2026): 20 ft with a 4 ft walk gate in its middle, a corner; 95; 128 with a 10 ft double
+  // gate in its middle; 95; 20 to the end post at the house.
+  await waitFor('[data-walk-feet]', 15000)
+  const steps = [[8, 'gate', 4, 'walk'], [8, 'corner'], [95, 'corner'], [59, 'gate', 10, 'double'], [59, 'corner'], [95, 'corner'], [20, 'end']]
+  for (const [feet, what, w, kind] of steps) {
+    await D.type('[data-walk-feet]', String(feet))
+    if (what === 'corner') { await D.tap('[data-walk-corner]'); await D.tap('[data-walk-right]') }
+    else if (what === 'gate') { await D.tap('[data-walk-gate]'); await D.tap(`[data-walk-gate-width="${w}"]`); await D.tap(`[data-walk-gate-kind="${kind}"]`) }
+    else await D.tap(`[data-walk-${what}]`)
   }
   await D.tap(bar)
 }

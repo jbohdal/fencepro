@@ -21,7 +21,7 @@
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import { chromium, webkit } from 'playwright'
 import fs from 'fs'
-import { signInByCookie } from './lib.mjs'
+import { signInByCookie, walkFence } from './lib.mjs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -170,10 +170,7 @@ try {
     await b.locator('[data-style-list]').selectOption('auto-wv-nd')
     await sleep(500)
     await b.locator('[data-step="yard"]').click(); await sleep(400)
-    await b.locator('[data-shape="straight"]').click(); await sleep(300)
-    await b.locator('[data-side-open="true"] [data-side-length]').click()
-    for (const k of ['1', '0', '0']) await page.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-    await page.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(500)
+    await walkFence(page, [[100, 'end']])
     await b.locator('[data-step="price"]').click(); await sleep(1200)
     await shot(page, '3-office-new-quote-price-step')
     await b.locator('[data-save-open]:visible').first().click()

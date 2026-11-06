@@ -150,7 +150,7 @@ export function MovePanel({ style, move, setMove, oldPostsNote, defaultPostType,
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-gray-600">Along
               <select className={numIn} value={move.oldLinePlan?.sideId ?? ''} onChange={e => set({ oldLinePlan: e.target.value ? { sideId: e.target.value, offsetFt: move.oldLinePlan?.offsetFt ?? 3 } : null })} data-move-old-side>
-                <option value="">Not drawn</option>
+                <option value="">Not shown on the plan</option>
                 {sides.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </label>
