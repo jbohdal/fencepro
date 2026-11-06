@@ -202,13 +202,23 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     expect(pdf.status).toBe(200)
     const text = pdfText(pdf.buf!)
     for (const w of ['Fence site plan', `Pat ${tag}`, '10501 SW 54th Ct, Ocala, FL 34476', 'SW 54th Ct', `Olive ${tag}`, 'Approximate property lines from county records, not a survey.', 'linear ft']) expect(text, w).toContain(w)
-    expect(text).toMatch(/REVISION 5/)
+    // The plan as marked done (revision 3), not the saves after it (the notes at 4, the survey at 5); not a draft.
+    expect(text).toMatch(/REVISION 3/)
+    expect(text).not.toContain('Draft')
+    expect(made.json.data.draft).toBe(false)
     expect(text).not.toContain('$')
     expect((await call('crew', 'GET', made.json.data.url)).status).toBe(403)
-    expect((await prisma.sitePlan.findUnique({ where: { jobId } }))?.permitPdfPath).toMatch(/permit-sheet-r5-\d+\.pdf$/)
+    expect((await prisma.sitePlan.findUnique({ where: { jobId } }))?.permitPdfPath).toMatch(/permit-sheet-r3-\d+\.pdf$/)
   })
 
   test('the crew\'s installer sheet: posts numbered and typed, "Start here", gates, notes; no price; the walk list replaced once done', async () => {
+    // The crew has the copy marked done: the notes saved after it reach them once it is marked done again.
+    let g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g).toEqual(expect.objectContaining({ doneRevision: 3, changedSinceDone: true }))
+    expect(await (await fetch(`${base}/p/i/${packetToken}`)).text()).not.toContain('Dogs in the yard')
+    expect((await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: g.revision })).status).toBe(200)
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g).toEqual(expect.objectContaining({ doneRevision: g.revision, changedSinceDone: false }))
     const html = await (await fetch(`${base}/p/i/${packetToken}`)).text()
     expect(html).toContain('Site plan (installer sheet)')
     expect(html).toContain('>Start here<')
@@ -296,7 +306,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     await editChangeOrder(accountId, co2.id, co2.version, { status: 'void' }, 'Olive')
     g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
     expect(g.plan.pending).toBeUndefined()
-    expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Olive', note: 'Change order CO-2: voided, its change taken off the plan' }))
+    expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Olive', note: 'Change order CO-2 voided: its change taken off the plan' }))
     expect(g.plan.sides[1].quotedFt).toBe(120)
   })
 
@@ -331,5 +341,78 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     expect(now.permitPdfPath).not.toBe(first.permitPdfPath)
     expect(fs.existsSync(now.permitPdfPath!)).toBe(true)
     expect(fs.existsSync(first.permitPdfPath!)).toBe(false)
+  })
+
+  test('the done copy: a gate drawn after done never reaches the crew, the customer or the permit sheet until marked done again', async () => {
+    let g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect((await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: g.revision })).status).toBe(200)
+    const extra = JSON.parse(JSON.stringify((await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data.plan))
+    extra.sides[3].gates.push({ id: 'gx', atFt: 30, widthFt: 6, type: 'walk', swing: 'out', hinge: 'right' })
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect((await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan: extra, baseRevision: g.revision })).status).toBe(200)
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g.doneAt).not.toBeNull()
+    expect(g.changedSinceDone).toBe(true)
+    expect(g.doneRevision).toBeLessThan(g.revision)
+    expect(await (await fetch(`${base}/p/i/${packetToken}`)).text()).not.toContain('6 ft single gate')
+    const q = await prisma.savedQuote.findUniqueOrThrow({ where: { id: quoteId } })
+    expect(await customerPlanSvg(q)).not.toContain('6 ft single gate')
+    const sheet = await call('office', 'POST', `/api/site-plans/${jobId}/permit-sheet`, { size: 'letter', aerial: false })
+    const text = pdfText((await call('office', 'GET', sheet.json.data.url)).buf!)
+    expect(text).not.toContain('6 ft single gate')
+    expect(text).toContain(`REVISION ${g.doneRevision}`)
+    // Marking done again: refused, the extra gate is a question (the job's fence has 2 gates).
+    const again = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: g.revision })
+    expect(again.status).toBe(409)
+  })
+
+  test('answers waiting on a change order: done refused until it is approved (the answer kept, its change on the crew\'s copy); voided, its answer comes off', async () => {
+    const { reconcilePlanChanges } = await import('../src/server/lib/sitePlans.js')
+    const { editChangeOrder } = await import('../src/server/lib/changeOrders.js')
+    const co4 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 4, status: 'draft', reason: 'Longer right side', lines: [], totalCents: 10000, createdBy: 'Olive' } as any })
+    const co5 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 5, status: 'sent', reason: 'Longer left side', lines: [], totalCents: 10000, createdBy: 'Olive' } as any })
+    let g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const plan = JSON.parse(JSON.stringify(g.plan))
+    plan.sides[3].gates = plan.sides[3].gates.filter((x: any) => x.id !== 'gx')
+    // The last side (an end) drawn 10 ft longer, "Use the drawn length" through CO-4; the first side's end 10 ft longer through CO-5.
+    const longer = (sideIdx: number, post: 'a' | 'b', byFt: number) => {
+      const s = plan.sides[sideIdx], a = plan.posts.find((p: any) => p.id === s[post === 'b' ? 'a' : 'b']), b = plan.posts.find((p: any) => p.id === s[post])
+      const v = toFeet(a, b), l = Math.hypot(v.x, v.y)
+      Object.assign(b, fromFeet(a, { x: (v.x * (l + byFt)) / l, y: (v.y * (l + byFt)) / l }))
+      return s.id
+    }
+    const s3 = longer(3, 'b', 10)
+    const s0 = longer(0, 'a', 10)
+    plan.answers[`len:${s3}`] = { kind: 'drawn', note: 'CO-4', by: 'Olive', at: '2026-11-06', coId: co4.id }
+    plan.answers[`len:${s0}`] = { kind: 'drawn', note: 'CO-5', by: 'Olive', at: '2026-11-06', coId: co5.id }
+    plan.pending = [{ id: 'pc4', coId: co4.id, coNumber: 4, kind: 'gate', sideId: plan.sides[3].id, gate: { id: 'g4', atFt: 60, widthFt: 4, type: 'walk', swing: 'in', hinge: 'left' }, by: 'Olive', at: '2026-11-06' }]
+    expect((await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan, baseRevision: g.revision })).status).toBe(200)
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const refused = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: g.revision })
+    expect(refused.status).toBe(409)
+    expect(refused.json.open.filter((t: string) => /waiting on its change order/.test(t)).length).toBe(2)
+    // The crew still has the copy from before (no drawn length, no CO-4 gate).
+    const before = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect(JSON.stringify(before.doneData)).not.toContain(co4.id)
+
+    // CO-4 approved: its gate goes on the working plan and the crew's copy; its answer is kept, no longer waiting.
+    await prisma.changeOrder.update({ where: { id: co4.id }, data: { status: 'approved', approvedAt: new Date(), approvedBy: 'Olive Office' } })
+    expect(await reconcilePlanChanges(accountId, quoteId)).toBe(1)
+    let row = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect((row.doneData as any).sides[3].gates.map((x: any) => x.id)).toContain('g4')
+    expect((row.data as any).answers[`len:${s3}`]).toEqual({ kind: 'drawn', note: 'CO-4', by: 'Olive', at: '2026-11-06' })
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g.revisions[0].note).toMatch(/^Change order CO-4: added a 4 ft single gate on .*; its drawn length kept/)
+
+    // CO-5 voided: its answer comes off (the side's question is open again); nothing else changes.
+    await editChangeOrder(accountId, co5.id, co5.version, { status: 'void' }, 'Sam')
+    row = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect((row.data as any).answers[`len:${s0}`]).toBeUndefined()
+    expect((row.data as any).answers[`len:${s3}`]).toBeDefined()
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Sam', note: 'Change order CO-5 voided: its answer taken off' }))
+    const open = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: g.revision })
+    expect(open.status).toBe(409)
+    expect(open.json.open.some((t: string) => /waiting/.test(t))).toBe(false)
   })
 })

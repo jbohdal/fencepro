@@ -31,6 +31,8 @@ export interface SheetInput {
   county: string
   parcelId: string
   fenceText: string
+  /** The plan is not marked done yet: the title block says "Draft – plan not finished". */
+  draft?: boolean
   /** NAIP tiles under the plan; null: no aerial. */
   aerial: ((z: number, x: number, y: number) => Promise<Buffer>) | null
 }
@@ -105,6 +107,7 @@ export async function renderPermitSheet(m: SiteModule, p: SheetInput): Promise<{
   if (p.company.phone) { doc.text(phoneText(p.company.phone), inner, y, { width: iw }); y = doc.y + 1 }
   y += 6; rule()
   doc.font('Helvetica-Bold').fontSize(fs + 4).fillColor('#111827').text('Fence site plan', inner, y, { width: iw }); y = doc.y + 6
+  if (p.draft) { doc.font('Helvetica-Bold').fontSize(fs + 3).fillColor('#B91C1C').text('Draft – plan not finished', inner, y, { width: iw }); y = doc.y + 6 }
   line('Owner', p.customerName, { bold: true })
   line('Job address', p.address)
   line('Street', streetOf(p.address))

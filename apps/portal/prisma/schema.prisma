@@ -2588,6 +2588,12 @@ model SitePlan {
   data          Json
   doneAt        DateTime?
   doneBy        String?
+  /// The plan exactly as marked done (no change order still waiting): what the crew, the permit sheet and the
+  /// customer read. Saves after done never change it; marking done again replaces it; an approved or signed
+  /// change order's change is put on it too.
+  doneData      Json?
+  /// The revision it was marked done at.
+  doneRevision  Int?
   /// The latest permit sheet PDF (under the uploads folder), when one was made.
   permitPdfPath String?
   createdAt     DateTime  @default(now())
