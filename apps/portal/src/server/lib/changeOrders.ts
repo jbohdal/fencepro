@@ -289,6 +289,8 @@ export interface CustomerSignature { name: string; signature: string; ip: string
  */
 export async function signByCustomer(accountId: string, id: string, s: CustomerSignature): Promise<{ row: Row; again: boolean }> {
   const out = await signIn(accountId, id, s)
+  // A change drawn on the office site plan for it goes on the plan now (lib/sitePlans.ts).
+  if (!out.again) await planFollows(accountId, out.row.quoteId)
   // Signed under the minimum job price on the owner's override kept on it: in the audit log as covered by it (lib/changeOrderMinimum.ts).
   if (out.covered) {
     const { auditSystem } = await import('./auditLog.js')
@@ -633,7 +635,7 @@ export async function createChangeOrder(accountId: string, c: NewChangeOrder): P
         if (c.status === 'approved') await applyToJob(accountId, c.quoteId, tx, { id: row.id, by: c.by })
         const out = said((await tx.changeOrder.findUnique({ where: { id: row.id } })) ?? row)
         return overrides.length ? Object.assign(out, { overridesGiven: overrides }) : out
-      }, { timeout: 20_000 })
+      }, { timeout: 20_000 }).then(async made => { if (made.status === 'approved') await planFollows(accountId, c.quoteId); return made })
     } catch (e) {
       // Two made at the same moment took the same number: try the next one.
       if ((e as any)?.code === 'P2002' && attempt < 3) {
@@ -667,7 +669,7 @@ export const CHANGED_NEEDS_OK = 'Your change sends it back to Jonathan or the of
  * with a reason (the customer's own signature comes later).
  */
 export async function editChangeOrder(accountId: string, id: string, baseVersion: number, edit: ChangeOrderEdit, by: string, opts: { needsOk?: boolean; minimum?: MinimumAsk | null } = {}): Promise<{ row: Row; stale: boolean; backToOk?: boolean; minimumOverride?: CutOverride[] }> {
-  return prisma.$transaction(async tx => {
+  const result: { row: Row; stale: boolean; backToOk?: boolean; minimumOverride?: CutOverride[] } = await prisma.$transaction(async tx => {
     // One save at a time on this job, the minimum job price checked inside it (lib/changeOrderMinimum.ts).
     const of = await tx.changeOrder.findUnique({ where: { id }, select: { quoteId: true } })
     if (of) await lockJob(tx, of.quoteId)
@@ -740,4 +742,15 @@ export async function editChangeOrder(accountId: string, id: string, baseVersion
     if (cur.status === 'approved' || row.status === 'approved') await applyToJob(accountId, cur.quoteId, tx, { id, by })
     return { row: (await tx.changeOrder.findUnique({ where: { id } })) ?? row, stale: false, backToOk: backToOk && row.status === 'needs_ok', ...(overrides.length ? { minimumOverride: overrides } : {}) }
   }, { timeout: 15_000 })
+  // Approved or voided: its change waiting on the office site plan goes on, or comes off (lib/sitePlans.ts).
+  if (!result.stale && (result.row.status === 'approved' || result.row.status === 'void')) await planFollows(accountId, result.row.quoteId)
+  return result
+}
+
+/** The job's office site plan follows its change orders (lib/sitePlans.ts reconcilePlanChanges); a failure is logged, never fails the change order. */
+async function planFollows(accountId: string, quoteId: string): Promise<void> {
+  try {
+    const { reconcilePlanChanges } = await import('./sitePlans.js')
+    await reconcilePlanChanges(accountId, quoteId)
+  } catch (e) { console.error('[change-orders] site plan:', e) }
 }

@@ -75,6 +75,7 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     await prisma.sitePlan.deleteMany({ where: { accountId } })
     for (const j of [jobId, otherJobId]) if (j) fs.rmSync(planDir(accountId, j), { recursive: true, force: true })
     await prisma.installPacket.deleteMany({ where: { accountId } })
+    await prisma.changeOrder.deleteMany({ where: { accountId } })
     await prisma.savedJob.deleteMany({ where: { accountId } })
     await prisma.savedQuote.deleteMany({ where: { accountId } })
     await prisma.crmUser.deleteMany({ where: { crmAccountId: accountId } })
@@ -233,5 +234,67 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the office site plan (dev databa
     expect(svg).toMatch(/^<svg xmlns/)
     expect(svg).not.toContain('Start here')
     expect(await customerPlanSvg({ ...q, status: 'SENT', soldAt: null, acceptedAt: null })).toBe('')
+  })
+
+  test('the newest revision first; a 409 carries who saved it last; an older tab\'s origin.source is taken and dropped', async () => {
+    const cur = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const withSource = { ...cur.plan, origin: { ...cur.plan.origin, source: 'address' } }
+    const saved = await call('owner', 'PUT', `/api/site-plans/${jobId}`, { plan: withSource, baseRevision: cur.revision, note: 'Owner looked it over' })
+    expect(saved.status).toBe(200)
+    const row = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect((row.data as any).origin).toEqual({ lat: cur.plan.origin.lat, lng: cur.plan.origin.lng })
+    const stale = await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan: cur.plan, baseRevision: cur.revision })
+    expect(stale.status).toBe(409)
+    expect(stale.json.current.revisions[0]).toEqual(expect.objectContaining({ revision: saved.json.data.revision, by: `Owen ${tag}`, note: 'Owner looked it over' }))
+    const revs = stale.json.current.revisions.map((r: any) => r.revision)
+    expect(revs).toEqual([...revs].sort((a: number, b: number) => b - a))
+  })
+
+  test('a change order drawn on the plan waits: never on the crew\'s sheet or the done check; approved, it goes on (a revision says so); voided, it comes off', async () => {
+    const { reconcilePlanChanges } = await import('../src/server/lib/sitePlans.js')
+    const { editChangeOrder } = await import('../src/server/lib/changeOrders.js')
+    const co1 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 1, status: 'sent', reason: 'Add a gate', lines: [], totalCents: 45000, createdBy: 'Olive' } as any })
+    const co2 = await prisma.changeOrder.create({ data: { accountId, quoteId, number: 2, status: 'sent', reason: 'Longer back', lines: [], totalCents: 30000, createdBy: 'Olive' } as any })
+    const cur = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    const back = cur.plan.sides[2]
+    const pending = [
+      { id: 'pc1', coId: co1.id, coNumber: 1, kind: 'gate', sideId: back.id, gate: { id: 'gnew', atFt: 40, widthFt: 5, type: 'walk', swing: 'in', hinge: 'left' }, by: 'Olive', at: '2026-11-06' },
+      { id: 'pc2', coId: co2.id, coNumber: 2, kind: 'longer', sideId: cur.plan.sides[1].id, newFt: 130, by: 'Olive', at: '2026-11-06' },
+    ]
+    // A pending entry for a change order not on this job is refused.
+    expect((await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan: { ...cur.plan, pending: [{ ...pending[0], coId: 'nope' }] }, baseRevision: cur.revision })).status).toBe(400)
+    const saved = await call('office', 'PUT', `/api/site-plans/${jobId}`, { plan: { ...cur.plan, pending }, baseRevision: cur.revision })
+    expect(saved.status).toBe(200)
+    // The crew's sheet and the done check: the plan as sold, no 5 ft gate.
+    const html = await (await fetch(`${base}/p/i/${packetToken}`)).text()
+    expect(html).not.toContain('5 ft single gate')
+    const done = await call('office', 'POST', `/api/site-plans/${jobId}/done`, { revision: saved.json.data.revision })
+    expect(done.status).toBe(200)
+
+    // CO-1 approved: the gate goes on the plan as a new revision.
+    await prisma.changeOrder.update({ where: { id: co1.id }, data: { status: 'approved', approvedAt: new Date(), approvedBy: 'Olive Office' } })
+    expect(await reconcilePlanChanges(accountId, quoteId)).toBe(1)
+    let g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g.revisions[0]).toEqual(expect.objectContaining({ by: 'Olive Office', note: `Change order CO-1: added a 5 ft single gate on ${back.name}` }))
+    expect(g.plan.sides[2].gates.map((x: any) => x.widthFt)).toContain(5)
+    expect(g.plan.pending.map((p: any) => p.id)).toEqual(['pc2'])
+    const html2 = await (await fetch(`${base}/p/i/${packetToken}`)).text()
+    expect(html2).toContain('5 ft single gate')
+
+    // CO-2 voided through the change order's own save: its longer side comes off the plan.
+    await editChangeOrder(accountId, co2.id, co2.version, { status: 'void' }, 'Olive')
+    g = (await call('office', 'GET', `/api/site-plans/${jobId}`)).json.data
+    expect(g.plan.pending).toBeUndefined()
+    expect(g.revisions[0].note).toBe('Change order CO-2: voided, its change taken off the plan')
+    expect(g.plan.sides[1].quotedFt).toBe(120)
+  })
+
+  test('only the latest permit sheet file is kept', async () => {
+    const first = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect((await call('office', 'POST', `/api/site-plans/${jobId}/permit-sheet`, { size: 'letter', aerial: false })).status).toBe(200)
+    const now = await prisma.sitePlan.findUniqueOrThrow({ where: { jobId } })
+    expect(now.permitPdfPath).not.toBe(first.permitPdfPath)
+    expect(fs.existsSync(now.permitPdfPath!)).toBe(true)
+    expect(fs.existsSync(first.permitPdfPath!)).toBe(false)
   })
 })

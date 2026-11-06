@@ -430,4 +430,4 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
 }
 export { planFromYard, planFlags, openFlags, crewPosts, walkingOrder, applyChange, withPending, drawnFt, builtFt, feetBetween, toFeet, fromFeet, propertyLineWarnings, sectionsAt, quoteSectionsOf, DEFAULT_FLAG_SETTINGS, type SitePlanData, type PlanFlag, type CrewPost, type CrewSide, type PendingChange } from './sitePlanData'
 // The site plan as a picture: the crew's sheet, the customer's portal, the permit sheet (server lib/sitePlans.ts).
-export { sitePlanSvg, planFrame, planExtent, gateLeaves, insideOf, feetLabel } from './sitePlanSvg'
+export { sitePlanSvg, crewSheetSize, planFrame, planExtent, gateLeaves, insideOf, feetLabel } from './sitePlanSvg'

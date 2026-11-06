@@ -33,17 +33,20 @@ export interface FrameOpts {
   scale?: number
   /** Room at the bottom for the scale bar and legend (drawing units). */
   bottom?: number
+  /** 'fence': only the fence and the house decide the frame (the crew's sheet); the property lines are cut at its edge. */
+  fit?: 'all' | 'fence'
 }
 
 /** Feet east/north of the plan's origin that the drawing must show: the fence, the house, and the lot when it is not much bigger. */
-export function planExtent(plan: SitePlanData): { minX: number; maxX: number; minY: number; maxY: number } {
+export function planExtent(plan: SitePlanData, fit: 'all' | 'fence' = 'all'): { minX: number; maxX: number; minY: number; maxY: number } {
   const pts = (list: LatLng[]) => list.map(p => toFeet(plan.origin, p))
   const core = [...pts(plan.posts), ...plan.house.flatMap(pts)]
   if (!core.length) core.push({ x: 0, y: 0 })
   const box = (ps: Array<{ x: number; y: number }>) => ({ minX: Math.min(...ps.map(p => p.x)), maxX: Math.max(...ps.map(p => p.x)), minY: Math.min(...ps.map(p => p.y)), maxY: Math.max(...ps.map(p => p.y)) })
   let b = box(core)
   const lot = plan.parcel?.rings[0]
-  if (lot && lot.length >= 3) {
+  if (fit === 'fence') { const m = Math.max(6, Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.04); b = { minX: b.minX - m, maxX: b.maxX + m, minY: b.minY - m, maxY: b.maxY + m } }
+  else if (lot && lot.length >= 3) {
     const l = box(pts(lot))
     const coreSpan = Math.max(b.maxX - b.minX, b.maxY - b.minY, 40)
     const lotSpan = Math.max(l.maxX - l.minX, l.maxY - l.minY)
@@ -61,7 +64,7 @@ export function planExtent(plan: SitePlanData): { minX: number; maxX: number; mi
 export function planFrame(plan: SitePlanData, W: number, H: number, o: FrameOpts = {}): PlanFrame {
   const pad = o.pad ?? Math.max(28, Math.min(W, H) * 0.08)
   const bottom = o.bottom ?? 0
-  const e = planExtent(plan)
+  const e = planExtent(plan, o.fit)
   const spanX = e.maxX - e.minX, spanY = e.maxY - e.minY
   const scale = o.scale ?? Math.min((W - 2 * pad) / spanX, (H - 2 * pad - bottom) / spanY)
   const cx = (e.minX + e.maxX) / 2, cy = (e.minY + e.maxY) / 2
@@ -91,6 +94,8 @@ export interface SitePlanSvgOpts {
   fontSize?: number
   /** Each side's name under its feet. */
   sideNames?: boolean
+  /** 'fence': the frame is the fence and the house (the crew's sheet), not the whole lot. */
+  fit?: 'all' | 'fence'
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -147,16 +152,47 @@ export function gateLeaves(plan: SitePlanData, side: SiteSide, g: SiteGate): Arr
   return hingeAtB ? [{ hingeFt: b, towardFt: a }] : [{ hingeFt: a, towardFt: b }]
 }
 
+/**
+ * The crew's sheet size: the fence and house fill it with a margin, at a
+ * scale where two posts next to each other never touch (each numbered circle
+ * is 0.72 x the text size across its radius), and at least `minWidth` wide.
+ * Shown at its own size on a phone (wider ones scroll), so a 15 unit text
+ * size gives post numbers about 11 px tall.
+ */
+export function crewSheetSize(plan: SitePlanData, posts: CrewPost[], o: { fontSize: number; minWidth?: number; maxWidth?: number }): { width: number; height: number; scale: number } {
+  const fs = o.fontSize, minW = o.minWidth ?? 360, maxW = o.maxWidth ?? 1100
+  const e = planExtent(plan, 'fence')
+  const spanX = e.maxX - e.minX, spanY = e.maxY - e.minY
+  const pad = fs * 5, bottom = fs * 3.2 + fs * 2.6
+  // The closest two posts in walking order on the same side (feet), never under 2 ft.
+  let gap = Infinity
+  for (let i = 1; i < posts.length; i++) {
+    if (posts[i].sideId !== posts[i - 1].sideId) continue
+    const a = toFeet(plan.origin, posts[i - 1].at), b = toFeet(plan.origin, posts[i].at)
+    const d = Math.hypot(b.x - a.x, b.y - a.y)
+    if (d > 0.05) gap = Math.min(gap, d)
+  }
+  const rad = Math.max(5, fs * 0.72)
+  let scale = Math.max((minW - 2 * pad) / spanX, Number.isFinite(gap) ? (2 * rad + 3) / Math.max(2, gap) : 0)
+  if (spanX * scale + 2 * pad > maxW) scale = (maxW - 2 * pad) / spanX
+  return { width: Math.round(spanX * scale + 2 * pad), height: Math.round(spanY * scale + 2 * pad + bottom), scale }
+}
+
 /** The plan as an SVG picture. */
 export function sitePlanSvg(plan: SitePlanData, o: SitePlanSvgOpts): string {
   const W = o.width, H = o.height
   const fs = o.fontSize ?? Math.max(10, Math.min(W, H) / 55)
   const legendOn = o.legend !== false
   const bottomRoom = fs * 3.2 + (legendOn ? fs * 2.6 : 0)
-  const f = planFrame(plan, W, H, { scale: o.scale, bottom: bottomRoom, pad: fs * 5 })
+  const f = planFrame(plan, W, H, { scale: o.scale, bottom: bottomRoom, pad: fs * 5, fit: o.fit })
   const out: string[] = []
   const font = `font-family="Arial, Helvetica, sans-serif"`
   const text = (x: number, y: number, t: string, size = fs, extra = '') => `<text x="${n2(x)}" y="${n2(y)}" font-size="${n2(size)}" ${font} ${extra}>${esc(t)}</text>`
+  // A label on a white box, so it reads over a property line or the aerial photo.
+  const boxed = (x: number, yBase: number, t: string, size: number, extra: string) => {
+    const w = t.length * size * 0.56 + size * 0.4, h = size * 1.15
+    return `<rect x="${n2(x - w / 2)}" y="${n2(yBase - size * 0.9)}" width="${n2(w)}" height="${n2(h)}" rx="${n2(size * 0.2)}" fill="#ffffff" fill-opacity="0.85"/>` + text(x, yBase, t, size, extra)
+  }
   const line = (a: { x: number; y: number }, b: { x: number; y: number }, stroke: string, w: number, extra = '') => `<line x1="${n2(a.x)}" y1="${n2(a.y)}" x2="${n2(b.x)}" y2="${n2(b.y)}" stroke="${stroke}" stroke-width="${n2(w)}" ${extra}/>`
   const poly = (ring: LatLng[], stroke: string, w: number, fill = 'none', extra = '') => `<polygon points="${ring.map(p => { const q = f.at(p); return `${n2(q.x)},${n2(q.y)}` }).join(' ')}" fill="${fill}" stroke="${stroke}" stroke-width="${n2(w)}" ${extra}/>`
 
@@ -178,6 +214,7 @@ export function sitePlanSvg(plan: SitePlanData, o: SitePlanSvgOpts): string {
   // The fence: each side in pieces between its gates, the gates with their swing.
   const fenceW = Math.max(2.2, fs / 3.6)
   const labels: string[] = []
+  let anyKept = false
   const swings: string[] = []
   for (const side of plan.sides) {
     const s = sideFt(plan, side)
@@ -216,21 +253,24 @@ export function sitePlanSvg(plan: SitePlanData, o: SitePlanSvgOpts): string {
       const hwG = words.length * fs * 0.85 * 0.3
       const awayPx = leafPx + fs * 0.6 + hwG * Math.abs(inside.x) + fs * 0.5 * Math.abs(inside.y)
       const p = f.ft({ x: mid.x + (inside.x * dir * awayPx) / f.scale, y: mid.y + (inside.y * dir * awayPx) / f.scale })
-      labels.push(text(Math.min(Math.max(p.x, hwG + 2), W - hwG - 2), p.y + fs * 0.3, words, fs * 0.85, `text-anchor="middle" font-weight="bold" fill="${SITE_COLORS.GATE}"`))
+      labels.push(boxed(Math.min(Math.max(p.x, hwG + 2), W - hwG - 2), p.y + fs * 0.3, words, fs * 0.85, `text-anchor="middle" font-weight="bold" fill="${SITE_COLORS.GATE}"`))
     }
     // The side's feet (and name), outside the yard at its middle, clear of a gate there and of the posts.
     const midD = s.len / 2
     const gateAtMid = gates.some(g => g.atFt * k - 2 < midD && (g.atFt + g.widthFt) * k + 2 > midD)
     const d = gateAtMid ? Math.max(0, Math.min(s.len, (gates[0].atFt * k) / 2 || s.len * 0.2)) : midD
-    const lines = [feetLabel(total), ...(o.sideNames ? [side.name] : [])]
+    // A wheel number kept ("Keep the wheel number"): the quoted feet, marked * (measured on site, drawn to the map).
+    const keptWheel = side.quotedFt != null && plan.answers?.[`len:${side.id}`]?.kind === 'keep'
+    if (keptWheel) anyKept = true
+    const lines = [`${feetLabel(total)}${keptWheel ? '*' : ''}`, ...(o.sideNames ? [side.name] : [])]
     const hw = Math.max(...lines.map((t, i) => t.length * fs * (i ? 0.8 : 1) * 0.3)), hh = (lines.length === 2 ? fs * 2.1 : fs * 1.1) / 2
     const clear = (o.crewPosts?.length ? Math.max(5, fs * 0.72) : fenceW) + fs * 0.4
     const offPx = clear + hw * Math.abs(inside.x) + hh * Math.abs(inside.y)
     const q = f.ft({ x: s.A.x + s.u.x * d - (inside.x * offPx) / f.scale, y: s.A.y + s.u.y * d - (inside.y * offPx) / f.scale })
     const top = q.y - hh
     const qx = Math.min(Math.max(q.x, hw + 2), W - hw - 2)
-    labels.push(text(qx, top + fs * 0.85, lines[0], fs, `text-anchor="middle" font-weight="bold" fill="${SITE_COLORS.LABEL}"`))
-    if (lines[1]) labels.push(text(qx, top + fs * 1.85, lines[1], fs * 0.8, `text-anchor="middle" fill="${SITE_COLORS.MUTED}"`))
+    labels.push(boxed(qx, top + fs * 0.85, lines[0], fs, `text-anchor="middle" font-weight="bold" fill="${SITE_COLORS.LABEL}"`))
+    if (lines[1]) labels.push(boxed(qx, top + fs * 1.85, lines[1], fs * 0.8, `text-anchor="middle" fill="${SITE_COLORS.MUTED}"`))
   }
 
   // Posts: numbered for the crew, else the corners and ends.
@@ -287,13 +327,15 @@ export function sitePlanSvg(plan: SitePlanData, o: SitePlanSvgOpts): string {
   const nice = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find(v => v >= want * 0.7) ?? 1000
   const barW = nice * f.scale
   const by = H - bottomRoom + fs * 1.6, bx = fs * 1.5
+  out.push(`<rect x="${n2(bx - fs * 0.5)}" y="${n2(by - fs * 1.4)}" width="${n2(barW + fs * 2.6)}" height="${n2(fs * 2.2)}" fill="#ffffff" fill-opacity="0.9"/>`)
   out.push(`<rect x="${n2(bx)}" y="${n2(by)}" width="${n2(barW / 2)}" height="${n2(fs * 0.45)}" fill="${SITE_COLORS.LABEL}"/>`)
   out.push(`<rect x="${n2(bx + barW / 2)}" y="${n2(by)}" width="${n2(barW / 2)}" height="${n2(fs * 0.45)}" fill="#ffffff" stroke="${SITE_COLORS.LABEL}" stroke-width="${n2(Math.max(0.8, fs / 12))}"/>`)
   out.push(text(bx, by - fs * 0.35, '0', fs * 0.85, `fill="${SITE_COLORS.LABEL}"`))
   out.push(text(bx + barW, by - fs * 0.35, `${nice} ft`, fs * 0.85, `text-anchor="middle" fill="${SITE_COLORS.LABEL}"`))
 
   if (legendOn) {
-    const items: string[] = ['Purple: new fence, feet as built', 'Dashed arcs: gate swing']
+    const items: string[] = [anyKept ? 'Purple: new fence, feet as built (* feet as quoted)' : 'Purple: new fence, feet as built', 'Dashed arcs: gate swing']
+    if (anyKept) items.push('* Measured on site with a wheel; drawn to the map')
     if (o.crewPosts?.length) items.push('Numbered circles: posts in walking order (filled: corner, end, gate or tee; open: line)')
     else items.push('Squares: corner posts. Dots: end posts')
     if (o.propertyLine !== false && plan.parcel) items.push('Bold dashed: property line (approximate, from county records)')
@@ -307,6 +349,9 @@ export function sitePlanSvg(plan: SitePlanData, o: SitePlanSvgOpts): string {
       else rows.push(it)
     }
     const shown = rows.length > 2 ? [rows[0], rows.slice(1).join(' · ')] : rows
+    // On a white box, so it reads over the aerial photo.
+    const longest = Math.max(...shown.map(t => t.length)) * fs * 0.8 * 0.52
+    out.push(`<rect x="${n2(bx - fs * 0.4)}" y="${n2(H - fs * 0.6 - (shown.length - 1) * fs * 1.05 - fs * 1.0)}" width="${n2(Math.min(W - bx, longest + fs * 0.8))}" height="${n2(shown.length * fs * 1.05 + fs * 0.6)}" fill="#ffffff" fill-opacity="0.9"/>`)
     shown.forEach((t, i) => out.push(text(bx, H - fs * 0.6 - (shown.length - 1 - i) * fs * 1.05, t, fs * 0.8, `fill="${SITE_COLORS.MUTED}"`)))
   }
   out.push('</svg>')

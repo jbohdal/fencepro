@@ -50,7 +50,7 @@ import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { isWorkLine, installWord } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
-import { crewPlanFor, sitePlanSettings } from '../lib/sitePlans.js'
+import { crewPlanFor, sitePlanSettings, asSold } from '../lib/sitePlans.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
 async function crewNameFor(accountId: string, v: string): Promise<string> {
@@ -174,19 +174,26 @@ const POST_WORD: Record<string, string> = { corner: 'Corner', end: 'End', line: 
 export async function installerPlanSection(accountId: string, job: { id: string; quoteId: string | null; fenceStyle: string }, opts: { locateText: string; photos: Array<{ url: string; caption: string; category: string }> }): Promise<{ html: string; done: boolean } | null> {
   const row = await prisma.sitePlan.findUnique({ where: { jobId: job.id } }).catch(() => null)
   if (!row || row.accountId !== accountId) return null
-  const plan = row.data as any
+  const plan = asSold(row.data as any)
   if (!Array.isArray(plan?.sides) || !plan.sides.length) return null
   const quote = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { layout: true, fenceStyle: true, chosenOption: true, proposal: true } }) : null
   const { posts, sides, m } = await crewPlanFor(accountId, plan, quote as any, job.fenceStyle)
   const warnings = m.propertyLineWarnings(plan, (await sitePlanSettings(accountId)).setbackFt)
-  const svg = m.sitePlanSvg(plan, { width: 900, height: 620, crewPosts: posts, showStart: true, neighbors: false, sideNames: true, fontSize: 13 })
+  // Sized to the fence and house (the lot's lines cut at its edge), shown at its own size on a phone so post numbers read (11 px).
+  const size = m.crewSheetSize(plan, posts, { fontSize: 16 })
+  const svg = m.sitePlanSvg(plan, { width: size.width, height: size.height, scale: size.scale, fit: 'fence', crewPosts: posts, showStart: true, neighbors: false, sideNames: true, fontSize: 16 })
+  // Where Start here is across the drawing (the same frame sitePlanSvg drew it in), for the phone's first scroll.
+  const startPost = plan.posts.find((p: any) => p.id === plan.startPostId)
+  const startX = startPost ? m.planFrame(plan, size.width, size.height, { scale: size.scale, pad: 16 * 5, bottom: 16 * 3.2 + 16 * 2.6, fit: 'fence' }).at(startPost).x : null
+  // Each side as the crew walks it (sitePlanData walkingOrder, the same order the posts are numbered in).
+  const flipOf = new Map(m.walkingOrder(plan).map(w => [w.side.id, w.flip]))
   const ft = (n: number) => m.feetLabel(n)
   const sameSpot = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lng - b.lng) < 1e-9
   const numberAt = (postId: string) => { const p = plan.posts.find((x: any) => x.id === postId); return p ? posts.find(c => sameSpot(c.at, p))?.n ?? null : null }
   const kinds = ['corner', 'end', 'gate', 'tee', 'line'].map(k => ({ k, n: posts.filter(p => p.kind === k).length })).filter(x => x.n)
   const sideRows = sides.map(cs => {
     const side = plan.sides.find((s: any) => s.id === cs.id)
-    const flip = side.b === plan.startPostId && side.a !== plan.startPostId
+    const flip = flipOf.get(cs.id) ?? false
     const from = numberAt(flip ? side.b : side.a), to = numberAt(flip ? side.a : side.b)
     const pieces = cs.pieces.filter(p => p.ft > 0).map(p => `${ft(p.ft)}: ${p.sections} section${p.sections === 1 ? '' : 's'}, posts ${ft(p.spacingFt)} apart`).join('<br>')
     return `<tr data-site-side="${esc(cs.id)}"><td><b>${esc(forCrew(cs.name))}</b></td><td>${esc(ft(cs.ft))}</td><td>${pieces || '-'}</td><td>${from != null && to != null ? `#${from} → #${to}` : ''}</td></tr>`
@@ -195,13 +202,18 @@ export async function installerPlanSection(accountId: string, job: { id: string;
   for (const cs of sides) {
     const side = plan.sides.find((s: any) => s.id === cs.id)
     if (!side?.gates?.length) continue
-    const flip = side.b === plan.startPostId && side.a !== plan.startPostId
+    const flip = flipOf.get(cs.id) ?? false
     const total = cs.ft
     const startNo = numberAt(flip ? side.b : side.a)
     const walked = [...side.gates].map((g: any) => ({ g, at: flip ? total - g.atFt - g.widthFt : g.atFt })).sort((x, y) => x.at - y.at)
-    const gatePosts = posts.filter(p => p.sideId === side.id && p.kind === 'gate')
-    walked.forEach(({ g, at }, i) => {
-      const nums = gatePosts.slice(i * 2, i * 2 + 2).map(p => `#${p.n}`).join(' and ')
+    // Each gate's two posts by where they stand along the side (a gate at a corner hangs on that corner post).
+    const A = plan.posts.find((p: any) => p.id === (flip ? side.b : side.a)), B = plan.posts.find((p: any) => p.id === (flip ? side.a : side.b))
+    const endNo = numberAt(flip ? side.a : side.b)
+    const along = (at: { lat: number; lng: number }) => { const v = m.toFeet(A, B), w = m.toFeet(A, at), l2 = v.x * v.x + v.y * v.y || 1; return (w.x * v.x + w.y * v.y) / l2 }
+    const onSide = [...(startNo != null ? [{ n: startNo, k: 0 }] : []), ...posts.filter(p => p.sideId === side.id).map(p => ({ n: p.n, k: along(p.at) })), ...(endNo != null ? [{ n: endNo, k: 1 }] : [])]
+    const postAt = (ftAlong: number) => { const k = total > 0 ? ftAlong / total : 0; const best = onSide.reduce<{ n: number; d: number } | null>((b, p) => { const d = Math.abs(p.k - k); return !b || d < b.d ? { n: p.n, d } : b }, null); return best && best.d < 0.02 ? best.n : null }
+    walked.forEach(({ g, at }) => {
+      const nums = [postAt(at), postAt(at + g.widthFt)].filter((n): n is number => n != null).map(n => `#${n}`).join(' and ')
       const single = g.type !== 'double'
       gateRows.push(`<li data-site-gate><b>${esc(forCrew(side.name))}: ${esc(ft(g.widthFt))} ${single ? 'single' : 'double'} gate</b>, ${esc(ft(Math.max(0, at)))} from post #${startNo ?? '?'}${nums ? ` (gate posts ${nums})` : ''}. Swings ${g.swing === 'out' ? 'out of the yard' : 'into the yard'}${single ? (g.hinge ? `, hinges on the ${g.hinge} (looking from inside the yard)` : ', hinge side not set: ask the office') : ''}.</li>`)
     })
@@ -209,7 +221,7 @@ export async function installerPlanSection(accountId: string, job: { id: string;
   const notes = forCrew(String(plan.notes || '')).trim()
   const html = `<section data-packet-site-plan${row.doneAt ? '' : ' data-site-plan-unfinished'}><h2>Site plan (installer sheet)</h2>
     ${row.doneAt ? '' : '<p class="unfinished" data-site-plan-not-finished><b>Site plan not finished yet.</b> The office is still drawing it, so it may change. The fence as measured is below.</p>'}
-    <div class="plan siteplan">${svg}</div>
+    <div class="plan siteplan"${startX != null ? ` data-start-x="${Math.round(startX)}"` : ''}>${svg}</div>
     <p class="small">Start at the green circle (Start here) and set the posts in number order. Filled circles: corner, end, gate and tee posts. Open circles: line posts. Feet are the fence as built.</p>
     <p data-site-post-count><b>${posts.length} posts:</b> ${kinds.map(x => `${x.n} ${POST_WORD[x.k].toLowerCase()}`).join(' · ')}</p>
     <table data-site-sides><thead><tr><th>Side</th><th>Feet</th><th>Sections and post spacing</th><th>Posts</th></tr></thead><tbody>${sideRows}</tbody></table>
@@ -605,6 +617,8 @@ packetPublic.get('/:token', async (req, res) => {
   const script = `
   (function(){
     document.getElementById('print').addEventListener('click',function(){window.print()});
+    // A plan wider than the phone opens scrolled to Start here.
+    var sp=document.querySelector('.siteplan[data-start-x]');if(sp&&sp.scrollWidth>sp.clientWidth)sp.scrollLeft=Math.max(0,Number(sp.getAttribute('data-start-x'))-sp.clientWidth/2);
     var tok=${JSON.stringify(String(req.params.token))};
     // An empty date box shows "Not set" (Safari greys in today's date, which reads as filled in); a tap opens the picker.
     ['lcalled','ldate','lexp'].forEach(function(id){var el=document.getElementById(id);if(!el)return;
@@ -793,10 +807,10 @@ h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 
 .media img,.media video{width:100%;max-height:320px;object-fit:cover;display:block;background:#000}.media figcaption{padding:8px;font-size:13px;color:var(--g)}
 .filebtn{display:flex;align-items:center;justify-content:center}
 .unset{color:transparent}.unset::-webkit-datetime-edit{color:transparent}.unset:focus{color:inherit}.unset:focus::-webkit-datetime-edit{color:inherit}.unsethint{display:block;color:#6b7280;margin-top:2px}
-.siteplan svg{max-height:75vh}.postlist{columns:4 7em;font-size:14px;padding-left:2.2em;margin:4px 0}.postlist li{break-inside:avoid}
+.plan.siteplan{overflow-x:auto;-webkit-overflow-scrolling:touch}.plan.siteplan svg{width:auto;max-width:none;height:auto}.postlist{columns:4 7em;font-size:14px;padding-left:2.2em;margin:4px 0}.postlist li{break-inside:avoid}
 .unfinished{background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:10px 12px}
 .warnbox{background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;margin:10px 0}.warnbox ul{margin:4px 0}
 .pinned{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
 @media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}
-[data-packet-site-plan]{break-inside:auto;break-after:page;font-size:12px}[data-packet-site-plan] h2{margin:0 0 4px}.siteplan svg{max-height:5.4in}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
+[data-packet-site-plan]{break-inside:auto;break-before:page;break-after:page;font-size:11px;padding:0}[data-packet-site-plan] h2{margin:0 0 4px}[data-packet-site-plan] h3{margin:6px 0 2px;font-size:12px}[data-packet-site-plan] p{margin:3px 0}.plan.siteplan{overflow:visible}.plan.siteplan svg{width:100%;max-height:4.6in}[data-packet-site-plan] .small{font-size:9px;margin:2px 0}[data-packet-site-plan] ul{margin:2px 0}[data-packet-site-plan] .postlist{line-height:1.15;font-size:9px}[data-packet-site-plan] .unfinished,[data-packet-site-plan] .warnbox{padding:4px 8px}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
 `

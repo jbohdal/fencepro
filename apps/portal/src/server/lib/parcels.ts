@@ -206,7 +206,7 @@ export async function parcelsAt(at: LatLngT, county: string, sources: Record<str
         parcel, neighbors, source: sourceName(s),
         note: parcel
           ? `Property lines: ${sourceName(s)}. Approximate, from county records, not a survey.`
-          : `No property was found at this spot in the ${sourceName(s)} records. Move the plan onto the house, or go on without property lines.`,
+          : `No property was found at this spot in ${name} County's records (${sourceName(s)}). Move the plan onto the house, or go on without property lines.`,
       }
       if (cache.size > 500) cache.delete(cache.keys().next().value as string)
       cache.set(key, { at: now, answer })
@@ -216,5 +216,5 @@ export async function parcelsAt(at: LatLngT, county: string, sources: Record<str
       console.warn('[parcels]', failed[failed.length - 1])
     }
   }
-  return { parcel: null, neighbors: [], source: '', note: `The county's property records could not be reached (${failed.join('; ')}). Try again in a few minutes; the plan works without property lines.` }
+  return { parcel: null, neighbors: [], source: '', note: `${name} County's property records could not be reached (${failed.join('; ')}). Try again in a few minutes; the plan works without property lines.` }
 }

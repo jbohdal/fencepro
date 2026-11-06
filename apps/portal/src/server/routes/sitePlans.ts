@@ -30,13 +30,14 @@ import { plainZod } from '../lib/plainZod.js'
 import { roleOf } from '../lib/permissions.js'
 import {
   planAccess, planPayload, planSchemaFor, savePlan, markDone, reopen, nameOf, PlanConflict, surveyFileOf, surveyUrl, planDir,
-  SURVEY_FILE, editsPlans, sitePlanSettings, siteModule, chosenStyleOf,
+  SURVEY_FILE, editsPlans, sitePlanSettings, siteModule, chosenStyleOf, asSold,
 } from '../lib/sitePlans.js'
 import { parcelsAt } from '../lib/parcels.js'
 import { renderPermitSheet } from '../lib/sitePlanSheet.js'
 import { contractorOf } from '../lib/automations/permits.js'
 import { plainStyleName } from '../lib/estimates.js'
-import { floridaDay, countyOf } from '../lib/automations/context.js'
+import { floridaDay } from '../lib/automations/context.js'
+import { countyAt, jobCounty } from '../lib/county.js'
 import { usDate } from '../lib/installDays.js'
 import { tiles } from './aerialTiles.js'
 
@@ -70,6 +71,17 @@ sitePlanRoutes.put('/:jobId', express.json({ limit: '6mb' }), async (req: any, r
     const plan = planSchemaFor(a.job.id).parse(body.plan)
     const accountId = req.user.crmAccountId
     if (plan.survey && !surveyFileOf(accountId, a.job.id, plan.survey.url)) { res.status(400).json({ success: false, error: 'The survey picture is not on this job any more. Upload it again.' }); return }
+    // A change waiting on the plan waits on a change order of this job that is still open (a draft, sent, or waiting for the OK).
+    if (plan.pending?.length) {
+      const ids = [...new Set(plan.pending.map(p => p.coId))]
+      const cos = a.job.quoteId ? await prisma.changeOrder.findMany({ where: { id: { in: ids }, accountId, quoteId: a.job.quoteId, deletedAt: null }, select: { id: true, number: true, status: true } }) : []
+      const bad = ids.map(id => ({ id, co: cos.find(c => c.id === id) })).find(x => !x.co || x.co.status === 'approved' || x.co.status === 'void')
+      if (bad) {
+        const n = bad.co ? `CO-${bad.co.number}` : 'A change order'
+        res.status(400).json({ success: false, error: !bad.co ? 'A change waiting on the plan is for a change order that is not on this job. Open the plan again.' : `${n} is already ${bad.co.status === 'void' ? 'voided' : 'approved'}. Open the plan again: its change is ${bad.co.status === 'void' ? 'off' : 'on'} the plan now.` })
+        return
+      }
+    }
     try {
       const out = await savePlan(accountId, a.job, plan, body.baseRevision, await nameOf(req), body.note ?? '')
       res.json({ success: true, data: out })
@@ -206,7 +218,7 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     const accountId = req.user.crmAccountId
     const row = await prisma.sitePlan.findUnique({ where: { jobId: a.job.id } })
     if (!row || row.accountId !== accountId) { res.status(409).json({ success: false, error: 'Save the plan first.' }); return }
-    const plan = row.data as any
+    const plan = asSold(row.data as any)
     if (!plan?.sides?.length) { res.status(409).json({ success: false, error: 'Draw the fence on the plan first.' }); return }
     const [rev, quote, permit, company, m] = await Promise.all([
       prisma.sitePlanRevision.findFirst({ where: { planId: row.id, revision: row.revision }, select: { by: true } }),
@@ -221,7 +233,7 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
       date: usDate(floridaDay(new Date())),
       company: { name: company.name, address: company.address, phone: company.phone },
       customerName: a.job.customerName, address: a.job.customerAddress,
-      county: countyOf(a.job.customerAddress, permit?.county) || permit?.county || 'Marion',
+      county: await jobCounty(a.job, plan.origin ?? null, permit?.county),
       parcelId: plan.parcel?.id || permit?.parcelId || '',
       fenceText: (await plainStyleName(style)) || style,
       aerial: b.aerial ? async (z, x, y) => (await tiles.naip(z, x, y)).body : null,
@@ -229,6 +241,9 @@ sitePlanRoutes.post('/:jobId/permit-sheet', express.json({ limit: '8kb' }), asyn
     const file = path.join(planDir(accountId, a.job.id), `permit-sheet-r${row.revision}-${Date.now()}.pdf`)
     fs.writeFileSync(file, pdf)
     await prisma.sitePlan.update({ where: { id: row.id }, data: { permitPdfPath: file } })
+    // Only the latest sheet is kept: the one before it goes (only a file in this job's own plan folder).
+    const was = row.permitPdfPath
+    if (was && was !== file && path.dirname(was) === path.dirname(file)) fs.rmSync(was, { force: true })
     res.json({ success: true, data: { url: `/api/site-plans/${encodeURIComponent(a.job.id)}/permit-sheet.pdf`, ...(note ? { note } : {}) } })
   } catch (err) {
     if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: plainZod(err) }); return }
@@ -258,6 +273,8 @@ parcelRoutes.get('/', async (req: any, res) => {
     const lat = Number(req.query.lat), lng = Number(req.query.lng)
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) { res.status(400).json({ success: false, error: 'Give a spot on the map (lat and lng).' }); return }
     const s = await sitePlanSettings(req.user.crmAccountId)
-    res.json({ success: true, data: await parcelsAt({ lat, lng }, String(req.query.county || 'Marion').slice(0, 60), s.parcelSources) })
+    // The county the spot is in (a Leesburg job is Lake, whatever was sent); the county sent only when that cannot be told.
+    const county = (await countyAt(lat, lng)) || String(req.query.county || '').slice(0, 60) || 'Marion'
+    res.json({ success: true, data: { ...(await parcelsAt({ lat, lng }, county, s.parcelSources)), county } })
   } catch (err) { fail(res, err, 'look up the property lines') }
 })

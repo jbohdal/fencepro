@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from 'vitest'
 import { planFromYard, crewPosts, sectionsAt, builtFt, propertyLineWarnings, quoteSectionsOf, planFlags, openFlags, fromFeet, type SitePlanData } from '../../web/src/sitePlanData'
-import { sitePlanSvg, planFrame, planExtent, gateLeaves, insideOf, feetLabel } from '../../web/src/sitePlanSvg'
+import { sitePlanSvg, planFrame, planExtent, gateLeaves, insideOf, feetLabel, crewSheetSize } from '../../web/src/sitePlanSvg'
 import { walkToYard, type WalkList } from '../../web/src/walkList'
 import { renderPermitSheet, streetOf, sheetScale } from '../src/server/lib/sitePlanSheet'
 import { pdfText } from './pdfText'
@@ -99,6 +99,33 @@ describe('the permit sheet', () => {
     expect(pdf.toString('latin1')).toMatch(/\/MediaBox \[0 0 1224 792\]/)
     expect(note).toMatch(/aerial photo could not be loaded/)
     expect(pdfText(pdf)).toContain('the sheet was made without it')
+  })
+
+  test('a wheel number kept: the side shows its quoted feet with a *, and the sheet says why; labels and legend on white boxes', async () => {
+    const kept: SitePlanData = JSON.parse(JSON.stringify(plan))
+    const s = kept.sides[2]
+    kept.answers[`len:${s.id}`] = { kind: 'keep', note: 'Wheel checked twice', by: 'Olive', at: '2026-11-06' }
+    const svg = sitePlanSvg(kept, { width: 800, height: 600 })
+    expect(svg).toContain(`>${feetLabel(s.quotedFt!)}*<`)
+    expect(svg).toContain('* feet as quoted')
+    expect(svg).toContain('fill="#ffffff" fill-opacity="0.85"')
+    const { pdf } = await renderPermitSheet(m, { ...input('letter'), plan: kept })
+    const text = pdfText(pdf)
+    expect(text).toContain(`${feetLabel(s.quotedFt!)}*`)
+    expect(text).toContain('* Measured on site with a wheel; drawn to the map.')
+    // No company address in Settings: no address line, not a blank one.
+    const { pdf: none } = await renderPermitSheet(m, { ...input('letter'), company: { name: 'Getter Done Fence', address: '', phone: '3528442677' } })
+    expect(pdfText(none)).not.toContain('123 Main St')
+  })
+
+  test('the crew\'s sheet: sized to the fence, not the lot; posts never touch; at least phone width', () => {
+    const { posts } = crewPosts(plan, (_s, f) => sectionsAt(f, 8))
+    const size = crewSheetSize(plan, posts, { fontSize: 16 })
+    expect(size.width).toBeGreaterThanOrEqual(360)
+    // Two posts 8 ft apart at least two circles (11.5 radius) and a gap apart.
+    expect(8 * size.scale).toBeGreaterThanOrEqual(2 * 16 * 0.72 + 3)
+    const big: SitePlanData = { ...plan, parcel: { ...plan.parcel!, rings: [[-2000, 2000].flatMap(x => [-2000, 2000].map(y => fromFeet(OCALA, { x, y })))] } }
+    expect(planExtent(big, 'fence')).toEqual(planExtent(plan, 'fence'))
   })
 
   test('the street from the address; the round scale that fits', () => {

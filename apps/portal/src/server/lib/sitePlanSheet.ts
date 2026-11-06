@@ -57,6 +57,8 @@ export async function renderPermitSheet(m: SiteModule, p: SheetInput): Promise<{
   const done = new Promise<Buffer>((resolve, reject) => { doc.on('end', () => resolve(Buffer.concat(chunks))); doc.on('error', reject) })
 
   const W = doc.page.width, H = doc.page.height, M = 24
+  // A white page (some viewers show an unpainted page dark).
+  doc.rect(0, 0, W, H).fill('#ffffff')
   const tbW = big ? 270 : 200
   const box = { x: M, y: M, w: W - 2 * M - tbW - 12, h: H - 2 * M }
   const fs = big ? 9 : 7.5
@@ -122,6 +124,9 @@ export async function renderPermitSheet(m: SiteModule, p: SheetInput): Promise<{
   rule()
   doc.font('Helvetica-Bold').fontSize(fs + 0.5).fillColor('#991B1B').text('Approximate property lines from county records, not a survey.', inner, y, { width: iw })
   y = doc.y + 4
+  // A side whose wheel number was kept is labeled with its quoted feet and a * (lib/sitePlans.ts; sitePlanSvg).
+  const kept = p.plan.sides.some((s: any) => s.quotedFt != null && p.plan.answers?.[`len:${s.id}`]?.kind === 'keep')
+  if (kept) { doc.font('Helvetica-Bold').fontSize(fs + 0.5).fillColor('#111827').text('* Measured on site with a wheel; drawn to the map.', inner, y, { width: iw }); y = doc.y + 4 }
   const credits = [p.plan.parcel?.source ? `Property lines: ${p.plan.parcel.source}.` : 'No property line was found for this lot.', p.aerial && !note ? `Aerial photo: ${NAIP_CREDIT}.` : '', note].filter(Boolean)
   doc.font('Helvetica').fontSize(fs).fillColor('#6B7280').text(credits.join(' '), inner, y, { width: iw })
   doc.end()

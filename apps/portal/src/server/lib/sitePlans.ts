@@ -23,7 +23,7 @@ import prisma from './prisma.js'
 import { pricingModule } from './estimates.js'
 import { can, roleOf } from './permissions.js'
 import { isSalesman, salesScopeOf, idInSalesScope } from './salesScope.js'
-import { countyOf } from './automations/context.js'
+import { jobCounty } from './county.js'
 import { mediaDir } from './media.js'
 import { isUniqueViolation } from './once.js'
 import { parcelSourcesOf, type ParcelSource } from './parcels.js'
@@ -43,10 +43,14 @@ export interface SiteModule {
   quoteSectionsOf(plan: SitePlanData, yard: unknown, runSections: unknown, widthFt: number): (sideId: string, pieceFt: number) => number
   sitePlanSvg(plan: SitePlanData, o: Record<string, unknown>): string
   planFrame(plan: SitePlanData, W: number, H: number, o?: Record<string, unknown>): { W: number; H: number; scale: number; at: (p: LatLng) => { x: number; y: number } }
-  planExtent(plan: SitePlanData): { minX: number; maxX: number; minY: number; maxY: number }
+  planExtent(plan: SitePlanData, fit?: "all" | "fence"): { minX: number; maxX: number; minY: number; maxY: number }
+  crewSheetSize(plan: SitePlanData, posts: CrewPostT[], o: { fontSize: number; minWidth?: number; maxWidth?: number }): { width: number; height: number; scale: number }
   gateLeaves(plan: SitePlanData, side: any, g: any): Array<{ hingeFt: number; towardFt: number }>
   feetLabel(ft: number): string
   changeOrderSectionWidthFor(data: unknown, fenceStyle: string): number
+  applyChange(plan: SitePlanData, c: unknown): SitePlanData
+  walkingOrder(plan: SitePlanData): Array<{ side: any; flip: boolean }>
+  toFeet(origin: LatLng, at: LatLng): { x: number; y: number }
 }
 export const siteModule = async () => (await pricingModule()) as unknown as SiteModule
 
@@ -136,7 +140,8 @@ export function planSchemaFor(jobId: string) {
   }).strict()
   return z.object({
     v: z.literal(1),
-    origin: latLng,
+    // An older tab sends origin.source too: taken and dropped.
+    origin: z.object({ lat: latLng.shape.lat, lng: latLng.shape.lng, source: z.string().max(200).optional() }).strict().transform(o => ({ lat: o.lat, lng: o.lng })),
     posts: z.array(latLng.extend({ id })).max(3000),
     sides: z.array(side).max(500),
     house: z.array(ring(1000)).max(20),
@@ -147,7 +152,17 @@ export function planSchemaFor(jobId: string) {
     survey: survey.nullable(),
     answers: z.record(z.string().max(120), answer).refine(a => Object.keys(a).length <= 1000, 'Too many answers.'),
     permitAerial: z.boolean().optional(),
+    pending: z.array(z.object({
+      id, coId: id, coNumber: z.number().int().min(0).max(100_000).nullable(),
+      kind: z.enum(['gate', 'longer']), sideId: id, gate: gate.optional(), newFt: z.number().finite().gt(0).max(100_000).optional(),
+      by: z.string().max(200), at: z.string().max(40),
+    }).strict()).max(100).optional(),
   }).strict().superRefine((p, ctx) => {
+    for (const c of p.pending ?? []) {
+      if (!p.sides.some(s => s.id === c.sideId)) ctx.addIssue({ code: 'custom', message: 'A change order waiting on the plan is on a side that is not in the plan.' })
+      if (c.kind === 'gate' && !c.gate) ctx.addIssue({ code: 'custom', message: 'A change order\'s gate is missing its width and place.' })
+      if (c.kind === 'longer' && !c.newFt) ctx.addIssue({ code: 'custom', message: 'A change order\'s longer side is missing its new feet.' })
+    }
     const posts = new Set<string>()
     for (const q of p.posts) { if (posts.has(q.id)) ctx.addIssue({ code: 'custom', message: `Post ${q.id} is in the plan twice.` }); posts.add(q.id) }
     const sides = new Set<string>()
@@ -180,6 +195,8 @@ export const isSignedQuote = (q: { status?: string | null; acceptedAt?: Date | n
 
 /** GET /api/site-plans/:jobId */
 export async function planPayload(accountId: string, job: any, canEdit: boolean) {
+  // A change order approved, signed or voided since: its waiting change put on the plan or taken off first.
+  if (job.quoteId) await reconcilePlanChanges(accountId, job.quoteId).catch(err => console.error('[site-plans] change orders:', err))
   const [row, quote, settings, permit] = await Promise.all([
     prisma.sitePlan.findUnique({ where: { jobId: job.id } }),
     job.quoteId ? prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { id: true, status: true, acceptedAt: true, soldAt: true, layout: true } }) : null,
@@ -196,7 +213,7 @@ export async function planPayload(accountId: string, job: any, canEdit: boolean)
     revisions,
     job: {
       id: job.id, quoteId: job.quoteId ?? null, address: job.customerAddress, customerName: job.customerName,
-      county: countyOf(job.customerAddress, permit?.county) || permit?.county || 'Marion',
+      county: await jobCounty(job, row ? (row.data as any)?.origin ?? null : null, permit?.county),
       lat: typeof job.lat === 'number' ? job.lat : null, lng: typeof job.lng === 'number' ? job.lng : null,
     },
     quote: quote ? { id: quote.id, status: quote.status, signed: isSignedQuote(quote), layout: quote.layout ?? null } : null,
@@ -255,7 +272,7 @@ export async function markDone(accountId: string, job: { id: string; quoteId: st
   if (!row || row.accountId !== accountId) return { ok: false, status: 409, error: 'Save the plan first.' }
   if (row.revision !== revision) return { ok: false, status: 409, error: 'Someone else saved this plan since you opened it.' }
   const quote = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { id: true, layout: true } }) : null
-  const open = await openFlagsOf(accountId, row.data, quote?.layout)
+  const open = await openFlagsOf(accountId, asSold(row.data), quote?.layout)
   if (open.length) return { ok: false, status: 409, error: 'Answer every flag first.', open }
   const doneAt = new Date()
   await prisma.$transaction(async tx => {
@@ -292,7 +309,7 @@ export async function customerPlanSvg(q: { id: string; accountId: string; status
   const job = await prisma.savedJob.findFirst({ where: { id: row.jobId, deletedAt: null }, select: { id: true } }).catch(() => null)
   if (!job) return ''
   const m = await siteModule()
-  return m.sitePlanSvg(row.data, { width: 760, height: 560, propertyLine: true, neighbors: false })
+  return m.sitePlanSvg(asSold(row.data), { width: 760, height: 560, propertyLine: true, neighbors: false })
 }
 
 /** The width each crew section is spaced at when the quote's own count does not match a piece: the style's section width (chain link at most 10 ft). */
@@ -320,4 +337,64 @@ export function chosenStyleOf(q: { fenceStyle?: string | null; chosenOption?: nu
   if (!q) return ''
   const opt = q.proposal && q.chosenOption != null ? q.proposal?.options?.[q.chosenOption] : null
   return String(opt?.fenceStyle || q.fenceStyle || '')
+}
+
+// ── Change orders from the plan ──────────────────────────────────────────────
+
+/** The plan as built and sold: a change order still waiting (pending) is never on the crew's or permit sheet or the customer's pages. */
+export function asSold(plan: SitePlanData): SitePlanData {
+  if (!plan || typeof plan !== 'object') return plan
+  const { pending: _p, ...rest } = plan as any
+  return rest
+}
+
+/** "added a 4 ft single gate on Back", "Back made 130 ft". */
+function changeWords(plan: SitePlanData, c: any): string {
+  const side = plan.sides?.find((s: any) => s.id === c.sideId)?.name || 'a side'
+  if (c.kind === 'gate' && c.gate) return `added a ${Math.round(c.gate.widthFt * 10) / 10} ft ${c.gate.type === 'double' ? 'double' : 'single'} gate on ${side}`
+  return `${side} made ${Math.round((c.newFt ?? 0) * 10) / 10} ft`
+}
+
+/**
+ * The plan's waiting changes against their change orders: each one approved
+ * (or signed) is put on the plan with applyChange, each voided or removed is
+ * taken off; a new revision for each change order (by who approved it, or
+ * "Customer signed"; note "Change order CO-n: ..."). Called when a change
+ * order is approved, signed or voided (lib/changeOrders.ts) and when the plan
+ * is opened. Returns how many revisions were written.
+ */
+export async function reconcilePlanChanges(accountId: string, quoteId: string, db: any = prisma): Promise<number> {
+  const job = await db.savedJob.findFirst({ where: { accountId, quoteId, deletedAt: null }, select: { id: true } })
+  if (!job) return 0
+  const row = await db.sitePlan.findUnique({ where: { jobId: job.id } })
+  if (!row || row.accountId !== accountId) return 0
+  const pending: any[] = Array.isArray((row.data as any)?.pending) ? (row.data as any).pending : []
+  if (!pending.length) return 0
+  const coIds = [...new Set(pending.map(p => String(p.coId)))]
+  const cos = await db.changeOrder.findMany({ where: { id: { in: coIds } }, select: { id: true, accountId: true, quoteId: true, number: true, status: true, deletedAt: true, approvedBy: true, signedAt: true } })
+  const m = await siteModule()
+  let plan: SitePlanData = row.data
+  let rev = row.revision
+  const writes: Array<{ revision: number; data: SitePlanData; by: string; note: string }> = []
+  for (const coId of coIds) {
+    const co = cos.find((c: any) => c.id === coId && c.accountId === accountId && c.quoteId === quoteId)
+    const mine = (plan.pending ?? []).filter((p: any) => p.coId === coId)
+    if (!mine.length) continue
+    const n = co?.number ?? mine[0].coNumber ?? '?'
+    if (co && !co.deletedAt && co.status === 'approved') {
+      const words = mine.map((c: any) => changeWords(plan, c)).join('; ')
+      for (const c of mine) plan = m.applyChange(plan, c)
+      writes.push({ revision: ++rev, data: plan, by: co.signedAt ? 'Customer signed' : (co.approvedBy || 'Office'), note: `Change order CO-${n}: ${words}` })
+    } else if (!co || co.deletedAt || co.status === 'void') {
+      plan = { ...plan, pending: (plan.pending ?? []).filter((p: any) => p.coId !== coId) }
+      writes.push({ revision: ++rev, data: plan, by: 'Office', note: `Change order CO-${n}: ${co && !co.deletedAt ? 'voided' : 'removed'}, its change taken off the plan` })
+    }
+  }
+  if (!writes.length) return 0
+  if (!(plan.pending ?? []).length) plan = asSold(plan)
+  const done = await db.sitePlan.updateMany({ where: { id: row.id, revision: row.revision }, data: { revision: rev, data: plan } })
+  // Saved by someone else at this very moment: the next open of the plan puts it right.
+  if (done.count !== 1) return 0
+  for (const w of writes) await db.sitePlanRevision.create({ data: { planId: row.id, revision: w.revision, data: w.data, by: w.by, note: w.note.slice(0, 500) } })
+  return writes.length
 }
