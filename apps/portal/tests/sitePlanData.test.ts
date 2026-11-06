@@ -200,4 +200,11 @@ describe('review fixes (Nov 6 2026)', () => {
     const y = walkToYard(w), p = planFromYard(y, OCALA, w)!
     expect(planFlags(p, y).map(f => f.key)).not.toContain('closed')
   })
+
+  test('a fence walked to an end post that lands on its start stays open (no closing question)', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'e', steps: [step(30, 'corner', { turn: 'right' }), step(100, 'corner', { turn: 'right' }), step(60, 'corner', { turn: 'right' }), step(100, 'corner', { turn: 'right' }), step(30, 'end')] }] }
+    const y = walkToYard(w), p = planFromYard(y, OCALA, w)!
+    expect(p.posts.length).toBe(6)
+    expect(planFlags(p, y).map(f => f.key)).not.toContain('closed')
+  })
 })

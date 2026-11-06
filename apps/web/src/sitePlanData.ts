@@ -49,7 +49,14 @@ export interface SiteSide {
   teeFrom?: string | null
 }
 /** How a flag was answered: the quote's feet kept (with a note) or the drawn feet used (repriced through the quote). */
-export interface FlagAnswer { kind: 'keep' | 'drawn'; note: string; by: string; at: string }
+export interface FlagAnswer {
+  kind: 'keep' | 'drawn'
+  note: string
+  by: string
+  at: string
+  /** "Use the drawn length" through a change order: the answer counts once that change order is signed or approved (the server checks), and goes with it when it is voided. */
+  coId?: string | null
+}
 export interface SiteParcel {
   /** The county's parcel number. */
   id: string
@@ -187,6 +194,8 @@ export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkLis
     toGround = p => ({ x: p.x - mx, y: p.y - my })
   }
   const posts: SitePost[] = []
+  const lineStart = new Map<string, string>(), lineEnd = new Map<string, string>()
+  const newPost = (p: { x: number; y: number }): string => { const id = planId('p'); posts.push({ id, ...fromFeet(origin, toGround(p)) }); return id }
   const postAt = (p: { x: number; y: number }): string => {
     const g = toGround(p)
     const near = posts.find(q => { const f = toFeet(origin, q); return Math.hypot(f.x - g.x, f.y - g.y) < 0.25 })
@@ -200,7 +209,17 @@ export function planFromYard(yard: YardLayout, at: LatLng | null, walk?: WalkLis
     const ys = yard.sides.find(s => s.id === ps.sideId)
     if (!ys || ys.on === false || ps.placeholder) continue
     const walked = !aerial ? ends?.get(ys.id) : undefined
-    const a = postAt(walked?.a ?? ps.a), b = postAt(walked?.b ?? ps.b)
+    let a: string, b: string
+    if (walked) {
+      // A walked side's posts are joined as the fence was walked, never by where they land: the side starts on the
+      // last side's end post of its line (a branch on its tee), and only "back to start" ends on the line's first
+      // post (a fence walked to an end post that happens to land on its start stays open).
+      const line = ys.id.slice(1, ys.id.lastIndexOf('_'))
+      a = lineEnd.get(line) ?? newPost(walked.a)
+      if (!lineStart.has(line)) lineStart.set(line, a)
+      b = ys.joinsSideId ? lineStart.get(line)! : newPost(walked.b)
+      lineEnd.set(line, b)
+    } else { a = postAt(ps.a); b = postAt(ps.b) }
     const len = Math.hypot(ps.b.x - ps.a.x, ps.b.y - ps.a.y) || 1
     const along = (p: { x: number; y: number }) => ((p.x - ps.a.x) * (ps.b.x - ps.a.x) + (p.y - ps.a.y) * (ps.b.y - ps.a.y)) / len
     const placed = ps.gates ?? (ps.gate ? [ps.gate] : [])
