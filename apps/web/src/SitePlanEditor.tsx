@@ -17,8 +17,8 @@ import { Undo2, Redo2, ZoomIn, ZoomOut, Maximize2, X } from 'lucide-react'
 import { autoTile, tileXY, AERIAL_MAX_ZOOM } from './aerialTiles'
 import { mercatorFtPerPx } from './sitePlanPhoto'
 import {
-  toFeet, fromFeet, drawnFt, planFlags, openFlags, propertyLineWarnings, postOf, DEFAULT_FLAG_SETTINGS,
-  type LatLng, type SitePlanData, type SiteSide, type SiteGate, type PlanFlag, type FlagAnswer,
+  toFeet, fromFeet, drawnFt, planFlags, openFlags, propertyLineWarnings, postOf, withPending, planId, DEFAULT_FLAG_SETTINGS,
+  type LatLng, type SitePlanData, type SiteSide, type SiteGate, type PlanFlag, type FlagAnswer, type PendingChange,
 } from './sitePlanData'
 import {
   historyOf, historyPush, historyReplace, historyUndo, historyRedo, movePost, setSideLength, snapSquare, snapEdges, snapToEdges,
@@ -32,6 +32,7 @@ import type { WalkList } from './walkList'
 import type { YardLayout } from './yardLayout'
 import { whenSaved } from './outbox'
 import { refreshQuotes } from './quoteStore'
+import { refreshJobs } from './jobStore'
 import { currentUser } from './crmAuth'
 import { useBackLayer, useLeaveWarning } from './nav'
 import { toast } from './toast'
@@ -79,6 +80,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   const quoteYard = useMemo(() => quoteYardOf(rec.quote?.layout ?? null), [rec.quote?.layout])
   const flags = useMemo(() => planFlags(plan, quoteYard, settings), [plan, quoteYard, settings.tolFt, settings.tolPct])  // eslint-disable-line react-hooks/exhaustive-deps
   const open = openFlags(plan, flags)
+  const openKeys = new Set(open.map(f => f.key))
   const lineWarnings = useMemo(() => propertyLineWarnings(plan, rec.settings.setbackFt || 0), [plan, rec.settings.setbackFt])
   const edges = useMemo(() => snapEdges(plan), [plan])
 
@@ -103,13 +105,15 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   const [view, setView] = useState({ cx: 0, cy: 0, k: 3 })
   const [linesShown, setLinesShown] = useState(true)
   const fit = useCallback(() => {
-    const pts = [...plan.posts, ...plan.house.flat(), ...(linesShown ? plan.parcel?.rings.flat() ?? [] : [])].map(p => toFeet(plan.origin, p))
+    // The fence (its posts, so its gates too) and the house, with room around: never the whole parcel.
+    const pts = [...withPending(plan).posts, ...plan.house.flat()].map(p => toFeet(plan.origin, p))
     if (!pts.length) { setView({ cx: 0, cy: 0, k: 3 }); return }
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
     const w = Math.max(40, Math.max(...xs) - Math.min(...xs)), h = Math.max(40, Math.max(...ys) - Math.min(...ys))
-    const k = Math.min(30, Math.max(0.4, Math.min((size.w - 140) / w, (size.h - 140) / h)))
+    const pad = Math.min(140, size.w * 0.15, size.h * 0.15) * 2
+    const k = Math.min(30, Math.max(0.4, Math.min((size.w - pad) / w, (size.h - pad) / h)))
     setView({ cx: (Math.min(...xs) + Math.max(...xs)) / 2, cy: (Math.min(...ys) + Math.max(...ys)) / 2, k })
-  }, [plan, size.w, size.h, linesShown])
+  }, [plan, size.w, size.h])
   const fitted = useRef(false)
   useEffect(() => { if (!fitted.current && size.w > 100) { fitted.current = true; fit() } }, [fit, size.w])
   const toScreen = (f: Pt): Pt => ({ x: size.w / 2 + (f.x - view.cx) * view.k, y: size.h / 2 - (f.y - view.cy) * view.k })
@@ -346,7 +350,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     }
     if (r.status === 409) {
       const cur = r.json?.current ?? null
-      const last = (cur?.revisions as SitePlanRecord['revisions'] | undefined)?.slice(-1)[0]
+      const last = [...((cur?.revisions as SitePlanRecord['revisions'] | undefined) ?? [])].sort((x, y) => y.revision - x.revision)[0]
       setConflict({ plan: cur?.plan ?? (cur?.posts ? cur : null), revision: Number(cur?.revision ?? 0), by: last?.by, at: last?.at ?? cur?.updatedAt, error: r.error })
       return false
     }
@@ -360,11 +364,16 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     setConflict(null)
     void reload().then(r => { if (r.ok && r.data.plan) { setHist(historyOf(r.data.plan)); setSavedJson(JSON.stringify(r.data.plan)) } })
   }
+  /** "Site plan needed" on the job window and the board follows the done mark at once (the quote's layout.planDone). */
+  async function afterDone() {
+    await refreshQuotes()
+    await refreshJobs()
+  }
   async function markDone() {
     setBusy('done')
     const r = await markSitePlanDone(jobId, rec.revision)
     setBusy('')
-    if (r.ok) { setDoneRefused(null); await reload(); void refreshQuotes(); toast.success('Plan marked done', 'Site plan needed is off for this job.'); return }
+    if (r.ok) { setDoneRefused(null); await reload(); await afterDone(); toast.success('Plan marked done', 'Site plan needed is off for this job.'); return }
     if (r.status === 409 && Array.isArray(r.json?.open)) { setDoneRefused(r.json.open.map(String)); return }
     toast.error('Not marked done', r.error)
   }
@@ -372,13 +381,14 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     setBusy('done')
     const r = await reopenSitePlan(jobId)
     setBusy('')
-    if (r.ok) { await reload(); void refreshQuotes(); toast.info('Plan reopened', 'Site plan needed is on again until it is marked done.'); return }
+    if (r.ok) { await reload(); await afterDone(); toast.info('Plan reopened', 'Site plan needed is on again until it is marked done.'); return }
     toast.error('Not reopened', r.error)
   }
   const doneWhy = !canEdit ? 'Your login reads the plan only.' : dirty ? 'Save the plan first.' : open.length ? `Answer the ${open.length} question${open.length === 1 ? '' : 's'} under Quoted against drawn first.` : rec.revision < 1 ? 'Save the plan first.' : ''
 
   // ── Answers and changes through the quote builder ──
   const [away, setAway] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [waiting, setWaiting] = useState('')
   const [keepNote, setKeepNote] = useState<Record<string, string>>({})
   const answer = (key: string, a: Omit<FlagAnswer, 'by' | 'at'>) => push(p => ({ ...p, answers: { ...p.answers, [key]: { ...a, by: myName(), at: new Date().toISOString() } } }))
@@ -388,12 +398,12 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   recRef.current = rec
 
   /** Open the builder for a change; `done` runs once the server has the saved quote or the change order. */
-  async function throughBuilder(title: string, edit: PlanQuoteChange['edit'], done: (how: { quote?: boolean; co?: ChangeOrder }) => SitePlanData | null, check?: (layout: unknown) => boolean) {
+  async function throughBuilder(title: string, edit: PlanQuoteChange['edit'], done: (how: { quote?: boolean; co?: ChangeOrder }) => SitePlanData | null, check?: (layout: unknown) => boolean, reason?: string) {
     const quoteId = rec.quote?.id
     if (!quoteId) { toast.error('No quote', 'This job has no quote to change.'); return }
     let saved: { quote?: { id: string }; changeOrder?: ChangeOrder } | null = null
     const change: PlanQuoteChange = {
-      title, edit,
+      title, edit, reason: reason ?? `From the site plan: ${title}.`,
       onSaved: r => { saved = r },
       onClosed: () => {
         setAway(false)
@@ -443,7 +453,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
       }, layout => quoteSideFeetIs(layout, side, drawnIn))
       return
     }
-    // A count (sides, gates, tees, closes): the office makes the quote match in the builder.
+    // A count (sides, gates, tees, closes): the office makes the quote match the plan in the builder.
     void throughBuilder(`make the quote match the plan. ${f.text}`, null, how => {
       const p = planRef.current
       const note = how.co ? `Change order CO-${how.co.number}` : 'Quote changed to match the plan'
@@ -451,36 +461,34 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     })
   }
 
-  /** A change order from the plan (signed job): a gate here, or this side longer; the plan follows once it is made. */
+  /**
+   * A change order from the plan (signed job): a gate here, or this side longer. The builder opens on the job as it is
+   * now (every change order before this one in it) with this change put on its walk list or drawing; its own Make
+   * change order makes the change order. The plan's posts and gates do not change: the change waits on the plan
+   * (pending, drawn dashed) until the change order is signed or approved, and goes when it is voided (the server).
+   */
   function coGate(side: SiteSide, g: GateInput) {
-    const where = gatePlace(plan, side, g)
+    const shown = withPending(plan), sideNow = shown.sides.find(x => x.id === side.id) ?? side
+    const where = gatePlace(shown, sideNow, g)
     if ('error' in where) { toast.error('Gate not placed', where.error); return }
-    const quotedLen = side.quotedFt ?? drawnFt(plan, side)
+    const quotedLen = sideNow.quotedFt ?? drawnFt(shown, sideNow)
     const atIn = Math.round((g.fromEnd === 'a' ? g.distFt : quotedLen - g.distFt - g.widthFt) * 12)
-    const words = `a ${ft1(g.widthFt)} ${g.type === 'double' ? 'double' : 'single'} gate on ${side.name}`
-    const flagsBefore = new Set(flags.map(x => x.key))
-    void throughBuilder(`add ${words}`, gateEdit(side, atIn, { widthIn: g.widthFt * 12, type: g.type, swing: g.swing, hinge: g.hinge }), how => {
-      const r = addGate(planRef.current, side.id, g)
-      if ('error' in r) { toast.error('The plan was not changed', `${r.error} The change order was made; add the gate on the plan by hand.`); return null }
-      return answerNewCounts(r, flagsBefore, how)
-    })
+    const what = `add a ${ft1(g.widthFt)} ${g.type === 'double' ? 'double' : 'single'} gate in ${side.name}, ${ft1(g.distFt)} from the corner at its ${g.fromEnd === 'a' ? 'start' : 'end'}`
+    const gate: SiteGate = { id: planId('g'), atFt: where.atFt, widthFt: g.widthFt, type: g.type, swing: g.swing, hinge: g.type === 'double' ? null : g.hinge ?? 'left' }
+    void throughBuilder(what, gateEdit(side, atIn, { widthIn: g.widthFt * 12, type: g.type, swing: g.swing, hinge: g.hinge }), how => {
+      if (!how.co) return null
+      return withPendingChange(planRef.current, { id: planId('c'), coId: how.co.id, coNumber: how.co.number ?? null, kind: 'gate', sideId: side.id, gate, by: myName(), at: new Date().toISOString() })
+    }, undefined, `From the site plan: ${what}.`)
   }
   function coLonger(side: SiteSide, feet: number) {
-    const now = side.quotedFt ?? drawnFt(plan, side)
+    const shown = withPending(plan), sideNow = shown.sides.find(x => x.id === side.id) ?? side
+    const now = sideNow.quotedFt ?? drawnFt(shown, sideNow)
     if (!(feet > now)) { toast.error('Not longer', `Type more than ${ft1(now)}.`); return }
-    const flagsBefore = new Set(flags.map(x => x.key))
-    void throughBuilder(`${side.name} longer: ${ft1(now)} to ${ft1(feet)}`, sideFeetEdit(side, Math.round(feet * 12)), how => {
-      const p = setSideLength(planRef.current, side.id, feet)
-      const q = { ...p, sides: p.sides.map(x => (x.id === side.id ? { ...x, quotedFt: feet } : x)) }
-      return answerNewCounts(q, flagsBefore, how)
-    })
-  }
-  /** Counts the change order changed (one more gate than the signed quote): answered with its number. */
-  function answerNewCounts(p: SitePlanData, before: Set<string>, how: { quote?: boolean; co?: ChangeOrder }): SitePlanData {
-    const note = how.co ? `Change order CO-${how.co.number}` : 'Quote changed from the plan'
-    const answers = { ...p.answers }
-    for (const f of planFlags(p, quoteYard, settings)) if (!before.has(f.key) && !answers[f.key]) answers[f.key] = { kind: 'drawn', note, by: myName(), at: new Date().toISOString() }
-    return { ...p, answers }
+    const what = `make ${side.name} longer, ${ft1(now)} to ${ft1(feet)}`
+    void throughBuilder(what, sideFeetEdit(side, Math.round(feet * 12)), how => {
+      if (!how.co) return null
+      return withPendingChange(planRef.current, { id: planId('c'), coId: how.co.id, coNumber: how.co.number ?? null, kind: 'longer', sideId: side.id, newFt: feet, by: myName(), at: new Date().toISOString() })
+    }, undefined, `From the site plan: ${what}.`)
   }
 
   // ── Property lines ──
@@ -521,13 +529,15 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
 
   // ── Sheets ──
   const [sheetSize, setSheetSize] = useState<'letter' | 'tabloid'>('letter')
-  async function permitSheet() {
+  async function permitSheet(size: 'letter' | 'tabloid', aerial: boolean) {
     const w = window.open('', '_blank')
     setBusy('sheet')
-    const r = await makePermitSheet(jobId, sheetSize, !!plan.permitAerial)
+    const r = await makePermitSheet(jobId, size, aerial)
     setBusy('')
     if (!r.ok) { w?.close(); toast.error('Permit sheet not made', r.error); return }
-    const url = serverUrl(r.data.url || `/api/site-plans/${encodeURIComponent(jobId)}/permit-sheet.pdf`)
+    // A new address each time: the browser never shows a sheet it kept from before (another size).
+    const u = r.data.url || `/api/site-plans/${encodeURIComponent(jobId)}/permit-sheet.pdf`
+    const url = serverUrl(`${u}${u.includes('?') ? '&' : '?'}v=${Date.now()}`)
     if (w) w.location.href = url
     else window.location.assign(url)
   }
@@ -543,6 +553,36 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
 
 
   // ── Drawing ──
+  // Pending change orders, as the plan will be once each goes through: a gate's opening, a side's new end.
+  const pendingShapes = useMemo(() => {
+    const out: Array<{ id: string; line: [Pt, Pt] | null; label: Pt; text: string }> = []
+    const shown = withPending(plan)
+    // Each change order after the one before it on the same side: its own stretch, its own label line.
+    const reach = new Map<string, number>(), count = new Map<string, number>()
+    for (const c of plan.pending ?? []) {
+      const side = shown.sides.find(x => x.id === c.sideId)
+      const a = side && postOf(shown, side.a), b = side && postOf(shown, side.b)
+      if (!side || !a || !b) continue
+      const fa = toFeet(plan.origin, a), fb = toFeet(plan.origin, b), len = Math.hypot(fb.x - fa.x, fb.y - fa.y) || 1
+      const along = (ft: number) => toScreen({ x: fa.x + ((fb.x - fa.x) * ft) / len, y: fa.y + ((fb.y - fa.y) * ft) / len })
+      const name = c.coNumber ? `CO-${c.coNumber}` : 'Change order'
+      const nth = count.get(c.sideId) ?? 0
+      count.set(c.sideId, nth + 1)
+      const dy = 20 + nth * 16
+      if (c.kind === 'gate' && c.gate) {
+        const p0 = along(c.gate.atFt), p1 = along(c.gate.atFt + c.gate.widthFt)
+        out.push({ id: c.id, line: [p0, p1], label: { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 + dy }, text: `${name}: ${ft1(c.gate.widthFt)} gate, not signed yet` })
+      } else if (c.kind === 'longer' && c.newFt) {
+        const base = plan.sides.find(x => x.id === c.sideId)
+        const from = reach.get(c.sideId) ?? (base ? drawnFt(plan, base) : 0)
+        reach.set(c.sideId, Math.max(from, c.newFt))
+        const p0 = along(Math.min(from, c.newFt)), p1 = along(c.newFt)
+        out.push({ id: c.id, line: [p0, p1], label: { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 + dy }, text: `${name}: ${side.name} to ${ft1(c.newFt)}, not signed yet` })
+      }
+    }
+    return out
+  }, [plan, view, size.w, size.h])  // eslint-disable-line react-hooks/exhaustive-deps
+
   const center = planCenter(plan)
   const inside = center
   const selSide = sel?.kind === 'side' ? plan.sides.find(s => s.id === sel.id) ?? null : null
@@ -571,15 +611,15 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
       {/* Top bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50">
         <div className="min-w-0 flex-1 mr-2">
-          <h2 className="text-base font-bold text-gray-900 truncate">Site plan · {rec.job.customerName}</h2>
-          <p className="text-xs text-gray-600 truncate">{rec.job.address}{rec.revision > 0 ? ` · Revision ${rec.revision}` : ' · Not saved yet'}{rec.doneAt ? ` · Done ${when(rec.doneAt)}${rec.doneBy ? ` by ${rec.doneBy}` : ''}` : ''}{dirty ? ' · Unsaved changes' : ''}</p>
+          <h2 className="text-base font-bold text-gray-900 leading-tight break-words"><span className="hidden xl:inline">Site plan · </span>{rec.job.customerName}</h2>
+          <p className="text-xs text-gray-600 leading-tight break-words" title={rec.job.address}>{street(rec.job.address)}{rec.revision > 0 ? ` · Revision ${rec.revision}` : ' · Not saved yet'}{rec.doneAt ? ` · Done ${when(rec.doneAt)}${rec.doneBy ? ` by ${rec.doneBy}` : ''}` : ''}{dirty ? ' · Unsaved changes' : ''}</p>
         </div>
         {canEdit && (
           <div className="flex items-center gap-1 shrink-0" role="toolbar" aria-label="Tools">
-            <ToolButton on={tool === 'select'} onClick={() => pickTool('select')} label="Select and move" data="select" />
-            <ToolButton on={tool === 'addSide'} onClick={() => pickTool('addSide')} label="Draw a side" data="add-side" />
-            <ToolButton on={tool === 'houseRect'} onClick={() => pickTool('houseRect')} label="House: drag a box" data="house-rect" />
-            <ToolButton on={tool === 'housePoints'} onClick={() => pickTool('housePoints')} label="House: click corners" data="house-points" />
+            <ToolButton on={tool === 'select'} onClick={() => pickTool('select')} label="Select and move" short="Select" data="select" />
+            <ToolButton on={tool === 'addSide'} onClick={() => pickTool('addSide')} label="Draw a side" short="Side" data="add-side" />
+            <ToolButton on={tool === 'houseRect'} onClick={() => pickTool('houseRect')} label="House: drag a box" short="House box" data="house-rect" />
+            <ToolButton on={tool === 'housePoints'} onClick={() => pickTool('housePoints')} label="House: click corners" short="House corners" data="house-points" />
             <button type="button" className="w-11 h-11 grid place-items-center rounded-lg border border-gray-300 bg-white disabled:opacity-30" disabled={!hist.past.length} onClick={undo} aria-label="Undo" title="Undo (Ctrl+Z)" data-site-plan-undo><Undo2 size={18} /></button>
             <button type="button" className="w-11 h-11 grid place-items-center rounded-lg border border-gray-300 bg-white disabled:opacity-30" disabled={!hist.future.length} onClick={redo} aria-label="Redo" title="Redo (Ctrl+Y)" data-site-plan-redo><Redo2 size={18} /></button>
           </div>
@@ -602,7 +642,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
       )}
       {waiting && <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 text-sm text-blue-900" data-site-plan-waiting>{waiting}</div>}
 
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* The map */}
         <div ref={boxRef} className="relative flex-1 min-w-0 bg-gray-200 overflow-hidden select-none touch-none" data-site-plan-map>
           <svg ref={svgRef} width={size.w} height={size.h} className={`block ${tool === 'select' ? 'cursor-grab' : 'cursor-crosshair'}`}
@@ -640,6 +680,13 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
                 </g>
               )
             })}
+            {/* Change orders not signed yet: dashed, labelled (drawn from withPending, never part of the plan). */}
+            {pendingShapes.map(ps => (
+              <g key={ps.id} pointerEvents="none" data-site-plan-pending={ps.id}>
+                {ps.line && <line x1={ps.line[0].x} y1={ps.line[0].y} x2={ps.line[1].x} y2={ps.line[1].y} stroke="#b45309" strokeWidth={5} strokeDasharray="8 6" strokeLinecap="round" />}
+                <text x={ps.label.x} y={ps.label.y} textAnchor="middle" fontSize={12} fontWeight={700} fill="#92400e" stroke="white" strokeWidth={4} paintOrder="stroke">{ps.text}</text>
+              </g>
+            ))}
             {/* Posts */}
             {plan.posts.map(p => {
               const s = at(p)
@@ -708,7 +755,11 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
         </div>
 
         {/* The panel */}
-        <aside className="w-[360px] shrink-0 border-l border-gray-200 overflow-y-auto p-3 space-y-4 text-sm" data-site-plan-panel>
+        {/* On a phone the panel is a sheet under the map, folded down to its handle until it is opened. */}
+        <button type="button" className="md:hidden flex items-center justify-between px-4 min-h-[44px] border-t border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900" onClick={() => setSheetOpen(o => !o)} aria-expanded={sheetOpen} data-site-plan-sheet-toggle>
+          <span>{sheetOpen ? 'Hide the details' : `Details${open.length ? ` · ${open.length} to answer` : ''}`}</span><span aria-hidden>{sheetOpen ? '▾' : '▴'}</span>
+        </button>
+        <aside className={`${sheetOpen ? 'block' : 'hidden'} md:block w-full md:w-[360px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-gray-200 overflow-y-auto p-3 space-y-4 text-sm`} data-site-plan-panel>
           {!canEdit && <p className="rounded-lg bg-gray-100 px-3 py-2 text-gray-700">Read only. The office draws and changes the plan.</p>}
 
           {selSide && <SidePanel key={selSide.id} plan={plan} side={selSide} canEdit={canEdit} signed={!!rec.quote?.signed}
@@ -749,22 +800,33 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
             {!flags.length && <p className="text-gray-700" data-site-plan-no-flags>The plan matches the quote (within {settings.tolFt} ft or {settings.tolPct}%).</p>}
             <ul className="space-y-3" data-site-plan-flags>
               {flags.map(f => {
-                const a = plan.answers[f.key]
+                const isOpen = openKeys.has(f.key)
+                const a = isOpen ? null : plan.answers[f.key]
+                const co = a?.note.match(/^Change order CO-(\d+)/)?.[1]
                 return (
                   <li key={f.key} className={`rounded-lg border p-2 ${a ? 'border-gray-200' : 'border-red-300 bg-red-50'}`} data-site-plan-flag={f.key}>
                     <p className="text-gray-900">{f.text}</p>
                     {a ? (
-                      <p className="mt-1 text-gray-700" data-site-plan-flag-answered>{a.kind === 'keep' ? (f.kind === 'length' ? 'Kept the wheel number' : 'Kept the quote as it is') : (f.kind === 'length' ? 'Used the drawn length' : 'Quote changed to match')}: {a.note} ({a.by}, {when(a.at)})
+                      <p className="mt-1 text-gray-700" data-site-plan-flag-answered>
+                        {co && rec.quote?.signed ? <span className="font-semibold text-amber-800" data-site-plan-flag-waiting>Waiting on CO-{co}. </span> : null}
+                        {a.kind === 'keep' ? 'Kept the wheel number' : f.kind === 'length' ? 'Used the drawn length' : 'Quote changed to match the plan'}: {a.note} ({a.by}, {when(a.at)})
                         {canEdit && <button type="button" className="ml-2 underline text-orange-700" onClick={() => push(p => { const answers = { ...p.answers }; delete answers[f.key]; return { ...p, answers } })}>Answer again</button>}
                       </p>
-                    ) : canEdit ? (
+                    ) : canEdit && f.kind === 'length' ? (
                       <div className="mt-2 space-y-2">
                         <div className="flex flex-col gap-2">
                           <input className="flex-1 min-w-0 border border-gray-300 rounded-lg px-2 min-h-[44px]" placeholder="Why (needed to keep it)" value={keepNote[f.key] ?? ''} onChange={e => setKeepNote(n => ({ ...n, [f.key]: e.target.value }))} data-site-plan-keep-note={f.key} />
-                          <button type="button" className="btn btn-secondary min-h-[44px] whitespace-nowrap" disabled={!(keepNote[f.key] ?? '').trim()} onClick={() => { answer(f.key, { kind: 'keep', note: keepNote[f.key].trim() }); setKeepNote(n => ({ ...n, [f.key]: '' })) }} data-site-plan-keep={f.key}>{f.kind === 'length' ? 'Keep the wheel number' : 'Keep the quote'}</button>
+                          <button type="button" className="btn btn-secondary min-h-[44px] whitespace-nowrap" disabled={!(keepNote[f.key] ?? '').trim()} onClick={() => { answer(f.key, { kind: 'keep', note: keepNote[f.key].trim() }); setKeepNote(n => ({ ...n, [f.key]: '' })) }} data-site-plan-keep={f.key}>Keep the wheel number</button>
                         </div>
                         <button type="button" className="btn btn-primary min-h-[44px] w-full" disabled={!rec.quote || !!waiting} onClick={() => takeDrawn(f)} data-site-plan-use-drawn={f.key}>
-                          {f.kind === 'length' ? 'Use the drawn length' : 'Change the quote to match the plan'}{rec.quote?.signed ? ' (change order)' : ''}
+                          Use the drawn length{rec.quote?.signed ? ' (change order)' : ''}
+                        </button>
+                      </div>
+                    ) : canEdit ? (
+                      <div className="mt-2 space-y-2" data-site-plan-count-ways={f.key}>
+                        <p className="text-gray-800" data-site-plan-match-quote={f.key}><span className="font-semibold">Make the plan match the quote:</span> {countHelp(f.key)} This goes away by itself once they match.</p>
+                        <button type="button" className="btn btn-primary min-h-[44px] w-full" disabled={!rec.quote || !!waiting} onClick={() => takeDrawn(f)} data-site-plan-use-plan={f.key}>
+                          {rec.quote?.signed ? 'Use the plan (change order)' : 'Use the plan (reprice the quote)'}
                         </button>
                       </div>
                     ) : <p className="mt-1 text-red-800">Not answered yet.</p>}
@@ -780,11 +842,22 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
               const what = (key: string) => key.startsWith('len:') ? (plan.sides.find(x => x.id === key.slice(4))?.name ?? 'A side') : key === 'gates' || key === 'gateWidths' ? 'Gates' : key === 'sides' ? 'Number of sides' : key === 'tees' ? 'Tees' : key === 'closed' ? 'Closes or not' : key
               return (
                 <ul className="space-y-1 text-gray-700" data-site-plan-flags-done>
-                  {past.map(([key, a]) => <li key={key}>{what(key)}: {a.kind === 'keep' ? 'kept the quote' : 'quote changed'}. {a.note} ({a.by}, {when(a.at)})</li>)}
+                  {past.map(([key, a]) => <li key={key}>{what(key)}: {a.kind === 'keep' ? 'kept the wheel number' : 'quote changed'}. {a.note} ({a.by}, {when(a.at)})</li>)}
                 </ul>
               )
             })()}
           </Section>
+
+          {(plan.pending ?? []).length > 0 && (
+            <Section title="Change orders not signed yet">
+              <ul className="space-y-1 text-gray-800" data-site-plan-pending-list>
+                {(plan.pending ?? []).map(c => {
+                  const side = plan.sides.find(x => x.id === c.sideId)
+                  return <li key={c.id}>CO-{c.coNumber ?? '?'}: {c.kind === 'gate' && c.gate ? `${ft1(c.gate.widthFt)} ${c.gate.type === 'double' ? 'double' : 'single'} gate on ${side?.name ?? 'a side'}` : `${side?.name ?? 'A side'} to ${ft1(c.newFt ?? 0)}`}, not signed yet. It goes on the plan once the change order is signed or approved.</li>
+                })}
+              </ul>
+            </Section>
+          )}
 
           <Section title="Property lines">
             {canEdit && <div className="flex flex-wrap gap-2">
@@ -841,14 +914,14 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
             {canEdit ? (
               <>
                 <div className="flex flex-wrap gap-2 items-center">
-                  <select className="border border-gray-300 rounded-lg px-2 min-h-[44px]" value={sheetSize} onChange={e => setSheetSize(e.target.value as 'letter' | 'tabloid')} aria-label="Sheet size" data-site-plan-sheet-size>
+                  <select className="border border-gray-300 rounded-lg px-2 min-h-[44px]" value={sheetSize} disabled={busy === 'sheet'} onChange={e => setSheetSize(e.target.value as 'letter' | 'tabloid')} aria-label="Sheet size" data-site-plan-sheet-size>
                     <option value="letter">Letter, sideways</option>
                     <option value="tabloid">11 x 17</option>
                   </select>
-                  <label className="flex items-center gap-2 min-h-[44px]"><input type="checkbox" checked={!!plan.permitAerial} onChange={e => { const v = e.target.checked; push(p => ({ ...p, permitAerial: v })) }} data-site-plan-sheet-aerial /> Aerial on the sheet</label>
+                  <label className="flex items-center gap-2 min-h-[44px]"><input type="checkbox" checked={!!plan.permitAerial} disabled={busy === 'sheet'} onChange={e => { const v = e.target.checked; push(p => ({ ...p, permitAerial: v })) }} data-site-plan-sheet-aerial /> Aerial on the sheet</label>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'sheet'} onClick={() => void permitSheet()} data-site-plan-permit-sheet>{busy === 'sheet' ? 'Making it…' : 'Permit sheet (PDF)'}</button>
+                  <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'sheet'} onClick={() => void permitSheet(sheetSize, !!plan.permitAerial)} data-site-plan-permit-sheet>{busy === 'sheet' ? 'Making it…' : 'Permit sheet (PDF)'}</button>
                   <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'packet'} onClick={() => void installerSheet()} data-site-plan-installer-sheet>{busy === 'packet' ? 'Opening…' : 'Installer sheet'}</button>
                 </div>
                 {(dirty || rec.revision < 1) && <p className="text-xs text-gray-500">Save the plan first: the sheets are made from the saved plan.</p>}
@@ -874,7 +947,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
           <Section title="Revisions">
             {!rec.revisions.length ? <p className="text-gray-600">Not saved yet.</p> : (
               <ol className="space-y-1" data-site-plan-revisions>
-                {[...rec.revisions].reverse().map(r => <li key={r.revision} className="text-gray-800"><span className="font-semibold">{r.revision}.</span> {r.by}, {when(r.at)}{r.note ? `: ${r.note}` : ''}</li>)}
+                {[...rec.revisions].sort((x, y) => y.revision - x.revision).map(r => <li key={r.revision} className="text-gray-800"><span className="font-semibold">{r.revision}.</span> {r.by}, {when(r.at)}{r.note ? `: ${r.note}` : ''}</li>)}
               </ol>
             )}
           </Section>
@@ -907,9 +980,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function ToolButton({ on, onClick, label, data }: { on: boolean; onClick: () => void; label: string; data: string }) {
-  return <button type="button" onClick={onClick} aria-pressed={on} className={`px-3 min-h-[44px] rounded-lg text-sm font-semibold border ${on ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-800 border-gray-300'}`} data-site-plan-tool={data}>{label}</button>
+function ToolButton({ on, onClick, label, short, data }: { on: boolean; onClick: () => void; label: string; short: string; data: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={on} aria-label={label} title={label} className={`px-3 min-h-[44px] rounded-lg text-sm font-semibold border whitespace-nowrap ${on ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-800 border-gray-300'}`} data-site-plan-tool={data}>
+      <span className="xl:hidden">{short}</span><span className="hidden xl:inline">{label}</span>
+    </button>
+  )
 }
+
+/** The street part of an address ("20351 SW 80th Pl"), for the top bar; the whole address is its tooltip. */
+const street = (address: string) => (address || '').split(',')[0].trim() || address
 
 function TurnBox({ onTurn, label = 'Turn the plan' }: { onTurn: (deg: number) => void; label?: string }) {
   const [deg, setDeg] = useState('')
@@ -1070,4 +1150,19 @@ function SidePanel({ plan, side, canEdit, signed, onLength, onAddGate, onRemoveG
       {canEdit && <button type="button" className="text-red-700 underline min-h-[44px]" onClick={onRemove} data-site-plan-side-remove>Take this side off the plan</button>}
     </section>
   )
+}
+
+/** The plan with a change order's change waiting on it (saved as a revision; the posts and gates stay as they are). */
+function withPendingChange(plan: SitePlanData, c: PendingChange): SitePlanData {
+  return { ...plan, pending: [...(plan.pending ?? []), c] }
+}
+
+/** What to change on the plan so its makeup matches the quote's. */
+function countHelp(key: string): string {
+  if (key === 'gates') return 'add or take off gates on the plan (click a side, then Add gate or Remove).'
+  if (key === 'gateWidths') return 'change the gates\' widths on the plan (remove a gate and add it again at the quoted width).'
+  if (key === 'sides') return 'draw the missing side (Draw a side) or take an extra one off (click it, then Take this side off the plan).'
+  if (key === 'tees') return 'draw the branch from its side, or take it off.'
+  if (key === 'closed') return 'join the fence back to its first post, or take the closing side off.'
+  return 'change the plan until it matches.'
 }

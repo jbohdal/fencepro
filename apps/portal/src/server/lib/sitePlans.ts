@@ -147,6 +147,11 @@ export function planSchemaFor(jobId: string) {
     survey: survey.nullable(),
     answers: z.record(z.string().max(120), answer).refine(a => Object.keys(a).length <= 1000, 'Too many answers.'),
     permitAerial: z.boolean().optional(),
+    // Changes from the plan waiting on their change order (web sitePlanData.ts PendingChange).
+    pending: z.array(z.object({
+      id, coId: z.string().min(1).max(64), coNumber: z.number().int().min(0).nullable(), kind: z.enum(['gate', 'longer']), sideId: id,
+      gate: gate.optional(), newFt: z.number().finite().gt(0).max(100_000).optional(), by: z.string().max(200), at: z.string().max(40),
+    }).strict()).max(200).optional(),
   }).strict().superRefine((p, ctx) => {
     const posts = new Set<string>()
     for (const q of p.posts) { if (posts.has(q.id)) ctx.addIssue({ code: 'custom', message: `Post ${q.id} is in the plan twice.` }); posts.add(q.id) }
@@ -158,6 +163,10 @@ export function planSchemaFor(jobId: string) {
     }
     for (const s of p.sides) if (s.teeFrom && !sides.has(s.teeFrom)) ctx.addIssue({ code: 'custom', message: `Side ${s.name || s.id} is drawn from a side that is not in the plan.` })
     if (p.startPostId && !posts.has(p.startPostId)) ctx.addIssue({ code: 'custom', message: 'The start post is not in the plan.' })
+    for (const c of p.pending ?? []) {
+      if (!sides.has(c.sideId)) ctx.addIssue({ code: 'custom', message: `Change order CO-${c.coNumber ?? '?'} waits on a side that is not in the plan.` })
+      if (c.kind === 'gate' ? !c.gate : !c.newFt) ctx.addIssue({ code: 'custom', message: `Change order CO-${c.coNumber ?? '?'}'s change on the plan is missing its ${c.kind === 'gate' ? 'gate' : 'feet'}.` })
+    }
   })
 }
 
@@ -277,9 +286,9 @@ export async function reopen(accountId: string, job: { id: string; quoteId: stri
   return true
 }
 
-/** layout.planDone on the quote, read and written in one statement so a save of the quote at the same moment keeps both. */
+/** layout.planDone on the quote, read and written in one statement so a save of the quote at the same moment keeps both. Its updatedAt in UTC, as Prisma keeps it (NOW() is the database's local time: a phone's since-sync skipped the change and the job window kept "Site plan needed" until a reload). */
 async function setPlanDone(tx: any, quoteId: string, done: boolean): Promise<void> {
-  await tx.$executeRaw`UPDATE "SavedQuote" SET "layout" = jsonb_set(COALESCE("layout", '{}'::jsonb), '{planDone}', ${done ? 'true' : 'false'}::jsonb, true), "updatedAt" = NOW() WHERE "id" = ${quoteId} AND "layout" IS NOT NULL`
+  await tx.$executeRaw`UPDATE "SavedQuote" SET "layout" = jsonb_set(COALESCE("layout", '{}'::jsonb), '{planDone}', ${done ? 'true' : 'false'}::jsonb, true), "updatedAt" = (NOW() AT TIME ZONE 'UTC') WHERE "id" = ${quoteId} AND "layout" IS NOT NULL`
 }
 
 // ── Pictures ─────────────────────────────────────────────────────────────────

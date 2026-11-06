@@ -19,6 +19,8 @@ import type { QuoteEdit } from './sitePlanEdit'
 export interface PlanQuoteChange {
   /** What is changed, in plain words ("Side 3 to the drawn 142 ft"). */
   title: string
+  /** A change order's reason, filled in for the office ("From the site plan: add a 4 ft single gate in Side 2, ..."). */
+  reason?: string
   /** The walk list or drawing change; none: the office makes the change in the builder (a count to match the plan). */
   edit: QuoteEdit | null
   /** Saved: the quote (unsigned), or the change order made (signed). */

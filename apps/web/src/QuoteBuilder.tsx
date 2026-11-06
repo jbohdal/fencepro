@@ -1713,6 +1713,8 @@ export default function QuoteBuilder({
     // The new work goes with it (the server prices it and keeps it, so the pull sheet, packet, site plan, crew days
     // and job costing follow once it is approved), and the next change order opens on it. A move or repair too, its
     // inputs in the request: else that one is priced against a contract holding work it never opens on.
+    // From the office site plan: the reason says what the plan asked for (the customer reads it; it can be changed).
+    if (planChange?.reason && !draft.reason?.trim()) draft.reason = planChange.reason
     setCoPrefill(style ? { ...draft, note: coNoWorkNote, work: { request: { ...priceRequest, changeBase: undefined } as unknown as Record<string, unknown>, layout: q.layout ?? null, planSvg: q.proposal?.planSvg ?? null } } : draft)
   }
 

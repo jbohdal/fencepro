@@ -12,6 +12,7 @@ import {
   movePlan, turnPlan, addSide, removeSide, placeSurvey, scaleSurvey, surveyToFeet, feetToSurvey, turnSurvey,
   walkWithSideFeet, yardWithSideFeet, walkWithGate, yardWithGate, sideLabel, postFeet, houseRect, quoteYardOf, startOf, sideFeetEdit, optionPairs,
 } from '../../web/src/sitePlanEdit'
+import { sideStepsNow } from '../../web/src/sitePlanEdit'
 import { walkToYard, type WalkList } from '../../web/src/walkList'
 import { deriveLayout, layoutForShape } from '../../web/src/yardLayout'
 
@@ -248,5 +249,27 @@ describe('from the job\'s quote', () => {
       { name: 'Better', was: 1100050, now: 1080000 },
       { name: 'Best', was: null, now: 1200000 },
     ])
+  })
+})
+
+describe('change orders from the plan stack on the job as it is now', () => {
+  test('a second change on a side keeps the first one\'s gate (CO-1 gate, then CO-2 longer, then CO-3 another gate)', () => {
+    const s = plan.sides[2]
+    // CO-1: a 4 ft gate 60 ft in, on the walk the builder opens with.
+    const w1 = walkWithGate(walk, s.walkStepIds, ft(60), { widthIn: 48, type: 'walk' })!
+    // The new gate step is counted with its side, though the plan never knew its id.
+    expect(sideStepsNow(w1, s.walkStepIds)!.length).toBe(2)
+    // CO-2: the side to 160 ft on that walk: the gate stays, the side is 160 ft, nothing else moves.
+    const w2 = walkWithSideFeet(w1, s.walkStepIds, ft(160))!
+    const y2 = walkToYard(w2)
+    expect(y2.sides[2].lengthIn).toBe(ft(160))
+    expect(deriveLayout(y2).walkGates).toBe(deriveLayout(yard).walkGates + 1)
+    expect(y2.sides.map(x => x.lengthIn).filter((_, i) => i !== 2)).toEqual(yard.sides.map(x => x.lengthIn).filter((_, i) => i !== 2))
+    // CO-3: another gate 100 ft in (past the first): both gates, the feet unchanged.
+    const w3 = walkWithGate(w2, s.walkStepIds, ft(100), { widthIn: 48, type: 'walk' })!
+    const y3 = walkToYard(w3)
+    expect(y3.sides[2].lengthIn).toBe(ft(160))
+    expect(deriveLayout(y3).walkGates).toBe(deriveLayout(yard).walkGates + 2)
+    expect((y3.sides[2].gates ?? []).map(g => g.distanceIn)).toEqual([ft(60), ft(100)])
   })
 })

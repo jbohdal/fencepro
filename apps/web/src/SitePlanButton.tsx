@@ -56,9 +56,15 @@ export default function SitePlanButton({ jobId, className = '' }: { jobId: strin
     // Placed on the drawing's photo when it has one; else at the job's address.
     let where: { lat: number; lng: number } | null = null
     if (!yard?.plan?.aerial) {
-      setBusy(true)
-      where = await lookupPosition(fresh.job.address)
-      setBusy(false)
+      // The job's own position when the server has one; else the address looked up. Only the place itself goes on the
+      // plan (the server refuses anything else in it).
+      if (typeof fresh.job.lat === 'number' && typeof fresh.job.lng === 'number') where = { lat: fresh.job.lat, lng: fresh.job.lng }
+      else {
+        setBusy(true)
+        const hit = await lookupPosition(fresh.job.address)
+        setBusy(false)
+        where = hit ? { lat: hit.lat, lng: hit.lng } : null
+      }
       if (!where) { setNote(`"${fresh.job.address || 'No address'}" was not found on the map. Check the job's address, then try again.`); return }
     }
     const plan: SitePlanData | null = yard
