@@ -81,9 +81,11 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** The words of a style's name that mark its own parts: "Emily", "Abigail" (not "Industrial", "Rail", a number). */
 export function styleWords(label: string): string[] {
-  const generic = new Set(['industrial', 'rail', 'style', 'fence', 'privacy', 'double', 'single', 'picket', 'panel', 'with', 'and', 'the'])
+  const generic = new Set(['industrial', 'rail', 'style', 'fence', 'privacy', 'double', 'single', 'picket', 'panel', 'with', 'and', 'the', 'board', 'boards', 'farm', 'wire', 'post', 'posts', 'gate', 'gates', 'section', 'wood', 'vinyl', 'chain', 'link', 'aluminum', 'alum', 'residential', 'commercial', 'grade', 'shadow', 'stockade'])
   return label.split(/[^A-Za-z]+/).filter(w => w.length >= 4 && !generic.has(w.toLowerCase()))
 }
+/** Hardware and site materials: shared by styles, never a style's own part unless picked. */
+const HARDWARE = /hinge|latch|screw|hex|bolt|\bnut\b|washer|concrete|bracket|nail|rivet|staple|\bclip|drop rod|handle|post mix|gravel|donut|\bpipe\b|tension|tie|band|cap\b|lag|anchor|glue|cement|stain|sealer/i
 const namedFor = (part: string, words: string[]) => words.some(w => new RegExp(`\\b${esc(w)}\\b`, 'i').test(part))
 
 /** The new part's name: the copied part's with the copied style's name changed to the new one's; else the new name after it. */
@@ -115,7 +117,7 @@ export function stylePartRows(st: CatalogState, material: string, key: string): 
   const has = (k: KitSet, part: string) => KIT_KINDS.some(kind => (k.kits[kind] ?? []).some(l => l.part === part))
   const mine = fences.map(s => kitOf(s.name)).filter((k): k is KitSet => !!k)
   for (const k of mine) for (const kind of KIT_KINDS) for (const line of k.kits[kind] ?? []) {
-    const r = rows.get(line.part) ?? { part: line.part, kinds: [], fences: 0, cents: cents(byItem.get(normalizeItemName(line.part))), alsoIn: [], own: ownNames.has(normalizeItemName(line.part)) || namedFor(line.part, words) || namedFor(line.part, styleWords(opt.label)) }
+    const r = rows.get(line.part) ?? { part: line.part, kinds: [], fences: 0, cents: cents(byItem.get(normalizeItemName(line.part))), alsoIn: [], own: false }
     if (!r.kinds.includes(kind)) r.kinds.push(kind)
     rows.set(line.part, r)
   }
@@ -138,6 +140,26 @@ export function stylePartRows(st: CatalogState, material: string, key: string): 
       const l = labelOf(s.name)
       if (l && !r.alsoIn.includes(l)) r.alsoIn.push(l)
     }
+  }
+  // A style's own part (review, Nov 5 2026): one no other style of the same material uses (copies of this style
+  // aside), and named for it ("Emily"); a style whose parts are not named for it (wood, farm): the ones only it uses
+  // that are not hardware. Hinges, latches, screws, concrete and the like stay the same parts.
+  const copies = new Set(dim.options.filter(o => o.key !== key && (o.copiedFrom === key || (o as StyleOption).styleForm?.copiedFrom === key || o.key === (opt as StyleOption).styleForm?.copiedFrom || o.key === opt.copiedFrom)).map(o => o.key))
+  const others = new Set<string>()
+  for (const s of st.fenceStyles) {
+    if (names.has(s.name) || s.isActive === false || s.material !== m.key) continue
+    const ck = s.choices?.[dim.key]
+    if (!ck || ck === key || copies.has(ck)) continue
+    const k = kitOf(s.name)
+    if (k) for (const kind of KIT_KINDS) for (const l of k.kits[kind] ?? []) others.add(l.part)
+  }
+  const exclusive = (p: string) => !others.has(p)
+  const allWords = [...words, ...styleWords(opt.label)]
+  const named = [...rows.values()].filter(r => exclusive(r.part) && namedFor(r.part, allWords))
+  for (const r of rows.values()) {
+    r.own = ownNames.has(normalizeItemName(r.part)) || (exclusive(r.part) && (named.length ? named.includes(r) : !HARDWARE.test(r.part)))
+    // Where else: never the style itself (a renamed copy reads as another style).
+    r.alsoIn = r.alsoIn.filter(l => l !== `${m.label} ${opt.label}`)
   }
   return [...rows.values()].sort((a, b) => Number(b.own) - Number(a.own) || a.part.localeCompare(b.part))
 }
@@ -262,7 +284,7 @@ export function planStyleForm(st0: CatalogState, input: StyleFormInput, opts: { 
   const madeKits = st.kits.filter(k => !kitsBefore.has(k.id)).map(k => k.id)
   if (!styles.length) styles = fences.map(s => s.name)
   const message = !opts.key
-    ? `${label} added: ${styles.length} fence${styles.length === 1 ? '' : 's'} copying ${fromOpt?.label ?? copiedFrom} with the same quantities, ${spec.filter(p => p.mode === 'own').length} parts of its own${waiting.length ? `. It turns on by itself when the ${waiting.length} part${waiting.length === 1 ? '' : 's'} still at $0 ${waiting.length === 1 ? 'is' : 'are'} priced.` : ', all priced: it is on for quoting.'}`
+    ? `${styles.length} fence${styles.length === 1 ? '' : 's'} copying ${fromOpt?.label ?? copiedFrom} with the same quantities, ${spec.filter(p => p.mode === 'own').length} parts of its own${waiting.length ? `. It turns on by itself when the ${waiting.length} part${waiting.length === 1 ? '' : 's'} still at $0 ${waiting.length === 1 ? 'is' : 'are'} priced.` : ', all priced: it is on for quoting.'}`
     : `${label} saved${priced.length ? `: ${priced.length} price${priced.length === 1 ? '' : 's'} changed` : ''}${waiting.length ? `. ${waiting.length} part${waiting.length === 1 ? '' : 's'} still at $0: it waits for them.` : '.'}`
   return { state: st, key, label, styles, kits: madeKits, items, priced, ...(renamed ? { renamed } : {}), waiting, message }
 }

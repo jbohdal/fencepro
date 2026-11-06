@@ -23,7 +23,7 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<St
 const at = (material: string, key: string) => `/api/fence-style-forms/${encodeURIComponent(material)}/${encodeURIComponent(key)}`
 export const addStyle = (input: StyleFormInput) => send<{ record: { key: string; label: string }; message: string; waiting: string[] }>('POST', '/api/fence-style-forms', { input })
 export const saveStyle = (material: string, key: string, input: StyleFormInput) => send<{ record: { key: string; label: string }; message: string; waiting: string[] }>('PUT', at(material, key), { input })
-export const styleArchiveCheck = (material: string, key: string) => send<{ fences: number; usedBy: Array<{ id: string; what: string }> }>('GET', `${at(material, key)}/archive-check`)
+export const styleArchiveCheck = (material: string, key: string) => send<{ fences: number; usedBy: Array<{ id: string; what: string }>; blocking: Array<{ id: string; what: string }> }>('GET', `${at(material, key)}/archive-check`)
 export const archiveStyle = (material: string, key: string) => send<{ styles: string[]; items: string[]; kits: string[] }>('POST', `${at(material, key)}/remove`)
 export const restoreStyle = (material: string, key: string) => send<{ styles: string[]; items: string[]; kits: string[] }>('POST', `${at(material, key)}/restore`)
 export const saveStylePrices = (prices: Array<{ part: string; cents: number }>) => send<{ priced: Array<{ name: string; cents: number; prevCents: number | null }> }>('PUT', '/api/fence-style-forms/prices', { prices })

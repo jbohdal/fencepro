@@ -92,7 +92,11 @@ export async function styleArchiveCheck(accountId: string, material: string, key
   const m = await pricingModule() as any
   const b = await prisma.businessState.findUnique({ where: { accountId }, select: { config: true } })
   const names = fencesOf(b?.config ?? {}, m, material, key)
-  return { fences: names.length, usedBy: await quotesUsing(prisma, accountId, names, true) }
+  // The unsent drafts on its fences stop an archive: said before anything is asked (review, Nov 5 2026).
+  const quotes = names.length ? await prisma.savedQuote.findMany({ where: { accountId, fenceStyle: { in: names }, deletedAt: null, archivedAt: null }, select: { id: true, customerName: true, status: true, shareToken: true, acceptedAt: true, soldAt: true, firstViewedAt: true, viewCount: true } }) : []
+  const blocking = quotes.filter((q: any) => m.isUnsentDraft(q)).map((q: any) => ({ id: q.id, what: `the unsent draft for ${q.customerName || 'a customer'}` }))
+  const usedBy = (await quotesUsing(prisma, accountId, names, true)).filter(u => !blocking.some(b => b.id === u.id))
+  return { fences: names.length, usedBy, blocking }
 }
 
 /** Prices typed on the Price List for a style's parts: Inventory prices as dated costs. */

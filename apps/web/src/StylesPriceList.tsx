@@ -47,7 +47,7 @@ function useTick(): number {
 
 function Sheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-stretch md:items-center justify-center" role="dialog" aria-modal="true" aria-label={title} data-style-sheet>
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-stretch md:items-center justify-center" role="dialog" aria-modal="true" aria-label={title} data-style-sheet>
       <div className="bg-white w-full md:max-w-2xl md:rounded-2xl md:max-h-[92vh] flex flex-col">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200">
           <h2 className="flex-1 min-w-0 text-base font-bold text-gray-900 truncate">{title}</h2>
@@ -92,6 +92,8 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
   const [plain, setPlain] = useState<Record<string, string>>(() => Object.fromEntries(rows.map(r => [r.part, centsText(r.cents)])))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [topRef, setTopRef] = useState<HTMLDivElement | null>(null)
+  const [showShared, setShowShared] = useState(false)
 
   // A new style: the parts follow the style picked and the name typed, until one is changed by hand.
   useEffect(() => {
@@ -115,7 +117,7 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
       setBusy(true)
       const r = styleKey ? await saveStyle(material, styleKey, input) : await addStyle(input)
       setBusy(false)
-      if (!r.ok) { setError(r.error); return }
+      if (!r.ok) { setError(r.error); topRef?.scrollIntoView({ block: 'start' }); return }
       toast.success(styleKey ? `${input.label} saved` : `${input.label} added`, r.data.message)
       onSaved?.(); onClose()
       return
@@ -134,8 +136,15 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
     if (!styleKey || !opt) return
     if (on) {
       const c = await styleArchiveCheck(material, styleKey)
-      const used = c.ok ? c.data.usedBy : []
-      if (!window.confirm(`Archive ${opt.label}? Its ${c.ok ? c.data.fences : ''} fences are switched off for quoting, with their kits and ${opt.label}'s own parts.${used.length ? ` ${used.map(u => u.what).join(', ')} keep${used.length === 1 ? 's' : ''} its price.` : ''} Bring back turns them on again.`)) return
+      if (!c.ok) { setError(c.error); topRef?.scrollIntoView({ block: 'start' }); return }
+      // An unsent draft on it stops it: said here, at the top, before anything is asked.
+      if (c.data.blocking.length) {
+        setError(`${opt.label} cannot be archived while ${c.data.blocking.map(u => u.what).join(', ')} uses it: a draft on an archived fence cannot be priced or sent. Change that draft's fence, or archive the draft, first.`)
+        topRef?.scrollIntoView({ block: 'start' })
+        return
+      }
+      const used = c.data.usedBy.length
+      if (!window.confirm(`Archive ${opt.label}? Its ${c.data.fences} fence${c.data.fences === 1 ? '' : 's'} are switched off for quoting, with their kits and ${opt.label}'s own parts. ${used ? `The ${used} saved quote${used === 1 ? '' : 's'} and job${used === 1 ? '' : 's'} on it keep their prices. ` : ''}Bring back turns them on again.`)) return
     }
     setBusy(true)
     const r = on ? await archiveStyle(material, styleKey) : await restoreStyle(material, styleKey)
@@ -154,6 +163,8 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
   </>
   return (
     <Sheet title={title} onClose={onClose} footer={footer}>
+      <div ref={setTopRef} />
+      {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-2" role="alert" data-style-error>{error}</p>}
       {!styleKey && (
         <label className="block text-xs font-semibold text-gray-600">Material
           <select className={`${inputCls} mt-1`} value={material} onChange={e => { setMaterial(e.target.value); setTouched(false); const mm = materialOf(st.fenceCatalog, e.target.value); setCopyFrom(styleDimOf(mm)?.options.find(o => !o.archived)?.key ?? '') }} data-style-material>
@@ -176,8 +187,14 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
           <p className="text-sm font-semibold text-gray-900">Parts</p>
           <p className={small}>A part of {label.trim() || 'the new style'}'s own gets a new part named for it, priced here ($0 until then). The same part as {fromLabel} keeps {fromLabel}'s part and price (hinges, latches, screws, concrete). It turns on for quoting by itself when every part has a price.</p>
           {!parts.length && <p className={small}>{fromLabel} has no parts in its material kits.</p>}
+          {parts.some(p => p.mode === 'same') && (
+            <button type="button" className="btn btn-quiet btn-sm min-h-[44px]" onClick={() => setShowShared(v => !v)} data-style-shared-toggle>
+              {showShared ? 'Hide' : 'Show'} the {parts.filter(p => p.mode === 'same').length} parts that stay {fromLabel}'s (hinges, latches, screws…)
+            </button>
+          )}
           {parts.map((p, i) => {
             const row = stylePartRows(st, material, copyFrom).find(r => r.part === p.from)
+            if (p.mode === 'same' && !showShared) return null
             return (
               <div key={p.from} className={`rounded-xl border p-3 space-y-2 ${p.mode === 'own' ? 'border-orange-200 bg-orange-50/40' : 'border-gray-200'}`} data-style-part={p.from}>
                 <div>
@@ -189,13 +206,16 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
                   <button type="button" role="radio" aria-checked={p.mode === 'same'} className={`min-h-[44px] rounded-lg border text-sm px-2 ${p.mode === 'same' ? 'bg-gray-800 border-gray-800 text-white' : 'bg-white border-gray-300 text-gray-700'}`} onClick={() => setPart(i, { mode: 'same' })} data-style-part-same>Same part as {fromLabel}</button>
                 </div>
                 {p.mode === 'own' ? (
-                  <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
-                    <label className="text-xs text-gray-600">Its part
+                  <div className="space-y-2">
+                    <label className="block text-xs text-gray-600">Its part
                       <input className={`${inputCls} mt-1`} value={p.name ?? ''} onChange={e => setPart(i, { name: e.target.value })} disabled={!!styleKey && !!opt?.styleForm?.parts.find(x => x.from === p.from && x.mode === 'own')} data-style-part-name />
                     </label>
-                    <label className="text-xs text-gray-600">Price
-                      <input className={`${inputCls} mt-1`} inputMode="decimal" placeholder="0.00" value={priceText[p.from] ?? ''} onChange={e => setPriceText(t => ({ ...t, [p.from]: e.target.value }))} data-style-part-price />
-                    </label>
+                    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2 items-end">
+                      <label className="text-xs text-gray-600">Price
+                        <input className={`${inputCls} mt-1`} inputMode="decimal" placeholder="0.00" value={priceText[p.from] ?? ''} onChange={e => setPriceText(t => ({ ...t, [p.from]: e.target.value }))} data-style-part-price />
+                      </label>
+                      <p className={`${small} pb-3`}>{fromLabel}'s: {dollars(sharedPrice(p.from))}</p>
+                    </div>
                   </div>
                 ) : <p className={small}>{fromLabel}'s part, {dollars(sharedPrice(p.from))}{row?.alsoIn.length ? ` (also on ${row.alsoIn.slice(0, 3).join(', ')}${row.alsoIn.length > 3 ? '…' : ''})` : ''}</p>}
               </div>
@@ -216,7 +236,6 @@ export function StyleSheet({ material: material0, styleKey, onClose, onSaved }: 
           </div>
         ))}
       </>}
-      {error && <p className="text-sm text-red-700" data-style-error>{error}</p>}
     </Sheet>
   )
 }
