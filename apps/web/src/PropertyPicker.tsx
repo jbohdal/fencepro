@@ -1,7 +1,7 @@
 /**
  * Which of the customer's properties a quote or a visit is for (Jonathan, Nov
- * 5 2026): their properties still theirs, the Primary picked unless the
- * record already has one (or its address is one of them), and one tap to add
+ * 5 2026): their properties still theirs, the Primary picked when the
+ * record has no property or address yet (its address picks its property), and one tap to add
  * a new one right there (CustomerProperties.tsx PropertyForm). The record
  * takes the property's address. No signal: it says so, and the address typed
  * on the screen is used (the server puts the record on the property with that
@@ -41,7 +41,9 @@ export default function PropertyPicker({ customerId, propertyId, address, onPick
       const { propertyId: id, address: a } = startRef.current
       const start = r.properties.find(p => p.id === id)
         ?? (a ? r.properties.find(p => sameAddress(p.address, a)) : undefined)
-        ?? r.properties.find(p => p.isPrimary)
+        // The Primary only when the record has no address yet: a quote made for an address keeps it when another
+        // customer is picked (customer-links, Oct 2026); saving puts it on their property there, or makes one.
+        ?? (a?.trim() ? undefined : r.properties.find(p => p.isPrimary))
       if (start) { setPicked(start.id); pickRef.current(start) }
     })
     return () => { live = false }
