@@ -205,7 +205,13 @@ export interface AppConfig {
   warranties?: WarrantySettings
   /** Appointment confirmation, email subject, "On my way" and calendar invite wording (Settings → Messages, appointmentMessages.ts). Only the changed ones; missing: the defaults. */
   appointmentMessages?: SavedMessageTemplates
+  /** The office site plan (Settings → Site plans, SitePlanSettings.tsx): when a drawn side is flagged against the quote,
+   *  the property line setback, and where each county's property lines come from. Missing: 3 ft / 3%, no setback, Marion. */
+  sitePlan?: SitePlanSettings
 }
+/** Where a county's property lines come from (a county or state parcel service the server asks). */
+export interface ParcelSource { url: string; idField: string; where?: string; name: string }
+export interface SitePlanSettings { tolFt: number; tolPct: number; setbackFt: number; parcelSources: Record<string, ParcelSource> }
 import type { WarrantySettings } from './warranties'
 import type { SavedMessageTemplates } from './appointmentMessages'
 

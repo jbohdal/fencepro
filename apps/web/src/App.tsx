@@ -117,6 +117,7 @@ import { ServiceHost } from './ServiceRequests'
 import ServicePage from './ServicePage'
 import GlobalSearch from './GlobalSearch'
 import { isSignedForChange, quoteForChange as latestDrawingQuote, signedQuoteOf } from './ChangeOrders'
+import type { PlanQuoteChange } from './planQuoteChange'
 import { DashboardAppointments } from './AppointmentWidgets'
 import { businessDate } from './businessDate'
 import { partWithPair } from '../../portal/src/server/lib/partNames'
@@ -124,6 +125,9 @@ import { partWithPair } from '../../portal/src/server/lib/partNames'
 /* ───────── role system ───────── */
 
 export type UserRole = 'owner' | 'admin' | 'salesman' | 'ops_manager' | 'shop'
+
+/** How a quote opens in the builder: a change order, on the Yard step, for the office site plan's change. */
+interface QuoteOpenOpts { changeOrder?: boolean; onYard?: boolean; planChange?: PlanQuoteChange | null }
 
 interface NavItem {
   name: string
@@ -610,6 +614,16 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   const [quoteOnYard, setQuoteOnYard]   = useState(false)
   // Opened from "Change order" > "Change the yard drawing": the builder makes the change order straight away.
   const [quoteForChange, setQuoteForChange] = useState(false)
+  // A change the office site plan asked of this quote (planQuoteChange.ts): told when it is saved and when the builder closes.
+  const [quotePlanChange, setQuotePlanChange] = useState<PlanQuoteChange | null>(null)
+  const planChangeRef = useRef<PlanQuoteChange | null>(null)
+  planChangeRef.current = quotePlanChange
+  useEffect(() => {
+    if (showQuote || !planChangeRef.current) return
+    const c = planChangeRef.current
+    setQuotePlanChange(null)
+    c.onClosed()
+  }, [showQuote])
   // Opened because the server sent its save back for new prices (#58): it reprices and asks before saving.
   const [quoteReprice, setQuoteReprice] = useState(false)
   // "Quote stored" said for each save, by quote: taken back when the server sends that save back (only the price
@@ -738,6 +752,9 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
   // The open quote was started from a site visit: once saved, its window opens to send it (handleSaveQuote).
   const sendAfterSave = useRef(false)
   function handleSaveQuote(q: SavedQuote) {
+    // Saved for the office site plan's change: the plan hears it (it waits for the server to confirm).
+    const pc = planChangeRef.current
+    if (pc && q.id && q.id === editingQuote?.id) pc.onSaved({ quote: q })
     // A Salesman saving a quote she had open: if the owner moved it meanwhile, nothing is saved, the builder closes and
     // the one message says so (review, Oct 30 2026: five contradictory messages). No signal: saved as before.
     if (signedInRole() === 'sales_rep' && q.id && quotes.some(x => x.id === q.id)) {
@@ -853,7 +870,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     }
   }
 
-  function handleOpenQuote(q0: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
+  function handleOpenQuote(q0: SavedQuote, opts: QuoteOpenOpts = {}) {
     // The phone's newest copy: a window may hold the quote as it was when it opened (Copy link has made it Sent
     // since; #58 review: Edit then opened it as a Draft and Update quote sent it back to Draft).
     const now = q0.id ? getQuoteById(q0.id) : null
@@ -861,13 +878,13 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     // A Salesman's quote may have been moved to someone else since her list was read: ask the server before the
     // builder opens it from the copy on the phone (review, Oct 30 2026). Moved: the app said so once; nothing opens.
     if (signedInRole() === 'sales_rep' && q.id && !q.id.startsWith('tmp')) {
-      void quoteStillMine(q.id).then(r => { if (r !== 'moved') openQuoteNow(q, opts) })
+      void quoteStillMine(q.id).then(r => { if (r !== 'moved') openQuoteNow(q, opts); else opts.planChange?.onClosed() })
       return
     }
     openQuoteNow(q, opts)
   }
 
-  function openQuoteNow(q: SavedQuote, opts: { changeOrder?: boolean; onYard?: boolean } = {}) {
+  function openQuoteNow(q: SavedQuote, opts: QuoteOpenOpts = {}) {
     // A signed quote opens with the work as approved change orders made it (ChangeOrders.tsx quoteWithChanges),
     // so the next change is priced from the work now; saving keeps the signed quote as signed.
     // "Change order" sends the work with the approved ones (openChangeFromDrawing): it opens on the latest drawing too,
@@ -884,6 +901,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
         if (base.status === 'DRAFT' && !base.shareToken) { openInBuilder(base, signed, opts); return }
         // Moved to someone else (a Salesman): the app has said so (movedNotice.ts), not a signal problem.
         const moved = recentMoved()
+        opts.planChange?.onClosed()
         if (moved) { toast.info('This quote is not yours any more', moved); return }
         toast.error('The quote did not load', 'Its proposal as sent has to come from the server. Usually that is weak signal; open it again when you have signal.')
       })
@@ -892,9 +910,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
     openInBuilder(base, signed, opts)
   }
 
-  function openInBuilder(q: SavedQuote, signed: boolean, opts: { changeOrder?: boolean; onYard?: boolean }) {
+  function openInBuilder(q: SavedQuote, signed: boolean, opts: QuoteOpenOpts) {
     setQuoteOnYard(!!opts.changeOrder || !!opts.onYard)
     setQuoteForChange(!!opts.changeOrder)
+    // A builder already open for another plan change: that one is told it closed.
+    if (planChangeRef.current && planChangeRef.current !== opts.planChange) planChangeRef.current.onClosed()
+    setQuotePlanChange(opts.planChange ?? null)
     if (signed) {
       // The latest drawing: with every approved and every still open change order's change in it (quoteForChange).
       void latestDrawingQuote(q).then(open => { setEditingQuote(open); setShowQuote(true) })
@@ -987,11 +1008,12 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       if (c) go(c); else void findCustomerFresh(d.customerId).then(go)
     }
     const open = (e: Event) => {
-      const d = (e as CustomEvent<{ id: string; quote?: SavedQuote; changeOrder?: boolean }>).detail
+      const d = (e as CustomEvent<{ id: string; quote?: SavedQuote; changeOrder?: boolean; onYard?: boolean; planChange?: PlanQuoteChange }>).detail
       const id = d?.id
       // A change order from the yard drawing sends the quote with the work now (ChangeOrders.tsx openChangeFromDrawing).
       const found = d?.quote ?? (id ? (getQuoteById(id) ?? quotes.find(x => x.id === id)) : null)
-      if (found) handleOpenQuote(found as SavedQuote, { changeOrder: !!d?.changeOrder })
+      if (found) handleOpenQuote(found as SavedQuote, { changeOrder: !!d?.changeOrder, onYard: !!d?.onYard, planChange: d?.planChange ?? null })
+      else d?.planChange?.onClosed()
     }
     window.addEventListener('ezbiz:new-quote', h)
     window.addEventListener('ezbiz:open-quote', open)
@@ -1673,6 +1695,7 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
           initialQuote={editingQuote}
           startOnYard={quoteOnYard}
           changeOrder={quoteForChange}
+          planChange={quotePlanChange}
         /></ScreenErrorBoundary>
       )}
     </div>

@@ -30,6 +30,7 @@ import { workScope, type SavedWork } from './moveRepair'
 import { jobInstallWord } from './jobWork'
 import { hasDrawing } from './jobDrawing'
 import WalkSheetView from './WalkSheetView'
+import SitePlanButton from './SitePlanButton'
 import { CustomerContact, JobMilestones, OpenCustomerProfile } from './JobTruth'
 import { JobTimeline } from './ChangeOrders'
 import { backLinkWords } from './customerPage'
@@ -145,6 +146,8 @@ export default function JobPage() {
 
       {/* Walked on site (walkList.ts): the fence as measured, and "Site plan needed" until the office draws it. */}
       <WalkSheetView layout={(quote as { layout?: Parameters<typeof WalkSheetView>[0]['layout'] } | undefined)?.layout} />
+      {/* The office's site plan, read only for the Salesman (SitePlanButton.tsx). */}
+      <div data-job-site-plan><SitePlanButton jobId={job.id} /></div>
 
       <Card title="The work">
         {scope ? (

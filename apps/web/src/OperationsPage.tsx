@@ -13,6 +13,7 @@ import MediaGallery, { type ShownMedia } from './MediaGallery'
 import { getQuotes } from './quoteStore'
 import { hasDrawing } from './jobDrawing'
 import WalkSheetView from './WalkSheetView'
+import SitePlanButton from './SitePlanButton'
 import { workScope, type SavedWork } from './moveRepair'
 import { isRepairJob, jobInstallWord } from './jobWork'
 import { InstallPacketPanel, fetchCrewInstall, crewInstallCached, CREW_INSTALL_EVENT, type CrewInstall } from './installPacket'
@@ -228,6 +229,8 @@ export function DetailPanel({ job, onClose, onAdvance, onHold, onUnhold, onMoveS
           {job.rawJob ? <PropertyNotes customerId={job.rawJob.customerId} propertyId={job.rawJob.propertyId} address={job.rawJob.customerAddress} /> : null}
           {/* Walked on site: the fence as measured, "Site plan needed" until the office draws it (walkList.ts). */}
           {job.rawJob?.quoteId ? <WalkSheetView layout={getQuotes().find(q => q.id === job.rawJob!.quoteId)?.layout} /> : null}
+          {/* The office's exact plan on the aerial photo (SitePlanButton.tsx): draw it, place an older drawing, or open it. */}
+          {isJobSource && !crew ? <div data-job-site-plan><SitePlanButton jobId={job.id} /></div> : null}
           {job.rawJob?.customerEmail && <Field label="Email" value={job.rawJob.customerEmail} />}
         </Section>
 

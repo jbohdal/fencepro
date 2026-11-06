@@ -18,6 +18,7 @@ import PortalQuoteSettings from './PortalQuoteSettings'
 import ProposalSettings from './ProposalSettings'
 import TierSettings from './TierSettings'
 import WalkthroughSettings from './WalkthroughSettings'
+import SitePlanSettings from './SitePlanSettings'
 import WarrantySettings from './WarrantySettings'
 import VoiceSettings from './VoiceSettings'
 import { toast } from './toast'
@@ -813,6 +814,7 @@ export default function AdminSettingsPage() {
                 {tab === 'messages' && <AppointmentMessagesSettings />}
                 {tab === 'follow_ups' && <FollowUpSettings />}
                 {tab === 'walkthrough' && <WalkthroughSettings config={config} onChange={setConfig} />}
+                {tab === 'site_plans' && <SitePlanSettings config={config} onChange={setConfig} />}
                 {tab === 'change_log' && <SettingsChangeLog />}
                 {tab === 'deleted' && <DeletedRecords />}
               </div>
