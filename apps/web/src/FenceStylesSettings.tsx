@@ -31,6 +31,8 @@
  * saves at once (it also makes or removes Inventory parts and kits).
  */
 
+import { StyleSheet } from './StylesPriceList'
+import { STYLE_DIM } from './styleForm'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { AppConfig, FenceStyle } from './configStore'
 import { getConfig, overheadPctOf } from './configStore'
@@ -111,16 +113,22 @@ function makeViews(config: AppConfig): Views {
   return { view, saved, byId, savedById, ex: memo(view, byId), wasEx: memo(saved, savedById) }
 }
 
-export default function FenceStylesSettings({ config, onChange, onCommit }: {
+export default function FenceStylesSettings({ config, onChange, onCommit, onServerSaved, blocked }: {
   config: AppConfig
   /** A change to the page's draft (saved with Save Changes). */
   onChange: (c: AppConfig) => void
   /** Save now: Settings with this change (Inventory and kits are saved here). */
   onCommit: (c: AppConfig) => void
+  /** A style added or saved on the server (StylesPriceList.tsx StyleSheet): the page reads Settings again. */
+  onServerSaved?: () => void
+  /** Unsaved changes on the page: a style save would read Settings again over them. */
+  blocked?: boolean
 }) {
   const catalog = catalogOf(config)
   const [wizard, setWizard] = useState<null | { material: string; under?: { dim: string; key: string }; edit?: string }>(null)
   const [choiceDlg, setChoiceDlg] = useState<null | { material: string; dim: string; edit?: string }>(null)
+  // A style choice (aluminum panel style, wood style...): added and edited with the style form, like a vinyl color (styleForm.ts).
+  const [styleSheet, setStyleSheet] = useState<null | { material: string; key?: string }>(null)
   const [tick, setTick] = useState(0)
   const views = useMemo(() => makeViews(config), [config, tick])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -164,6 +172,8 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
 
   return (
     <div className="space-y-5" data-styles-tree>
+      <div className="flex justify-end"><button type="button" className="btn btn-primary min-h-[44px]" disabled={blocked} onClick={() => setStyleSheet({ material: 'alum' })} data-fence-styles-add-style>+ Add style</button></div>
+      {styleSheet && <StyleSheet material={styleSheet.material} styleKey={styleSheet.key} onClose={() => setStyleSheet(null)} onSaved={() => onServerSaved?.()} />}
       <p className="text-sm text-gray-600">Fences are built from choices. A switch is on only when something under it can be quoted; a fence is offered only when every choice above it is on. Target Profit % and sub rates set on a material or a choice apply to every fence under it; a fence can have its own number, marked, with Reset. A change applies to new quotes; a saved quote keeps the Target Margin it was priced with, and a sent or signed quote never changes. Switches and numbers save with Save changes (the bar at the bottom); adding or changing a color or a choice saves at once.</p>
       {catalog.materials.map(m => (
         <MaterialCard key={m.key} m={m} config={config} views={views}
@@ -173,8 +183,8 @@ export default function FenceStylesSettings({ config, onChange, onCommit }: {
           // Vinyl colors are added and edited in Settings → Price List → Vinyl Colors (one form, VinylColorsSettings.tsx).
           onAddColor={under => (m.key === 'vinyl' ? navigate('/settings?tab=price_list&add=vinyl-color') : setWizard({ material: m.key, under }))}
           onEditColor={key => (m.key === 'vinyl' && optionOf(m, 'color', key)?.color?.form ? navigate(`/settings?tab=price_list&color=${encodeURIComponent(key)}`) : setWizard({ material: m.key, edit: key }))}
-          onAddChoice={dim => setChoiceDlg({ material: m.key, dim })}
-          onEditChoice={(dim, key) => setChoiceDlg({ material: m.key, dim, edit: key })}
+          onAddChoice={dim => (dim === STYLE_DIM[m.key] ? (blocked ? toast.info('Save or discard your changes first', 'Adding a style saves at once and reads Settings again.') : setStyleSheet({ material: m.key })) : setChoiceDlg({ material: m.key, dim }))}
+          onEditChoice={(dim, key) => (dim === STYLE_DIM[m.key] ? (blocked ? toast.info('Save or discard your changes first', 'Saving a style saves at once and reads Settings again.') : setStyleSheet({ material: m.key, key })) : setChoiceDlg({ material: m.key, dim, edit: key }))}
           onLevelRate={(dim, key, rate, v) => setLevelRate(m.key, dim, key, rate, v)}
           updateStyle={updateStyle}
         />

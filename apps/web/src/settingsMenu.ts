@@ -40,7 +40,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     pages: [
       { key: 'pricing', label: 'Pricing', description: 'Overhead, labor, commission and margins.',
         keywords: ['Overhead', 'Target Margin', 'Live overhead', 'Install labor', 'Customer price', 'Commission', 'Price is old after', 'Invoice price change', 'Subcontractor rates', 'Default rate', 'Per walk gate', 'Per double gate', 'Tear out', 'Man-Hour Rate', 'Men on a crew', 'Hours in a crew day', 'Salesman Commission', 'Non-Salesman Commission', 'Margin Thresholds', 'Good', 'Warning'] },
-      { key: 'price_list', label: 'Price List', description: 'Vinyl colors and 8 ft tall vinyl prices.',
+      { key: 'price_list', label: 'Price List', description: 'Vinyl colors, 8 ft tall vinyl prices, and every material\'s fence styles with their parts and prices.',
         keywords: ['Vinyl Colors', 'Add Color', 'Color name', 'Rivet color', '8 ft tall vinyl', 'Price by the piece'] },
       { key: 'styles', label: 'Fence Styles', description: 'Which fences can be quoted, and their profit.',
         keywords: ['Fence styles', 'Target Profit', 'Quotable', 'Colors', 'Choices', 'Supplier', 'Quote date', 'Other styles'] },

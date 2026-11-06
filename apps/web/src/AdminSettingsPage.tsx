@@ -30,6 +30,7 @@ import { sectionWidthForStyle, styleHasPartsList } from './materialCalculator'
 import CalendarSyncSettings from './CalendarSyncSettings'
 import FenceStylesSettings from './FenceStylesSettings'
 import VinylColorsSettings from './VinylColorsSettings'
+import StylesPriceList from './StylesPriceList'
 import TallVinylPrices from './TallVinylPrices'
 import MoveRepairSettings from './MoveRepairSettings'
 import { AppointmentSettingsTab } from './AppointmentWidgets'
@@ -791,8 +792,9 @@ export default function AdminSettingsPage() {
                 {tab === 'price_list' && <>
                   <VinylColorsSettings blocked={configDirty} onServerSaved={() => { const c = getConfig(); setConfig(c); setSavedConfig(c) }} />
                   <TallVinylPrices config={config} onCommit={next => { saveShared(next) }} />
+                  <StylesPriceList blocked={configDirty} onServerSaved={() => { const c = getConfig(); setConfig(c); setSavedConfig(c) }} />
                 </>}
-                {tab === 'styles' && <FenceStylesSettings config={config} onChange={setConfig} onCommit={next => { saveShared(next) }} />}
+                {tab === 'styles' && <FenceStylesSettings config={config} onChange={setConfig} onCommit={next => { saveShared(next) }} blocked={configDirty} onServerSaved={() => { const c = getConfig(); setConfig(c); setSavedConfig(c) }} />}
                 {tab === 'leads' && <OptionListSettings kind="leadSources" />}
                 {tab === 'tags' && <OptionListSettings kind="customerTags" />}
                 {tab === 'pipeline' && <PipelineStagesSettings />}

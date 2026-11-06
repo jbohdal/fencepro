@@ -121,6 +121,7 @@ import opsStagesRoutes from './routes/ops-stages.js'
 import pipelineStagesRoutes from './routes/pipeline-stages.js'
 import optionListsRoutes from './routes/option-lists.js'
 import vinylColorRoutes from './routes/vinyl-colors.js'
+import fenceStyleFormRoutes from './routes/fence-style-forms.js'
 import { ensureOptionListsAll } from './lib/optionLists.js'
 import { ensurePipelineStageListAll } from './lib/pipelineStages.js'
 import { ensureOpsStageListAll } from './lib/opsStages.js'
@@ -372,6 +373,8 @@ app.use('/api/ops-stages', opsStagesRoutes)
 app.use('/api/pipeline-stages', pipelineStagesRoutes)
 app.use('/api/option-lists', optionListsRoutes)
 app.use('/api/vinyl-colors', vinylColorRoutes)
+// Add a fence style like a vinyl color, and the Price List's prices by style (lib/styleForms.ts).
+app.use('/api/fence-style-forms', fenceStyleFormRoutes)
 app.use('/api/intake', intakeRoutes)
 app.use('/api/lead-assign', leadAssignRoutes) // Website and phone leads waiting for a rep; one tap Assign (lib/leadAssign.ts). Owner and office only.
 app.use('/api/scheduled-deletions', scheduledDeletionRoutes)

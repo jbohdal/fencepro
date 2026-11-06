@@ -52,7 +52,7 @@ const arr = (v: unknown): any[] => (Array.isArray(v) ? v : [])
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
 /** Settings and Inventory, locked for the rest of the transaction. */
-async function lockedState(tx: any, accountId: string) {
+export async function lockedState(tx: any, accountId: string) {
   await lockAccountState(tx, accountId)
   const b = await tx.businessState.findUnique({ where: { accountId }, select: { config: true } })
   const inv = await tx.inventoryState.findUnique({ where: { accountId }, select: { items: true, kits: true } })
@@ -62,7 +62,7 @@ async function lockedState(tx: any, accountId: string) {
   return { cfg, items: arr(inv.items), kits: arr(inv.kits) }
 }
 
-async function saveState(tx: any, accountId: string, cfg: Record<string, any>, state: { fenceStyles: unknown[]; fenceCatalog: unknown; items: unknown[]; kits: unknown[] }, before: { items: unknown[]; kits: unknown[] }, reviewedColor?: string) {
+export async function saveState(tx: any, accountId: string, cfg: Record<string, any>, state: { fenceStyles: unknown[]; fenceCatalog: unknown; items: unknown[]; kits: unknown[] }, before: { items: unknown[]; kits: unknown[] }, reviewedColor?: string) {
   // A save of the form that set a price or added a part has had its cost entered: the color's fences lose
   // "cost to review" and its note, as a fence does when its kits are saved in Material Kits (lib/costReview.ts).
   const fenceStyles = reviewedColor
@@ -74,7 +74,7 @@ async function saveState(tx: any, accountId: string, cfg: Record<string, any>, s
   }
 }
 
-async function writeHistory(tx: any, actor: ColorActor, day: string, priced: Array<{ id: string; cents: number; prevCents: number | null }>, prevItems: any[]): Promise<string[]> {
+export async function writeHistory(tx: any, actor: ColorActor, day: string, priced: Array<{ id: string; cents: number; prevCents: number | null }>, prevItems: any[], source: string = COLOR_FORM_SOURCE): Promise<string[]> {
   const ids: string[] = []
   for (const p of priced) {
     const was = prevItems.find(i => i?.id === p.id)
@@ -83,7 +83,7 @@ async function writeHistory(tx: any, actor: ColorActor, day: string, priced: Arr
         accountId: actor.accountId, inventoryItemId: p.id, vendorName: '', day, unitLandedCents: p.cents, unitLandedExact: p.cents,
         prevUnitCents: p.prevCents, prevPriceUpdatedAt: typeof was?.priceUpdatedAt === 'string' ? was.priceUpdatedAt : null,
         prevPriceImported: typeof was?.priceImported === 'boolean' ? was.priceImported : null,
-        appliedById: actor.userId, appliedBy: actor.name, approved: true, changedInventory: true, source: COLOR_FORM_SOURCE,
+        appliedById: actor.userId, appliedBy: actor.name, approved: true, changedInventory: true, source,
       },
       select: { id: true },
     })
