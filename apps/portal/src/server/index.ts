@@ -111,6 +111,7 @@ import deletedRecordRoutes from './routes/deleted-records.js'
 import customerMatchRoutes from './routes/customer-matches.js'
 import quoteWidget from './routes/quote-widget.js'
 import aerialTiles from './routes/aerialTiles.js'
+import { sitePlanRoutes, parcelRoutes } from './routes/sitePlans.js'
 import systemRoutes from './routes/system.js'
 import cronRoutes from './routes/cron.js'
 import portalRoutes from './routes/portal.js'
@@ -341,6 +342,8 @@ app.use('/api/tier-sets', tierSetRoutes)
 app.use('/api/voice', voiceRoutes)
 app.use('/api/media', mediaRoutes)
 app.use('/api/install-packets', packetStaff)
+app.use('/api/site-plans', sitePlanRoutes)  // The office site plan of a job, its survey and permit sheet (lib/sitePlans.ts)
+app.use('/api/parcels', parcelRoutes)  // Property lines from the county's parcel service (lib/parcels.ts)
 // Crew install packets and customer proposals: the paths meant for the public door.
 app.use('/p/quote', quoteWidget)
 app.use('/p/tiles', aerialTiles)  // The aerial photo tiles for every map and the website quote (routes/aerialTiles.ts)

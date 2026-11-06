@@ -428,4 +428,6 @@ export function estimate(data: EstimateData, job: EstimateJob, opts: { preview?:
     notes: [...held, ...calc.materials.warnings, ...p.notes],
   }
 }
-export { planFromYard, planFlags, openFlags, crewPosts, drawnFt, builtFt, feetBetween, toFeet, fromFeet, propertyLineWarnings, sectionsAt, DEFAULT_FLAG_SETTINGS, type SitePlanData, type PlanFlag, type CrewPost, type CrewSide } from './sitePlanData'
+export { planFromYard, planFlags, openFlags, crewPosts, drawnFt, builtFt, feetBetween, toFeet, fromFeet, propertyLineWarnings, sectionsAt, quoteSectionsOf, DEFAULT_FLAG_SETTINGS, type SitePlanData, type PlanFlag, type CrewPost, type CrewSide } from './sitePlanData'
+// The site plan as a picture: the crew's sheet, the customer's portal, the permit sheet (server lib/sitePlans.ts).
+export { sitePlanSvg, planFrame, planExtent, gateLeaves, insideOf, feetLabel } from './sitePlanSvg'

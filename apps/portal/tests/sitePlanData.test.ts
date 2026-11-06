@@ -6,9 +6,9 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { planFromYard, planFlags, openFlags, crewPosts, drawnFt, toFeet, fromFeet, feetBetween, propertyLineWarnings, sectionsAt, type SitePlanData } from '../../web/src/sitePlanData'
+import { planFromYard, planFlags, openFlags, crewPosts, drawnFt, toFeet, fromFeet, feetBetween, propertyLineWarnings, sectionsAt, quoteSectionsOf, type SitePlanData } from '../../web/src/sitePlanData'
 import { walkToYard, type WalkList } from '../../web/src/walkList'
-import { layoutForShape } from '../../web/src/yardLayout'
+import { layoutForShape, deriveLayout } from '../../web/src/yardLayout'
 
 const OCALA = { lat: 29.1872, lng: -82.1401 }
 const ft = (n: number) => n * 12
@@ -100,5 +100,36 @@ describe('the plan from the quote', () => {
     expect(propertyLineWarnings(withLot, 150).length).toBeGreaterThan(0)
     const small = [{ x: -40, y: -40 }, { x: 40, y: -40 }, { x: 40, y: 40 }, { x: -40, y: 40 }].map(q => fromFeet(plan.origin, q))
     expect(propertyLineWarnings({ ...plan, parcel: { id: 'x', rings: [small], source: 'test', fetchedAt: '' } }).some(w => /crosses the property line/.test(w))).toBe(true)
+  })
+})
+
+describe('the crew\'s line posts spaced as the quote counted them (quoteSectionsOf)', () => {
+  const walk: WalkList = { v: 1, lines: [{ id: 'q', steps: [step(13, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(13, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(150, 'end')] }] }
+  const yard = walkToYard(walk)
+  const plan = planFromYard(yard, OCALA, walk)!
+  // The quote's own count per run (as a 6 ft pick would give), in the yard's run order.
+  const runs = deriveLayout(yard).runs.filter(r => r.ft > 0)
+  const runSections = runs.map(r => Math.ceil(r.ft / 6))
+
+  test('each piece takes its quoted run\'s sections, not whole sections at the style width', () => {
+    const { sides } = crewPosts(plan, quoteSectionsOf(plan, yard, runSections, 8))
+    expect(sides.map(s => s.pieces.map(p => p.sections))).toEqual([[3, 3], [20], [25]])
+    expect(sides[1].pieces[0].spacingFt).toBe(6)
+  })
+
+  test('a side redrawn longer and answered "use the drawn length": its pieces fall back to the style width', () => {
+    const moved: SitePlanData = JSON.parse(JSON.stringify(plan))
+    const s = moved.sides[2], a = moved.posts.find(p => p.id === s.a)!, b = moved.posts.find(p => p.id === s.b)!
+    const v = toFeet(a, b)
+    Object.assign(b, fromFeet(a, { x: v.x * (161 / 150), y: v.y * (161 / 150) }))
+    moved.answers[`len:${s.id}`] = { kind: 'drawn', note: '', by: 'Office', at: '2026-11-06' }
+    const { sides } = crewPosts(moved, quoteSectionsOf(moved, yard, runSections, 8))
+    expect(sides[2].pieces[0].sections).toBe(21)
+    expect(sides[1].pieces[0].sections).toBe(20)
+  })
+
+  test('no quote counts (or counts that do not line up with the runs): whole sections at the width', () => {
+    const { sides } = crewPosts(plan, quoteSectionsOf(plan, yard, [1, 2], 8))
+    expect(sides.map(s => s.pieces.map(p => p.sections))).toEqual([[2, 2], [15], [19]])
   })
 })

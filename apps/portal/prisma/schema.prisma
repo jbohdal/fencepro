@@ -2574,6 +2574,41 @@ model AutomationRun {
   @@index([entityKind, entityId])
 }
 
+/// The office site plan of a sold job (Nov 6 2026): posts on the map at true feet, drawn on a computer after
+/// the sale (web/src/sitePlanData.ts SitePlanData in `data`). One per job; every save is a revision.
+/// Done (doneAt) clears "Site plan needed" on the quote; the crew's sheet, the permit sheet and the customer's
+/// portal read the plan (routes/sitePlans.ts).
+model SitePlan {
+  id            String    @id @default(uuid())
+  accountId     String
+  jobId         String    @unique
+  quoteId       String?
+  /// Bumped on every save; a save from an older revision is refused (409).
+  revision      Int       @default(0)
+  data          Json
+  doneAt        DateTime?
+  doneBy        String?
+  /// The latest permit sheet PDF (under the uploads folder), when one was made.
+  permitPdfPath String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([accountId])
+}
+
+/// Each saved revision of a site plan, with who saved it and a note.
+model SitePlanRevision {
+  id       String   @id @default(uuid())
+  planId   String
+  revision Int
+  data     Json
+  by       String
+  note     String   @default("")
+  at       DateTime @default(now())
+
+  @@index([planId, revision])
+}
+
 model Permit {
   id               String    @id @default(uuid())
   accountId        String

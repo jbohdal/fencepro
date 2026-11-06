@@ -81,7 +81,7 @@ async function softDeletePortalItem(model: 'portalPhoto' | 'portalFile', entityT
   })
 }
 import { changeOrdersForContact, signByCustomer, customerView, contractAround } from '../lib/changeOrders.js'
-import { quotesOf, jobsOf, quoteRowOf, planOf, isSigned, papersOf, billingOf } from '../lib/portalCustomer.js'
+import { quotesOf, jobsOf, quoteRowOf, customerPlanOf, isSigned, papersOf, billingOf } from '../lib/portalCustomer.js'
 import { contractForQuote, CONTRACT_SELECT } from '../lib/contractPdf.js'
 import { plainStyleName } from '../lib/estimates.js'
 import { installDateOf, nyDay } from '../lib/warranties.js'
@@ -590,7 +590,8 @@ router.get('/site-plans/:quoteId.svg', requirePortalAuth, async (req: PortalAuth
   try {
     const c = await contactOf(req.portalAccount!.crmCustomerId)
     const q = c?.accountId ? (await quotesOf(c)).find(x => x.id === String(req.params.quoteId) && QUOTE_STATUSES_SHOWN.includes(x.status)) : null
-    const svg = q ? planOf(q) : ''
+    // Signed and the office's site plan done: the finished plan (lib/portalCustomer.ts customerPlanOf).
+    const svg = q ? await customerPlanOf(q) : ''
     if (!svg) { res.status(404).json({ success: false, error: 'NOT_FOUND' }); return }
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8')
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'")

@@ -111,7 +111,7 @@ interface PacketInput {
   job: any
   permit: any
   quote: any | null
-  /** A walked quote whose plan the office has not drawn yet: the walk list sheet (table and rough sketch, not to scale). */
+  /** The office site plan once done (to scale, property lines); else a walked quote whose plan the office has not drawn yet: the walk list sheet (table and rough sketch, not to scale). */
   walkSvg?: string | null
   parcel: ParcelInfo | null
 }
@@ -131,7 +131,11 @@ export async function packetInputFor(accountId: string, jobId: string, opts: { l
   const opt = quote?.proposal && quote.chosenOption != null ? (quote.proposal as any)?.options?.[quote.chosenOption] : null
   const fenceText = await plainStyleName(opt?.fenceStyle || job.fenceStyle) || String(opt?.label || job.fenceStyle || '')
   const layout = (quote?.layout ?? null) as any
-  const walkSvg = layout?.walk && !layout.planDone ? (await pricingModule() as any).walkSheetSvg(layout.walk) as string : null
+  // The office site plan once it is done (lib/sitePlans.ts), with the property lines; else a walked quote's walk list sheet.
+  const site = await prisma.sitePlan.findUnique({ where: { jobId: job.id }, select: { accountId: true, doneAt: true, data: true } }).catch(() => null)
+  const walkSvg = site?.doneAt && site.accountId === accountId
+    ? (await pricingModule() as any).sitePlanSvg(site.data, { width: 760, height: 560, neighbors: true }) as string
+    : layout?.walk && !layout.planDone ? (await pricingModule() as any).walkSheetSvg(layout.walk) as string : null
   return { company: contractor.name, contractor, fenceText, job, permit: { ...permit, parcelId: permit.parcelId || parcel?.parcel || '' }, quote, parcel, walkSvg }
 }
 
