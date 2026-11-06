@@ -132,11 +132,14 @@ try {
   const crew = await invite('field_crew', `Installer ${stamp}`)
   check('logins: a Salesman, an Office Staff and an Installer', !!sales.token && !!office.token && !!crew.token)
   // The Salesman sees only the Salesman's own and assigned quotes (lib/salesScope.ts, Oct 28 2026): a copy of the
-  // costed quote with the Salesman as its Sales rep, no customer, removed at the end.
-  const { id: _id, crmContactId: _c, shareToken: _t, acceptedAt: _a, createdAt: _ca, updatedAt: _u, ownerId: _o, ...copy } = costed
-  const salesQuote = (await owner('POST', '/api/saved-quotes', { ...copy, crmContactId: null, customerName: `E2E Costs ${stamp}`, salesRep: `E2E Salesman ${stamp}`, status: 'DRAFT' })).json.data
+  // costed quote with the Salesman as its Sales rep, no customer, removed at the end. Without its proposal cards: a
+  // quote sent before the 3 option limit (Nov 2 2026) can hold 4, and a new quote with 4 is refused (TOO_MANY_OPTIONS);
+  // the costs checked here are the quote's own totals.
+  const { id: _id, crmContactId: _c, shareToken: _t, acceptedAt: _a, createdAt: _ca, updatedAt: _u, ownerId: _o, proposal: _p, chosenOption: _co, ...copy } = costed
+  const salesRes = await owner('POST', '/api/saved-quotes', { ...copy, crmContactId: null, customerName: `E2E Costs ${stamp}`, salesRep: `E2E Salesman ${stamp}`, status: 'DRAFT' })
+  const salesQuote = salesRes.json.data
   if (salesQuote?.id) made.quotes.push(salesQuote.id)
-  check('setup: a quote of the Salesman\'s with the same costs', !!salesQuote?.id && salesQuote.totalCOGS === costed.totalCOGS && salesQuote.finalPrice === costed.finalPrice, `${salesQuote?.totalCOGS} ${salesQuote?.finalPrice}`)
+  check('setup: a quote of the Salesman\'s with the same costs', !!salesQuote?.id && salesQuote.totalCOGS === costed.totalCOGS && salesQuote.finalPrice === costed.finalPrice, `${salesQuote?.totalCOGS} ${salesQuote?.finalPrice} ${salesQuote ? '' : JSON.stringify(salesRes.json).slice(0, 200)}`)
   check('salesman: a quote not the Salesman\'s is not found (404)', (await call(sales.token, 'GET', `/api/saved-quotes/${costed?.id}`)).status === 404)
 
   // ── 2. Straight to the server ──
