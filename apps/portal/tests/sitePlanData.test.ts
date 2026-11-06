@@ -83,6 +83,15 @@ describe('the plan from the quote', () => {
     expect(sides[0].pieces).toEqual([{ ft: 13, sections: 2, spacingFt: 6.5 }, { ft: 13, sections: 2, spacingFt: 6.5 }])
   })
 
+  test('a gate that starts at a corner hangs on the corner post: no second post on the same spot', () => {
+    const w: WalkList = { v: 1, lines: [{ id: 'g', steps: [step(40, 'corner', { turn: 'right' }), step(0, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(36, 'end')] }] }
+    const p = planFromYard(walkToYard(w), OCALA, w)!
+    const { posts } = crewPosts(p, (_id, pieceFt) => sectionsAt(pieceFt, 8))
+    expect(posts.filter(x => x.kind === 'gate').length).toBe(1)
+    const spots = posts.map(x => `${x.at.lat.toFixed(7)},${x.at.lng.toFixed(7)}`)
+    expect(new Set(spots).size).toBe(spots.length)
+  })
+
   test('an older drawing with its aerial photo: posts where they were drawn on the photo, its feet the quote\'s', () => {
     const y = layoutForShape('backyard')
     ;[30, 120, 150, 120, 30].forEach((n, i) => { y.sides[i].lengthIn = ft(n) })

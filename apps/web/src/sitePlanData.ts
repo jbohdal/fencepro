@@ -320,7 +320,9 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
       pieces.push({ ft: Math.round(ft * 100) / 100, sections, spacingFt: sections ? Math.round((ft / sections) * 100) / 100 : 0 })
       for (let k = 1; k < sections; k++) add('line', at(p0 + (ft * k) / sections), side.id)
       const g = gates[i]
-      if (g) { add('gate', at(g.atFt), side.id); add('gate', at(g.atFt + g.widthFt), side.id) }
+      // A gate at the side's first or last post hangs on it: that post is the gate post (counted once, as priced).
+      const atEnd = (ft: number) => ft < 0.05 || ft > total - 0.05
+      if (g) { if (!atEnd(g.atFt)) add('gate', at(g.atFt), side.id); if (!atEnd(g.atFt + g.widthFt)) add('gate', at(g.atFt + g.widthFt), side.id) }
     })
     add(kindOf(flip ? side.a : side.b), b, side.id, flip ? side.a : side.b)
     sides.push({ id: side.id, name: side.name, ft: Math.round(total * 100) / 100, pieces })
