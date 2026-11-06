@@ -117,7 +117,10 @@ async function call<T>(method: string, body?: unknown): Promise<{ ok: boolean; d
   } catch { return { ok: false } }
 }
 
-function emit() { try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
+let bizVersion = 0
+function emit() { bizVersion += 1; try { window.dispatchEvent(new CustomEvent(EVT)) } catch {} }
+/** Changes with every change to the business record (configStore getConfig keeps its work until it does). */
+export function businessVersion(): number { return bizVersion }
 
 function pickBusiness(d: any): BusinessFields {
   const next: BusinessFields = { ...DEFAULT }

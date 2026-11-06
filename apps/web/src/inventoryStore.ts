@@ -52,7 +52,10 @@ async function invCall<T>(method: string, body?: unknown): Promise<{ ok: boolean
   } catch { return { ok: false } }
 }
 
-function invEmit() { try { window.dispatchEvent(new CustomEvent(INV_EVT)) } catch {} }
+let invVersion = 0
+function invEmit() { invVersion += 1; try { window.dispatchEvent(new CustomEvent(INV_EVT)) } catch {} }
+/** What the fence settings are worked out from (configStore getConfig keeps them until one of these changes). */
+export function inventoryKey(): unknown[] { return [invCache, invCache.items, invCache.kits, invVersion] }
 
 // The whole inventory is one server record. It is only written after it has
 // loaded, and every save is version checked: if another tab or device saved

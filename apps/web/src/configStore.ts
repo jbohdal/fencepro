@@ -223,7 +223,9 @@ export function getRailOptimizerConfig(cfg: AppConfig = getConfig()): RailOptimi
 // screen reads getConfig().
 
 import type { ProposalSettings } from './proposal'
-import { getBusinessField, setBusinessField } from './businessStateStore'
+import { getBusinessField, setBusinessField, businessVersion } from './businessStateStore'
+import { inventoryKey } from './inventoryStore'
+import { priceSourceNow } from './materialCalculator'
 import { withDefaults, type AppointmentSettings } from './appointmentLogic'
 
 /** Appointment settings with every default filled in. */
@@ -247,10 +249,21 @@ export function overheadPctOf(cfg: AppConfig): number {
   return typed
 }
 
+// Working out every fence's name, holds and prices takes seconds with today's styles, and getConfig is read on
+// nearly every render: the merged settings are kept until the saved settings, Inventory's parts or kits, or the
+// price source change. The overhead % (live from the budget) is read every time.
+let keptMerged: { key: unknown[]; merged: AppConfig } | null = null
+let keptOut: { merged: AppConfig; pct: number; cfg: AppConfig } | null = null
+const sameKey = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]))
+
 export function getConfig(): AppConfig {
   const saved = getBusinessField('config') as Partial<AppConfig>
-  const merged = mergeSavedConfig(saved)
-  return withTargetMargins(merged, overheadPctOf(merged))
+  const key = [saved, businessVersion(), ...inventoryKey(), priceSourceNow()]
+  if (!keptMerged || !sameKey(keptMerged.key, key)) keptMerged = { key, merged: mergeSavedConfig(saved) }
+  const merged = keptMerged.merged
+  const pct = overheadPctOf(merged)
+  if (!keptOut || keptOut.merged !== merged || !Object.is(keptOut.pct, pct)) keptOut = { merged, pct, cfg: withTargetMargins(merged, pct) }
+  return keptOut.cfg
 }
 
 

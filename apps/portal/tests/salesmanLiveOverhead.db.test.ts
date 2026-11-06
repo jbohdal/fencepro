@@ -32,6 +32,8 @@ vi.mock('../../web/src/businessStateStore', () => ({
   getBusinessField: (k: string) => (k === 'config' ? phone.config : {}),
   setBusinessField: () => {},
   getOverheadNow: () => phone.overheadNow,
+  // A new number each read: getConfig works the settings out again every time, as before it kept them.
+  businessVersion: (() => { let n = 0; return () => ++n })(),
 }))
 ;(globalThis as any).window ??= { location: { hostname: 'test', protocol: 'http:', origin: 'http://test' }, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true }
 

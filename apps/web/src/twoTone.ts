@@ -41,14 +41,34 @@ export function twoToneOf(name: string | null | undefined): { frame: string; inf
 
 /** An infill line: a color's picket, U trim / U channel or picket stiffener (not the shared truss, rail insert or hardware). */
 const INFILL = /^\**\s*Vinyl, (?!Truss\b)[^,]+, (Picket Stiffener|Picket|U-Trim|U Channel)\b/i
-export const isInfillPart = (part: string) => INFILL.test(part)
+// Asked for every kit line on every read of Settings: the answer per part name is kept.
+const infillSeen = new Map<string, boolean>()
+export const isInfillPart = (part: string) => {
+  let v = infillSeen.get(part)
+  if (v === undefined) { v = INFILL.test(part); if (infillSeen.size > 20_000) infillSeen.clear(); infillSeen.set(part, v) }
+  return v
+}
 
 /**
  * The two tone kit: the frame fence's kit, every infill line taken out and
  * the infill fence's infill lines of the same kind put in, where the first one
  * was. Kit kinds with no infill (posts, per foot, per job) are the frame's.
  */
+// The same fence from the same two kits is the same kit: kept per frame and infill kit (the kit objects change
+// whenever Inventory's kits are read again, so a kept one is never stale).
+const madeKits = new WeakMap<KitSet, WeakMap<KitSet, Map<string, KitSet>>>()
 export function twoToneKitSet(name: string, frame: KitSet, infill: KitSet): KitSet {
+  let byInfill = madeKits.get(frame)
+  if (!byInfill) { byInfill = new WeakMap(); madeKits.set(frame, byInfill) }
+  let byName = byInfill.get(infill)
+  if (!byName) { byName = new Map(); byInfill.set(infill, byName) }
+  const kept = byName.get(name)
+  if (kept) return kept
+  const made = makeTwoToneKitSet(name, frame, infill)
+  byName.set(name, made)
+  return made
+}
+function makeTwoToneKitSet(name: string, frame: KitSet, infill: KitSet): KitSet {
   const kits: KitSet['kits'] = {}
   for (const kind of Object.keys(frame.kits) as KitKind[]) {
     const lines = frame.kits[kind] ?? []

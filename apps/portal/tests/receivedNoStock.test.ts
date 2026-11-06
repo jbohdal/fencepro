@@ -17,6 +17,7 @@ vi.mock('../../web/src/businessStateStore', () => ({
   getBusinessField: (k: string) => (state as any)[k],
   setBusinessField: (k: string, v: unknown) => { (state as any)[k] = v },
   whenBusinessStateSaved: () => Promise.resolve(false),
+  businessVersion: (() => { let n = 0; return () => ++n })(),
   needBusinessFields: () => Promise.resolve(true),
   isBusinessFieldLoaded: () => true,
   BUSINESS_STATE_UPDATED_EVENT: 'x',
@@ -25,6 +26,7 @@ vi.mock('../../web/src/inventoryStore', () => ({
   getInventory: () => inventory,
   saveInventory,
   isInventoryHydrated: () => true,
+  inventoryKey: () => [{}],
 }))
 
 const { updatePendingOrderStatus, receivedStockWords } = await import('../../web/src/pendingOrderStore')

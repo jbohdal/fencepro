@@ -71,6 +71,9 @@ export function inventoryPriceSource(items: ReadonlyArray<{ name: string; unitCo
 }
 
 /** Run `fn` with a different price source, then put the old one back. */
+/** The price source in use now (configStore getConfig keeps its work per source). */
+export function priceSourceNow(): MaterialPriceSource | null { return priceSource }
+
 export function withPriceSource<T>(fn: MaterialPriceSource | null, run: () => T): T {
   const was = priceSource
   priceSource = fn
