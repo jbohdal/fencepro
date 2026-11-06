@@ -29,7 +29,7 @@ import { cleanLocate, locateFields, locateOf, type LocateInput } from './locates
 import { stageFollowsLocateAndPermit, locateClear, LOCATE_REASON } from './waitingStageMove.js'
 import { milestones, milestoneOfLabel, labelKey, progressOf, billingStatusOf, invoiceDue, type InvoiceDueState, type Milestone, type ReadinessFacts, type StoredTick } from './jobReadiness.js'
 export { billingStatusOf } from './jobReadiness.js'
-import { applyPayments } from './paymentMath.js'
+import { applyPayments, clearSums } from './paymentMath.js'
 import { findOrCreate } from './once.js'
 import { defaultChecklist, milestoneLabels, milestoneId } from './seeds.js'
 import { loadPipelineStages } from './pipelineStages.js'
@@ -87,7 +87,8 @@ export async function billingViewFor(accountId: string, jobId: string): Promise<
   const contractCents = invoices[0]?.contractCents ?? schedule.signedCents
   const paid = payments.filter(p => !p.voidedAt).reduce((s, p) => s + p.amountCents, 0)
   return {
-    contractCents, paidCents: paid, completedDate: job?.completedDate ?? null,
+    // Cleared: the job reads Paid only when cleared (Nov 6 2026); paid counts received (Billing).
+    contractCents, paidCents: paid, clearedCents: clearSums(payments).clearedCents, completedDate: job?.completedDate ?? null,
     invoices: invoices.map(i => ({ kind: i.kind, label: i.label, amountCents: i.amountCents, balanceCents: i.amountCents - (a.paidByInvoice.get(i.id) ?? 0), dueOn: i.dueOn, dueDate: i.dueDate })),
   }
 }
@@ -138,17 +139,21 @@ export interface ReceivedPaymentRow {
   /** For the Billing page's Payments list: who, which job, the check or reference, and the receipt (staff PDF). */
   customerId: string | null; address: string; fenceStyle: string; checkNumber: string | null; reference: string | null
   receipt: { id: string; number: number } | null
+  /** received | cleared | null (recorded before states were kept: reads as cleared); the day it cleared (Nov 6 2026). */
+  clearState: string | null; clearedOn: string | null
 }
 
 /**
- * Every payment received (not voided) on the payment schedules: the cash
- * basis revenue of the P&L and the Budget (web moneyTruth.ts cashReceived).
+ * Every payment received (not voided) on the payment schedules: Billing's
+ * Payments (received counts, with a "not cleared yet" line), the cash basis
+ * revenue of the P&L by the day it cleared (web moneyTruth.ts clearedCash), and
+ * the Balance Sheet's deposits in transit (received, not cleared).
  * Payments of deleted jobs are left out, as in receivables; archived jobs'
  * payments count.
  */
 export async function paymentsReceived(accountId: string): Promise<ReceivedPaymentRow[]> {
   const [payments, jobs, receipts] = await Promise.all([
-    prisma.contractPayment.findMany({ where: { accountId, voidedAt: null }, select: { id: true, jobId: true, amountCents: true, paidOn: true, method: true, checkNumber: true, reference: true, crmContactId: true }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
+    prisma.contractPayment.findMany({ where: { accountId, voidedAt: null }, select: { id: true, jobId: true, amountCents: true, paidOn: true, method: true, checkNumber: true, reference: true, crmContactId: true, clearState: true, clearedOn: true }, orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }] }),
     prisma.savedJob.findMany({ where: { accountId, deletedAt: null }, select: { id: true, customerName: true, crmContactId: true, customerAddress: true, fenceStyle: true } }),
     prisma.receipt.findMany({ where: { accountId, voidedAt: null }, select: { id: true, number: true, paymentId: true } }),
   ])
@@ -160,6 +165,7 @@ export async function paymentsReceived(accountId: string): Promise<ReceivedPayme
       id: p.id, jobId: p.jobId, customerName: j.customerName, amountCents: p.amountCents, paidOn: p.paidOn, method: p.method,
       customerId: j.crmContactId ?? p.crmContactId ?? null, address: j.customerAddress, fenceStyle: j.fenceStyle,
       checkNumber: p.checkNumber, reference: p.reference, receipt: receiptOf.get(p.id) ?? null,
+      clearState: p.clearState ?? null, clearedOn: p.clearedOn ?? null,
     }
   })
 }
@@ -203,10 +209,10 @@ export async function readinessFactsFor(accountId: string, jobs: Json[], today =
         pays.map(p => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !!p.voidedAt })),
       )
       const st = billingStatusOf({
-        contractCents: inv[0].contractCents, paidCents: pays.filter(p => !p.voidedAt).reduce((s, p) => s + p.amountCents, 0), completedDate: j.completedDate ?? null,
+        contractCents: inv[0].contractCents, paidCents: pays.filter(p => !p.voidedAt).reduce((s, p) => s + p.amountCents, 0), clearedCents: clearSums(pays).clearedCents, completedDate: j.completedDate ?? null,
         invoices: inv.map(i => ({ kind: i.kind, label: i.label, amountCents: i.amountCents, balanceCents: i.amountCents - (a.paidByInvoice.get(i.id) ?? 0), dueOn: i.dueOn, dueDate: i.dueDate })),
       })
-      billing = { finalCents: st.finalCents, finalDue: st.finalDue, balanceCents: st.balanceCents, paidInFull: st.paidInFull }
+      billing = { finalCents: st.finalCents, finalDue: st.finalDue, balanceCents: st.balanceCents, paidInFull: st.paidInFull, receivedInFull: st.receivedInFull }
     }
     const homeowner = (w?.homeownerSig as Json)?.name ?? null
     out.set(j.id, {
@@ -529,12 +535,12 @@ export async function installHappened(accountId: string, job: { id: string; stat
   return !!last && last < today
 }
 
-/** Signed off and paid in full but not installed by the records: the owner is asked to mark it installed. */
+/** Signed off and received in full (cleared or not: Complete does not wait for the bank) but not installed by the records: the owner is asked to mark it installed. */
 export async function closeOutPrompt(accountId: string, job: { id: string; status: string; scheduledDate: string; scheduledEndDate: string | null }): Promise<'mark_installed' | null> {
   if (isDonePhase(job.status) || job.status === 'on_hold') return null
   const w = await prisma.walkthrough.findUnique({ where: { jobId: job.id }, select: { accountId: true, homeownerSig: true, repSig: true } })
   if (!w || w.accountId !== accountId || !w.homeownerSig || !w.repSig) return null
-  if (!billingStatusOf(await billingViewFor(accountId, job.id)).paidInFull) return null
+  if (!billingStatusOf(await billingViewFor(accountId, job.id)).receivedInFull) return null
   return (await installHappened(accountId, job)) ? null : 'mark_installed'
 }
 
@@ -613,9 +619,10 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
     } else {
       const w = await prisma.walkthrough.findUnique({ where: { jobId }, select: { accountId: true, homeownerSig: true, repSig: true } })
       if (!w || w.accountId !== accountId || !w.homeownerSig || !w.repSig) return { moved: false, why: 'walkthrough not signed' }
-      if (!status.paidInFull) return { moved: false, why: 'not paid in full' }
+      // Every dollar received closes the work out (Complete); Paid waits for the bank (below, Nov 6 2026).
+      if (!status.receivedInFull) return { moved: false, why: 'not paid in full' }
       // Only a job that was really installed (Oct 25 2026: a job never scheduled closed out on a signature and a
-      // payment). Not installed: the job page asks the owner "Paid and signed off: mark installed?".
+      // payment). Not installed: the job page asks the owner "Final payment received and signed off: mark installed?".
       if (!(await installHappened(accountId, job))) return { moved: false, why: 'not installed' }
       const done = completeStage(stages)
       if (!done) return { moved: false, why: 'no Complete stage' }
@@ -629,7 +636,8 @@ export async function closeOutIfDone(accountId: string, jobId: string, why: stri
       const { finishScheduleRows } = await import('./installScheduling.js')
       await finishScheduleRows(accountId, jobId, { accountId, userId: null }, completed.completedDate || floridaDay(new Date()))
     }
-    // Paid in full: on to Paid (the balance is zero).
+    // Paid in full and cleared: on to Paid (Jonathan, Nov 6 2026: "A job reads Paid only when cleared"). A payment
+    // still waiting on the bank leaves it at Complete; the owner's Cleared tap moves it on (lib/paymentClearing.ts).
     if (paidStage && status.paidInFull) {
       const paid = await moveJobToStage(accountId, row, stages, paidStage, ['completed', 'invoiced'], { paymentStatus: 'paid' }, `Paid in full: ${why}`)
       if (paid) row = paid

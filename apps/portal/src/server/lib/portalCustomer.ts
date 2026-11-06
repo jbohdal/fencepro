@@ -26,7 +26,7 @@
 
 import prisma from './prisma.js'
 import { plainStyleName } from './estimates.js'
-import { applyPayments, methodText } from './paymentMath.js'
+import { applyPayments, methodText, waitsOnBank } from './paymentMath.js'
 import { contractParts, dayWords } from './contractBilling.js'
 import { nyDay } from './warranties.js'
 
@@ -140,6 +140,12 @@ export async function billingOf(contact: { id: string; accountId: string | null 
       invoices.map(i => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: false })),
       payments.map(p => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: false })),
     )
+    // A check not cleared yet: its invoice reads "Payment received", never Paid (Jonathan, Nov 6 2026). Cash, card
+    // and Zelle are paid when taken. Worked out as the payments that are not waiting on the bank, oldest first.
+    const sure = applyPayments(
+      invoices.map(i => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: false })),
+      payments.map(p => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: waitsOnBank(p) })),
+    )
     const paid = payments.reduce((sum, p) => sum + p.amountCents, 0)
     const rByPay = new Map(receipts.map(r => [r.paymentId, r]))
     out.push({
@@ -150,6 +156,7 @@ export async function billingOf(contact: { id: string; accountId: string | null 
         const p = a.paidByInvoice.get(i.id) ?? 0
         return {
           id: i.id, label: i.label, amountCents: i.amountCents, paidCents: p, balanceCents: i.amountCents - p,
+          waitingOnBank: i.amountCents - p <= 0 && i.amountCents - (sure.paidByInvoice.get(i.id) ?? 0) > 0,
           due: i.dueOn === 'signing' ? 'Due at signing' : i.dueOn === 'completion' ? (i.dueDate ? `Due on completion (${dayWords(i.dueDate)})` : 'Due on completion') : i.dueDate ? `Due ${dayWords(i.dueDate)}` : '',
           number: i.legacyNumber ?? null,
         }

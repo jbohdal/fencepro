@@ -13,7 +13,7 @@ import {
   periodMTD, periodQTD, periodYTD, periodLast12, periodCustom,
   type PeriodRange, type PlStatement, type RevenueSources,
 } from './plEngine'
-import { BASIS_WORDS, type RevenueBasis } from './moneyTruth'
+import { BASIS_WORDS, notClearedYet, type RevenueBasis } from './moneyTruth'
 import { useReceived, allReceived } from './moneyLoad'
 import { getJobs, getArchivedJobs } from './jobStore'
 import {
@@ -55,7 +55,7 @@ export default function PLStatementPage() {
   const [viewMode, setViewMode] = useState<'summary' | 'monthly'>('summary')
   const [showEntries, setShowEntries] = useState(false)
   const [bumpKey, setBumpKey] = useState(0)
-  // Revenue basis: installed (accrual, the Dashboard's number) unless the owner picks payments received (cash).
+  // Revenue basis: installed (accrual, the Dashboard's number) unless the owner picks payments cleared (cash, by the day cleared).
   const [basis, setBasis] = useState<RevenueBasis>('installed')
   const { rows: received, error: receivedError } = useReceived()
   const src: RevenueSources = useMemo(() => ({
@@ -64,6 +64,7 @@ export default function PLStatementPage() {
     // Archived jobs still count (only deleted ones do not), as on the Dashboard.
     jobs: [...getJobs(), ...getArchivedJobs()],
   }), [basis, received, bumpKey])
+  const waiting = useMemo(() => notClearedYet(received ?? []), [received])
   const firstPaid = src.received.map(p => p.paidOn).filter(Boolean).sort()[0] ?? ''
   // Crew labor from approved job takeoffs (job costing) goes into Direct Labor once it is loaded.
   useEffect(() => { loadFinanceLabor().then(ok => { if (ok) setBumpKey(k => k + 1) }) }, [])
@@ -155,8 +156,10 @@ export default function PLStatementPage() {
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <p className="text-xs font-semibold text-gray-400">Revenue</p>
           <p className="text-2xl font-bold text-gray-900 mt-1" data-pl-revenue={pl.revenue.total}>{fmt(pl.revenue.total)}</p>
-          <p className="text-xs text-gray-400 mt-1">{period.label} · {pl.revenue.basis === 'cash' ? `${pl.revenue.count} ${pl.revenue.count === 1 ? 'payment' : 'payments'} received` : `${pl.revenue.count} ${pl.revenue.count === 1 ? 'job' : 'jobs'} installed`}</p>
-          <p className="text-xs text-gray-500 mt-1" data-pl-other-basis={pl.revenue.otherBasisCents}>{pl.revenue.basis === 'cash' ? 'Installed' : 'Payments received'}: {fmt(pl.revenue.otherBasisCents)}</p>
+          <p className="text-xs text-gray-400 mt-1">{period.label} · {pl.revenue.basis === 'cash' ? `${pl.revenue.count} ${pl.revenue.count === 1 ? 'payment' : 'payments'} cleared` : `${pl.revenue.count} ${pl.revenue.count === 1 ? 'job' : 'jobs'} installed`}</p>
+          <p className="text-xs text-gray-500 mt-1" data-pl-other-basis={pl.revenue.otherBasisCents}>{pl.revenue.basis === 'cash' ? 'Installed' : 'Payments cleared'}: {fmt(pl.revenue.otherBasisCents)}</p>
+          {/* Received and not cleared yet: not in the P&L until the owner taps Cleared (Jonathan, Nov 6 2026: "The P&L goes by cleared date"). */}
+          {waiting.count > 0 && <p className="text-xs text-amber-700 mt-1" data-pl-not-cleared={waiting.cents}>Not cleared yet: {fmt(waiting.cents)} ({waiting.count} {waiting.count === 1 ? 'payment' : 'payments'}), not in the P&L until cleared</p>}
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <p className="text-xs font-semibold text-gray-400">Gross Profit</p>
@@ -225,7 +228,7 @@ function SummaryView({ pl }: { pl: PlStatement }) {
       </div>
       <div className="divide-y divide-gray-50">
         <Section label="REVENUE" />
-        <Row label={pl.revenue.basis === 'cash' ? 'Payments received' : 'Fence installation revenue (jobs installed)'} amount={pl.revenue.fenceInstallation} indent={1} />
+        <Row label={pl.revenue.basis === 'cash' ? 'Payments cleared' : 'Fence installation revenue (jobs installed)'} amount={pl.revenue.fenceInstallation} indent={1} />
         <Row label="Other Revenue" amount={pl.revenue.otherRevenue} indent={1} />
         <Row label="Total Revenue" amount={pl.revenue.total} bold indent={0} />
 
@@ -326,7 +329,7 @@ function MonthlyView({ monthly }: { monthly: PlStatement[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            <MonthRow label={monthly[0]?.revenue.basis === 'cash' ? 'Revenue (payments received)' : 'Revenue (installed)'} values={revenueSeries} bold />
+            <MonthRow label={monthly[0]?.revenue.basis === 'cash' ? 'Revenue (payments cleared)' : 'Revenue (installed)'} values={revenueSeries} bold />
             <MonthRow label="Materials" values={monthly.map(m => m.cogs.materials)} />
             <MonthRow label="Direct Labor" values={monthly.map(m => m.cogs.directLabor)} />
             <MonthRow label="Subcontractors" values={monthly.map(m => m.cogs.subcontractors)} />
@@ -575,7 +578,7 @@ function exportPlCsv(pl: PlStatement) {
     ['Period', pl.period.label],
     [],
     ['REVENUE'],
-    [pl.revenue.basis === 'cash' ? 'Payments received (cash basis)' : 'Fence installation revenue (jobs installed, accrual)', (pl.revenue.fenceInstallation / 100).toFixed(2)],
+    [pl.revenue.basis === 'cash' ? 'Payments cleared (cash basis, by the day cleared)' : 'Fence installation revenue (jobs installed, accrual)', (pl.revenue.fenceInstallation / 100).toFixed(2)],
     ['Other Revenue', (pl.revenue.otherRevenue / 100).toFixed(2)],
     ['Total Revenue', (pl.revenue.total / 100).toFixed(2)],
     [],
@@ -640,7 +643,7 @@ function exportPlPdf(pl: PlStatement) {
 <h2>Profit &amp; Loss Statement — ${pl.period.label}</h2>
 <div class="section">Revenue</div>
 <table>
-  <tr><td>${pl.revenue.basis === 'cash' ? 'Payments received (cash basis)' : 'Fence installation revenue (jobs installed, accrual)'}</td><td class="amt">${fmt(pl.revenue.fenceInstallation)}</td></tr>
+  <tr><td>${pl.revenue.basis === 'cash' ? 'Payments cleared (cash basis, by the day cleared)' : 'Fence installation revenue (jobs installed, accrual)'}</td><td class="amt">${fmt(pl.revenue.fenceInstallation)}</td></tr>
   <tr><td>Other Revenue</td><td class="amt">${fmt(pl.revenue.otherRevenue)}</td></tr>
   <tr class="total"><td>Total revenue</td><td class="amt">${fmt(pl.revenue.total)}</td></tr>
 </table>

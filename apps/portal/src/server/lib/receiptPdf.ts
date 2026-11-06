@@ -43,6 +43,8 @@ export interface ReceiptSnapshot {
   paidToDateCents: number
   balanceCents: number
   paidInFull: boolean
+  /** Not saved: set when shown (contractBilling.receiptNow). Balance $0 but a check has not cleared: "Payment received", not Paid in full (Nov 6 2026). */
+  waitingOnBank?: boolean
   warrantyName: string | null
   lienRelease: boolean
   recordedBy: string
@@ -141,6 +143,13 @@ export function receiptPdf({ s, voided, dayWords, installDay }: ReceiptPdfInput)
       doc.moveDown(0.3)
       doc.font('Helvetica').fontSize(11).fillColor(INK).text(`Warranty: ${s.warrantyName || 'as written on your contract'}`, L, doc.y, { width: W })
       doc.font('Helvetica').fontSize(11).fillColor(INK).text(installDay ? `Your warranty starts on the install date: ${installDay}.` : 'Your warranty starts on the install date.', L, doc.y, { width: W })
+    }
+
+    if (s.waitingOnBank) {
+      heading('Payment received', 70)
+      doc.font('Helvetica-Bold').fontSize(14).fillColor(voided ? GRAY : GREEN).text('Payment received. Thank you!', L, doc.y, { width: W })
+      doc.moveDown(0.3)
+      doc.font('Helvetica').fontSize(11).fillColor(INK).text('Your balance is $0.00. It reads paid in full once your check clears.', L, doc.y, { width: W })
     }
 
     if (s.lienRelease && s.paidInFull) {

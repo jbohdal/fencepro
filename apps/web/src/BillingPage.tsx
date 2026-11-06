@@ -7,7 +7,7 @@ import { navigate } from './nav'
 import jsPDF from 'jspdf'
 import { getInvoices, getPayments, type Invoice, type Payment } from './billingStore'
 import { useReceivables, useReceived, receivablesNow } from './moneyLoad'
-import { legacyPaymentsCounted } from './moneyTruth'
+import { legacyPaymentsCounted, notClearedYet } from './moneyTruth'
 import { PaymentsToConfirm } from './Payments'
 import { METHODS, openStaffFile } from './paymentsStore'
 import { toast } from './toast'
@@ -20,7 +20,7 @@ const fmtD = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFra
 type Tab = 'ar' | 'invoices' | 'overdue' | 'payments'
 
 /** One payment received on the Payments tab: a job's payment schedule (with its receipt), or a hand-made Billing invoice's. */
-interface PaymentRow { key: string; paidOn: string; customerName: string; jobId: string | null; job: string; method: string; amountCents: number; receipt: { id: string; number: number } | null; invoice: Invoice | null; invoiceNumber: string }
+interface PaymentRow { key: string; paidOn: string; customerName: string; jobId: string | null; job: string; method: string; amountCents: number; receipt: { id: string; number: number } | null; invoice: Invoice | null; invoiceNumber: string; notCleared: boolean }
 
 /** "Check #1042", "Zelle", "Card": the method as the payment form names it. */
 export function methodText(method: string, checkNumber?: string | null): string {
@@ -389,17 +389,21 @@ export default function BillingPage() {
       ...(received ?? []).map(r => ({
         key: `s-${r.id}`, paidOn: r.paidOn, customerName: r.customerName, jobId: r.jobId as string | null, job: [styleLabel(r.fenceStyle), r.address].filter(Boolean).join(' · '),
         method: methodText(r.method, r.checkNumber), amountCents: r.amountCents, receipt: r.receipt, invoice: null as Invoice | null, invoiceNumber: '',
+        notCleared: r.clearState === 'received',
       })),
       ...legacyPaymentsCounted(all, payments).map((p: Payment) => {
         const inv = byId.get(p.invoiceId) ?? null
         return {
           key: `b-${p.id}`, paidOn: String(p.paymentDate || '').slice(0, 10), customerName: p.customerName, jobId: null, job: inv?.jobName || '',
-          method: methodText(p.paymentMethod, null), amountCents: p.amountCents, receipt: null, invoice: inv, invoiceNumber: p.invoiceNumber,
+          method: methodText(p.paymentMethod, null), amountCents: p.amountCents, receipt: null, invoice: inv, invoiceNumber: p.invoiceNumber, notCleared: false,
         }
       }),
     ].sort((a, b) => b.paidOn.localeCompare(a.paidOn) || a.customerName.localeCompare(b.customerName))
   }, [received, payments])
   const payTotal = payRows.reduce((t, r) => t + r.amountCents, 0)
+  // Received counts (above); of it, what the bank has not cleared yet (Jonathan, Nov 6 2026: "Billing counts
+  // received, with a 'not cleared yet' line"). Bounced payments are voided, so never here.
+  const waiting = notClearedYet(received ?? [])
   const today = businessDate(new Date())
 
   // Per customer: the schedules' open invoices, and hand-made invoices not taken into a schedule
@@ -471,12 +475,17 @@ export default function BillingPage() {
       <PaymentsToConfirm />
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Outstanding</p><p className="text-2xl font-bold text-gray-900" data-ar-outstanding={totalOutstanding}>{owed ? fmtD(totalOutstanding) : '…'}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Overdue</p><p className="text-2xl font-bold text-red-600" data-ar-overdue={totalOverdue}>{owed ? fmtD(totalOverdue) : '…'}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Due This Week</p><p className="text-2xl font-bold text-orange-600">{fmtD(dueThisWeek)}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Open invoices</p><p className="text-2xl font-bold text-gray-900">{totals.openCount}</p></div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5"><p className="text-xs text-gray-400">Customers w/ Balance</p><p className="text-2xl font-bold text-gray-900">{arData.length}</p></div>
+        <button type="button" onClick={() => setTab('payments')} className="text-left bg-white rounded-2xl border border-amber-200 p-5" data-billing-not-cleared={waiting.cents}>
+          <p className="text-xs text-gray-400">Not cleared yet</p>
+          <p className="text-2xl font-bold text-amber-700">{received ? fmtD(waiting.cents) : '…'}</p>
+          <p className="text-xs text-gray-500">{received ? `${waiting.count} payment${waiting.count === 1 ? '' : 's'} received, waiting on the bank` : ''}</p>
+        </button>
       </div>
 
       {owedError && <p className="text-sm text-red-700">{owedError}</p>}
@@ -660,6 +669,12 @@ export default function BillingPage() {
                 <span className="text-gray-600" data-payments-count={payRows.length}>{payRows.length} payment{payRows.length === 1 ? '' : 's'} received</span>
                 <span className="font-semibold text-gray-900" data-payments-total={payTotal}>{fmtD(payTotal)}</span>
               </div>
+              {waiting.count > 0 && (
+                <div className="px-4 sm:px-6 py-2 bg-amber-50 border-b border-amber-100 flex items-center justify-between text-sm" data-payments-not-cleared={waiting.cents}>
+                  <span className="text-amber-800">Not cleared yet: {waiting.count} payment{waiting.count === 1 ? '' : 's'} (in the total above; tap Cleared on the job's Payments when the bank shows it)</span>
+                  <span className="font-semibold text-amber-800">{fmtD(waiting.cents)}</span>
+                </div>
+              )}
               <div className="divide-y divide-gray-50">
                 {payRows.map(r => (
                   <div key={r.key} className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2" data-billing-payment={r.key}>
@@ -669,6 +684,7 @@ export default function BillingPage() {
                         <button type="button" onClick={() => navigate(`/operations?job=${encodeURIComponent(r.jobId!)}`, { from: 'Billing' })} className="text-xs text-violet-700 underline text-left min-h-[32px]" data-payment-job={r.jobId}>{r.job || 'Open the job'}</button>
                       ) : r.job ? <p className="text-xs text-gray-500">{r.job}</p> : null}
                       <p className="text-xs text-gray-500">{usDay(r.paidOn)} · {r.method}{r.receipt ? ` · Receipt ${r.receipt.number}` : r.invoiceNumber ? ` · Inv: ${r.invoiceNumber}` : ''}</p>
+                      {r.notCleared && <p className="text-xs font-semibold text-amber-700" data-payment-not-cleared>Not cleared yet</p>}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-semibold text-green-600">{fmtD(r.amountCents)}</span>

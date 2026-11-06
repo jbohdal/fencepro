@@ -42,7 +42,7 @@ import path from 'path'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { approvedTotalCents } from './changeOrders.js'
-import { applyPayments, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, shownDollarCents, customerDepositCents, askedDepositPct, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
+import { applyPayments, clearSums, isCleared, waitsOnBank, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, shownDollarCents, customerDepositCents, askedDepositPct, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
 import { customerDollarsFrom, onCustomerDollars, signedAtOf } from './customerDollars.js'
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
@@ -350,6 +350,9 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   if (a.applications.length) await tx.paymentApplication.createMany({ data: a.applications.map(x => ({ accountId, ...x })) })
   // The job's paid figures, for the boards that read them (dollars there).
   const paid = payments.filter((p: any) => !p.voidedAt).reduce((s: number, p: any) => s + p.amountCents, 0)
+  // Paid only when what cleared covers the contract (Jonathan, Nov 6 2026: "A job reads Paid only when cleared");
+  // received in full and not cleared yet stays Partial until the owner taps Cleared (lib/paymentClearing.ts).
+  const cleared = clearSums(payments).clearedCents
   const last = payments.filter((p: any) => !p.voidedAt).sort((x: any, y: any) => y.paidOn.localeCompare(x.paidOn))[0]
   // Signed from Oct 29 2026 on (D1): the job's price is the amount signed, the whole dollar the customer saw and is
   // billed, so the job page never shows the quote's cents. A sale signed before keeps its job price as it is.
@@ -358,8 +361,13 @@ export async function settleIn(tx: any, accountId: string, jobId: string, why: s
   await tx.savedJob.update({
     where: { id: jobId },
     // contractValue: the contract with its change orders and adjustments, as the schedule has it (lib/changeOrders.ts adds the same).
-    data: { ...(shownSale ? { quotePrice: schedule.signedCents / 100 } : {}), amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paid <= 0 ? 'invoiced' : paid >= contractCents ? 'paid' : 'partial', ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
+    data: { ...(shownSale ? { quotePrice: schedule.signedCents / 100 } : {}), amountPaid: paid / 100, contractValue: contractCents / 100, paymentStatus: paymentStatusOf(paid, cleared, contractCents), ...(last ? { paymentDate: last.paidOn, paymentMethod: last.method } : {}) },
   })
+}
+
+/** The job's paymentStatus: Paid only when received in full and cleared (Nov 6 2026). */
+export function paymentStatusOf(paidCents: number, clearedCents: number, contractCents: number): 'invoiced' | 'partial' | 'paid' {
+  return paidCents <= 0 ? 'invoiced' : paidCents >= contractCents && clearedCents >= contractCents ? 'paid' : 'partial'
 }
 
 /**
@@ -633,9 +641,21 @@ export async function makeReceiptIn(tx: any, accountId: string, paymentId: strin
   return tx.receipt.create({ data: { accountId, number, paymentId, jobId: pay.jobId, crmContactId: pay.crmContactId, token, snapshot: snapshot as any, lienRelease: snapshot.lienRelease } })
 }
 
+/**
+ * What a receipt tells the customer now: a paid in full receipt while a check on the job has not cleared reads
+ * "Payment received" (balance $0), not Paid in full, and its lien release waits for the check to clear (Jonathan,
+ * Nov 6 2026: "say Payment received rather than Paid" on an uncleared check). Cash, card and Zelle read as before.
+ */
+export async function receiptNow(r: { snapshot: unknown; voidedAt: Date | null; jobId: string }): Promise<ReceiptSnapshot> {
+  const s = r.snapshot as ReceiptSnapshot
+  if (!s.paidInFull || r.voidedAt) return { ...s, waitingOnBank: false }
+  const pays = await prisma.contractPayment.findMany({ where: { jobId: r.jobId, voidedAt: null }, select: { amountCents: true, clearState: true, method: true, voidedAt: true } })
+  return pays.some(waitsOnBank) ? { ...s, paidInFull: false, lienRelease: false, warrantyName: null, waitingOnBank: true } : { ...s, waitingOnBank: false }
+}
+
 /** The PDF of a receipt as it is now (VOID once voided), with the warranty's start day looked up fresh. */
 export async function receiptPdfOf(r: { snapshot: unknown; voidedAt: Date | null; jobId: string }): Promise<Buffer> {
-  const s = r.snapshot as ReceiptSnapshot
+  const s = await receiptNow(r)
   let installDay: string | null = null
   if (s.paidInFull) {
     const job = await prisma.savedJob.findUnique({ where: { id: r.jobId }, select: { id: true, completedDate: true } })
@@ -772,6 +792,13 @@ export async function scheduleView(accountId: string, jobId: string): Promise<an
     payments.map(p => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !!p.voidedAt })),
   )
   const paid = payments.filter(p => !p.voidedAt).reduce((s, p) => s + p.amountCents, 0)
+  // Received and Cleared (Nov 6 2026): the job reads Paid only when cleared; an invoice is Paid when the cleared
+  // payments cover it (applied oldest first, as the received ones are).
+  const clear = clearSums(payments)
+  const ca = applyPayments(
+    invoices.map(i => ({ id: i.id, amountCents: i.amountCents, sortOrder: i.sortOrder, createdAt: i.createdAt, voided: !!i.voidedAt })),
+    payments.map(p => ({ id: p.id, amountCents: p.amountCents, paidOn: p.paidOn, createdAt: p.createdAt, voided: !isCleared(p) })),
+  )
   const rByPay = new Map(receipts.map(r => [r.paymentId, r]))
   const contact = schedule.crmContactId ? await prisma.crmContact.findUnique({ where: { id: schedule.crmContactId }, select: { firstName: true, lastName: true, phone: true, email: true } }) : null
   // The warranty a paid in full receipt names (the phone's offline receipt needs it too).
@@ -783,10 +810,10 @@ export async function scheduleView(accountId: string, jobId: string): Promise<an
     address: job?.customerAddress ?? '', phone: contact?.phone || job?.customerPhone || '', email: contact?.email || job?.customerEmail || '',
     fenceStyle: job?.fenceStyle ?? '', completedDate: job?.completedDate ?? null, depositPct: schedule.depositPct, source: schedule.source, warrantyName,
     // Paid over the contract (a credit change order after the Final was paid): owed back to the customer.
-    ...parts, paidCents: paid, balanceCents: parts.contractCents - paid, creditCents: Math.max(a.creditCents, paid - parts.contractCents),
+    ...parts, paidCents: paid, balanceCents: parts.contractCents - paid, ...clear, creditCents: Math.max(a.creditCents, paid - parts.contractCents),
     invoices: invoices.filter(i => !i.voidedAt).map(i => {
       const p = a.paidByInvoice.get(i.id) ?? 0
-      return { id: i.id, key: i.key, kind: i.kind, label: i.label, amountCents: i.amountCents, originalCents: i.originalCents, contractCents: i.contractCents, paidCents: p, balanceCents: i.amountCents - p, dueOn: i.dueOn, dueDate: i.dueDate, legacyNumber: i.legacyNumber }
+      return { id: i.id, key: i.key, kind: i.kind, label: i.label, amountCents: i.amountCents, originalCents: i.originalCents, contractCents: i.contractCents, paidCents: p, balanceCents: i.amountCents - p, clearedBalanceCents: i.amountCents - (ca.paidByInvoice.get(i.id) ?? 0), dueOn: i.dueOn, dueDate: i.dueDate, legacyNumber: i.legacyNumber }
     }),
     payments: payments.map(p => {
       const r = rByPay.get(p.id)
@@ -830,7 +857,7 @@ export async function emailReceipt(accountId: string, receiptId: string, to: str
   if (!EMAIL_RE.test(addr)) throw err(400, 'That email address does not look right.')
   if (!/^https?:\/\/[^\s]+\/p\/r\/[A-Za-z0-9_-]+$/.test(link) || !link.endsWith(`/p/r/${r.token}`)) throw err(400, 'The receipt link is not right. Reload and try again.')
   const { isEmailServiceConfigured, sendEmail, buildEmailHtml } = await import('./emailService.js')
-  const s = r.snapshot as unknown as ReceiptSnapshot
+  const s = await receiptNow(r)
   let status: 'sent' | 'failed' | 'not_configured'
   let error: string | undefined
   if (!isEmailServiceConfigured()) {
@@ -842,7 +869,7 @@ export async function emailReceipt(accountId: string, receiptId: string, to: str
       to: addr,
       ...(pdf ? { attachments: [{ filename: `receipt-${r.number}.pdf`, content: pdf, contentType: 'application/pdf' }] } : {}),
       subject: `${s.company.name}: ${receiptName(r.number)}, ${moneyText(s.amountCents)} received`,
-      body: buildEmailHtml(`<p>Hi ${s.customerName.split(' ')[0] || 'there'},</p><p>Thank you! We received ${moneyText(s.amountCents)} (${s.methodText}) for ${s.forText.toLowerCase()}.${s.paidInFull ? ' Your contract is paid in full.' : ` Balance remaining: ${moneyText(Math.max(0, s.balanceCents))}.`}</p><p>Your receipt: <a href="${link}">${link}</a></p><p>${s.company.name}${s.company.phone ? ` · ${s.company.phone}` : ''}</p>`),
+      body: buildEmailHtml(`<p>Hi ${s.customerName.split(' ')[0] || 'there'},</p><p>Thank you! We received ${moneyText(s.amountCents)} (${s.methodText}) for ${s.forText.toLowerCase()}.${s.paidInFull ? ' Your contract is paid in full.' : ` Balance remaining: ${moneyText(Math.max(0, s.balanceCents))}.`}${s.waitingOnBank ? ' It reads paid in full once your check clears.' : ''}</p><p>Your receipt: <a href="${link}">${link}</a></p><p>${s.company.name}${s.company.phone ? ` · ${s.company.phone}` : ''}</p>`),
     })
     status = out.success ? 'sent' : out.notConfigured ? 'not_configured' : 'failed'
     if (!out.success && !out.notConfigured) error = out.error

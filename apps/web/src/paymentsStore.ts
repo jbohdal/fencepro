@@ -68,7 +68,9 @@ export interface ReceiptRow {
   id: string; number: number; token: string; voided: boolean; says: ReceiptSnapshot; lienRelease: boolean
   emailTo: string | null; emailStatus: string | null; emailedAt: string | null; textedTo: string | null; textedAt: string | null; filed: boolean
 }
-export interface InvoiceRow { id: string; key: string; kind: 'deposit' | 'progress' | 'final' | 'other'; label: string; amountCents: number; originalCents: number; contractCents: number; paidCents: number; balanceCents: number; dueOn: string; dueDate: string | null; legacyNumber: string | null }
+export interface InvoiceRow { id: string; key: string; kind: 'deposit' | 'progress' | 'final' | 'other'; label: string; amountCents: number; originalCents: number; contractCents: number; paidCents: number; balanceCents: number
+  /** What is left once only cleared payments count (Nov 6 2026): above 0 with balanceCents 0 reads "Paid, not cleared yet". */
+  clearedBalanceCents?: number; dueOn: string; dueDate: string | null; legacyNumber: string | null }
 export interface PaymentRow {
   id: string; amountCents: number; method: Method; checkNumber: string | null; reference: string | null; methodText: string; paidOn: string; note: string
   recordedBy: string; needsConfirm: boolean; confirmedAt: string | null; confirmedBy: string | null; voidedAt: string | null; voidedBy: string | null; voidReason: string | null
@@ -80,6 +82,8 @@ export interface Schedule {
   jobId: string; quoteId: string | null; customerId: string | null; customerName: string; address: string; phone: string; email: string; fenceStyle: string
   completedDate: string | null; depositPct: number; source: string; warrantyName: string | null
   signedCents: number; changeOrderCents: number; adjustmentCents: number; contractCents: number; paidCents: number; balanceCents: number; creditCents: number
+  /** Cleared (or recorded before states were kept), and received not cleared yet (Nov 6 2026: "A job reads Paid only when cleared"). */
+  clearedCents?: number; notClearedCents?: number; notClearedCount?: number
   invoices: InvoiceRow[]; payments: PaymentRow[]
   adjustments: Array<{ id: string; amountCents: number; reason: string; byName: string; at: string }>
   log: Array<{ id: string; kind: string; text: string; byName: string; at: string }>

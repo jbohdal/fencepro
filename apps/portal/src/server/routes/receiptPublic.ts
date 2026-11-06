@@ -9,9 +9,9 @@
 import { Router } from 'express'
 import prisma from '../lib/prisma.js'
 import { CSS, esc } from './proposal.js'
-import { receiptPdfOf, dayWords, TOKEN_RE } from '../lib/contractBilling.js'
+import { receiptPdfOf, receiptNow, dayWords, TOKEN_RE } from '../lib/contractBilling.js'
 import { moneyText } from '../lib/paymentMath.js'
-import { receiptName, LIEN_RELEASE_DRAFT_NOTE, phoneText, type ReceiptSnapshot } from '../lib/receiptPdf.js'
+import { receiptName, LIEN_RELEASE_DRAFT_NOTE, phoneText } from '../lib/receiptPdf.js'
 
 export const receiptPublic = Router()
 
@@ -53,7 +53,8 @@ receiptPublic.get('/:token', async (req, res) => {
     res.status(404).type('html').send(page('Receipt', `<main class="wrap"><section><h1>This receipt is not available</h1><p>Please call us.</p></section></main>`))
     return
   }
-  const s = r.snapshot as unknown as ReceiptSnapshot
+  // As of now: a check not cleared yet reads "Payment received", not Paid in full (contractBilling.receiptNow, Nov 6 2026).
+  const s = await receiptNow(r)
   // The company's phone to call, as the PDF has it.
   const phone = phoneText(String(s.company?.phone || ''))
   const top = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.company.name)}</p><p class="small">Payment receipt${phone ? ` · <a href="tel:${esc(String(s.company.phone).replace(/[^\d+]/g, ''))}" data-receipt-phone>${esc(phone)}</a>` : ''}</p></div></header>`
@@ -76,6 +77,7 @@ receiptPublic.get('/:token', async (req, res) => {
       ${rows.map(([k, v, b]) => `<tr${b ? ' class="total"' : ''}><td>${esc(k)}</td><td class="amt">${esc(moneyText(v))}</td></tr>`).join('')}
     </tbody></table></section>
     ${s.paidInFull ? `<section class="done" data-receipt-paid-in-full><h2>Paid in full</h2><p>Thank you! Warranty: ${esc(s.warrantyName || 'as written on your contract')}. It starts on the install date.</p></section>` : ''}
+    ${s.waitingOnBank ? `<section class="done" data-receipt-waiting-on-bank><h2>Payment received</h2><p>Thank you! Your balance is $0.00. It reads paid in full once your check clears.</p></section>` : ''}
     ${s.lienRelease && s.paidInFull ? `<section><h2>Final Release of Lien</h2><p class="small">${esc(LIEN_RELEASE_DRAFT_NOTE)} It is in the PDF.</p></section>` : ''}
     <p><a class="btn linkbtn" href="${esc(token)}.pdf" data-receipt-pdf>Download the receipt (PDF)</a></p>
   </main>`

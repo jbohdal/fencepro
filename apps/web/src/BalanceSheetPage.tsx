@@ -2,8 +2,10 @@
  * Balance Sheet
  *
  * From the records:  Accounts Receivable = what the Billing page shows as
- *                    Outstanding (moneyTruth.receivablesTotal), Accounts
- *                    Payable = open vendor bills.
+ *                    Outstanding (moneyTruth.receivablesTotal), Deposits in
+ *                    transit = payments received and not cleared by the
+ *                    bank yet (Jonathan, Nov 6 2026: "The Balance Sheet shows
+ *                    deposits in transit"), Accounts Payable = open vendor bills.
  * Typed in the editor: cash, equipment, loans, equity and the rest.
  * It always balances: equity not typed is worked out (assets - liabilities)
  * and shown as its own line with what is missing (moneyTruth.balanceSheet).
@@ -18,8 +20,8 @@ import { getBills } from './vendorStore'
 import { useBackLayer } from './nav'
 import { businessDate } from './businessDate'
 import { getConfig } from './configStore'
-import { balanceSheet, type BalanceResult } from './moneyTruth'
-import { useReceivables, receivablesNow } from './moneyLoad'
+import { balanceSheet, notClearedYet, type BalanceResult } from './moneyTruth'
+import { useReceivables, useReceived, receivablesNow } from './moneyLoad'
 
 const fmt = (c: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(c / 100)
@@ -57,6 +59,7 @@ export default function BalanceSheetPage() {
   const [showEditor, setShowEditor] = useState(false)
   const [bumpKey, setBumpKey] = useState(0)
   const { rows: owed, error: owedError } = useReceivables()
+  const { rows: received, error: receivedError } = useReceived()
 
   const manualEntries = useMemo(() => getBsEntriesAsOf(asOfDate), [asOfDate, bumpKey])
 
@@ -70,7 +73,9 @@ export default function BalanceSheetPage() {
   // Receivables: the same Outstanding as the Billing page (owed today; the records keep no history of it).
   const ar = receivablesNow(owed ?? [], today).outstandingCents
   const ap = liveApCents()
-  const bs = balanceSheet({ arCents: ar, apCents: ap, entries: manualEntries })
+  // Received, not cleared yet: out of what is owed, not in the bank yet (today's, like receivables).
+  const transit = notClearedYet(received ?? [])
+  const bs = balanceSheet({ arCents: ar, apCents: ap, inTransitCents: transit.cents, entries: manualEntries })
   const pastDay = asOfDate !== today
 
   return (
@@ -86,12 +91,13 @@ export default function BalanceSheetPage() {
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
           <button onClick={() => setShowEditor(true)}
             className="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">Balance Sheet Editor</button>
-          <button onClick={() => exportBsPdf({ asOfDate, ar, ap, byCategory, bs })}
+          <button onClick={() => exportBsPdf({ asOfDate, ar, ap, transit: transit.cents, byCategory, bs })}
             className="text-sm bg-gray-900 hover:bg-gray-800 text-white px-4 py-2 rounded-lg">Export PDF</button>
         </div>
       </div>
 
       {owedError && <p className="text-sm text-red-700">{owedError} Accounts Receivable shows $0 until it loads.</p>}
+      {receivedError && <p className="text-sm text-red-700">{receivedError} Deposits in transit show $0 until they load.</p>}
 
       {/* What it is built from, and what is missing */}
       <div className={`rounded-2xl border p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${bs.missing.length ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`} data-bs-status>
@@ -102,7 +108,7 @@ export default function BalanceSheetPage() {
           <p className="text-xs text-gray-700 mt-0.5">
             {bs.workedOutEquityCents !== 0 && <>Assets minus liabilities minus the equity typed in leaves {fmt(bs.workedOutEquityCents)}, shown as "Equity not entered (worked out)". </>}
             {bs.missing.length > 0 && <>Not entered yet: {listWords(bs.missing)}. Add them in the Balance Sheet Editor; until then this sheet shows only receivables and payables.</>}
-            {pastDay && <> Receivables and payables are as of today: the records keep no history of them.</>}
+            {pastDay && <> Receivables, deposits in transit and payables are as of today: the records keep no history of them.</>}
           </p>
         </div>
         <div className="text-right">
@@ -121,6 +127,7 @@ export default function BalanceSheetPage() {
               <BsRow key={e.id} label={e.label} amount={e.amountCents} />
             ))}
             <BsRow label="Accounts Receivable (same as Billing)" amount={ar} autoLabel data="ar" />
+            <BsRow label={`Deposits in transit (received, not cleared yet${transit.count ? `: ${transit.count}` : ''})`} amount={transit.cents} autoLabel data="in-transit" />
             <BsRow label="Total Current Assets" amount={bs.currentAssetsCents} bold />
 
             <SubHeader label="Fixed Assets" />
@@ -343,7 +350,7 @@ function BsEntryForm({ initial, onCancel, onSaved }: { initial: BalanceSheetEntr
 // ── Export ──
 
 function exportBsPdf(ctx: {
-  asOfDate: string; ar: number; ap: number;
+  asOfDate: string; ar: number; ap: number; transit: number;
   byCategory: Record<BalanceSheetCategory, BalanceSheetEntry[]>;
   bs: BalanceResult;
 }) {
@@ -372,7 +379,7 @@ function exportBsPdf(ctx: {
 <div class="grid">
   <div>
     <div class="section">Assets — Current</div>
-    <table>${rows(ctx.byCategory.current_asset)}<tr><td>Accounts Receivable (same as Billing)</td><td class="amt">${fmt(ctx.ar)}</td></tr><tr class="total"><td>Total Current Assets</td><td class="amt">${fmt(bs.currentAssetsCents)}</td></tr></table>
+    <table>${rows(ctx.byCategory.current_asset)}<tr><td>Accounts Receivable (same as Billing)</td><td class="amt">${fmt(ctx.ar)}</td></tr><tr><td>Deposits in transit (received, not cleared yet)</td><td class="amt">${fmt(ctx.transit)}</td></tr><tr class="total"><td>Total Current Assets</td><td class="amt">${fmt(bs.currentAssetsCents)}</td></tr></table>
     <div class="section">Assets — Fixed</div>
     <table>${rows(ctx.byCategory.fixed_asset)}<tr class="total"><td>Total Fixed Assets</td><td class="amt">${fmt(bs.fixedAssetsCents)}</td></tr></table>
     ${ctx.byCategory.other_asset.length ? `<div class="section">Other Assets</div><table>${rows(ctx.byCategory.other_asset)}<tr class="total"><td>Total Other Assets</td><td class="amt">${fmt(bs.otherAssetsCents)}</td></tr></table>` : ''}

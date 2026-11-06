@@ -8,13 +8,21 @@
  * the owner gets a push.
  *
  * Payments recorded before this have no state (null). They count as they always
- * did until the owner OKs a starting status for each (startingStatusPlan: a dry
- * run, then applyStartingStatus with his OK). Billing, P&L, the Balance Sheet
- * and Reports are unchanged until he says how they treat Received and Cleared.
+ * did (as cleared) until the owner OKs a starting status for each
+ * (startingStatusPlan: a dry run, then applyStartingStatus with his OK).
+ *
+ * How the money screens treat them (Jonathan, Nov 6 2026: "Yes to all four:
+ * Billing counts received, with a 'not cleared yet' line. The P&L goes by
+ * cleared date. The Balance Sheet shows deposits in transit. A job reads Paid
+ * only when cleared."): lib/paymentMath.ts isCleared / isNotCleared, web
+ * moneyTruth.ts (Billing, P&L, Balance Sheet), lib/jobReadiness.ts
+ * billingStatusOf (the job's Paid). Received in full closes the work out
+ * (Complete); the Cleared tap that covers the contract moves it on to Paid.
  */
 
 import prisma from './prisma.js'
-import { contractParts, voidPayment, type Actor } from './contractBilling.js'
+import { contractParts, voidPayment, paymentStatusOf, fileReceipt, type Actor } from './contractBilling.js'
+import { isCleared, clearSums } from './paymentMath.js'
 import { floridaDay } from './automations/context.js'
 
 type Json = any
@@ -23,7 +31,7 @@ const err = (status: number, message: string) => Object.assign(new Error(message
 export type ClearState = 'received' | 'cleared' | 'bounced'
 
 /** Counted as paid for sub pay: Cleared, or recorded before states were kept (until the owner sets a starting status). */
-export const countsCleared = (p: { voidedAt: Date | null; clearState: string | null }) => !p.voidedAt && (p.clearState === 'cleared' || p.clearState === null)
+export const countsCleared = (p: { voidedAt: Date | null; clearState: string | null }) => isCleared(p)
 
 /** The bank shows it: Cleared (the day it showed, today when not given). The job's sub may now be ready to pay. */
 export async function markCleared(accountId: string, id: string, by: Actor, clearedOn?: string | null) {
@@ -36,6 +44,7 @@ export async function markCleared(accountId: string, id: string, by: Actor, clea
   const row = p.clearState === 'cleared' ? p : await prisma.contractPayment.update({ where: { id }, data: { clearState: 'cleared', clearedOn: day, clearedAt: new Date(), clearedBy: by.name } })
   await logBilling(accountId, p.jobId, `Payment of ${money(p.amountCents)} cleared ${day} (marked by ${by.name}).`, by)
   await checkReadyToPaySub(accountId, p.jobId)
+  if (p.clearState !== 'cleared') await afterCleared(accountId, p.jobId)
   return row
 }
 
@@ -53,6 +62,28 @@ export async function markBounced(accountId: string, id: string, by: Actor, note
   // A job closed as Paid by this payment is not paid any more: it goes back to Complete (money owed).
   await reopenPaidJob(accountId, p.jobId, by).catch(e => console.error('[billing] reopen after bounce:', e))
   return row
+}
+
+/**
+ * A payment cleared (Nov 6 2026: "A job reads Paid only when cleared"): the job's paid figure says Paid once the
+ * cleared payments cover the contract, a finished job moves on to Paid with its card (lib/jobTruth.ts
+ * closeOutIfDone), and the customer's filed receipts are written again (a check that cleared now reads Paid in full).
+ */
+async function afterCleared(accountId: string, jobId: string) {
+  try {
+    const c = await clearedCover(accountId, jobId)
+    if (c) {
+      const pays = await prisma.contractPayment.findMany({ where: { accountId, jobId, voidedAt: null }, select: { amountCents: true, clearState: true, voidedAt: true } })
+      const paid = pays.reduce((t, x) => t + x.amountCents, 0)
+      // Straight to the row (no job change event): the payment was received already; only its state moved.
+      await prisma.savedJob.updateMany({ where: { id: jobId, accountId }, data: { paymentStatus: paymentStatusOf(paid, clearSums(pays).clearedCents, c.contractCents) } })
+    }
+    const { closeOutIfDone, cardFollowsJob } = await import('./jobTruth.js')
+    await closeOutIfDone(accountId, jobId, 'the final payment cleared')
+    await cardFollowsJob(accountId, jobId)
+    const receipts = await prisma.receipt.findMany({ where: { accountId, jobId, voidedAt: null, portalFileId: { not: null } }, select: { id: true, snapshot: true } })
+    for (const r of receipts.filter(x => (x.snapshot as Json)?.paidInFull)) await fileReceipt(r.id).catch(e => console.error('[billing] refile receipt after cleared:', e))
+  } catch (e) { console.error('[billing] after cleared:', e) }
 }
 
 async function reopenPaidJob(accountId: string, jobId: string, by: Actor) {

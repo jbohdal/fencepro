@@ -824,8 +824,9 @@ function InvoicesPage({ accent }: { session: PortalAccount; customer: PortalAcco
             <h2 className="text-sm font-bold text-gray-700 mb-2">Invoices</h2>
             <div className="space-y-2">
               {b.invoices.map(i => {
-                const status = i.balanceCents <= 0 ? 'Paid' : i.paidCents > 0 ? 'Part paid' : 'Due'
-                const statusBg = status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                // A check not cleared yet: "Payment received", never Paid (Jonathan, Nov 6 2026).
+                const status = i.balanceCents <= 0 ? (i.waitingOnBank ? 'Payment received' : 'Paid') : i.paidCents > 0 ? 'Part paid' : 'Due'
+                const statusBg = status === 'Paid' || status === 'Payment received' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                 return (
                   <div key={i.id} className="border border-gray-100 rounded-xl px-3 py-2 flex items-center gap-3" data-portal-invoice={i.id}>
                     <div className="flex-1 min-w-0">

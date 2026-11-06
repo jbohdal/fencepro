@@ -68,7 +68,8 @@ export async function missingFor(accountId: string, reqs: Requirement[], job: an
         if (!job || !['ordered', 'received', 'loaded'].includes(job.materialsStatus)) add(type, 'Materials have not been marked ordered on the job.')
         break
       case 'paid_in_full':
-        if (!job || !(job.paymentStatus === 'paid' || (job.contractValue > 0 && job.amountPaid >= job.contractValue))) add(type, 'The job is not paid in full.')
+        // Paid only when cleared (Nov 6 2026): a job received in full with a check not cleared is Partial (lib/contractBilling.ts settleIn).
+        if (!job || !(job.paymentStatus === 'paid' || (job.paymentStatus !== 'partial' && job.contractValue > 0 && job.amountPaid >= job.contractValue))) add(type, 'The job is not paid in full (or a payment has not cleared yet).')
         break
     }
   }
