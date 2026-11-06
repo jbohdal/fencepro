@@ -1,0 +1,104 @@
+/**
+ * The office site plan's core (web/src/sitePlanData.ts; Jonathan, Nov 5 2026,
+ * Prompt 2): true feet on the map, a walk list laid out at its quoted feet, an
+ * older drawing placed where it was drawn on its photo, quoted vs drawn flags,
+ * the crew's numbered posts, property line warnings.
+ */
+
+import { describe, test, expect } from 'vitest'
+import { planFromYard, planFlags, openFlags, crewPosts, drawnFt, toFeet, fromFeet, feetBetween, propertyLineWarnings, sectionsAt, type SitePlanData } from '../../web/src/sitePlanData'
+import { walkToYard, type WalkList } from '../../web/src/walkList'
+import { layoutForShape } from '../../web/src/yardLayout'
+
+const OCALA = { lat: 29.1872, lng: -82.1401 }
+const ft = (n: number) => n * 12
+let k = 0
+const step = (feet: number, what: any, extra: any = {}) => ({ id: `t${k++}`, feetIn: ft(feet), what, ...extra })
+
+describe('true feet on the map', () => {
+  test('feet to a place and back again, within a hundredth of a foot; 100 ft east is 100 ft', () => {
+    for (const p of [{ x: 100, y: 0 }, { x: -37.5, y: 212.25 }, { x: 0, y: -500 }]) {
+      const back = toFeet(OCALA, fromFeet(OCALA, p))
+      expect(Math.abs(back.x - p.x) + Math.abs(back.y - p.y)).toBeLessThan(0.01)
+    }
+    expect(Math.abs(feetBetween(OCALA, fromFeet(OCALA, { x: 100, y: 0 })) - 100)).toBeLessThan(0.01)
+  })
+})
+
+describe('the plan from the quote', () => {
+  const walk: WalkList = { v: 1, lines: [{ id: 'a', steps: [step(13, 'gate', { gate: { widthIn: 48, type: 'walk' } }), step(13, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(150, 'corner', { turn: 'right' }), step(120, 'corner', { turn: 'right' }), step(30, 'end')] }] }
+  const yard = walkToYard(walk)
+  const plan = planFromYard(yard, OCALA, walk)!
+
+  test('a walk list: one side per walked side at its quoted feet, square corners, the gate 13 ft in, each side linked to its walk steps', () => {
+    expect(plan.sides.map(s => s.quotedFt)).toEqual([30, 120, 150, 120, 30])
+    expect(plan.sides.map(s => Math.round(drawnFt(plan, s) * 10) / 10)).toEqual([30, 120, 150, 120, 30])
+    expect(plan.posts.length).toBe(6)
+    expect(plan.sides[0].gates).toEqual([expect.objectContaining({ atFt: 13, widthFt: 4, type: 'walk' })])
+    expect(plan.sides[0].walkStepIds).toEqual([walk.lines[0].steps[0].id, walk.lines[0].steps[1].id])
+    expect(plan.sides[4].walkStepIds).toEqual([walk.lines[0].steps[5].id])
+    expect(plan.startPostId).toBe(plan.sides[0].a)
+    // Side 2 runs at a right angle to side 1.
+    const v = (s: number) => { const a = plan.posts.find(p => p.id === plan.sides[s].a)!, b = plan.posts.find(p => p.id === plan.sides[s].b)!; return toFeet(a, b) }
+    const d = v(0).x * v(1).x + v(0).y * v(1).y
+    expect(Math.abs(d)).toBeLessThan(0.5)
+  })
+
+  test('drawn as quoted: no flags; a side dragged 8 ft short: one flag, which an answer clears', () => {
+    expect(planFlags(plan, yard)).toEqual([])
+    const moved: SitePlanData = JSON.parse(JSON.stringify(plan))
+    const s = moved.sides[2], a = moved.posts.find(p => p.id === s.a)!, b = moved.posts.find(p => p.id === s.b)!
+    const v = toFeet(a, b), k2 = 142 / 150
+    Object.assign(b, fromFeet(a, { x: v.x * k2, y: v.y * k2 }))
+    const flags = planFlags(moved, yard)
+    expect(flags.find(f => f.key === `len:${s.id}`)?.text).toMatch(/quoted 150 ft, drawn 142 ft/)
+    moved.answers[`len:${s.id}`] = { kind: 'keep', note: 'Wheel checked twice', by: 'Office', at: '2026-11-06' }
+    expect(openFlags(moved, flags).filter(f => f.key === `len:${s.id}`)).toEqual([])
+  })
+
+  test('within 3 ft or 3%: no flag (a 150 ft side drawn 146 ft is within 4.5 ft)', () => {
+    const moved: SitePlanData = JSON.parse(JSON.stringify(plan))
+    const s = moved.sides[2], a = moved.posts.find(p => p.id === s.a)!, b = moved.posts.find(p => p.id === s.b)!
+    const v = toFeet(a, b)
+    Object.assign(b, fromFeet(a, { x: v.x * (146 / 150), y: v.y * (146 / 150) }))
+    expect(planFlags(moved, yard).filter(f => f.kind === 'length')).toEqual([])
+  })
+
+  test('a gate taken off the plan, a side added: flagged as the fence\'s makeup', () => {
+    const moved: SitePlanData = JSON.parse(JSON.stringify(plan))
+    moved.sides[0].gates = []
+    expect(planFlags(moved, yard).map(f => f.key)).toContain('gates')
+    moved.sides.push({ ...moved.sides[4], id: 'extra', quotedFt: null, gates: [] })
+    expect(planFlags(moved, yard).map(f => f.key)).toContain('sides')
+  })
+
+  test('the crew\'s posts: numbered from the start, corners counted once, line posts per piece, gate posts', () => {
+    const { posts, sides } = crewPosts(plan, (_id, pieceFt) => sectionsAt(pieceFt, 8))
+    expect(posts[0]).toEqual(expect.objectContaining({ n: 1, kind: 'end' }))
+    expect(posts.filter(p => p.kind === 'corner').length).toBe(4)
+    expect(posts.filter(p => p.kind === 'end').length).toBe(2)
+    expect(posts.filter(p => p.kind === 'gate').length).toBe(2)
+    // 13 ft pieces: 2 sections each, 1 line post; 120 ft: 15 sections, 14; 150: 19, 18; 30: 4, 3.
+    expect(posts.filter(p => p.kind === 'line').length).toBe(1 + 1 + 14 + 18 + 14 + 3)
+    expect(sides[0].pieces).toEqual([{ ft: 13, sections: 2, spacingFt: 6.5 }, { ft: 13, sections: 2, spacingFt: 6.5 }])
+  })
+
+  test('an older drawing with its aerial photo: posts where they were drawn on the photo, its feet the quote\'s', () => {
+    const y = layoutForShape('backyard')
+    ;[30, 120, 150, 120, 30].forEach((n, i) => { y.sides[i].lengthIn = ft(n) })
+    y.plan = { aerial: { ...OCALA, halfM: 40, address: '1 Test St', rotDeg: 30, planAt: { x: 10, y: -5 } } }
+    const p = planFromYard(y, null)!
+    expect(p.origin).toEqual(OCALA)
+    expect(p.sides.map(s => Math.round(drawnFt(p, s)))).toEqual([30, 120, 150, 120, 30])
+    expect(planFlags(p, y)).toEqual([])
+  })
+
+  test('property lines: a side outside the parcel is a warning; inside with room, none', () => {
+    const ring = [{ x: -200, y: -200 }, { x: 200, y: -200 }, { x: 200, y: 200 }, { x: -200, y: 200 }].map(q => fromFeet(plan.origin, q))
+    const withLot: SitePlanData = { ...plan, parcel: { id: '12345-678-90', rings: [ring], source: 'test', fetchedAt: '' } }
+    expect(propertyLineWarnings(withLot)).toEqual([])
+    expect(propertyLineWarnings(withLot, 150).length).toBeGreaterThan(0)
+    const small = [{ x: -40, y: -40 }, { x: 40, y: -40 }, { x: 40, y: 40 }, { x: -40, y: 40 }].map(q => fromFeet(plan.origin, q))
+    expect(propertyLineWarnings({ ...plan, parcel: { id: 'x', rings: [small], source: 'test', fetchedAt: '' } }).some(w => /crosses the property line/.test(w))).toBe(true)
+  })
+})
