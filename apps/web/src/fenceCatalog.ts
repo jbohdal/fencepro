@@ -708,7 +708,14 @@ export function resolveFenceStyles(styles: FenceStyle[], catalog: FenceCatalog, 
 
 /** Fields worked out on every read; not saved. */
 export function stripDerived(styles: FenceStyle[]): FenceStyle[] {
-  return styles.map(s => { const c: FenceStyle = { ...s }; delete c.label; delete c.held; delete c.jobLot; delete c.colorTargetProfitPct; delete c.woodBase; delete c.woodFactor; delete c.followed; return c })
+  return styles.map(s => {
+    const c: FenceStyle = { ...s }; delete c.label; delete c.held; delete c.jobLot; delete c.colorTargetProfitPct; delete c.woodBase; delete c.woodFactor; delete c.followed
+    // A two tone fence's Target Profit is the frame fence's, copied on every read (resolveFenceStyles): not saved, so it
+    // keeps following the frame fence (Nov 6 2026: a Fence Styles save wrote 10 and 14 on every two tone fence, which
+    // the two tone sync (twoTone.ts planTwoTone) took off again). Its own number is ownProfitPct and stays.
+    if (c.material === TWO_TONE && !ownsProfit(c)) delete c.targetProfitPct
+    return c
+  })
 }
 
 // ── The quote builder's picker ───────────────────────────────────────────────

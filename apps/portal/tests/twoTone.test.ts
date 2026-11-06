@@ -12,7 +12,7 @@ import { estimateConfig, planTwoToneFor, followedRatesByStyle } from '../../web/
 import { calculateQuote } from '../../web/src/quoteCalc'
 import { setMaterialPriceSource, priceSourceFromMap } from '../../web/src/materialCalculator'
 import { kitSetFor, setSavedKitSets, type KitSet } from '../../web/src/materialKits'
-import { DEFAULT_CATALOG, plainName, resolveFenceStyles, type FenceCatalog } from '../../web/src/fenceCatalog'
+import { DEFAULT_CATALOG, plainName, resolveFenceStyles, stripDerived, type FenceCatalog } from '../../web/src/fenceCatalog'
 import { DEFAULT_RAIL_OPTIMIZER_SETTINGS } from '../../web/src/railOptimizer'
 import { twoToneColors, isInfillPart } from '../../web/src/twoTone'
 
@@ -81,6 +81,21 @@ describe('two tone vinyl', () => {
     const after = (again.config as any).fenceStyles
     expect(after.find((x: any) => x.name === 'twotone/6/white/tan/nd/8').targetProfitPct).toBeUndefined()
     expect(after.find((x: any) => x.name === 'twotone/6/white/tan/nd/6').subRate).toBe(99)
+  })
+
+  test('a Settings save keeps the Target Profit read from the frame fence off the two tone fence; its own number is saved', () => {
+    const cfg = made().config as any
+    cfg.fenceStyles = cfg.fenceStyles.map((x: any) => (x.name === "WV-ND 6'x8' Privacy" ? { ...x, targetProfitPct: 14 } : x.name === 'twotone/6/white/tan/ds/8' ? { ...x, ownProfitPct: 20 } : x))
+    const r = resolved(cfg)
+    // On the screen it reads the frame fence's 14...
+    expect(r.find(x => x.name === 'twotone/6/white/tan/nd/8')!.targetProfitPct).toBe(14)
+    // ...but what Settings saves (configStore.ts saveConfig) leaves it to follow the frame fence.
+    const saved = stripDerived(r)
+    expect(saved.find(x => x.name === 'twotone/6/white/tan/nd/8')!.targetProfitPct).toBeUndefined()
+    expect(saved.find(x => x.name === 'twotone/6/white/tan/ds/8')!.ownProfitPct).toBe(20)
+    expect(saved.find(x => x.name === "WV-ND 6'x8' Privacy")!.targetProfitPct).toBe(14)
+    // Nothing for the two tone sync to clean after such a save.
+    expect(planTwoToneFor({ ...cfg, fenceStyles: saved } as any).cleaned).toBe(false)
   })
 
   test('White frame, Tan infill: posts, caps, rails, uprights and gate caps White; pickets and U trim Tan; same quantities', () => {
