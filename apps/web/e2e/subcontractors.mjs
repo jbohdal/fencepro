@@ -59,6 +59,8 @@ const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isM
 const browser = CDP ? await chromium.connectOverCDP(CDP) : await webkit.launch()
 const errors = []
 let subId = null
+// The lien release's review mark as it was before this run: put back at the end, even after a failure.
+let reviewWas = 'unknown'
 try {
   // ── A sold job, copied from a priced no dig quote on dev ──
   const all = (await call('GET', '/api/saved-quotes')).json.data ?? []
@@ -223,6 +225,59 @@ try {
   const done = sql(`SELECT "opsStage" || ' ' || "finalFurnishingDate" FROM "SavedJob" WHERE id = '${jobId}'`)
   check('one tap: Complete, final furnishing date the sub\'s finish day', done === `completed ${day(0)}`, done)
 
+  // ── Phase B: the customer pays by check (Received), the owner taps Cleared: Ready to pay sub ──
+  reviewWas = (await call('GET', '/api/subcontractors/settings')).json.data?.reviews?.sub_lien_release ?? null
+  await call('POST', '/api/subcontractors/settings/reviewed', { reviewed: true, template: 'sub_lien_release' })
+  await call('POST', `/api/payments/job/${jobId}/schedule`)
+  const sched = (await call('GET', `/api/payments/job/${jobId}`)).json.data
+  const owed = sched?.contractCents ?? Math.round(t.finalPrice * 100)
+  const pay = await call('POST', '/api/payments', { id: crypto.randomUUID(), jobId, amountCents: owed, method: 'check', checkNumber: '4321', paidOn: day(0) })
+  check('the customer\'s check is recorded: Received', pay.status < 300 && pay.json.data?.payment?.clearState === 'received', pay.json.error)
+  await page.goto(`${APP}/operations?job=${jobId}`)
+  await page.waitForSelector('[data-payment-state="received"]', { timeout: 30000 })
+  await page.locator('[data-payment-state="received"]').scrollIntoViewIfNeeded()
+  await shot(page, '14-received-not-cleared')
+  check('sub pay waits on the customer while the check is only Received', /waiting on the customer/.test(await page.locator('[data-sub-pay-state]').innerText()))
+  await page.locator('[data-payment-cleared]').click()
+  await page.waitForSelector('[data-payment-state="cleared"]', { timeout: 20000 })
+  await page.goto(`${APP}/operations?job=${jobId}`)
+  await page.waitForSelector('[data-sub-pay-state]', { timeout: 30000 })
+  await until(async () => /Ready to pay sub/.test(await page.locator('[data-sub-pay-state]').innerText()), 20000)
+  await page.locator('[data-sub-pay-box]').scrollIntoViewIfNeeded()
+  await shot(page, '15-ready-to-pay')
+  check('Cleared: Ready to pay sub', /Ready to pay sub/.test(await page.locator('[data-sub-pay-state]').innerText()))
+  await page.locator('[data-sub-send-release]').click()
+  await page.waitForSelector('[data-sub-release-waiting]', { timeout: 20000 })
+
+  // The sub signs the final lien release from their link, on their phone.
+  await sp.goto(sj.link)
+  await sp.waitForSelector('[data-sub-lien-release] a', { timeout: 20000 })
+  await sp.locator('[data-sub-lien-release] a').click()
+  await sp.waitForSelector('[data-sub-sign-text]', { timeout: 20000 })
+  check('the release is Florida\'s statutory wording, with their pay', /WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT/.test(await sp.locator('[data-sub-sign-text]').innerText()))
+  await sp.locator('#name').fill('Sam Sub')
+  const box = await sp.locator('#sig').boundingBox()
+  const pt = i => ({ clientX: box.x + 30 + i * 20, clientY: box.y + 80 + (i % 2 ? -25 : 25), pointerId: 7, pointerType: 'touch', bubbles: true })
+  await sp.locator('#sig').dispatchEvent('pointerdown', pt(0))
+  for (let i = 1; i <= 12; i++) await sp.locator('#sig').dispatchEvent('pointermove', pt(i))
+  await sp.locator('#sig').dispatchEvent('pointerup', pt(12))
+  await shotFull(sp, '16-lien-release')
+  await sp.locator('#go').click()
+  await sp.waitForSelector('[data-sub-signed]', { timeout: 20000 })
+  check('signed; their copy to download', (await sp.locator('[data-sub-signed-pdf]').count()) === 1)
+
+  // Mark paid: day, amount, how, check number. It is the job's actual labor.
+  await page.goto(`${APP}/operations?job=${jobId}`)
+  await page.waitForSelector('[data-sub-mark-paid]', { timeout: 30000 })
+  await page.locator('[data-sub-mark-paid]').scrollIntoViewIfNeeded()
+  await page.locator('[data-sub-paid-check]').fill('7788')
+  await shot(page, '17-mark-paid')
+  await page.locator('[data-sub-mark-paid-btn]').click()
+  await page.waitForSelector('[data-sub-paid]', { timeout: 20000 })
+  const paidRow = sql(`SELECT "paidCents" || ' ' || "paidCheckNumber" FROM "SubJob" WHERE "jobId" = '${jobId}'`)
+  const labor = sql(`SELECT labor->>'subPaidCents' FROM "JobTakeoff" WHERE "jobId" = '${jobId}'`)
+  check('Mark paid: kept with its check number, and it is the job\'s actual labor', paidRow === `${sj.payCents} 7788` && labor === String(sj.payCents), `${paidRow} | ${labor}`)
+
   // ── The dashboard ──
   await page.goto(`${APP}/subcontractors`)
   await page.waitForSelector('[data-dash="papers"]', { timeout: 20000 })
@@ -235,7 +290,9 @@ try {
 } finally {
   // Clean up: the job, quote and customer; the sub left Inactive (subs are kept, never deleted).
   try {
+    if (reviewWas === null) await call('POST', '/api/subcontractors/settings/reviewed', { reviewed: false, template: 'sub_lien_release' })
     sql(`DELETE FROM "Task" WHERE "jobId" = '${jobId}'`)
+    sql(`DELETE FROM "JobTakeoff" WHERE "jobId" = '${jobId}'`)
     sql(`UPDATE "ScheduledGridJob" SET "deletedAt" = now() WHERE "stagingJobId" = '${jobId}'`)
     await call('DELETE', `/api/subcontractors/job/${jobId}`)
     await call('DELETE', `/api/saved-jobs/${jobId}`)

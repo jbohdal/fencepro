@@ -42,6 +42,7 @@ import { METHODS } from '../lib/paymentMath.js'
 import { isSignedQuote } from '../lib/quoteLock.js'
 import { closeOutIfDone, receivables, paymentsReceived, cardFollowsJob } from '../lib/jobTruth.js'
 import { salesScopeOf } from '../lib/salesScope.js'
+import { markCleared, markBounced, startingStatusPlan } from '../lib/paymentClearing.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
@@ -243,6 +244,31 @@ router.post('/:id/confirm', requireCan('billing.change'), async (req: any, res) 
     await audit(req, 'update', 'ContractPayment', row.id, { newValues: { confirmedAt: row.confirmedAt, confirmedBy: row.confirmedBy } })
     res.json({ success: true, data: { payment: row, schedule: await scheduleView(req.user.crmAccountId, row.jobId) } })
   } catch (e) { fail(res, e, 'confirm the payment') }
+})
+
+// Received, Cleared, Bounced (Jonathan, Nov 6 2026: "I mark payments cleared myself"): owner and admin (billing.amounts).
+router.post('/:id/cleared', async (req: any, res) => {
+  try {
+    if (!can(roleOf(req), 'billing.amounts')) { res.status(403).json({ success: false, error: 'Only the owner (or an admin) marks payments cleared or bounced.', code: 'NOT_ALLOWED' }); return }
+    const on = typeof req.body?.clearedOn === 'string' ? req.body.clearedOn : null
+    const row = await markCleared(req.user.crmAccountId, req.params.id, await actor(req), on)
+    await audit(req, 'update', 'ContractPayment', row.id, { newValues: { clearState: 'cleared', clearedOn: row.clearedOn } })
+    res.json({ success: true, data: { payment: row, schedule: await scheduleView(req.user.crmAccountId, row.jobId) } })
+  } catch (e) { fail(res, e, 'mark the payment cleared') }
+})
+
+router.post('/:id/bounced', async (req: any, res) => {
+  try {
+    if (!can(roleOf(req), 'billing.amounts')) { res.status(403).json({ success: false, error: 'Only the owner (or an admin) marks payments cleared or bounced.', code: 'NOT_ALLOWED' }); return }
+    const row = await markBounced(req.user.crmAccountId, req.params.id, await actor(req), String(req.body?.note ?? ''))
+    await audit(req, 'update', 'ContractPayment', row.id, { newValues: { clearState: 'bounced', voidedAt: row.voidedAt } })
+    res.json({ success: true, data: { payment: row, schedule: await scheduleView(req.user.crmAccountId, row.jobId) } })
+  } catch (e) { fail(res, e, 'mark the payment bounced') }
+})
+
+/** Payments recorded before states were kept, with the state each would start at (a dry run; nothing changes). */
+router.get('/starting-status', requireCan('billing.amounts'), async (req: any, res) => {
+  try { res.json({ success: true, data: await startingStatusPlan(req.user.crmAccountId) }) } catch (e) { fail(res, e, 'list the payments') }
 })
 
 router.post('/:id/void', requireCan('billing.change'), async (req: any, res) => {

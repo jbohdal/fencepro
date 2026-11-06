@@ -78,6 +78,8 @@ export interface ContractInput {
   signedRecord?: SignedRecord | null
   /** Settings → Contract Templates as frozen on the proposal when it was signed (lib/contractTerms.ts). */
   terms?: Term[]
+  /** Florida's construction lien notice (s. 713.015) as frozen on the proposal: its own page, signed and dated. */
+  lienNotice?: string | null
   /** A fence move or repair (the proposal's kind); a new fence has none. */
   kind?: 'move' | 'repair' | null
 }
@@ -191,6 +193,22 @@ export function contractPdf(c: ContractInput): Promise<Buffer> {
       }
     }
 
+    // Florida's construction lien notice (s. 713.015): a separate page, 12 point bold capitals, signed and dated by the
+    // owner (the customer's signature and the day they signed). Only on a contract whose proposal carried it.
+    if (c.lienNotice) {
+      doc.addPage()
+      doc.font('Helvetica-Bold').fontSize(14).fillColor(INK).text('NOTICE: FLORIDA CONSTRUCTION LIEN LAW', L, 60, { width: W, align: 'center' })
+      doc.moveDown(1)
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(c.lienNotice.toUpperCase(), L, doc.y, { width: W, lineGap: 2 })
+      doc.moveDown(1.5)
+      const ny = doc.y
+      if (c.signature) { try { doc.image(c.signature, L, ny, { fit: [240, 70] }) } catch { /* unreadable ink */ } }
+      doc.moveTo(L, ny + 76).lineTo(L + 260, ny + 76).strokeColor(INK).stroke()
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(INK).text(`Owner: ${c.acceptedBy || c.customerName}`, L, ny + 82, { width: W })
+      doc.font('Helvetica').fontSize(10).fillColor(INK).text(`Date: ${c.acceptedAt ? c.acceptedAt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' }) : '____________'}`, L, doc.y + 2, { width: W })
+      doc.addPage()
+    }
+
     // The signature block (and the signed record of a stored copy) stays together on the last page.
     heading('Signed', c.signedRecord ? 240 : 110)
     const sy = doc.y
@@ -294,6 +312,7 @@ export async function contractForQuote(q: Q, signed?: SignedRecord | null): Prom
     // No deposit: the Cancellation Policy's no deposit sentence, unless signed before that rule (lib/customerDollars.ts).
     terms: shownDollars ? m.termsAsAsked(frozen, p.depositPct, { cancellation: await quoteOnNoDepositCancellation(q) }) : frozen,
     kind: p.kind === 'repair' || p.kind === 'move' ? p.kind : workKindOf(q.work) === 'new' ? null : workKindOf(q.work) as 'move' | 'repair',
+    lienNotice: typeof p.lienNotice === 'string' && p.lienNotice ? p.lienNotice : null,
   })
 }
 

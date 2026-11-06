@@ -86,6 +86,21 @@ export function termsForRepair(terms: Term[]): Term[] {
  * was sent or signed, so it keeps the terms and address it went out with.
  * `repair`: the quote is a repair (its work), so the terms say repair (termsForRepair).
  */
+/**
+ * Florida's construction lien notice (s. 713.015(1)), word for word: every residential contract over $2,500 carries
+ * it, in at least 12 point bold capitals, on the first page or a separate page signed and dated by the owner
+ * (Jonathan, Nov 6 2026). Stamped onto a proposal with its terms (proposal.lienNotice); a signed one keeps what it
+ * was signed with. The contract PDF gives it its own page with the customer's signature and date (lib/contractPdf.ts).
+ */
+export const LIEN_NOTICE_713015 = "ACCORDING TO FLORIDA'S CONSTRUCTION LIEN LAW (SECTIONS 713.001-713.37, FLORIDA STATUTES), THOSE WHO WORK ON YOUR PROPERTY OR PROVIDE MATERIALS AND SERVICES AND ARE NOT PAID IN FULL HAVE A RIGHT TO ENFORCE THEIR CLAIM FOR PAYMENT AGAINST YOUR PROPERTY. THIS CLAIM IS KNOWN AS A CONSTRUCTION LIEN. IF YOUR CONTRACTOR OR A SUBCONTRACTOR FAILS TO PAY SUBCONTRACTORS, SUB-SUBCONTRACTORS, OR MATERIAL SUPPLIERS, THOSE PEOPLE WHO ARE OWED MONEY MAY LOOK TO YOUR PROPERTY FOR PAYMENT, EVEN IF YOU HAVE ALREADY PAID YOUR CONTRACTOR IN FULL. IF YOU FAIL TO PAY YOUR CONTRACTOR, YOUR CONTRACTOR MAY ALSO HAVE A LIEN ON YOUR PROPERTY. THIS MEANS IF A LIEN IS FILED YOUR PROPERTY COULD BE SOLD AGAINST YOUR WILL TO PAY FOR LABOR, MATERIALS, OR OTHER SERVICES THAT YOUR CONTRACTOR OR A SUBCONTRACTOR MAY HAVE FAILED TO PAY. TO PROTECT YOURSELF, YOU SHOULD STIPULATE IN THIS CONTRACT THAT BEFORE ANY PAYMENT IS MADE, YOUR CONTRACTOR IS REQUIRED TO PROVIDE YOU WITH A WRITTEN RELEASE OF LIEN FROM ANY PERSON OR COMPANY THAT HAS PROVIDED TO YOUR CONTRACTOR A 'NOTICE TO OWNER.' FLORIDA'S CONSTRUCTION LIEN LAW IS COMPLEX, AND IT IS RECOMMENDED THAT YOU CONSULT AN ATTORNEY."
+
+/** Over $2,500 (any option the customer may sign): the notice is required. */
+export const LIEN_NOTICE_OVER_CENTS = 2_500_00
+export function needsLienNotice(proposal: unknown): boolean {
+  const opts: any[] = Array.isArray((proposal as any)?.options) ? (proposal as any).options : []
+  return opts.some(o => Math.round((Number(o?.finalPrice) || 0) * 100) > LIEN_NOTICE_OVER_CENTS)
+}
+
 export async function stampQuoteTerms(accountId: string, proposal: unknown, existing: { proposal?: unknown } | null, frozen: boolean, opts: { repair?: boolean; walked?: boolean } = {}): Promise<unknown> {
   if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal) || !Array.isArray((proposal as any).options)) return proposal
   const [m, s] = await Promise.all([pricingModule(), settingsOf(accountId)])
@@ -102,5 +117,10 @@ export async function stampQuoteTerms(accountId: string, proposal: unknown, exis
     if (address) company.address = address
     else delete company.address
   }
-  return { ...out, company }
+  // The lien notice: a frozen (sent or signed) proposal keeps what it had; a new one gets it when over $2,500.
+  const notice = frozen ? (existing?.proposal as any)?.lienNotice : needsLienNotice(out) ? LIEN_NOTICE_713015 : undefined
+  const withNotice = { ...out, company } as Record<string, any>
+  if (typeof notice === 'string' && notice) withNotice.lienNotice = notice
+  else delete withNotice.lienNotice
+  return withNotice
 }

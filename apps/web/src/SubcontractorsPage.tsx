@@ -17,6 +17,7 @@ import { toast } from './toast'
 import { can, signedInRole } from './permissions'
 import {
   listSubs, getSub, addSub, saveSub, uploadDoc, removeDoc, docUrl, sendAgreement, subsDashboard, subSettings, saveSubSettings, markReviewed,
+  lienList, lienSample, ytdCsvUrl, LIEN_KIND_LABEL,
   money, centsOf, usDay, usDate, SUB_STATUS_LABEL, TRADES, TRADE_LABEL,
   type SubRow, type SubDetail, type Sub, type SubRates, type SubsDashboard, type SubSettings, type SubStatus, type Trade, type DashJob,
 } from './subsApi'
@@ -57,7 +58,10 @@ const openJob = (jobId: string) => navigate(`${pagePath('Operations')}?job=${enc
 function Dashboard({ onOpenSub }: { onOpenSub: (id: string) => void }) {
   const [d, setD] = useState<SubsDashboard | null>(null)
   const [err, setErr] = useState('')
+  const [liens, setLiens] = useState<Awaited<ReturnType<typeof lienList>> | null>(null)
   useEffect(() => { void subsDashboard().then(r => (r.ok ? setD(r.data) : setErr(r.error))) }, [])
+  // The lien clocks are the owner's only.
+  useEffect(() => { if (can('liens.manage')) void lienList().then(setLiens) }, [])
   if (err) return <p className="text-sm text-red-700">{err}</p>
   if (!d) return <p className="text-sm text-gray-500">Loading…</p>
   const row = (j: DashJob, extra?: string) => (
@@ -84,6 +88,37 @@ function Dashboard({ onOpenSub }: { onOpenSub: (id: string) => void }) {
             </div>
           ))}
         </div>
+      </section>
+      {box(`Ready to pay sub (${money(d.owedCents)} owed)`, 'ready', d.readyToPay.map(j => row(j, money(j.netCents))), 'No sub is waiting to be paid.')}
+      {box('Installed, final payment not cleared', 'notcleared', d.finalNotCleared.map(j => row(j, `${money(j.clearedCents)} of ${money(j.contractCents)} cleared${j.receivedCents ? `, ${money(j.receivedCents)} received` : ''}${j.lienDay != null ? ` · lien clock day ${j.lienDay}` : ''}`)), 'Every installed sub job is paid and cleared.')}
+      {liens?.ok && box('Lien clocks (owner only)', 'liens', liens.data.clocks.map(c => (
+        <button key={c.jobId} type="button" onClick={() => openJob(c.jobId)} className="w-full text-left px-3 py-2 min-h-[56px] hover:bg-orange-50" data-dash-lien={c.jobId}>
+          <span className="block text-sm font-semibold text-gray-900">{c.customerName} <span className={`font-normal ${(c.daysLeft ?? 99) <= 15 ? 'text-red-700' : 'text-gray-600'}`}>· day {c.day} of 90</span></span>
+          <span className="block text-xs text-gray-600">{money(c.owedCents)} owed · record by {usDate(c.deadline)}{c.recordedOn ? ` · recorded ${usDate(c.recordedOn)}` : ''}</span>
+        </button>
+      )), 'No unpaid job is on the lien clock.')}
+      {liens?.ok && (liens.data.noNotice.length > 0 || liens.data.noNoticeOlder > 0) && box("Not installed yet, signed over $2,500 without Florida's lien notice (713.015)", 'nonotice', [
+        ...liens.data.noNotice.map(q => (
+          <div key={q.quoteId} className="px-3 py-2 text-sm text-gray-800" data-dash-no-notice>{q.customerName} · {money(q.priceCents)}{q.signedOn ? ` · signed ${usDate(q.signedOn)}` : ''}<span className="block text-xs text-gray-600">{q.address}</span></div>
+        )),
+        ...(liens.data.noNoticeOlder > 0 && liens.data.noNotice.length > 0 ? [<p key="older" className="px-3 py-2 text-xs text-gray-600" data-dash-no-notice-older>Also {liens.data.noNoticeOlder} older contracts, already installed, signed before the notice.</p>] : []),
+      ], `None still to install. ${liens.data.noNoticeOlder} older contracts, already installed, were signed before the notice.`)}
+      {box('Open callbacks by sub', 'callbacks', d.callbacks.map(c => (
+        <button key={c.subId} type="button" onClick={() => onOpenSub(c.subId)} className="w-full text-left px-3 py-2 min-h-[56px] hover:bg-orange-50"><span className="text-sm font-semibold text-gray-900">{c.sub}</span> <span className="text-sm text-gray-600">· {c.open} open</span></button>
+      )), 'No open callbacks.')}
+      <section className="bg-white rounded-2xl border border-gray-200 overflow-hidden" data-dash="ytd">
+        <h2 className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50 border-b border-gray-100 flex items-center justify-between">Paid this year
+          <button type="button" className="underline min-h-[44px] min-w-[44px]" data-dash-ytd-csv onClick={async () => {
+            const res = await fetchWithAuth(ytdCsvUrl(new Date().getFullYear())).catch(() => null)
+            if (!res?.ok) { toast.error('Could not make the CSV'); return }
+            const a = document.createElement('a'); a.href = URL.createObjectURL(await res.blob()); a.download = `subs-paid-${new Date().getFullYear()}.csv`; a.click()
+          }}>CSV</button></h2>
+        {d.ytd.length ? <div className="divide-y divide-gray-100">{d.ytd.map(y => (
+          <button key={y.subId} type="button" onClick={() => onOpenSub(y.subId)} className="w-full text-left px-3 py-2 min-h-[56px] hover:bg-orange-50">
+            <span className="block text-sm font-semibold text-gray-900">{y.businessName} · {money(y.paidCents)}</span>
+            <span className={`block text-xs ${y.form1099 ? 'text-amber-800 font-semibold' : 'text-gray-600'}`}>{y.jobs} job{y.jobs === 1 ? '' : 's'}{y.form1099 ? ' · 1099-NEC: $2,000 or more' : ''}</span>
+          </button>
+        ))}</div> : <p className="px-3 py-3 text-sm text-gray-500">No sub paid yet this year.</p>}
       </section>
       {box('811 not called or expiring', 'locate', d.locate.map(j => row(j, j.problem)), 'Every booked sub job has its 811 ticket.')}
       {box('Waiting on your confirm', 'you', d.waitingOnYou.map(j => row(j, j.flags ? `${j.flags} thing${j.flags === 1 ? '' : 's'} do not add up` : 'signed off')), 'Nothing to confirm.')}
@@ -211,6 +246,18 @@ function SubPage({ id, onBack }: { id: string; onBack: () => void }) {
         {s.address && <p className="text-sm text-gray-700">{s.address}</p>}
         <p className="text-sm text-gray-700">{s.trades.map(t => TRADE_LABEL[t]).join(', ') || 'No trades set'}{s.crewSize ? ` · crew of ${s.crewSize}` : ''}{s.payMethod ? ` · paid by ${s.payMethod}` : ''}</p>
         {s.notes && <p className="text-sm text-gray-600 whitespace-pre-wrap">{s.notes}</p>}
+      </section>
+      <section className="bg-white rounded-2xl border border-gray-200 p-4" data-sub-stats>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Their numbers</h3>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+          {([
+            ['Jobs', `${d.stats.jobs} (${d.stats.done} signed off)`], ['Feet installed', `${d.stats.feet} ft`],
+            ['Callbacks', `${d.stats.callbacks}${d.stats.callbackRate != null ? ` (${d.stats.callbackRate}% of jobs)` : ''}${d.stats.openCallbacks ? `, ${d.stats.openCallbacks} open` : ''}`],
+            ['Inspections passed first time', d.stats.firstPassRate != null ? `${d.stats.firstPassRate}% of ${d.stats.inspected}` : 'None inspected yet'],
+            ['On time', d.stats.onTimeRate != null ? `${d.stats.onTimeRate}%` : '—'], ['Problems reported', String(d.stats.problems)],
+            ['Material shortages', String(d.stats.shortages)], ['Paid this year', money(d.stats.paidYear)], ['Paid all time', money(d.stats.paidAll)],
+          ] as Array<[string, string]>).map(([k, v]) => <div key={k} className="contents"><dt className="text-gray-600">{k}</dt><dd className="text-gray-900 font-medium">{v}</dd></div>)}
+        </dl>
       </section>
       <Papers d={d} onChanged={load} />
       <Rates d={d} onSaved={load} />
@@ -395,6 +442,50 @@ function SettingsTab() {
           }} data-subs-mark-reviewed>{a.reviewedAt ? 'Take the review mark off' : 'Mark reviewed by attorney'}</button>}
         </div>
       </section>
+      <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2" data-subs-lien-release-template>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-lg font-semibold text-gray-900">Sub's final release of lien</h2>
+          <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${s.reviews?.sub_lien_release ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`} data-subs-release-review>{s.reviews?.sub_lien_release ? `Reviewed by ${s.reviews.sub_lien_release.by}` : 'Attorney review required'}</span>
+        </div>
+        <p className="text-xs text-gray-600">Florida's statutory "Waiver and release of lien upon final payment" (s. 713.20(5)). The sub signs it on their link before you mark them paid; it cannot be sent until you mark it reviewed.</p>
+        <pre className="text-xs whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{`WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT
+
+The undersigned lienor, in consideration of the final payment in the amount of $(their pay), hereby waives and releases its lien and right to claim a lien for labor, services, or materials furnished to (your company) on the job of (the customer) to the following described property:
+
+(the job's address)
+
+DATED on (the day).
+
+Lienor: (the sub)`}</pre>
+        {owner && <button type="button" className="btn btn-secondary !min-h-[48px]" data-subs-release-mark onClick={async () => {
+          const on = !s.reviews?.sub_lien_release
+          if (on && !window.confirm('Mark the sub lien release reviewed by your attorney?')) return
+          const r = await markReviewed(on, 'sub_lien_release')
+          if (!r.ok) { toast.error('Not changed', r.error); return }
+          take(r.data)
+        }}>{s.reviews?.sub_lien_release ? 'Take the review mark off' : 'Mark reviewed by attorney'}</button>}
+      </section>
+      {owner && (
+        <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2" data-subs-lien-templates>
+          <h2 className="text-lg font-semibold text-gray-900">Lien papers (owner only)</h2>
+          <p className="text-xs text-gray-600">Each is made from the job's facts when you tap it on the job (the lien clock). They cannot be made until your attorney has read them and you mark them reviewed.</p>
+          {([['payment_reminder', 'reminder'], ['notice_of_intent', 'notice_of_intent'], ['claim_of_lien', 'claim_of_lien'], ['final_affidavit', 'final_affidavit'], ['owner_release', 'release']] as const).map(([key, kind]) => (
+            <div key={key} className="py-1 border-b border-gray-100" data-subs-lien-template={key}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-gray-900">{LIEN_KIND_LABEL[kind]}<span className={`block text-xs ${s.reviews?.[key] ? 'text-green-800' : 'text-red-700'}`}>{s.reviews?.[key] ? `Reviewed by ${s.reviews[key]!.by}` : 'Attorney review required'}</span></span>
+              <button type="button" className="btn btn-secondary !min-h-[44px]" onClick={async () => {
+                const on = !s.reviews?.[key]
+                if (on && !window.confirm(`Mark the ${LIEN_KIND_LABEL[kind]} reviewed by your attorney?`)) return
+                const r = await markReviewed(on, key)
+                if (!r.ok) { toast.error('Not changed', r.error); return }
+                take(r.data)
+              }}>{s.reviews?.[key] ? 'Take the mark off' : 'Mark reviewed'}</button>
+            </div>
+            <SampleWords kind={kind} />
+            </div>
+          ))}
+        </section>
+      )}
       <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2" data-subs-doc-types>
         <h2 className="text-lg font-semibold text-gray-900">Your own paper types</h2>
         <p className="text-xs text-gray-600">Besides W9, liability, workers' comp or the Florida exemption, the agreement and a license.</p>
@@ -416,5 +507,16 @@ function SettingsTab() {
         </>}
       </section>
     </div>
+  )
+}
+
+/** A lien paper's words with blanks, for the attorney to read before it is marked reviewed. */
+function SampleWords({ kind }: { kind: Parameters<typeof lienSample>[0] }) {
+  const [w, setW] = useState<{ title: string; text: string } | null>(null)
+  return (
+    <details onToggle={e => { if ((e.target as HTMLDetailsElement).open && !w) void lienSample(kind).then(r => r.ok && setW(r.data)) }}>
+      <summary className="text-xs text-gray-700 underline min-h-[44px] flex items-center">Read the words</summary>
+      {w ? <pre className="text-xs whitespace-pre-wrap bg-gray-50 rounded-lg p-3" data-subs-lien-words={kind}><b>{w.title}</b>{'\n\n'}{w.text}</pre> : <p className="text-xs text-gray-500">Loading…</p>}
+    </details>
   )
 }

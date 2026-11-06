@@ -37,7 +37,7 @@ import { CO_EVENT } from './ChangeOrders'
 import {
   METHODS, money, centsOf, todayOcala, loadJob, loadCustomer, makeSchedule, scheduleOf, subscribe, paymentsVersion,
   recordPayment, shownReceipt, emailReceipt, emailResultOf, noteTexted, waitingPayments, paymentWaiting, recorderName,
-  confirmPayment, voidPayment, editInvoiceAmount, adjustContract, loadToConfirm, openStaffFile, receiptUrl,
+  confirmPayment, voidPayment, markCleared, markBounced, editInvoiceAmount, adjustContract, loadToConfirm, openStaffFile, receiptUrl,
   type Schedule, type InvoiceRow, type Method, type WithoutSchedule, type ToConfirm, type ReceiptSnapshot,
 } from './paymentsStore'
 
@@ -184,6 +184,7 @@ function ScheduleCard({ s, showJob, compact }: { s: Schedule; showJob: boolean; 
 function PaymentLine({ p, onReceipt }: { p: Schedule['payments'][number]; onReceipt: () => void }) {
   const [voiding, setVoiding] = useState(false)
   const [reason, setReason] = useState('')
+  const [clearOn, setClearOn] = useState(todayOcala())
   const office = can('billing.change')
   return (
     <div className={`rounded-lg px-2 py-2 text-sm ${p.voidedAt ? 'bg-gray-50 text-gray-400' : 'bg-gray-50'}`} data-payment={p.id}>
@@ -194,16 +195,37 @@ function PaymentLine({ p, onReceipt }: { p: Schedule['payments'][number]; onRece
           {p.voidedAt && <p className="text-xs text-red-700" data-payment-void>Void: {p.voidReason} ({p.voidedBy})</p>}
           {!p.voidedAt && p.needsConfirm && !p.confirmedAt && <p className="text-xs font-semibold text-amber-700" data-payment-unconfirmed>Recorded by a Salesman: to confirm</p>}
           {p.confirmedAt && p.needsConfirm && <p className="text-xs text-gray-500">Confirmed by {p.confirmedBy}</p>}
+          {/* Received, Cleared, Bounced (Jonathan, Nov 6 2026): sub pay counts only Cleared. */}
+          {!p.voidedAt && p.clearState === 'received' && <p className="text-xs font-semibold text-amber-700" data-payment-state="received">Received, not cleared yet</p>}
+          {!p.voidedAt && p.clearState === 'cleared' && <p className="text-xs text-green-700" data-payment-state="cleared">Cleared {fmtDay(p.clearedOn ?? '')}{can('billing.amounts') && <button className="ml-2 underline text-red-700 min-h-[44px] min-w-[44px]" data-payment-bounced-late onClick={async () => {
+            const note = window.prompt(`It bounced after clearing? ${money(p.amountCents)} is voided and the balance goes back up. A note (optional):`, '')
+            if (note === null) return
+            const r = await markBounced(p.id, note)
+            if (!r.ok) toast.error('Not changed', r.error); else toast.success('Marked bounced', 'The payment is voided; the balance is back up.')
+          }}>Bounced</button>}</p>}
+          {p.clearState === 'bounced' && <p className="text-xs font-semibold text-red-700" data-payment-state="bounced">Bounced</p>}
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           {p.receipt && <button className="text-sm font-semibold text-violet-700 min-h-[40px] px-2" onClick={onReceipt} data-open-receipt>Receipt</button>}
           {p.hasPhoto && <button className="text-xs text-gray-500 underline" onClick={async () => { if (!(await openStaffFile(`/api/payments/${encodeURIComponent(p.id)}/photo`))) toast.error('Could not open the photo') }}>{p.method === 'check' ? 'Check photo' : 'Receipt photo'}</button>}
         </div>
       </div>
+      {can('billing.amounts') && !p.voidedAt && p.clearState === 'received' && (
+        <div className="flex flex-wrap items-center gap-2 mt-1" data-payment-clear>
+          <input type="date" className="border border-gray-300 rounded-lg px-2 h-11 text-base" value={clearOn} max={todayOcala()} onChange={e => setClearOn(e.target.value)} aria-label="Day it cleared" />
+          <button className="btn btn-primary !min-h-[44px]" data-payment-cleared onClick={async () => { const r = await markCleared(p.id, clearOn); if (!r.ok) toast.error('Not changed', r.error); else toast.success('Cleared', money(p.amountCents)) }}>Cleared</button>
+          <button className="btn btn-secondary !min-h-[44px] text-red-700" data-payment-bounced onClick={async () => {
+            const note = window.prompt(`Bounced: ${money(p.amountCents)} is voided and the balance goes back up. A note (optional):`, '')
+            if (note === null) return
+            const r = await markBounced(p.id, note)
+            if (!r.ok) toast.error('Not changed', r.error); else toast.success('Marked bounced', 'The payment is voided; the balance is back up.')
+          }}>Bounced</button>
+        </div>
+      )}
       {office && !p.voidedAt && (
         <div className="flex gap-3 mt-1">
           {p.needsConfirm && !p.confirmedAt && <button className="text-xs font-semibold text-green-700 min-h-[36px]" data-confirm-payment onClick={async () => { const r = await confirmPayment(p.id); if (!r.ok) toast.error('Not confirmed', r.error) }}>Confirm</button>}
-          <button className="text-xs text-red-700 min-h-[36px]" data-void-payment onClick={() => setVoiding(v => !v)}>Void</button>
+          <button className="text-xs text-red-700 min-h-[44px] min-w-[44px]" data-void-payment onClick={() => setVoiding(v => !v)}>Void</button>
         </div>
       )}
       {voiding && (

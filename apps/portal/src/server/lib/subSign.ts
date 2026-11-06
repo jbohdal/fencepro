@@ -17,6 +17,13 @@ import { getFrontendBase } from './urls.js'
 
 type Json = any
 
+/** "12 Oak St, $949.00": which job and amount a signed release is for (several pile up on a sub's page). */
+async function releaseLabel(r: { jobId: string | null; text: string }): Promise<string> {
+  const job = r.jobId ? await prisma.savedJob.findUnique({ where: { id: r.jobId }, select: { customerAddress: true } }) : null
+  const amount = /\$([\d,]+\.\d{2})/.exec(r.text)?.[0] ?? ''
+  return [job?.customerAddress, amount].filter(Boolean).join(', ').slice(0, 120)
+}
+
 export const signLinkUrl = (r: { id: string; linkNonce: string }) => `${getFrontendBase()}/p/sub-sign/${linkToken(r.id, r.linkNonce)}`
 
 async function companyOf(accountId: string): Promise<{ name: string; phone: string }> {
@@ -69,6 +76,11 @@ export async function signRequest(token: string, input: { name: string; signatur
   const r = await signRequestByToken(token)
   if (!r) throw new SubError(410, 'This link is not active. Ask the office for a new one.')
   if (r.signedAt) return { again: true, row: r }
+  // A final lien release is signed only while the sub is ready to be paid (a bounce withdraws it).
+  if (r.kind === 'lien_release' && r.jobId) {
+    const sj = await prisma.subJob.findFirst({ where: { accountId: r.accountId, jobId: r.jobId, subId: r.subId } })
+    if (!sj?.readyToPayAt || sj.paidAt) throw new SubError(409, 'This release is not ready to sign any more. Call the office.')
+  }
   const name = String(input.name ?? '').trim().slice(0, 200)
   if (!name) throw new SubError(400, 'Please type your name.')
   const sig = decode(String(input.signature ?? ''))
@@ -80,7 +92,7 @@ export async function signRequest(token: string, input: { name: string; signatur
   const signedOn = at.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
   const doc = await prisma.subDocument.create({ data: {
     accountId: r.accountId, subId: r.subId, kind: r.kind === 'agreement' ? 'agreement' : 'other:lien_release',
-    label: r.kind === 'agreement' ? 'Subcontractor Agreement (signed)' : 'Final release of lien (signed)', fileName: `${r.kind === 'agreement' ? 'Subcontractor Agreement' : 'Release of lien'} - ${r.sub.businessName}.pdf`.slice(0, 200),
+    label: r.kind === 'agreement' ? 'Subcontractor Agreement (signed)' : `Final release of lien (signed): ${await releaseLabel(r)}`, fileName: `${r.kind === 'agreement' ? 'Subcontractor Agreement' : 'Release of lien'} - ${r.sub.businessName}.pdf`.slice(0, 200),
     mime: 'application/pdf', bytes: pdf.length, path: stored.storagePath, sha256: (await import('crypto')).createHash('sha256').update(pdf).digest('hex'),
     version: r.version, signedOn, uploadedBy: `${name} (signed on the link)`,
   } })

@@ -783,6 +783,53 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Subs dashboard (Phase A part): this week by day, 811 not called or expiring, material out, waiting on the sub, waiting on the owner's confirm, papers expiring. Phase B and C add payments cleared, pay owed, liens, callbacks and 1099 totals. **DEV**
 * Tests: tests/subcontractors.db.test.ts (the whole job, and the agreement); e2e subcontractors.mjs (24 checks on a phone: add, papers, 3 tap assign, 811 task, the link as the sub, check out, sign off, check in, confirm, dashboard).
 
+## 9ba. Subcontractors, Phase B: payments Cleared, paying subs (Nov 6 2026)
+
+* Customer payments are Received when logged. The owner (or an admin) taps Cleared, with the day the bank showed it, or Bounced: the payment is voided as before, kept as bounced, and the balance goes back up. Payments recorded before Nov 6 have no state and count as they always did until the owner OKs a starting status for each (the dry run: GET /api/payments/starting-status). **DEV, NEEDS JONATHAN** (starting status)
+* Billing, P&L, the Balance Sheet and Reports are unchanged: they still count a payment when it is received. How they should treat Received and Cleared is a question for the owner. **NEEDS JONATHAN**
+* Sub pay counts only Cleared. Once cleared payments cover the contract, the job's sub is "Ready to pay sub" and the owner gets a push. A bounce takes it back off. **DEV**
+* Backcharges (damage, wasted or missing material) and advances come off the sub's pay, each with a reason. **DEV**
+* The sub's final release of lien uses Florida's statutory "Waiver and release of lien upon final payment" (713.20(5)) wording, for their pay less deductions. It is locked "Attorney review required" until the owner marks it reviewed. The sub signs it on a link (also shown on their job link) and gets a copy by email; the signed PDF is filed on the sub. **DEV, NEEDS JONATHAN** (attorney review)
+* Mark paid (after the release is signed): the day, amount, how and the check number. The sub is emailed. The amount is the job's actual labor (the takeoff's Sub paid). **DEV**
+* Subs dashboard: Ready to pay sub with the total owed; installed jobs whose final payment has not cleared. **DEV**
+* Tests: tests/subcontractors.db.test.ts (Phase B: received, cleared, ready, release, paid; bounced). e2e subcontractors.mjs now has 30 checks, adding Received vs Cleared, Ready to pay, the sub signing the release on their phone, and Mark paid.
+
+## 9bb. Subcontractors, Phase C: liens, quality, the dashboard (Nov 6 2026)
+
+* Florida's construction lien notice (s. 713.015), word for word, on every new proposal over $2,500.
+  * The customer reads it before signing, in 16 px (12 point) bold capitals; their signature signs and dates it.
+  * The contract PDF gives it its own page with the owner's signature and date.
+  * Proposals sent and contracts signed before this keep what they were sent or signed with.
+  * The owner's dashboard lists the signed contracts over $2,500 without it.
+  * **DEV, NEEDS JONATHAN** (check the wording against the statute; decide what to do for the contracts already signed)
+* The lien clock, owner only (liens.manage), on the job window: day N of 90 from the final furnishing date, what is owed (cleared payments only), and the Claim of Lien deadline.
+  * The owner is pushed at day 30, 60, 75 and 85 while the final payment has not cleared.
+  * The Subs dashboard shows the day; the owner's lien box lists every clock.
+  * **DEV**
+* One tap papers, each a PDF filled in from the job: a payment reminder, a notice of intent to lien (certified mail), the Claim of Lien (713.08 form), the Contractor's Final Payment Affidavit (713.06(3)(d)), and the Release of Lien.
+  * The affidavit lists the job's sub as an unpaid lienor until they are paid.
+  * The Claim of Lien is filled with the owner, property, parcel ID (from the site plan), the typed legal description, the amount owed, the first and last days of work, and what was furnished.
+  * Each paper is kept on the job with its day and how it was sent.
+  * The checklist: notarized; recorded (date and instrument number); served on the owner within 15 days (date, method, tracking, with a countdown).
+  * Time to sue: 1 year after recording, or 60 days from a Notice of Contest.
+  * The release makes a task to record it.
+  * Every paper is locked "Attorney review required" until the owner marks it reviewed.
+  * **DEV, NEEDS JONATHAN** (attorney review)
+* Quality:
+  * Every warranty or service request on a sub's job names the sub.
+  * The office marks a callback "their workmanship ($0)" and the sub gets it on their link (it stays open for that) and marks it fixed there; or "Not theirs".
+  * Per job inspection: passed first time, or failed with the reason and a reinspection day.
+  * The sub page shows their numbers: jobs, feet, callbacks and the callback rate, first time pass rate, problems, on time rate, material shortages, and paid this year and all time.
+  * **DEV**
+* The Subs dashboard adds open callbacks by sub, and paid this year per sub, flagged at $2,000 or more for a 1099-NEC, with a CSV. **DEV**
+* Privacy:
+  * The Salesman (Christa) gets no sub pay anywhere. Job costing is now refused for her, since a sub job's actual labor is the sub's pay; her own job page never showed costs.
+  * The installer sees no prices.
+  * A sub sees only their own job's pay.
+  * **DEV**
+* Also fixed: a deleted quote's proposal link could still be opened and signed; it now says the proposal is not available. **DEV**
+* Tests: tests/subcontractors.db.test.ts (the notice on proposals and contracts; the clock, papers, owner only, callbacks, inspection, stats, CSV). e2e sub-liens.mjs: 11 checks on a phone.
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

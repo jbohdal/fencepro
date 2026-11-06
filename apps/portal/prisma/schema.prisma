@@ -3531,6 +3531,13 @@ model ContractPayment {
   voidedAt       DateTime?
   voidedBy       String?
   voidReason     String?
+  /// Has the bank cleared it (Jonathan, Nov 6 2026)? received | cleared | bounced. Null: recorded before this was
+  /// kept; it counts as it always did until the owner OKs a starting status (lib/paymentClearing.ts).
+  clearState     String?
+  /// The day the bank showed it cleared (YYYY-MM-DD), who marked it.
+  clearedOn      String?
+  clearedAt      DateTime?
+  clearedBy      String?
   /// app | adopted
   source         String    @default("app")
   legacyId       String?
@@ -3627,6 +3634,10 @@ model BillingLog {
 // for covered work, what fixing it cost (ServiceWorkCost).
 
 model ServiceTicket {
+  /// The sub who installed the job (lib/subcontractors.ts): callbacks are counted per sub, and a workmanship callback can go to them at $0.
+  subcontractorId String?
+  /// Their workmanship (a callback they fix at no charge) or not (priced like a repair).
+  subWorkmanship  Boolean?
   id                String    @id @default(uuid())
   accountId         String
   jobId             String
@@ -3815,6 +3826,19 @@ model SubJob {
   flags          Json      @default("[]")
   /// Sent, reminded, notified: [{ at, what, how, to }].
   events         Json      @default("[]")
+  /// The customer's final payment cleared (every payment that pays the contract is Cleared): ready to pay the sub.
+  readyToPayAt   DateTime?
+  /// Backcharges (damage, wasted or missing material) and advances off their pay: [{ id, kind, cents, reason, at, by }].
+  deductions     Json      @default("[]")
+  /// Paid: the day, the amount, how (check, Zelle...), the check number; it is the job's actual labor in job costing.
+  paidOn         String?
+  paidCents      Int?
+  paidMethod     String?
+  paidCheckNumber String?
+  paidBy         String?
+  paidAt         DateTime?
+  /// The job's inspection: passed first time, failed (with the reason), the reinspection day: [{ at, result, reason, reinspectOn }].
+  inspections    Json      @default("[]")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -3852,4 +3876,36 @@ model SubSignRequest {
 
   @@index([accountId])
   @@index([subId])
+}
+
+
+/// A job's lien clock (Jonathan, Nov 6 2026; owner only). Day 0 is the job's final furnishing date; the Claim of Lien
+/// must be recorded by day 90 (s. 713.08). Every action is kept on the job with its day and how it was sent.
+model LienCase {
+  id               String    @id @default(uuid())
+  accountId        String
+  jobId            String    @unique
+  /// [{ id, kind: reminder | notice_of_intent | claim_of_lien | final_affidavit | release, at, how, by, note, documentPath }]
+  actions          Json      @default("[]")
+  /// For the Claim of Lien: typed by the owner (the parcel ID comes from the site plan's parcel when there is one).
+  legalDescription String    @default("")
+  parcelId         String    @default("")
+  furnished        String    @default("")
+  /// The Claim of Lien's checklist after it is made.
+  notarizedOn      String?
+  recordedOn       String?
+  instrumentNumber String    @default("")
+  servedOn         String?
+  serveMethod      String    @default("")
+  serveTracking    String    @default("")
+  /// A Notice of Contest filed by the owner shortens the time to sue to 60 days from it (s. 713.22(2)).
+  contestOn        String?
+  suitFiledOn      String?
+  releasedOn       String?
+  /// Pushes sent at day 30, 60, 75, 85: [30, 60].
+  pushedDays       Json      @default("[]")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([accountId])
 }

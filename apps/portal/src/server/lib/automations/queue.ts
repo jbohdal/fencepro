@@ -596,6 +596,8 @@ export async function tick(now = new Date(), opts: { scan?: boolean; sweeps?: bo
         try { await locatesClearSweep(now) } catch (err) { console.error('[automations] locate clear sweep:', err) }
         // Subs: the job link the day before, the sign off reminder, 811 and paper warnings (lib/subSweep.ts).
         try { await (await import('../subSweep.js')).subSweep(now) } catch (err) { console.error('[automations] sub sweep:', err) }
+        // The lien clock: the owner's pushes at day 30, 60, 75 and 85 while the final payment has not cleared (lib/liens.ts).
+        try { await (await import('../liens.js')).lienSweep(now) } catch (err) { console.error('[automations] lien clock:', err) }
       }
     }
     // A lead still not assigned: one push again 2 hours after it came in, one at 8 am the next day (lib/leadRepush.ts).

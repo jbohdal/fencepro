@@ -13,12 +13,14 @@ import { toast } from './toast'
 import { can, signedInRole } from './permissions'
 import {
   listSubs, previewAssign, assignSub, jobSub, saveJobSub, unassign, confirmInstalled, money, centsOf, usDay,
+  addDeduction, removeDeduction, sendLienRelease, markSubPaid, usDate, saveInspection, setCallbackWorkmanship,
   type SubRow, type AssignPreview, type JobSub,
 } from './subsApi'
 import { sendInstallPacket } from './installPacket'
 import { getQuotes } from './quoteStore'
 import { loadSchedule } from './scheduleStore'
 import { nextCrewDay } from '../../portal/src/server/lib/installDays'
+import { issueLabel } from '../../portal/src/server/lib/serviceTicketModel'
 
 type RawJob = { id: string; fenceStyle?: string; notes?: string; walkGates?: number; dblGates?: number; quoteId?: string | null; scheduledDate?: string | null; customerName?: string }
 
@@ -184,6 +186,9 @@ function AssignedSub({ job, s, onReload, onChange, onChanged }: { job: RawJob; s
         </div>
       )}
 
+      {s.confirmedAt && <PaySub job={job} s={s} onReload={onReload} />}
+      {s.confirmedAt && <Quality job={job} s={s} onReload={onReload} />}
+
       {s.flags.length > 0 && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3" data-job-sub-flags>
           <p className="text-sm font-semibold text-amber-900">Does not add up</p>
@@ -266,6 +271,147 @@ function AssignedSub({ job, s, onReload, onChange, onChanged }: { job: RawJob; s
           onReload(); onChanged?.()
         }}>Take the sub off</button>
       )}
+    </div>
+  )
+}
+
+/**
+ * Paying the sub (Phase B): only after the customer's final payment cleared ("Ready to pay sub"), and once the sub
+ * signed the final lien release on their link. Backcharges and advances come off, each with a reason. Mark paid:
+ * the day, amount, how and the check number; it is the job's actual labor in job costing.
+ */
+function PaySub({ job, s, onReload }: { job: RawJob; s: JobSub; onReload: () => void }) {
+  const [kind, setKind] = useState<'backcharge' | 'advance'>('backcharge')
+  const [amt, setAmt] = useState('')
+  const [why, setWhy] = useState('')
+  const [paidOn, setPaidOn] = useState(todayFl())
+  const [paidAmt, setPaidAmt] = useState((s.netCents / 100).toFixed(2))
+  const [method, setMethod] = useState('Check')
+  const [checkNo, setCheckNo] = useState('')
+  const [busy, setBusy] = useState('')
+  useEffect(() => setPaidAmt((s.netCents / 100).toFixed(2)), [s.netCents])
+  if (s.paid) {
+    return (
+      <div className="rounded-xl bg-gray-50 border border-gray-200 p-3" data-sub-paid>
+        <p className="text-sm font-semibold text-gray-900">Sub paid {money(s.paid.cents)}</p>
+        <p className="text-xs text-gray-700">{usDate(s.paid.paidOn)} · {s.paid.method}{s.paid.checkNumber ? ` #${s.paid.checkNumber}` : ''} · by {s.paid.by}</p>
+      </div>
+    )
+  }
+  const c = s.cover
+  const ready = !!s.readyToPayAt
+  const signed = !!s.lienRelease?.signedAt
+  const run = async (word: string, f: () => Promise<{ ok: boolean; error?: string }>) => {
+    setBusy(word)
+    const r = await f()
+    setBusy('')
+    if (!r.ok) { toast.error('Not done', (r as { error?: string }).error ?? ''); return false }
+    onReload()
+    return true
+  }
+  return (
+    <div className={`rounded-xl border p-3 space-y-2 ${ready ? 'bg-violet-50 border-violet-200' : 'bg-white border-gray-200'}`} data-sub-pay-box>
+      <p className="text-sm font-semibold text-gray-900" data-sub-pay-state>{ready ? 'Ready to pay sub' : 'Pay the sub: waiting on the customer'}</p>
+      {c && !ready && <p className="text-xs text-gray-700">The customer's cleared payments cover {money(c.clearedCents)} of {money(c.contractCents)}{c.receivedCents ? ` (${money(c.receivedCents)} received, not cleared yet)` : ''}. Subs are paid once the final payment clears.</p>}
+      <p className="text-sm text-gray-800">{s.deductions.length ? <>Their pay {money(s.payCents)}, less {money(s.payCents - s.netCents)}: </> : 'Their pay: '}<b data-sub-net>{money(s.netCents)}</b></p>
+      {s.deductions.length > 0 && (
+        <ul className="text-xs text-gray-700" data-sub-deductions>
+          {s.deductions.map(d => (
+            <li key={d.id} className="flex items-center justify-between gap-2">
+              <span>{d.kind === 'advance' ? 'Advance' : 'Backcharge'} {money(d.cents)}: {d.reason}</span>
+              <button type="button" className="underline min-h-[44px] min-w-[44px]" onClick={() => void run('rm', () => removeDeduction(job.id, d.id))}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <details>
+        <summary className="text-xs text-gray-700 min-h-[44px] flex items-center">Take something off their pay</summary>
+        <div className="grid gap-2">
+          <select className="border border-gray-300 rounded-lg px-3 h-12 text-base" value={kind} onChange={e => setKind(e.target.value as 'backcharge' | 'advance')} data-sub-ded-kind>
+            <option value="backcharge">Backcharge (damage, wasted or missing material)</option>
+            <option value="advance">Advance already paid</option>
+          </select>
+          <input className="border border-gray-300 rounded-lg px-3 h-12 text-base" inputMode="decimal" placeholder="Amount" value={amt} onChange={e => setAmt(e.target.value)} data-sub-ded-amt />
+          <input className="border border-gray-300 rounded-lg px-3 h-12 text-base" placeholder="Why" value={why} onChange={e => setWhy(e.target.value)} data-sub-ded-why />
+          <button type="button" className="btn btn-secondary !min-h-[48px]" disabled={!!busy} data-sub-ded-add onClick={async () => {
+            const cents = centsOf(amt)
+            if (cents === null) { toast.error('Not done', 'Type the amount in dollars.'); return }
+            if (await run('ded', () => addDeduction(job.id, kind, cents, why))) { setAmt(''); setWhy('') }
+          }}>Take it off</button>
+        </div>
+      </details>
+      {ready && !s.lienRelease && <button type="button" className="btn btn-primary w-full !min-h-[48px]" disabled={!!busy} data-sub-send-release onClick={async () => {
+        setBusy('rel')
+        const r = await sendLienRelease(job.id)
+        setBusy('')
+        if (!r.ok) { toast.error('Not sent', r.error); return }
+        if (r.data.sent) toast.success('Lien release emailed', `For ${money(r.data.amountCents)}`)
+        else { toast.error('Not emailed', 'Copy the link and send it yourself.'); try { await navigator.clipboard.writeText(r.data.link) } catch { window.prompt('The sign link:', r.data.link) } }
+        onReload()
+      }}>Send the final lien release to sign</button>}
+      {s.lienRelease && !signed && <p className="text-xs text-amber-800" data-sub-release-waiting>Final lien release sent {usDate(s.lienRelease.sentAt.slice(0, 10))} for {money(s.netCents)}: waiting for their signature. Changing their pay withdraws it.</p>}
+      {signed && <p className="text-xs text-green-800" data-sub-release-signed>Final lien release signed by {s.lienRelease!.signedName}. It is filed on their page.</p>}
+      {ready && signed && (
+        <div className="grid gap-2" data-sub-mark-paid>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-gray-800">Paid on<input type="date" className="block w-full border border-gray-300 rounded-lg px-2 h-12 text-base mt-1" value={paidOn} max={todayFl()} onChange={e => setPaidOn(e.target.value)} /></label>
+            <label className="text-xs text-gray-800">Amount<input className="block w-full border border-gray-300 rounded-lg px-2 h-12 text-base mt-1" inputMode="decimal" value={paidAmt} onChange={e => setPaidAmt(e.target.value)} data-sub-paid-amt /></label>
+            <label className="text-xs text-gray-800">How<select className="block w-full border border-gray-300 rounded-lg px-2 h-12 text-base mt-1" value={method} onChange={e => setMethod(e.target.value)}>{['Check', 'Zelle', 'Cash', 'Bank transfer'].map(m => <option key={m}>{m}</option>)}</select></label>
+            {method === 'Check' && <label className="text-xs text-gray-800">Check #<input className="block w-full border border-gray-300 rounded-lg px-2 h-12 text-base mt-1" inputMode="numeric" value={checkNo} onChange={e => setCheckNo(e.target.value)} data-sub-paid-check /></label>}
+          </div>
+          <button type="button" className="btn btn-primary w-full !min-h-[56px]" disabled={!!busy} data-sub-mark-paid-btn onClick={async () => {
+            const cents = centsOf(paidAmt)
+            if (cents === null) { toast.error('Not done', 'Type the amount paid.'); return }
+            if (await run('paid', () => markSubPaid(job.id, { paidOn, amountCents: cents, method, checkNumber: method === 'Check' ? checkNo : null }))) toast.success('Sub paid', money(cents))
+          }}>Mark paid</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Quality (Phase C): the job's inspection (passed first time, or failed with the reason and the reinspection day),
+ * and its warranty or service requests: their workmanship (sent to them at $0, on their link) or not.
+ */
+function Quality({ job, s, onReload }: { job: RawJob; s: JobSub; onReload: () => void }) {
+  const [failing, setFailing] = useState(false)
+  const [reason, setReason] = useState('')
+  const [again, setAgain] = useState('')
+  const last = s.inspections[s.inspections.length - 1]
+  return (
+    <div className="rounded-xl border border-gray-200 p-3 space-y-2" data-sub-quality>
+      <p className="text-xs font-semibold text-gray-500">Inspection</p>
+      {last ? <p className={`text-sm ${last.result === 'passed' ? 'text-green-800' : 'text-red-800'}`} data-sub-inspection>{last.result === 'passed' ? (s.inspections.length === 1 ? 'Passed first time' : 'Passed on reinspection') : `Failed: ${last.reason}${last.reinspectOn ? `; reinspection ${usDate(last.reinspectOn)}` : ''}`}</p> : <p className="text-sm text-gray-600">Not inspected yet.</p>}
+      {(!last || last.result === 'failed') && !failing && (
+        <div className="flex gap-2">
+          <button type="button" className="btn btn-secondary !min-h-[48px]" data-sub-inspect-pass onClick={async () => { const r = await saveInspection(job.id, { result: 'passed', reason: '', reinspectOn: null }); if (!r.ok) toast.error('Not saved', r.error); else onReload() }}>Passed</button>
+          <button type="button" className="btn btn-secondary !min-h-[48px] text-red-700" data-sub-inspect-fail onClick={() => setFailing(true)}>Failed</button>
+        </div>
+      )}
+      {failing && (
+        <div className="grid gap-2">
+          <input className="border border-gray-300 rounded-lg px-3 h-12 text-base" placeholder="Why it failed" value={reason} onChange={e => setReason(e.target.value)} data-sub-inspect-reason />
+          <label className="text-xs text-gray-800">Reinspection day<input type="date" className="block w-full border border-gray-300 rounded-lg px-3 h-12 text-base mt-1" value={again} onChange={e => setAgain(e.target.value)} /></label>
+          <button type="button" className="btn btn-primary !min-h-[48px]" onClick={async () => { const r = await saveInspection(job.id, { result: 'failed', reason, reinspectOn: again || null }); if (!r.ok) { toast.error('Not saved', r.error); return } setFailing(false); setReason(''); onReload() }}>Save</button>
+        </div>
+      )}
+      {s.callbacks.length > 0 && <>
+        <p className="text-xs font-semibold text-gray-500 pt-1">Callbacks</p>
+        <ul className="space-y-2" data-sub-callbacks>
+          {s.callbacks.map(c => (
+            <li key={c.id} className="text-sm text-gray-800">
+              <span className="block">{issueLabel(c.issue)}{c.notes ? `: ${c.notes}` : ''} · {c.stage.replace(/_/g, ' ')}</span>
+              {!['fixed', 'closed'].includes(c.stage) && (
+                <span className="flex gap-2 mt-1">
+                  <button type="button" className={`btn !min-h-[44px] ${c.subWorkmanship ? 'btn-primary' : 'btn-secondary'}`} data-sub-callback-theirs={c.id} onClick={async () => { const r = await setCallbackWorkmanship(c.id, true); if (!r.ok) toast.error('Not saved', r.error); else { toast.success('Sent to the sub', 'They fix it at no charge and mark it fixed on their link.'); onReload() } }}>Their workmanship ($0)</button>
+                  <button type="button" className={`btn !min-h-[44px] ${c.subWorkmanship === false ? 'btn-primary' : 'btn-secondary'}`} onClick={async () => { const r = await setCallbackWorkmanship(c.id, false); if (!r.ok) toast.error('Not saved', r.error); else onReload() }}>Not theirs</button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </>}
     </div>
   )
 }

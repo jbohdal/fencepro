@@ -73,6 +73,8 @@ export interface PaymentRow {
   id: string; amountCents: number; method: Method; checkNumber: string | null; reference: string | null; methodText: string; paidOn: string; note: string
   recordedBy: string; needsConfirm: boolean; confirmedAt: string | null; confirmedBy: string | null; voidedAt: string | null; voidedBy: string | null; voidReason: string | null
   hasPhoto: boolean; source: string; receipt: ReceiptRow | null
+  /** received | cleared | bounced; null: recorded before states were kept (Nov 6 2026). */
+  clearState: 'received' | 'cleared' | 'bounced' | null; clearedOn: string | null; clearedBy: string | null
 }
 export interface Schedule {
   jobId: string; quoteId: string | null; customerId: string | null; customerName: string; address: string; phone: string; email: string; fenceStyle: string
@@ -351,6 +353,10 @@ async function act(method: string, path: string, body: unknown): Promise<{ ok: b
 }
 export const confirmPayment = (id: string) => act('POST', `/api/payments/${encodeURIComponent(id)}/confirm`, {})
 export const voidPayment = (id: string, reason: string) => act('POST', `/api/payments/${encodeURIComponent(id)}/void`, { reason })
+/** The bank shows it (owner and admin). */
+export const markCleared = (id: string, clearedOn: string) => act('POST', `/api/payments/${encodeURIComponent(id)}/cleared`, { clearedOn })
+/** It bounced: voided, kept as bounced. */
+export const markBounced = (id: string, note: string) => act('POST', `/api/payments/${encodeURIComponent(id)}/bounced`, { note })
 export const editInvoiceAmount = (id: string, amountCents: number, reason: string) => act('PATCH', `/api/payments/invoices/${encodeURIComponent(id)}`, { amountCents, reason })
 export const adjustContract = (jobId: string, amountCents: number, reason: string) => act('POST', `/api/payments/job/${encodeURIComponent(jobId)}/adjustments`, { amountCents, reason })
 

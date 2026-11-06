@@ -40,6 +40,12 @@ import { qty, type TakeoffLine } from '../lib/jobCostingMath.js'
 
 const router = Router()
 router.use(requireUser, requireAccount)
+// The Salesman never reads job costing (Jonathan, Nov 6 2026: "Christa can't see sub pay"): the actual labor on a sub
+// job is what the sub was paid. No screen of hers asks for it; the job page she reads has no costs.
+router.use((req: any, res, next) => {
+  if (roleOf(req) === 'sales_rep') { res.status(403).json({ success: false, error: 'Job costing is for the owner and the office.', code: 'NOT_ALLOWED' }); return }
+  next()
+})
 // The Salesman (lib/salesScope.ts; Jonathan, Oct 28 2026): the takeoff, job cost, report and labor of the Salesman's
 // own and assigned jobs only (costs and all: the Salesman sees costs); another job, or a takeoff on one, is a 404.
 router.use(salesScopedRoute({

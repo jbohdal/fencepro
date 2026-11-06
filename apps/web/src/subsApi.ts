@@ -37,6 +37,7 @@ export interface SubDetail {
   papers: { missing: string[]; expired: Array<{ kind: string; label: string; expiresOn: string }>; expiring: Array<{ kind: string; label: string; expiresOn: string; days: number }>; insuranceProblems: string[] }
   rates: { own: SubRates; settings: SettingsRates; categories: string[] }
   jobs: Array<{ jobId: string; customerName: string; address: string; installDate: string | null; status: string; stage: string; payCents: number; submittedAt: string | null; confirmedAt: string | null }>
+  stats: SubStats
 }
 
 export interface PayLine { key: string; label: string; qty: number; unit: string; rateCents: number; cents: number; own: boolean }
@@ -66,11 +67,28 @@ export interface JobSub {
   submittedAt: string | null; confirmedAt: string | null; confirmedBy: string | null
   flags: Array<{ key: string; text: string }>
   events: Array<{ at: string; what: string; how: string; to: string }>
+  /** Paying the sub (Phase B). */
+  cover: { contractCents: number; clearedCents: number; receivedCents: number } | null
+  readyToPayAt: string | null
+  deductions: Array<{ id: string; kind: 'backcharge' | 'advance'; cents: number; reason: string; at: string; by: string }>
+  netCents: number
+  lienRelease: { sentAt: string; signedAt: string | null; signedName: string | null; documentId: string | null } | null
+  paid: { paidOn: string; cents: number; method: string; checkNumber: string | null; by: string } | null
+  /** Quality (Phase C). */
+  inspections: Array<{ at: string; result: 'passed' | 'failed'; reason: string; reinspectOn: string | null; by: string }>
+  callbacks: Array<{ id: string; issue: string; notes: string; stage: string; subWorkmanship: boolean | null; createdAt: string }>
+}
+
+export interface SubStats {
+  jobs: number; done: number; feet: number; callbacks: number; openCallbacks: number; workmanshipCallbacks: number; callbackRate: number | null
+  inspected: number; firstPassRate: number | null; problems: number; onTimeRate: number | null; shortages: number; paidYear: number; paidAll: number
 }
 
 export interface SubSettings {
   docTypes: Array<{ key: string; label: string; expires: boolean }>
   agreement: { text: string; callbackMonths: number | null; version: number; reviewedAt: string | null; reviewedBy: string | null }
+  /** The other legal templates' review marks (sub_lien_release, Phase C's lien papers). */
+  reviews: Record<string, { at: string; by: string } | undefined>
 }
 
 export interface SubsDashboard {
@@ -80,6 +98,11 @@ export interface SubsDashboard {
   waitingOnSub: DashJob[]
   waitingOnYou: Array<DashJob & { flags: number }>
   papers: Array<{ subId: string; sub: string; label: string; expiresOn: string; days: number }>
+  readyToPay: Array<DashJob & { netCents: number }>
+  owedCents: number
+  finalNotCleared: Array<DashJob & { contractCents: number; clearedCents: number; receivedCents: number; lienDay: number | null }>
+  callbacks: Array<{ subId: string; sub: string; open: number }>
+  ytd: Array<{ subId: string; businessName: string; paidCents: number; jobs: number; form1099: boolean }>
 }
 export interface DashJob { jobId: string; sub: string; customerName: string; address: string; installDate: string | null }
 
@@ -122,7 +145,11 @@ export const confirmInstalled = (jobId: string, finalFurnishingDate: string | nu
 export const subsDashboard = () => call<SubsDashboard>('GET', '/dashboard')
 export const subSettings = () => call<SubSettings>('GET', '/settings')
 export const saveSubSettings = (b: Partial<{ docTypes: SubSettings['docTypes']; agreement: { text: string; callbackMonths: number | null } }>) => call<SubSettings>('PUT', '/settings', b)
-export const markReviewed = (reviewed: boolean) => call<SubSettings>('POST', '/settings/reviewed', { reviewed })
+export const markReviewed = (reviewed: boolean, template = 'agreement') => call<SubSettings>('POST', '/settings/reviewed', { reviewed, template })
+export const addDeduction = (jobId: string, kind: 'backcharge' | 'advance', cents: number, reason: string) => call<unknown>('POST', `/job/${encodeURIComponent(jobId)}/deductions`, { kind, cents, reason })
+export const removeDeduction = (jobId: string, id: string) => call<unknown>('DELETE', `/job/${encodeURIComponent(jobId)}/deductions/${encodeURIComponent(id)}`)
+export const sendLienRelease = (jobId: string) => call<{ link: string; sent: boolean; amountCents: number }>('POST', `/job/${encodeURIComponent(jobId)}/lien-release`)
+export const markSubPaid = (jobId: string, b: { paidOn: string; amountCents: number; method: string; checkNumber?: string | null }) => call<{ paidCents: number }>('POST', `/job/${encodeURIComponent(jobId)}/paid`, b)
 
 export const money = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 /** Typed dollars to cents ("4.50" → 450); null when blank or not a number. */
@@ -135,3 +162,31 @@ export function centsOf(text: string): number | null {
 /** "Nov 6, 2027": a paper's date, with its year. */
 export const usDate = (d: string | null | undefined) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '')
 export const usDay = (d: string | null | undefined) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '')
+
+export const saveInspection = (jobId: string, b: { result: 'passed' | 'failed'; reason: string; reinspectOn: string | null }) => call<unknown>('PUT', `/job/${encodeURIComponent(jobId)}/inspection`, b)
+export const setCallbackWorkmanship = (ticketId: string, workmanship: boolean) => call<unknown>('PUT', `/callback/${encodeURIComponent(ticketId)}`, { workmanship })
+export const ytdCsvUrl = (year: number) => `${API_ORIGIN}/api/subcontractors/ytd.csv?year=${year}`
+
+// ── Liens (the owner only; server: routes/liens.ts) ──────────────────────────
+
+export type LienKind = 'reminder' | 'notice_of_intent' | 'claim_of_lien' | 'final_affidavit' | 'release'
+export const LIEN_KIND_LABEL: Record<LienKind, string> = { reminder: 'Payment reminder', notice_of_intent: 'Notice of intent to lien', claim_of_lien: 'Claim of Lien', final_affidavit: "Contractor's Final Payment Affidavit", release: 'Release of Lien' }
+export interface LienClock { finalFurnishingDate: string | null; day: number | null; deadline: string | null; daysLeft: number | null; owedCents: number; contractCents: number; clearedCents: number; open: boolean; serveBy: string | null; suitBy: string | null }
+export interface LienCaseView {
+  legalDescription: string; parcelId: string; furnished: string
+  notarizedOn?: string | null; recordedOn?: string | null; instrumentNumber?: string; servedOn?: string | null; serveMethod?: string; serveTracking?: string; contestOn?: string | null; suitFiledOn?: string | null; releasedOn?: string | null
+  actions: Array<{ id: string; kind: LienKind; at: string; day: string; how: string; by: string; note: string; owedCents: number }>
+}
+export interface LienView { clock: LienClock; case: LienCaseView; reviewed: Record<LienKind, boolean>; job: { id: string; customerName: string; address: string; finalFurnishingDate: string | null; ffdSet: boolean } }
+
+async function lienCall<T>(method: string, path: string, body?: unknown): Promise<Answer<T>> {
+  const r = await sendJson(method, `/api/liens${path}`, body)
+  if (r.result.ok) return { ok: true, data: r.json?.data as T }
+  return { ok: false, error: r.json?.error || 'Something went wrong.', status: r.status, json: r.json }
+}
+export const lienOf = (jobId: string) => lienCall<LienView>('GET', `/job/${encodeURIComponent(jobId)}`)
+export const saveLien = (jobId: string, b: Partial<LienCaseView> & { finalFurnishingDate?: string }) => lienCall<LienView>('PUT', `/job/${encodeURIComponent(jobId)}`, b)
+export const makeLienPaper = (jobId: string, kind: LienKind, how: string, note = '') => lienCall<{ action: LienCaseView['actions'][number]; view: LienView }>('POST', `/job/${encodeURIComponent(jobId)}/papers`, { kind, how, note })
+export const lienPaperUrl = (jobId: string, actionId: string) => `${API_ORIGIN}/api/liens/job/${encodeURIComponent(jobId)}/papers/${encodeURIComponent(actionId)}`
+export const lienList = () => lienCall<{ clocks: Array<LienClock & { jobId: string; customerName: string; address: string; recordedOn: string | null }>; noNotice: Array<{ quoteId: string; customerName: string; address: string; priceCents: number; signedOn: string | null }>; noNoticeOlder: number }>('GET', '')
+export const lienSample = (kind: LienKind) => lienCall<{ title: string; text: string }>('GET', `/sample/${kind}`)

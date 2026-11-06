@@ -113,7 +113,18 @@ export function papersOf(rows: PaperRow[], today: Ymd, kinds: DocKind[] = DOC_KI
 export const SUB_SETTINGS_KEY = 'subs:settings'
 
 export interface AgreementSettings { text: string; callbackMonths: number | null; version: number; reviewedAt: string | null; reviewedBy: string | null }
-export interface SubSettings { docTypes: Array<{ key: string; label: string; expires: boolean }>; agreement: AgreementSettings }
+/** The legal templates besides the agreement, each locked "Attorney review required" until the owner marks it reviewed. */
+export const TEMPLATES = {
+  sub_lien_release: 'Subcontractor final release of lien (Florida 713.20(5))',
+  // The lien papers (Phase C, owner only; lib/liens.ts).
+  payment_reminder: 'Payment reminder letter',
+  notice_of_intent: 'Notice of intent to lien',
+  claim_of_lien: 'Claim of Lien (Florida 713.08)',
+  final_affidavit: "Contractor's Final Payment Affidavit (Florida 713.06(3)(d))",
+  owner_release: 'Release of Lien',
+} as const
+export type TemplateKey = keyof typeof TEMPLATES
+export interface SubSettings { docTypes: Array<{ key: string; label: string; expires: boolean }>; agreement: AgreementSettings; reviews: Partial<Record<TemplateKey, { at: string; by: string }>> }
 
 /**
  * The starting words (Jonathan, Nov 6 2026). Locked until the owner marks them reviewed by an attorney; [NUMBER] is
@@ -150,7 +161,26 @@ export function settingsFrom(v: Json): SubSettings {
       reviewedAt: typeof a.reviewedAt === 'string' ? a.reviewedAt : null,
       reviewedBy: typeof a.reviewedBy === 'string' ? a.reviewedBy : null,
     },
+    reviews: Object.fromEntries(Object.keys(TEMPLATES).filter(k => v?.reviews?.[k]?.at).map(k => [k, { at: String(v.reviews[k].at), by: String(v.reviews[k].by ?? '') }])),
   }
+}
+
+/**
+ * Florida's statutory "Waiver and release of lien upon final payment" (s. 713.20(5)), as the sub signs it before the
+ * owner marks them paid: the amount, who it was furnished to, the owner of the job and the property filled in.
+ */
+export function subLienReleaseWords(f: { amountCents: number; company: string; owner: string; property: string; date: string; sub: string }): string {
+  const money = `$${(f.amountCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return `WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT
+
+The undersigned lienor, in consideration of the final payment in the amount of ${money}, hereby waives and releases its lien and right to claim a lien for labor, services, or materials furnished to ${f.company} on the job of ${f.owner} to the following described property:
+
+${f.property}
+
+DATED on ${f.date}.
+
+Lienor: ${f.sub}
+By: ______________________ (signature below)`
 }
 
 export async function subSettingsOf(accountId: string): Promise<SubSettings> {

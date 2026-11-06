@@ -600,13 +600,12 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('the Salesman\'s scope on service
   })
 
   test('job costing, walkthroughs, install packets, permits, the run log, voice clips: another job is a 404, lists are the Salesman\'s', async () => {
-    expect((await call('GET', `/api/job-costing/takeoff?jobId=${ids.jOther}`, sales)).status).toBe(404)
-    expect((await call('GET', `/api/job-costing/takeoff?jobId=${ids.jMine}`, sales)).status).toBe(200)
-    expect((await call('GET', `/api/job-costing/job/${ids.jOther}`, sales)).status).toBe(404)
-    expect((await call('POST', '/api/job-costing/takeoff', sales, { id: crypto.randomUUID(), jobId: ids.jOther })).status).toBe(404)
-    const report = await call('GET', '/api/job-costing/report', sales)
-    expect(report.status).toBe(200)
-    expect(JSON.stringify(report.json)).not.toContain(ids.jOther)
+    // Job costing is the owner's and the office's (Jonathan, Nov 6 2026: the Salesman never sees sub pay, which is a
+    // sub job's actual labor): refused for her, her own jobs too, with nothing of another job in the refusal.
+    for (const r of [await call('GET', `/api/job-costing/takeoff?jobId=${ids.jMine}`, sales), await call('GET', `/api/job-costing/job/${ids.jOther}`, sales), await call('GET', '/api/job-costing/report', sales)]) {
+      expect(r.status).toBe(403)
+      expect(JSON.stringify(r.json)).not.toContain(ids.jOther)
+    }
     expect((await call('GET', `/api/walkthroughs?jobId=${ids.jOther}`, sales)).status).toBe(404)
     expect((await call('GET', `/api/walkthroughs/${ids.wOther}`, sales)).status).toBe(404)
     expect((await call('GET', `/api/walkthroughs?jobId=${ids.jMine}`, sales)).status).toBe(200)

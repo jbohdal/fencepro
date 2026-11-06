@@ -77,6 +77,10 @@ export async function subSweep(now = new Date()): Promise<{ sent: number; remind
       }
     }
   }
+  // Ready to pay a sub: the customer's final payment cleared (a sub assigned after it did, a job paid before states were kept).
+  const unpaid = await prisma.subJob.findMany({ where: { paidAt: null, readyToPayAt: null, confirmedAt: { not: null } }, select: { accountId: true, jobId: true } })
+  const { checkReadyToPaySub } = await import('./paymentClearing.js')
+  for (const u of unpaid) await checkReadyToPaySub(u.accountId, u.jobId).catch(e => console.error('[sub sweep] ready to pay:', e))
   // Papers expiring within 30 days, or expired, on an active sub: one push each.
   const subs = await prisma.subcontractor.findMany({ where: { deletedAt: null, status: 'active' }, include: { documents: { where: { deletedAt: null } } } })
   const configs = new Map<string, Json>()

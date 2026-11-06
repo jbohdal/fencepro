@@ -311,7 +311,7 @@ publicProposal.get('/:token', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer')
   res.setHeader('X-Robots-Tag', 'noindex')
   res.setHeader('Cache-Control', 'no-store')
-  if (!q || q.archivedAt) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not available</h1><p>Please call us and we will send a new link.</p></main>', nonce)); return }
+  if (!q || q.archivedAt || q.deletedAt) { res.status(404).type('html').send(page('Proposal not found', '<main class="wrap"><h1>This proposal is not available</h1><p>Please call us and we will send a new link.</p></main>', nonce)); return }
   const p = q.proposal as unknown as Proposal | null
   const closed = linkClosed(q)
   if (closed) {
@@ -387,7 +387,7 @@ async function acceptedInstallDay(q: { id: string; accountId: string }): Promise
 publicProposal.get('/:token/contract.pdf', async (req, res) => {
   try {
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) } })
-    if (!q || q.archivedAt || !q.acceptedAt || linkClosed(q)) { res.status(404).type('text').send('Not available'); return }
+    if (!q || q.archivedAt || q.deletedAt || !q.acceptedAt || linkClosed(q)) { res.status(404).type('text').send('Not available'); return }
     const pdf = await contractForQuote(q)
     if (!pdf) { res.status(404).type('text').send('Not available'); return }
     res.setHeader('Content-Type', 'application/pdf')
@@ -403,8 +403,8 @@ publicProposal.get('/:token/contract.pdf', async (req, res) => {
 
 // A photo marked Customer on this proposal's quote or its site visit (marked up when it was).
 publicProposal.get('/:token/media/:id', async (req, res) => {
-  const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, accountId: true, archivedAt: true, shareDisabledAt: true, shareExpiresAt: true } }).catch(() => null)
-  if (!q || q.archivedAt || linkClosed(q)) { res.status(404).end(); return }
+  const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, accountId: true, archivedAt: true, deletedAt: true, shareDisabledAt: true, shareExpiresAt: true } }).catch(() => null)
+  if (!q || q.archivedAt || q.deletedAt || linkClosed(q)) { res.status(404).end(); return }
   const m = await prisma.mediaItem.findUnique({ where: { id: String(req.params.id) } }).catch(() => null)
   if (!m || m.deletedAt || m.accountId !== q.accountId || m.visibility !== 'customer' || m.kind !== 'photo' || !belongsToQuote(m, q.id, await quoteCustomer(q.accountId, q.id))) { res.status(404).end(); return }
   const file = m.markupPath && fs.existsSync(m.markupPath) ? m.markupPath : m.path
@@ -420,13 +420,13 @@ publicProposal.get('/:token/media/:id', async (req, res) => {
 const viewLimiter = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: false, legacyHeaders: false, message: { success: false } })
 // sendBeacon sends text/plain: read either.
 const viewBody = express.json({ limit: '4kb', type: ['application/json', 'text/plain'] })
-const viewQuoteSelect = { id: true, accountId: true, crmContactId: true, ownerId: true, customerName: true, viewCount: true, firstViewedAt: true, lastViewedAt: true, acceptedAt: true, proposal: true, archivedAt: true, shareDisabledAt: true, shareExpiresAt: true } as const
+const viewQuoteSelect = { id: true, accountId: true, crmContactId: true, ownerId: true, customerName: true, viewCount: true, firstViewedAt: true, lastViewedAt: true, acceptedAt: true, proposal: true, archivedAt: true, deletedAt: true, shareDisabledAt: true, shareExpiresAt: true } as const
 
 publicProposal.post('/:token/view', viewLimiter, viewBody, async (req, res) => {
   try {
     if (ignoredRequest(req)) { res.status(204).end(); return }
     const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: viewQuoteSelect })
-    if (!q || q.archivedAt || linkClosed(q) || !Array.isArray((q.proposal as any)?.options)) { res.status(404).json({ success: false }); return }
+    if (!q || q.archivedAt || q.deletedAt || linkClosed(q) || !Array.isArray((q.proposal as any)?.options)) { res.status(404).json({ success: false }); return }
     const v = await startView(req, q, (req.body as any)?.sp)
     res.json({ success: true, data: { id: v.id, base: v.base } })
     if (v.push) void proposalOpenedPush(v.id).catch(err => console.error('[proposal] opened push:', err))
@@ -438,8 +438,8 @@ publicProposal.post('/:token/view', viewLimiter, viewBody, async (req, res) => {
 
 publicProposal.post('/:token/view/:id', viewLimiter, viewBody, async (req, res) => {
   try {
-    const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, proposal: true, archivedAt: true } })
-    if (!q || q.archivedAt) { res.status(404).json({ success: false }); return }
+    const q = await prisma.savedQuote.findUnique({ where: { shareToken: String(req.params.token) }, select: { id: true, proposal: true, archivedAt: true, deletedAt: true } })
+    if (!q || q.archivedAt || q.deletedAt) { res.status(404).json({ success: false }); return }
     const ok = await beatView(q, String(req.params.id), (req.body ?? {}) as any)
     res.status(ok ? 204 : 404).end()
   } catch (err) {
@@ -591,7 +591,8 @@ export function signedPricing(q: { pricing?: unknown; proposal?: unknown; fenceS
  * call is the one that accepted it (not a repeat of an acceptance that stands).
  */
 export async function acceptQuote(q: any, body: z.infer<typeof acceptSchema>, signer: Signer = { ip: null, userAgent: null }): Promise<{ status: number; json: any; accepted?: boolean }> {
-  if (!q || q.archivedAt) { return { status: 404, json: { success: false, error: 'This proposal is no longer available.' } } }
+  // A deleted quote (Settings → Deleted Records) is no longer signable either (found Nov 6 2026: its link still opened).
+  if (!q || q.archivedAt || q.deletedAt) { return { status: 404, json: { success: false, error: 'This proposal is no longer available.' } } }
   // The option already accepted, signed again: the same acceptance sent again (the customer's signal dropped
   // before the answer came back), or someone else of the household signing the same fence. It stands as it was
   // first signed; the page reloads to it (no notice: nothing conflicts, review Oct 27 2026).
@@ -823,7 +824,12 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
     : accepted
     ? `<section class="done" data-accepted><h2>Accepted</h2><p>Accepted by ${esc(q.acceptedBy)} on ${new Date(q.acceptedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}: ${esc(p.options[chosen]?.label)} at ${money(p.options[chosen]?.finalPrice)}.</p><p>Thank you. We will call you to schedule.</p><p><a class="btn linkbtn" href="${esc(token)}/contract.pdf" data-contract-pdf>Your signed contract (PDF)</a></p></section>`
     : ''
-  const acceptBlock = !canSign ? '' : `<section id="accept"><h2>Accept this proposal</h2>
+  // Florida's construction lien notice (s. 713.015), as frozen on this proposal: 12 point (16 px) bold capitals, read
+  // before signing; the signature below signs and dates it (lib/contractTerms.ts LIEN_NOTICE_713015).
+  const lienNotice = typeof (saved as any).lienNotice === 'string' && (saved as any).lienNotice
+    ? `<section data-lien-notice style="border:2px solid #1C1030"><h2>Notice: Florida construction lien law</h2><p style="font-size:16px;font-weight:700;text-transform:uppercase;line-height:1.45">${esc((saved as any).lienNotice)}</p><p class="small">Your signature below also signs and dates this notice.</p></section>`
+    : ''
+  const acceptBlock = !canSign ? '' : `${lienNotice}<section id="accept"><h2>Accept this proposal</h2>
         ${soldOpt
           ? `<p class="small" data-sold-note>Your fence was agreed with us for <b>${esc(soldOpt.label)}</b> at <b>${money(soldOpt.finalPrice)}</b>. Type your name and sign with your finger to accept it here.${terms.length ? ' By signing you accept this proposal and its terms above.' : ''} To change to a different option, ${callLine}.</p>`
           : shownCount > 1

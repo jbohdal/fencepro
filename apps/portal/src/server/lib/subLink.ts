@@ -38,7 +38,11 @@ export async function subJobByToken(token: string) {
   const job = await prisma.savedJob.findUnique({ where: { id: sj.jobId } })
   if (!job || job.deletedAt || job.archivedAt) return { sj, job, closed: 'gone' as const }
   if (sj.linkDisabledAt) return { sj, job, closed: 'off' as const }
-  if (job.completedDate && /^\d{4}-\d{2}-\d{2}$/.test(job.completedDate) && plusDays(job.completedDate, 30) < floridaDay(new Date())) return { sj, job, closed: 'expired' as const }
+  if (job.completedDate && /^\d{4}-\d{2}-\d{2}$/.test(job.completedDate) && plusDays(job.completedDate, 30) < floridaDay(new Date())) {
+    // Still open for a callback on their workmanship the office sent them.
+    const callback = await prisma.serviceTicket.count({ where: { jobId: sj.jobId, subcontractorId: sj.subId, subWorkmanship: true, stage: { notIn: ['fixed', 'closed'] } } })
+    if (!callback) return { sj, job, closed: 'expired' as const }
+  }
   return { sj, job, closed: null }
 }
 
@@ -297,6 +301,8 @@ export async function confirmInstalled(accountId: string, jobId: string, by: { u
     await tx.subJob.update({ where: { id: sj.id }, data: { confirmedAt: new Date(), confirmedBy: by.name } })
   })
   await event(sj.id, `Installed, confirmed by ${by.name}; final furnishing date ${finished}`)
+  // Paid in full before the install was confirmed: ready to pay the sub now.
+  await (await import('./paymentClearing.js')).checkReadyToPaySub(accountId, jobId).catch(e => console.error('[sub link] ready to pay:', e))
   return { finalFurnishingDate: finished }
 }
 

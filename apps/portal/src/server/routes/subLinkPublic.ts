@@ -24,6 +24,7 @@ import { jobStyleName } from '../lib/customerStyleName.js'
 import { SubError } from '../lib/subcontractors.js'
 import { subJobByToken, partsOf, checkOut, saveReport, reportProblem, checkIn, stillToTake } from '../lib/subLink.js'
 import { partWithPair } from '../lib/partNames.js'
+import { issueLabel } from '../lib/serviceTicketModel.js'
 
 type Json = any
 export const subLinkPublic = Router()
@@ -56,7 +57,8 @@ subLinkPublic.get('/:token', async (req, res) => {
   const r = (sj.report ?? {}) as Json
   const back = (sj.checkin ?? null) as Json
 
-  const locate = loc.ticket
+  // Installed (a callback on a finished job): no dig warning; the 811 ticket is the install's.
+  const locate = sj.confirmedAt || sj.submittedAt ? '' : loc.ticket
     ? `<section data-sub-811-ok><h2>811 locate</h2><p class="facts">Ticket ${esc(loc.ticket)}${loc.expDate ? `, good until ${esc(usDate(loc.expDate))}` : ''}${loc.goodDate && loc.goodDate > today ? `. Do not dig before ${esc(usDate(loc.goodDate))}.` : '.'}</p></section>`
     : `<section data-sub-811-none style="background:#fef2f2;border-color:#fca5a5"><h2 style="color:#991b1b">Do not dig, 811 ticket not in yet</h2><p>We call in 811. You get an email as soon as the ticket is in.</p></section>`
   const pay = `<section data-sub-pay><h2>Your pay for this job</h2><p class="price">${money(sj.payCents)}</p>
@@ -64,7 +66,14 @@ subLinkPublic.get('/:token', async (req, res) => {
     <p class="small">Paid after the customer's final payment has cleared, with your signed lien release.</p></section>`
   const steps = `<section data-sub-steps><h2>Your steps</h2><ol>
     <li>${out?.at ? '✓ ' : ''}Check out the material at the shop</li><li>${sj.submittedAt ? '✓ ' : ''}Install and sign off</li><li>${back?.at ? '✓ ' : ''}Bring back what is left and check it in</li></ol></section>`
-  const top = locate + steps + pay
+  // The final lien release waiting for their signature (sent once the customer's final payment cleared).
+  const release = await prisma.subSignRequest.findFirst({ where: { subId: sj.subId, jobId: sj.jobId, kind: 'lien_release', voidedAt: null, signedAt: null }, orderBy: { sentAt: 'desc' } })
+  const { signLinkUrl } = await import('../lib/subSign.js')
+  const sign = release ? `<section data-sub-lien-release style="border-color:#8b5cf6"><h2>Sign your lien release</h2><p>The customer's final payment cleared. Sign the final release of lien to be paid.</p><p><a class="btn" href="${esc(signLinkUrl(release))}">Read and sign</a></p></section>` : ''
+  // Callbacks on their workmanship (the office marked them so): fixed at no charge, from here.
+  const callbacks = await prisma.serviceTicket.findMany({ where: { jobId: sj.jobId, subcontractorId: sj.subId, subWorkmanship: true, stage: { notIn: ['fixed', 'closed'] } }, orderBy: { createdAt: 'asc' } })
+  const callbackBox = callbacks.length ? `<section data-sub-callbacks style="border-color:#f59e0b"><h2>Callback: please fix at no charge</h2>${callbacks.map(c => `<div data-sub-callback="${esc(c.id)}"><p><b>${esc(issueLabel(c.issue))}</b>${c.notes ? `: ${esc(c.notes)}` : ''}</p><label class="field">What you did (optional)<input id="cbNote-${esc(c.id)}" maxlength="500"></label><button type="button" class="btn cbFixed" data-ticket="${esc(c.id)}">Fixed</button><p class="small" id="cbMsg-${esc(c.id)}" aria-live="polite"></p></div>`).join('')}</section>` : ''
+  const top = callbackBox + sign + locate + steps + pay
 
   const photoBox = (id: string, label: string, purpose: string) => `<label class="btn filebtn">${esc(label)}<input type="file" accept="image/*" capture="environment" multiple hidden data-up="${id}" data-purpose="${purpose}"></label><div class="media" id="${id}-shown"></div><p class="small" id="${id}-msg"></p>`
   const checkedOut = out?.at ? `<section data-sub-checkout-done><h2>Checked out</h2><p class="small">At the shop ${esc(new Date(out.lastAt ?? out.at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}.</p></section>` : ''
@@ -148,6 +157,7 @@ function subScript(token: string, partCount: number, outCount: number): string {
     var rs=$('rpSave');if(rs)rs.addEventListener('click',function(){post('/report',report(false),'rpMsg',false,'Saved.')});
     var rd=$('rpSend');if(rd)rd.addEventListener('click',function(){post('/report',report(true),'rpMsg',true)});
     var pb=$('pbSend');if(pb)pb.addEventListener('click',function(){post('/problem',{kind:$('pbKind').value,text:$('pbText').value,photos:up.problem||[]},'pbMsg',false,'Sent to the office.',function(){$('pbText').value='';up.problem=[];$('problem-shown').innerHTML='';$('problem-msg').textContent=''})});
+    [].forEach.call(document.querySelectorAll('.cbFixed'),function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-ticket');post('/callback/'+id,{note:$('cbNote-'+id).value},'cbMsg-'+id,true)})});
     var ci=$('ciSend');if(ci)ci.addEventListener('click',function(){var lines=[];
       for(var i=0;i<${outCount};i++){var q=document.querySelector('.ci-qty[data-i="'+i+'"]'),row=q.closest('tr');lines.push({item:row.getAttribute('data-item'),back:Number(q.value)})}
       post('/checkin',{lines:lines,photos:up.leftover||[]},'ciMsg',true)});
@@ -198,4 +208,18 @@ subLinkPublic.post('/:token/problem', json, async (req, res) => {
 })
 subLinkPublic.post('/:token/checkin', json, async (req, res) => {
   try { const at = await liveSub(req, res); if (!at) return; await checkIn(at.sj, req.body); res.json({ success: true }) } catch (err) { fail(res, err, 'check in') }
+})
+
+/** A workmanship callback fixed by the sub at no charge; the owner gets a push. */
+subLinkPublic.post('/:token/callback/:ticketId', json, async (req, res) => {
+  try {
+    const at = await liveSub(req, res); if (!at) return
+    const { ticketOf, markFixedBySub } = await import('../lib/serviceTickets.js')
+    const t = await ticketOf(at.sj.accountId, String(req.params.ticketId))
+    if (!t || t.jobId !== at.sj.jobId || (t as any).subcontractorId !== at.sj.subId || !(t as any).subWorkmanship) throw new SubError(404, 'That callback is not yours to fix.')
+    await markFixedBySub(t, at.sj.sub.businessName, String(req.body?.note ?? ''))
+    const { sendPush } = await import('../lib/automations/push.js')
+    await sendPush(at.sj.accountId, { title: `Callback fixed: ${at.job.customerName}`, body: `${at.sj.sub.businessName} fixed the callback at no charge.`, url: `/operations?job=${at.sj.jobId}`, tag: `sub-callback-${t.id}` }).catch(() => null)
+    res.json({ success: true })
+  } catch (err) { fail(res, err, 'mark it fixed') }
 })

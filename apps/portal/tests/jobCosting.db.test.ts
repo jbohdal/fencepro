@@ -223,8 +223,8 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job costing (dev database)', asy
     expect(byOffice.status).toBe(200)
     expect(byOffice.json.data.labor.subPaidCents).toBe(11111)
     expect((await call(office, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)).json.data.labor.subPaidCents).toBe(11111)
-    // A Salesman sees costs since Oct 25, 2026 (Jonathan); the installer never.
-    expect((await call(salesRep, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)).json.data.labor.subPaidCents).toBe(11111)
+    // The Salesman never reads job costing (Jonathan, Nov 6 2026: no sub pay for her); the installer never sees the number.
+    expect((await call(salesRep, 'GET', `/api/job-costing/takeoff?jobId=${job.id}`)).status).toBe(403)
     for (const who of [installer]) {
       const tried = await call(who, 'PUT', `/api/job-costing/takeoff/${tid}/labor`, { mode: 'sub', subUnits: 10, subPaidCents: 99, crew: [] })
       if (tried.status === 200) expect('subPaidCents' in tried.json.data.labor).toBe(false)

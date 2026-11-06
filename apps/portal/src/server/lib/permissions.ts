@@ -111,6 +111,8 @@ export type Action =
   | 'subs.view'
   /** A sub's W9 file: the owner only. */
   | 'subs.w9'
+  /** Liens: the lien clock, the notices, Claim of Lien and releases (Jonathan, Nov 6 2026): the owner only. */
+  | 'liens.manage'
 
 const FULL: Action[] = [
   'subs.view',
@@ -120,7 +122,7 @@ const FULL: Action[] = [
 ]
 
 const ALLOWED: Record<StaffRole, ReadonlySet<Action>> = {
-  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts', 'quotes.underMinimum', 'subs.w9']),
+  super_admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts', 'quotes.underMinimum', 'subs.w9', 'liens.manage']),
   admin: new Set([...FULL, 'records.delete', 'users.manage', 'system', 'lists.change', 'billing.amounts']),
   manager: new Set(FULL),
   // Jonathan, Oct 25, 2026: "office staff like me and sales i think its ok to see cost but installer and
@@ -167,6 +169,7 @@ export const REFUSAL: Record<Action, string> = {
   'quotes.underMinimum': 'Only the owner can go under the minimum job price. Ask Jonathan.',
   'subs.view': 'Only the owner and the office can see subcontractors.',
   'subs.w9': 'Only the owner can open a W9.',
+  'liens.manage': 'Only the owner can work on liens.',
 }
 
 /** The CRM role on a request. Routes behind requireAuth carry it as crmRole (the portal role is in role). */

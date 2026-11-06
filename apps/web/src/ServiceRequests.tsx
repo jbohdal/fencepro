@@ -277,7 +277,7 @@ function TicketWindow({ id, onClose }: { id: string; onClose: () => void }) {
   const stageAt = STAGES.findIndex(s => s.key === t.stage)
   return (
     <Sheet title={`${t.issueLabel}: ${t.customerName}`} onClose={onClose} attr={{ 'data-ticket-window': t.id, 'data-stage': t.stage }}
-      sub={<p className="text-sm text-gray-600 truncate">{[t.fenceStyle, t.address].filter(Boolean).join(' · ')}{t.phone ? <> · <a href={telHref(t.phone)} className="text-blue-600">{formatPhone(t.phone)}</a></> : null}</p>}>
+      sub={<p className="text-sm text-gray-600 truncate">{[t.fenceStyle, t.address, (t as { installer?: string }).installer ? `installed by ${(t as { installer?: string }).installer}` : ''].filter(Boolean).join(' · ')}{t.phone ? <> · <a href={telHref(t.phone)} className="text-blue-600">{formatPhone(t.phone)}</a></> : null}</p>}>
       <ol className="grid grid-cols-6 gap-1" aria-label="Stage" data-ticket-stages>
         {STAGES.map((s, i) => (
           <li key={s.key} className={`text-[10px] leading-tight text-center rounded-lg px-1 py-1.5 ${i === stageAt ? `${STAGE_STYLE[s.key]} font-bold ring-1 ring-current` : i < stageAt ? 'bg-gray-200 text-gray-700' : 'bg-white text-gray-400 border border-gray-200'}`} data-ticket-stage={s.key} aria-current={i === stageAt ? 'step' : undefined}>{s.label}</li>

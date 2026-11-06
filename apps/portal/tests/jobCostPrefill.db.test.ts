@@ -117,15 +117,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job cost prefill (dev database)'
     expect(p.labor.note).toMatch(/\$800\.00/)
   })
 
-  test('the route: owner, office and Salesman see it; an installer is refused and gets no number', async () => {
+  test('the route: owner and office see it; an installer and the Salesman are refused and get no number', async () => {
     expect((await get('super_admin', `/prefill/${quoteId}`)).json.data.labor.cents).toBe(77000)
     expect((await get('office_staff', `/prefill/${quoteId}`)).status).toBe(200)
     const crew = await get('field_crew', `/prefill/${quoteId}`)
     expect(crew.status).toBe(403)
     expect(JSON.stringify(crew.json)).not.toMatch(/77000|cents/i)
     expect((await get('super_admin', `/prefill/${crypto.randomUUID()}`)).status).toBe(404)
-    // Not the Salesman's quote: a 404, as every record out of scope.
-    expect((await get('sales_rep', `/prefill/${quoteId}`)).status).toBe(404)
+    // The Salesman is refused job costing altogether (Jonathan, Nov 6 2026: no sub pay for her).
+    expect((await get('sales_rep', `/prefill/${quoteId}`)).status).toBe(403)
   })
 
   test('who may write job costs: owner and office yes; installer and Salesman no, and no copy comes back in any refusal', async () => {

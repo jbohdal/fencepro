@@ -32,10 +32,13 @@ import { plainZod } from '../lib/plainZod.js'
 import { validateFile, storeFile, getFilePath } from '../lib/storage/index.js'
 import { floridaDay } from '../lib/automations/context.js'
 import {
-  SUB_STATUSES, TRADES, SubError, papersOf, docKindsOf, subSettingsOf, SUB_SETTINGS_KEY, cleanRates, settingsRates, payTotal, refreshPay, type PayLine,
+  SUB_STATUSES, TRADES, SubError, papersOf, docKindsOf, subSettingsOf, SUB_SETTINGS_KEY, TEMPLATES, cleanRates, settingsRates, payTotal, refreshPay, type PayLine,
 } from '../lib/subcontractors.js'
 import { previewAssign, assignSub, unassignSub, newSubLink, linkOf, ensureSubCrew, dropSubCrew, type Actor } from '../lib/subAssign.js'
 import { settingsOf as costSettingsOf } from '../lib/jobCosting.js'
+import { clearedCover, netPay } from '../lib/paymentClearing.js'
+import { lienReleaseOf } from '../lib/subPay.js'
+import { issueLabel } from '../lib/serviceTicketModel.js'
 
 type Json = any
 const router = Router()
@@ -110,12 +113,14 @@ router.put('/settings', requireCan('settings.change'), express.json({ limit: '12
 /** The owner marks the agreement reviewed by an attorney (or takes the mark off): only then can it be sent. */
 router.post('/settings/reviewed', express.json({ limit: '4kb' }), async (req: any, res) => {
   try {
-    if (roleOf(req) !== 'super_admin') throw new SubError(403, 'Only the owner can mark the agreement reviewed.')
-    const b = z.object({ reviewed: z.boolean() }).parse(req.body)
+    if (roleOf(req) !== 'super_admin') throw new SubError(403, 'Only the owner can mark a template reviewed.')
+    const b = z.object({ reviewed: z.boolean(), template: z.enum(['agreement', ...Object.keys(TEMPLATES)] as [string, ...string[]]).default('agreement') }).parse(req.body)
     const accountId = req.user.crmAccountId
     const cur = await subSettingsOf(accountId)
     const actor = await actorOf(req)
-    const next = { ...cur, agreement: { ...cur.agreement, reviewedAt: b.reviewed ? new Date().toISOString() : null, reviewedBy: b.reviewed ? actor.name : null } }
+    const next = b.template === 'agreement'
+      ? { ...cur, agreement: { ...cur.agreement, reviewedAt: b.reviewed ? new Date().toISOString() : null, reviewedBy: b.reviewed ? actor.name : null } }
+      : { ...cur, reviews: { ...cur.reviews, [b.template]: b.reviewed ? { at: new Date().toISOString(), by: actor.name } : undefined } }
     await prisma.accountKeyValue.upsert({ where: { accountId_key: { accountId, key: SUB_SETTINGS_KEY } }, create: { accountId, key: SUB_SETTINGS_KEY, value: next as Json, updatedBy: req.user.id }, update: { value: next as Json, updatedBy: req.user.id, version: { increment: 1 } } })
     await audit(req, 'update', 'SubSettings', accountId, { newValues: { agreementReviewed: b.reviewed, version: cur.agreement.version } })
     res.json({ success: true, data: next })
@@ -163,6 +168,23 @@ router.get('/dashboard', async (req: any, res) => {
       waitingOnSub: live.filter(r => !r.submittedAt && jobs.find(j => j.id === r.jobId)!.scheduledDate && jobs.find(j => j.id === r.jobId)!.scheduledDate! < t).map(card),
       waitingOnYou: live.filter(r => r.submittedAt && !r.confirmedAt).map(r => ({ ...card(r), flags: (r.flags as Json[])?.length ?? 0 })),
       papers,
+      // Paying subs (Phase B): ready to pay and what is owed; installed but the final payment not cleared.
+      readyToPay: live.filter(r => r.readyToPayAt && !r.paidAt).map(r => ({ ...card(r), netCents: netPay(r as Json) })),
+      owedCents: live.filter(r => r.readyToPayAt && !r.paidAt).reduce((t, r) => t + netPay(r as Json), 0),
+      finalNotCleared: (await Promise.all(live.filter(r => r.confirmedAt && !r.readyToPayAt && !r.paidAt).map(async r => {
+        const c = await clearedCover(accountId, r.jobId)
+        // The lien clock's day is the owner's only (liens.manage).
+        const ffd = can(roleOf(req), 'liens.manage') ? (await prisma.savedJob.findUnique({ where: { id: r.jobId }, select: { finalFurnishingDate: true } }))?.finalFurnishingDate : null
+        const lienDay = ffd ? Math.round((Date.parse(`${t}T00:00:00Z`) - Date.parse(`${ffd}T00:00:00Z`)) / 86_400_000) : null
+        return { ...card(r), contractCents: c?.contractCents ?? 0, clearedCents: c?.clearedCents ?? 0, receivedCents: c?.receivedCents ?? 0, lienDay }
+      }))),
+      // Open callbacks by sub; paid this year per sub (a 1099-NEC at $2,000 or more).
+      callbacks: await (async () => {
+        const open = await prisma.serviceTicket.findMany({ where: { accountId, subcontractorId: { not: null }, stage: { notIn: ['fixed', 'closed'] } }, select: { subcontractorId: true } })
+        const names = await prisma.subcontractor.findMany({ where: { id: { in: [...new Set(open.map(o => o.subcontractorId!))] } }, select: { id: true, businessName: true } })
+        return names.map(n => ({ subId: n.id, sub: n.businessName, open: open.filter(o => o.subcontractorId === n.id).length }))
+      })(),
+      ytd: (await ytdPaid(accountId, Number(t.slice(0, 4)))).map(r => ({ ...r, form1099: r.paidCents >= 2_000_00 })),
     } })
   } catch (err) { fail(res, err, 'read the dashboard') }
 })
@@ -208,7 +230,7 @@ async function subOf(req: any) {
 }
 
 router.get('/:id', async (req: any, res, next) => {
-  if (['assign', 'job', 'dashboard', 'settings'].includes(req.params.id)) { next(); return }
+  if (['assign', 'job', 'dashboard', 'settings', 'ytd.csv'].includes(req.params.id)) { next(); return }
   try {
     const accountId = req.user.crmAccountId
     const s = await subOf(req)
@@ -226,6 +248,7 @@ router.get('/:id', async (req: any, res, next) => {
       kinds: docKindsOf(settings),
       papers: papersOf(s.documents as Json, today(), docKindsOf(settings)),
       rates: { own: cleanRates(s.rates), settings: settingsRates(cost.pricing), categories },
+      stats: await statsOf(accountId, s.id),
       jobs: jobs.filter(j => jobRows.some(x => x.id === j.jobId)).map(j => {
         const job = jobRows.find(x => x.id === j.jobId)
         return { jobId: j.jobId, customerName: job?.customerName ?? '', address: job?.customerAddress ?? '', installDate: job?.scheduledDate ?? null, status: job?.status ?? '', stage: job?.opsStage ?? '', payCents: j.payCents, submittedAt: j.submittedAt, confirmedAt: j.confirmedAt }
@@ -359,6 +382,13 @@ router.get('/job/:jobId', async (req: any, res) => {
       link: sj.linkDisabledAt ? null : linkOf(sj), linkOff: !!sj.linkDisabledAt, lastOpenedAt: sj.lastOpenedAt,
       subNotes: sj.subNotes, checkout: sj.checkout, report: sj.report, checkin: sj.checkin,
       submittedAt: sj.submittedAt, confirmedAt: sj.confirmedAt, confirmedBy: sj.confirmedBy, flags: sj.flags, events: sj.events,
+      // Paying the sub: what the customer's cleared payments cover, deductions, the lien release, paid.
+      cover: await clearedCover(sj.accountId, sj.jobId), readyToPayAt: sj.readyToPayAt, deductions: sj.deductions, netCents: netPay(sj as Json),
+      lienRelease: await lienReleaseOf(sj.accountId, sj.jobId, sj.subId).then(r => (r ? { sentAt: r.sentAt, signedAt: r.signedAt, signedName: r.signedName, documentId: r.documentId } : null)),
+      paid: sj.paidAt ? { paidOn: sj.paidOn, cents: sj.paidCents, method: sj.paidMethod, checkNumber: sj.paidCheckNumber, by: sj.paidBy } : null,
+      // Quality (Phase C): the job's inspections, and its warranty or service requests (callbacks).
+      inspections: sj.inspections,
+      callbacks: (await prisma.serviceTicket.findMany({ where: { accountId: sj.accountId, jobId: sj.jobId, subcontractorId: sj.subId }, orderBy: { createdAt: 'desc' }, select: { id: true, issue: true, notes: true, stage: true, subWorkmanship: true, createdAt: true } })),
     } })
   } catch (err) { fail(res, err, 'open the job\'s sub') }
 })
@@ -386,6 +416,130 @@ router.put('/job/:jobId', express.json({ limit: '64kb' }), async (req: any, res)
     res.json({ success: true, data: { payCents: now.payCents, payEdited: now.payEdited, payLines: now.payLines, linkOff: !!now.linkDisabledAt, link: now.linkDisabledAt ? null : link ?? linkOf(now), subNotes: now.subNotes } })
   } catch (err) { fail(res, err, 'save the job\'s sub') }
 })
+
+// ── Paying the sub (Phase B) ────────────────────────────────────────────────
+
+router.post('/job/:jobId/deductions', express.json({ limit: '8kb' }), async (req: any, res) => {
+  try {
+    const b = z.object({ kind: z.enum(['backcharge', 'advance']), cents: z.number().int(), reason: z.string().max(300) }).parse(req.body)
+    const { addDeduction } = await import('../lib/subPay.js')
+    const list = await addDeduction(req.user.crmAccountId, String(req.params.jobId), b, (await actorOf(req)).name)
+    await audit(req, 'update', 'SubJob', String(req.params.jobId), { newValues: { deduction: b } })
+    res.json({ success: true, data: list })
+  } catch (err) { fail(res, err, 'take it off their pay') }
+})
+
+router.delete('/job/:jobId/deductions/:id', async (req: any, res) => {
+  try {
+    const { removeDeduction } = await import('../lib/subPay.js')
+    const list = await removeDeduction(req.user.crmAccountId, String(req.params.jobId), String(req.params.id), (await actorOf(req)).name)
+    await audit(req, 'update', 'SubJob', String(req.params.jobId), { newValues: { deductionRemoved: req.params.id } })
+    res.json({ success: true, data: list })
+  } catch (err) { fail(res, err, 'put it back') }
+})
+
+router.post('/job/:jobId/lien-release', async (req: any, res) => {
+  try {
+    const { sendLienRelease } = await import('../lib/subPay.js')
+    const out = await sendLienRelease(req.user.crmAccountId, String(req.params.jobId), (await actorOf(req)).name)
+    await audit(req, 'create', 'SubSignRequest', String(req.params.jobId), { newValues: { kind: 'lien_release', amountCents: out.amountCents, sent: out.sent } })
+    res.json({ success: true, data: out })
+  } catch (err) { fail(res, err, 'send the lien release') }
+})
+
+router.post('/job/:jobId/paid', express.json({ limit: '8kb' }), async (req: any, res) => {
+  try {
+    const b = z.object({ paidOn: z.string(), amountCents: z.number().int(), method: z.string().max(60), checkNumber: z.string().max(40).nullable().optional() }).parse(req.body)
+    const actor = await actorOf(req)
+    const { markSubPaid } = await import('../lib/subPay.js')
+    const out = await markSubPaid(req.user.crmAccountId, String(req.params.jobId), b, { userId: actor.userId, name: actor.name })
+    await audit(req, 'update', 'SubJob', String(req.params.jobId), { newValues: { paid: b } })
+    res.json({ success: true, data: out })
+  } catch (err) { fail(res, err, 'mark the sub paid') }
+})
+
+// ── Quality (Phase C) ───────────────────────────────────────────────────────
+
+/** The job's inspection: passed first time, or failed with the reason and the reinspection day. */
+router.put('/job/:jobId/inspection', express.json({ limit: '8kb' }), async (req: any, res) => {
+  try {
+    const b = z.object({ result: z.enum(['passed', 'failed']), reason: z.string().max(300).default(''), reinspectOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).parse(req.body)
+    if (b.result === 'failed' && !b.reason.trim()) throw new SubError(400, 'Say why it failed.')
+    const sj = await jobSubOf(req)
+    if (!sj) throw new SubError(404, 'No sub on this job.')
+    const list = [...((sj.inspections as Json[]) ?? []), { at: new Date().toISOString(), result: b.result, reason: b.reason.trim(), reinspectOn: b.reinspectOn ?? null, by: (await actorOf(req)).name }]
+    await prisma.subJob.update({ where: { id: sj.id }, data: { inspections: list as Json } })
+    await audit(req, 'update', 'SubJob', sj.id, { newValues: { inspection: b } })
+    res.json({ success: true, data: list })
+  } catch (err) { fail(res, err, 'save the inspection') }
+})
+
+/** A warranty or service request on a sub's job: their workmanship (they fix it at $0, from their link) or not. */
+router.put('/callback/:ticketId', express.json({ limit: '4kb' }), async (req: any, res) => {
+  try {
+    const b = z.object({ workmanship: z.boolean() }).parse(req.body)
+    const t = await prisma.serviceTicket.findFirst({ where: { id: String(req.params.ticketId), accountId: req.user.crmAccountId } })
+    if (!t?.subcontractorId) throw new SubError(404, 'No sub on this request\'s job.')
+    await prisma.serviceTicket.update({ where: { id: t.id }, data: { subWorkmanship: b.workmanship } })
+    if (b.workmanship) {
+      const sj = await prisma.subJob.findFirst({ where: { accountId: t.accountId, jobId: t.jobId, subId: t.subcontractorId }, include: { sub: true } })
+      if (sj) {
+        // Their link opens again for the callback (it may have closed 30 days after the job).
+        if (sj.linkDisabledAt) await prisma.subJob.update({ where: { id: sj.id }, data: { linkDisabledAt: null } })
+        const { tellSub } = await import('../lib/subAssign.js')
+        const job = await prisma.savedJob.findUnique({ where: { id: t.jobId }, select: { customerAddress: true } })
+        await tellSub(t.accountId, { ...sj, linkDisabledAt: null }, `Callback: ${job?.customerAddress ?? ''}`, `A callback on your workmanship at ${job?.customerAddress ?? 'a job'}: ${issueLabel(t.issue).toLowerCase()}${t.notes ? `, "${t.notes}"` : ''}. Please fix it at no charge and mark it fixed on the link.`, `Callback sent: ${t.id}`)
+      }
+    }
+    await audit(req, 'update', 'ServiceTicket', t.id, { newValues: { subWorkmanship: b.workmanship } })
+    res.json({ success: true })
+  } catch (err) { fail(res, err, 'save the callback') }
+})
+
+/** Year to date paid per sub (a 1099-NEC at $2,000 or more), as a CSV. */
+router.get('/ytd.csv', async (req: any, res) => {
+  try {
+    const rows = await ytdPaid(req.user.crmAccountId, Number(req.query.year) || Number(today().slice(0, 4)))
+    const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const csv = ['Sub,Contact,Address,Paid this year,Jobs,1099-NEC (2000 or more)', ...rows.map(r => [q(r.businessName), q(r.contactName), q(r.address), (r.paidCents / 100).toFixed(2), r.jobs, r.paidCents >= 2_000_00 ? 'Yes' : 'No'].join(','))].join('\n')
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="subs-paid-${Number(req.query.year) || today().slice(0, 4)}.csv"`)
+    res.send(csv)
+  } catch (err) { fail(res, err, 'make the CSV') }
+})
+
+async function ytdPaid(accountId: string, year: number) {
+  const paid = await prisma.subJob.findMany({ where: { accountId, paidOn: { gte: `${year}-01-01`, lte: `${year}-12-31` } }, select: { subId: true, paidCents: true } })
+  const subs = await prisma.subcontractor.findMany({ where: { accountId, id: { in: [...new Set(paid.map(p => p.subId))] } } })
+  return subs.map(s => ({ subId: s.id, businessName: s.businessName, contactName: s.contactName, address: s.address, paidCents: paid.filter(p => p.subId === s.id).reduce((t, p) => t + (p.paidCents ?? 0), 0), jobs: paid.filter(p => p.subId === s.id).length }))
+    .sort((a, b) => b.paidCents - a.paidCents)
+}
+
+/** A sub's numbers: jobs, footage, callbacks and their rate, first time inspections, problems, on time, shortages, paid. */
+async function statsOf(accountId: string, subId: string) {
+  const jobs = await prisma.subJob.findMany({ where: { accountId, subId } })
+  const rows = jobs.length ? await prisma.savedJob.findMany({ where: { id: { in: jobs.map(j => j.jobId) }, deletedAt: null }, select: { id: true, scheduledEndDate: true, scheduledDate: true } }) : []
+  const live = jobs.filter(j => rows.some(r => r.id === j.jobId))
+  const done = live.filter(j => j.submittedAt)
+  const callbacks = await prisma.serviceTicket.findMany({ where: { accountId, subcontractorId: subId }, select: { id: true, stage: true, subWorkmanship: true } })
+  const inspected = live.filter(j => ((j.inspections as Json[]) ?? []).length)
+  const firstPass = inspected.filter(j => (j.inspections as Json[])[0]?.result === 'passed')
+  const onTime = done.filter(j => { const r = rows.find(x => x.id === j.jobId); const end = r?.scheduledEndDate || r?.scheduledDate; const fin = (j.report as Json)?.finishedOn; return !!end && !!fin && fin <= end })
+  const year = today().slice(0, 4)
+  const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : null)
+  return {
+    jobs: live.length, done: done.length,
+    feet: done.reduce((t, j) => t + (Number((j.report as Json)?.footage) || 0), 0),
+    callbacks: callbacks.length, openCallbacks: callbacks.filter(c => !['fixed', 'closed'].includes(c.stage)).length, workmanshipCallbacks: callbacks.filter(c => c.subWorkmanship).length,
+    callbackRate: pct(callbacks.length, done.length),
+    inspected: inspected.length, firstPassRate: pct(firstPass.length, inspected.length),
+    problems: live.reduce((t, j) => t + (((j.report as Json)?.problems ?? []) as Json[]).length, 0),
+    onTimeRate: pct(onTime.length, done.length),
+    shortages: live.reduce((t, j) => t + ((j.flags as Json[]) ?? []).filter(f => /^(short|material):/.test(f.key)).length, 0),
+    paidYear: live.filter(j => j.paidOn?.startsWith(year)).reduce((t, j) => t + (j.paidCents ?? 0), 0),
+    paidAll: live.reduce((t, j) => t + (j.paidCents ?? 0), 0),
+  }
+}
 
 /** "Installed, confirm": one tap moves the job to Complete with its final furnishing date (lib/subLink.ts). */
 router.post('/job/:jobId/confirm', requireCan('schedule.change'), express.json({ limit: '4kb' }), async (req: any, res) => {

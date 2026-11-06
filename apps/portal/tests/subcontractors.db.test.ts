@@ -67,6 +67,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
     app.use(express.json({ limit: '10mb' }))
     app.use('/api/subcontractors', subRoutes)
     app.use('/api/saved-jobs', savedJobs)
+    app.use('/api/payments', (await import('../src/server/routes/payments.js')).default)
+    app.use('/api/job-costing', (await import('../src/server/routes/job-costing.js')).default)
+    app.use('/api/liens', (await import('../src/server/routes/liens.js')).default)
     app.use('/p/sub-sign', subSignPublic)
     app.use('/p/sub', subLinkPublic)
     server = app.listen(0)
@@ -76,6 +79,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
   afterAll(async () => {
     server?.close()
     const jobs = made.jobs
+    const pays = await prisma.contractPayment.findMany({ where: { jobId: { in: jobs } } })
+    await prisma.receipt.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.paymentApplication.deleteMany({ where: { paymentId: { in: pays.map(p => p.id) } } }).catch(() => {})
+    await prisma.contractPayment.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.contractInvoice.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.paymentSchedule.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.billingLog.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.jobTakeoff.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.lienCase.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
+    await prisma.serviceTicket.deleteMany({ where: { jobId: { in: jobs } } }).catch(() => {})
     await prisma.task.deleteMany({ where: { jobId: { in: jobs } } })
     await prisma.scheduledGridJob.deleteMany({ where: { stagingJobId: { in: jobs } } })
     await prisma.subJob.deleteMany({ where: { jobId: { in: jobs } } })
@@ -265,5 +278,216 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
     expect((await call(owner, 'PUT', `/api/subcontractors/${subId}`, { ...s, status: 'inactive' })).status).toBe(200)
     const after = (await prisma.scheduleSettings.findUniqueOrThrow({ where: { accountId } })).crews as any[]
     expect(after.some(c => c.id === subCrewId(subId))).toBe(false)
+  })
+
+  test('Phase B: Received, Cleared, Bounced; ready to pay once the final payment cleared; lien release signed, then Mark paid', async () => {
+    const billing = await import('../src/server/lib/contractBilling.js')
+    const crypto = await import('crypto')
+    const add = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E Pay Sub ${tag}`, email: `pay-${tag}@example.invalid` })
+    const subId = add.json.data.id as string
+    made.subs.push(subId)
+    const { jobId } = await soldJob()
+    const by = { userId: null, name: 'Test' }
+    await billing.ensureSchedule(accountId, jobId, 'test', by, { force: true })
+    expect((await call(owner, 'POST', '/api/subcontractors/assign', { jobId, subId, start: nextMonday(), override: true })).status).toBe(200)
+    // Signed off and confirmed (today), so the pay section is live.
+    const sj = await prisma.subJob.findUniqueOrThrow({ where: { jobId } })
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    await prisma.subJob.update({ where: { id: sj.id }, data: { submittedAt: new Date(), report: { finishedOn: today } } })
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/confirm`, { finalFurnishingDate: today })).status).toBe(200)
+
+    // The whole contract paid by check: Received, so not ready.
+    const contract = (await billing.scheduleView(accountId, jobId)).contractCents ?? 987654
+    const pid = crypto.randomUUID()
+    await billing.recordPayment(accountId, { id: pid, jobId, amountCents: contract, method: 'check', checkNumber: '1001', paidOn: today }, by, false)
+    expect((await prisma.contractPayment.findUniqueOrThrow({ where: { id: pid } })).clearState).toBe('received')
+    let view = (await call(office, 'GET', `/api/subcontractors/job/${jobId}`)).json.data
+    expect(view.readyToPayAt).toBeNull()
+    expect(view.cover).toMatchObject({ contractCents: contract, clearedCents: 0, receivedCents: contract })
+
+    // A backcharge comes off; office can, Salesman cannot.
+    expect((await call(sales, 'POST', `/api/subcontractors/job/${jobId}/deductions`, { kind: 'backcharge', cents: 5000, reason: 'x' })).status).toBe(403)
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/deductions`, { kind: 'backcharge', cents: 5000, reason: 'Broke a sprinkler head' })).status).toBe(200)
+    // Not ready yet: no lien release, no Mark paid.
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/lien-release`)).json.error).toContain('final payment has not cleared')
+    // Cleared: owner and admin only (the office cannot).
+    expect((await call(office, 'POST', `/api/payments/${pid}/cleared`, { clearedOn: today })).status).toBe(403)
+    expect((await call(owner, 'POST', `/api/payments/${pid}/cleared`, { clearedOn: today })).status).toBe(200)
+    view = (await call(office, 'GET', `/api/subcontractors/job/${jobId}`)).json.data
+    expect(view.readyToPayAt).toBeTruthy()
+    expect(view.netCents).toBe(view.payCents - 5000)
+    // The release is locked until the owner marks it reviewed (whatever dev had: taken off first).
+    await call(owner, 'POST', '/api/subcontractors/settings/reviewed', { reviewed: false, template: 'sub_lien_release' })
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/lien-release`)).json.error).toContain('Attorney review required')
+    expect((await call(owner, 'POST', '/api/subcontractors/settings/reviewed', { reviewed: true, template: 'sub_lien_release' })).status).toBe(200)
+    const rel = await call(office, 'POST', `/api/subcontractors/job/${jobId}/lien-release`)
+    expect(rel.status).toBe(200)
+    expect(rel.json.data.amountCents).toBe(view.netCents)
+    // Mark paid waits for the signature.
+    const pay = { paidOn: today, amountCents: view.netCents, method: 'Check', checkNumber: '5001' }
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).json.error).toContain('sign the final lien release')
+    const token = String(rel.json.data.link).split('/p/sub-sign/')[1]
+    const page = await call('', 'GET', `/p/sub-sign/${token}`)
+    expect(page.text).toContain('WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT')
+    expect(page.text).toContain(`$${(view.netCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
+    expect((await call('', 'POST', `/p/sub-sign/${token}/sign`, { name: 'Pat Pay', signature: 'data:image/png;base64,' + Buffer.alloc(400, 1).toString('base64') })).status).toBe(200)
+    // A check needs its number; any other amount than the release was signed for is refused; a method from the list.
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, checkNumber: '' })).status).toBe(400)
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, amountCents: pay.amountCents + 100 })).json.error).toContain('signed the release for')
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, method: 'chq' })).status).toBe(400)
+    // Two taps at the same moment: paid once.
+    const both = await Promise.all([call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay), call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)])
+    expect(both.map(r => r.status).sort()).toEqual([200, 409])
+    const t = await prisma.jobTakeoff.findUniqueOrThrow({ where: { jobId } })
+    expect((t.labor as any).subPaidCents).toBe(view.netCents)
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).status).toBe(409)
+    expect((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).events as any[]).toSatisfy((e: any[]) => e.filter(x => x.what === 'Told: paid').length === 1)
+    // The dashboard: no longer owed.
+    const dash = (await call(office, 'GET', '/api/subcontractors/dashboard')).json.data
+    expect(dash.readyToPay.some((x: any) => x.jobId === jobId)).toBe(false)
+    await prisma.jobTakeoff.deleteMany({ where: { jobId } })
+  })
+
+  test('Phase B: a bounced payment is voided and the sub is not ready to pay', async () => {
+    const billing = await import('../src/server/lib/contractBilling.js')
+    const crypto = await import('crypto')
+    const add = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E Bounce Sub ${tag}` })
+    made.subs.push(add.json.data.id)
+    const { jobId } = await soldJob()
+    const by = { userId: null, name: 'Test' }
+    await billing.ensureSchedule(accountId, jobId, 'test', by, { force: true })
+    await call(owner, 'POST', '/api/subcontractors/assign', { jobId, subId: add.json.data.id, start: nextMonday(), override: true })
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    const contract = (await billing.scheduleView(accountId, jobId)).contractCents
+    const pid = crypto.randomUUID()
+    await billing.recordPayment(accountId, { id: pid, jobId, amountCents: contract, method: 'check', checkNumber: '2002', paidOn: today }, by, false)
+    await call(owner, 'POST', `/api/payments/${pid}/cleared`, { clearedOn: today })
+    // Paid in full before the install: not ready to pay the sub until the install is confirmed.
+    expect((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).readyToPayAt).toBeNull()
+    await prisma.subJob.update({ where: { jobId }, data: { submittedAt: new Date(), report: { finishedOn: today } } })
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/confirm`, { finalFurnishingDate: today })).status).toBe(200)
+    expect((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).readyToPayAt).toBeTruthy()
+    // The release sent, then the check bounces: the release is withdrawn and cannot be signed.
+    await call(owner, 'POST', '/api/subcontractors/settings/reviewed', { reviewed: true, template: 'sub_lien_release' })
+    const rel = await call(office, 'POST', `/api/subcontractors/job/${jobId}/lien-release`)
+    const relToken = String(rel.json.data.link).split('/p/sub-sign/')[1]
+    expect((await call(owner, 'POST', `/api/payments/${pid}/bounced`, { note: 'NSF' })).status).toBe(200)
+    const p = await prisma.contractPayment.findUniqueOrThrow({ where: { id: pid } })
+    expect([p.clearState, !!p.voidedAt, p.voidReason]).toEqual(['bounced', true, 'Bounced: NSF'])
+    expect((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).readyToPayAt).toBeNull()
+    expect((await call('', 'POST', `/p/sub-sign/${relToken}/sign`, { name: 'X', signature: 'data:image/png;base64,' + Buffer.alloc(400, 1).toString('base64') })).status).toBe(410)
+    // The office cannot mark payments cleared; the wording says who can.
+    expect((await call(office, 'POST', `/api/payments/${pid}/cleared`, {})).json.error).toBe('Only the owner (or an admin) marks payments cleared or bounced.')
+    // The Salesman never reads job costing (sub pay is the actual labor).
+    expect((await call(sales, 'GET', `/api/job-costing/job/${jobId}`)).status).toBe(403)
+  })
+
+  test("Phase C: Florida's 713.015 notice on contracts over $2,500; a signed or sent one keeps what it had", async () => {
+    const { stampQuoteTerms, LIEN_NOTICE_713015 } = await import('../src/server/lib/contractTerms.js')
+    const big = { options: [{ label: 'x', fenceStyle: 'x', finalPrice: 2600 }] }
+    const small = { options: [{ label: 'x', fenceStyle: 'x', finalPrice: 2400 }] }
+    expect(((await stampQuoteTerms(accountId, big, null, false)) as any).lienNotice).toBe(LIEN_NOTICE_713015)
+    expect(((await stampQuoteTerms(accountId, small, null, false)) as any).lienNotice).toBeUndefined()
+    // Sent before the notice: it keeps what it went out with (none).
+    expect(((await stampQuoteTerms(accountId, big, { proposal: { options: big.options } }, true)) as any).lienNotice).toBeUndefined()
+    expect(LIEN_NOTICE_713015).toMatch(/^ACCORDING TO FLORIDA'S CONSTRUCTION LIEN LAW \(SECTIONS 713\.001-713\.37, FLORIDA STATUTES\)/)
+    expect(LIEN_NOTICE_713015).toMatch(/IT IS RECOMMENDED THAT YOU CONSULT AN ATTORNEY\.$/)
+    // The contract PDF: the notice on its own page, with the owner's name and the day they signed.
+    const { contractForQuote } = await import('../src/server/lib/contractPdf.js')
+    const { pdfText } = await import('./pdfText')
+    const stamped = (await stampQuoteTerms(accountId, { ...big, options: [{ label: 'White Vinyl Privacy', fenceStyle: ND, finalPrice: 2600 }] }, null, false)) as any
+    const base_ = { id: 'x', accountId, chosenOption: 0, fenceStyle: ND, status: 'SOLD', finalPrice: 2600, acceptedAt: new Date('2026-11-06T15:00:00Z'), acceptedBy: 'Pat Owner', acceptedSignature: null, soldAt: null, work: null, customerName: 'Pat Owner', customerAddress: '1 A St, Ocala FL', runRails: null }
+    const withNotice = pdfText((await contractForQuote({ ...base_, proposal: stamped } as any))!)
+    expect(withNotice).toContain("NOTICE: FLORIDA CONSTRUCTION LIEN LAW")
+    expect(withNotice).toContain("ACCORDING TO FLORIDA'S CONSTRUCTION LIEN LAW")
+    expect(withNotice).toContain('Owner: Pat Owner')
+    expect(withNotice).toContain('Date: November 6, 2026')
+    // Signed before the notice: the contract stays as signed (no notice page).
+    const { lienNotice: _gone, ...old } = stamped
+    expect(pdfText((await contractForQuote({ ...base_, proposal: old } as any))!)).not.toContain('CONSTRUCTION LIEN LAW')
+  })
+
+  test('Phase C: the lien clock, papers locked until reviewed, owner only; callbacks to the sub at $0; inspection; stats; 1099 CSV', async () => {
+    const billing = await import('../src/server/lib/contractBilling.js')
+    const { lienSweep } = await import('../src/server/lib/liens.js')
+    const { createTicket } = await import('../src/server/lib/serviceTickets.js')
+    const add = await call(owner, 'POST', '/api/subcontractors', { businessName: `E2E Lien Sub ${tag}`, email: `lien-${tag}@example.invalid` })
+    const subId = add.json.data.id as string
+    made.subs.push(subId)
+    const { jobId } = await soldJob()
+    await billing.ensureSchedule(accountId, jobId, 'test', { userId: null, name: 'Test' }, { force: true })
+    await call(owner, 'POST', '/api/subcontractors/assign', { jobId, subId, start: nextMonday(), override: true })
+    // Installed 31 days ago, nothing paid: day 31 of 90.
+    const ffd = new Date(Date.now() - 31 * 86_400_000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    await prisma.subJob.update({ where: { jobId }, data: { submittedAt: new Date(), report: { finishedOn: ffd } } })
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/confirm`, { finalFurnishingDate: ffd })).status).toBe(200)
+    // The owner only.
+    expect((await call(office, 'GET', `/api/liens/job/${jobId}`)).status).toBe(403)
+    expect((await call(sales, 'GET', `/api/liens/job/${jobId}`)).status).toBe(403)
+    const v = (await call(owner, 'GET', `/api/liens/job/${jobId}`)).json.data
+    expect([v.clock.day, v.clock.open, v.clock.owedCents > 0]).toEqual([31, true, true])
+    // Locked until reviewed.
+    expect((await call(owner, 'POST', `/api/liens/job/${jobId}/papers`, { kind: 'notice_of_intent', how: 'Certified mail' })).json.error).toContain('Attorney review required')
+    for (const t of ['notice_of_intent', 'claim_of_lien', 'owner_release']) await call(owner, 'POST', '/api/subcontractors/settings/reviewed', { reviewed: true, template: t })
+    // The papers name the lienor and its address: refused while Settings → Company has no address.
+    const bs = await prisma.businessState.findFirstOrThrow({ where: { accountId } })
+    const companyWas = (bs.config as any)?.company ?? {}
+    if (!String(companyWas.address ?? '').trim()) {
+      expect((await call(owner, 'POST', `/api/liens/job/${jobId}/papers`, { kind: 'notice_of_intent', how: 'Certified mail' })).json.error).toContain('company address is blank')
+    }
+    await prisma.businessState.update({ where: { id: bs.id }, data: { config: { ...(bs.config as any), company: { ...companyWas, address: '100 Test Rd', city: 'Ocala', state: 'FL', zip: '34470' } } } })
+    let noi: any
+    try {
+      noi = await call(owner, 'POST', `/api/liens/job/${jobId}/papers`, { kind: 'notice_of_intent', how: 'Certified mail' })
+    } finally {
+      const now = await prisma.businessState.findFirstOrThrow({ where: { accountId } })
+      await prisma.businessState.update({ where: { id: now.id }, data: { config: { ...(now.config as any), company: companyWas } } })
+    }
+    expect(noi.status).toBe(200)
+    const words = (await call(owner, 'GET', '/api/liens/sample/claim_of_lien')).json.data.text
+    expect(words).toContain(companyWas.legalName || companyWas.name || 'Getter Done')
+    expect(words).toContain('(LEGAL DESCRIPTION)')
+    const pdf = await fetch(`${base}/api/liens/job/${jobId}/papers/${noi.json.data.action.id}`, { headers: { Authorization: `Bearer ${owner}` } })
+    expect([pdf.status, pdf.headers.get('content-type')]).toEqual([200, 'application/pdf'])
+    // The Claim of Lien needs the legal description; then made; recorded: serve within 15 days; a year to sue.
+    expect((await call(owner, 'POST', `/api/liens/job/${jobId}/papers`, { kind: 'claim_of_lien', how: 'Printed' })).json.error).toContain('legal description')
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    expect((await call(owner, 'PUT', `/api/liens/job/${jobId}`, { recordedOn: today })).json.error).toContain('instrument number')
+    await call(owner, 'PUT', `/api/liens/job/${jobId}`, { legalDescription: 'LOT 7 BLOCK B, TEST SUBDIVISION, PLAT BOOK 1 PAGE 2', recordedOn: today, instrumentNumber: '2026123456' })
+    const bs2 = await prisma.businessState.findFirstOrThrow({ where: { accountId } })
+    await prisma.businessState.update({ where: { id: bs2.id }, data: { config: { ...(bs2.config as any), company: { ...companyWas, address: '100 Test Rd', city: 'Ocala', state: 'FL', zip: '34470' } } } })
+    const col = await call(owner, 'POST', `/api/liens/job/${jobId}/papers`, { kind: 'claim_of_lien', how: 'Recorded with the clerk' })
+    await prisma.businessState.update({ where: { id: bs2.id }, data: { config: { ...((await prisma.businessState.findFirstOrThrow({ where: { accountId } })).config as any), company: companyWas } } })
+    expect(col.status).toBe(200)
+    expect(col.json.data.view.clock.serveBy).toBeTruthy()
+    expect(col.json.data.view.clock.suitBy > today).toBe(true)
+    // A Notice of Contest: 60 days to sue from it.
+    const contested = (await call(owner, 'PUT', `/api/liens/job/${jobId}`, { contestOn: today })).json.data
+    expect(contested.clock.suitBy).toBe(new Date(Date.parse(`${today}T12:00:00Z`) + 60 * 86_400_000).toISOString().slice(0, 10))
+    // Release only once paid.
+    expect((await call(owner, 'POST', `/api/liens/job/${jobId}/papers`, { kind: 'release', how: 'Mail' })).json.error).toContain('Not paid yet')
+    // The day-30 push is sent once (recorded jobs are skipped, so a fresh case for this check).
+    await prisma.lienCase.update({ where: { jobId }, data: { recordedOn: null, pushedDays: [] } })
+    expect(await lienSweep()).toBeGreaterThanOrEqual(1)
+    expect((await prisma.lienCase.findUniqueOrThrow({ where: { jobId } })).pushedDays).toEqual([30])
+
+    // A warranty request on the sub's job: it names the sub; their workmanship: on their link at $0, fixed from there.
+    const ticket = await createTicket(accountId, { userId: null, name: 'Owner' } as any, { jobId, issue: 'gate', notes: 'Gate sags' } as any)
+    const tid = (ticket as any).id ?? (ticket as any).ticket?.id
+    expect((await prisma.serviceTicket.findUniqueOrThrow({ where: { id: tid } })).subcontractorId).toBe(subId)
+    expect((await call(office, 'PUT', `/api/subcontractors/callback/${tid}`, { workmanship: true })).status).toBe(200)
+    const sj = await prisma.subJob.findUniqueOrThrow({ where: { jobId } })
+    const token = linkToken(sj.id, sj.linkNonce)
+    expect((await call('', 'GET', `/p/sub/${token}`)).text).toContain('Callback: please fix at no charge')
+    expect((await call('', 'POST', `/p/sub/${token}/callback/${tid}`, { note: 'Rehung the gate' })).status).toBe(200)
+    expect((await prisma.serviceTicket.findUniqueOrThrow({ where: { id: tid } })).stage).toBe('fixed')
+    // Inspection, and their numbers.
+    expect((await call(office, 'PUT', `/api/subcontractors/job/${jobId}/inspection`, { result: 'failed', reason: '' })).status).toBe(400)
+    expect((await call(office, 'PUT', `/api/subcontractors/job/${jobId}/inspection`, { result: 'passed' })).status).toBe(200)
+    const stats = (await call(office, 'GET', `/api/subcontractors/${subId}`)).json.data.stats
+    expect([stats.jobs, stats.callbacks, stats.workmanshipCallbacks, stats.firstPassRate, stats.callbackRate]).toEqual([1, 1, 1, 100, 100])
+    // The 1099 CSV.
+    const csv = await fetch(`${base}/api/subcontractors/ytd.csv`, { headers: { Authorization: `Bearer ${office}` } })
+    expect([csv.status, (await csv.text()).split('\n')[0]]).toEqual([200, 'Sub,Contact,Address,Paid this year,Jobs,1099-NEC (2000 or more)'])
   })
 })

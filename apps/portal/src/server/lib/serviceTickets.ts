@@ -172,10 +172,13 @@ export async function createTicket(accountId: string, actor: Actor, b: { id?: st
   const job = (await prisma.savedJob.findUnique({ where: { id: b.jobId }, select: { quoteId: true } }))!
   const m = await pricingModule()
   const h = hintFor(ctx.kind, b.issue, ctx.end ? m.dayText(ctx.end) : null)
+  // The job's sub, if a sub installed it (Subcontractors): callbacks are counted per sub (lib/subcontractors.ts).
+  const subJob = await prisma.subJob.findUnique({ where: { jobId: ctx.jobId }, select: { subId: true } }).catch(() => null)
   try {
     const made = await prisma.serviceTicket.create({
       data: {
         ...(b.id ? { id: b.id } : {}), accountId, jobId: ctx.jobId, crmContactId: ctx.customerId, quoteId: job.quoteId ?? null,
+        subcontractorId: subJob?.subId ?? null,
         issue: b.issue, notes: b.notes, stage: 'new',
         warrantyId: ctx.warranty?.id ?? null, warrantyName: ctx.warranty?.name ?? '', warrantyText: ctx.warranty?.text ?? '',
         warrantyTerm: ctx.warranty?.term ?? 'none', warrantyYears: ctx.warranty?.years ?? null, installDate: ctx.installDate, warrantyEnd: ctx.end,
@@ -304,6 +307,12 @@ export async function markFixed(t: TicketRow, input: CostInput | null, actor: Ac
   }
   const day = input?.fixedOn && DAY.test(input.fixedOn) ? input.fixedOn : today()
   return change(t, { stage: 'fixed', fixedAt: new Date(`${day}T17:00:00Z`) }, entry(actor.name, 'fixed', `Fixed on ${day}.${costLine}`))
+}
+
+/** A workmanship callback the sub fixed at no charge, from their link (Subcontractors, Nov 6 2026). */
+export async function markFixedBySub(t: TicketRow, sub: string, note: string): Promise<TicketRow> {
+  if (t.stage === 'closed' || t.stage === 'fixed') throw err(409, 'This request is done already.')
+  return change(t, { stage: 'fixed', fixedAt: new Date() }, entry(sub, 'fixed', `Fixed by ${sub} at no charge (their workmanship).${note.trim() ? ` ${note.trim().slice(0, 500)}` : ''}`))
 }
 
 // ── What screens get ─────────────────────────────────────────────────────────

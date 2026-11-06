@@ -547,6 +547,8 @@ export async function recordPayment(accountId: string, p: NewPayment, by: Actor,
       if (raced) return { payment: raced, receipt: await tx.receipt.findUnique({ where: { paymentId: raced.id } }), created: false }
       const payment = await tx.contractPayment.create({
         data: {
+          // Received when logged; the owner marks it Cleared when the bank shows it (lib/paymentClearing.ts).
+          clearState: 'received',
           id: p.id, accountId, jobId: p.jobId, quoteId: schedule.quoteId, crmContactId: schedule.crmContactId,
           amountCents: p.amountCents, method: p.method, checkNumber: p.method === 'check' ? (p.checkNumber?.trim().slice(0, 40) || null) : null,
           reference: p.reference?.trim().slice(0, 200) || null, paidOn, note: (p.note ?? '').slice(0, 1000), photoKey,
@@ -792,6 +794,7 @@ export async function scheduleView(accountId: string, jobId: string): Promise<an
         id: p.id, amountCents: p.amountCents, method: p.method, checkNumber: p.checkNumber, reference: p.reference, methodText: methodText(p.method, p.checkNumber, p.reference),
         paidOn: p.paidOn, note: p.note, recordedBy: p.recordedBy, needsConfirm: p.needsConfirm, confirmedAt: p.confirmedAt, confirmedBy: p.confirmedBy,
         voidedAt: p.voidedAt, voidedBy: p.voidedBy, voidReason: p.voidReason, hasPhoto: !!p.photoKey, source: p.source,
+        clearState: p.clearState, clearedOn: p.clearedOn, clearedBy: p.clearedBy,
         receipt: r ? receiptView(r) : null,
       }
     }),

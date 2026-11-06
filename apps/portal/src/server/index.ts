@@ -92,6 +92,7 @@ import { ensureCostReviewAll } from './lib/costReview.js'
 import { ensureWoodAll, ensureWoodRealKitsAll } from './lib/woodSeed.js'
 import vendorInvoiceRoutes from './routes/vendor-invoices.js'
 import subcontractorRoutes from './routes/subcontractors.js'
+import lienRoutes from './routes/liens.js'
 import { resumeInvoiceReading } from './lib/vendorInvoices.js'
 import { ensureChainDigSetAll } from './lib/chainDigSetSeed.js'
 import { ensureChainDigSetPipesAll } from './lib/chainDigSetPipes.js'
@@ -376,6 +377,7 @@ app.use('/api/inventory-state', inventoryStateRoutes)
 app.use('/api/vendor-state', vendorStateRoutes)
 app.use('/api/vendor-invoices', vendorInvoiceRoutes) // Vendor invoices update Inventory prices (lib/vendorInvoices.ts)
 app.use('/api/subcontractors', subcontractorRoutes) // Subcontractors: owner and office (lib/subcontractors.ts)
+app.use('/api/liens', lienRoutes) // Liens: the owner only (lib/liens.ts)
 app.use('/api/business-state', businessStateRoutes)
 app.use('/api/kv', kvRoutes)
 app.use('/api/ops-stages', opsStagesRoutes)
