@@ -325,22 +325,24 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
     expect(rel.json.data.amountCents).toBe(view.netCents)
     // Mark paid waits for the signature.
     const pay = { paidOn: today, amountCents: view.netCents, method: 'Check', checkNumber: '5001' }
-    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).json.error).toContain('sign the final lien release')
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).json.error).toContain('sign the final lien release')
     const token = String(rel.json.data.link).split('/p/sub-sign/')[1]
     const page = await call('', 'GET', `/p/sub-sign/${token}`)
     expect(page.text).toContain('WAIVER AND RELEASE OF LIEN UPON FINAL PAYMENT')
     expect(page.text).toContain(`$${(view.netCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
     expect((await call('', 'POST', `/p/sub-sign/${token}/sign`, { name: 'Pat Pay', signature: 'data:image/png;base64,' + Buffer.alloc(400, 1).toString('base64') })).status).toBe(200)
     // A check needs its number; any other amount than the release was signed for is refused; a method from the list.
-    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, checkNumber: '' })).status).toBe(400)
-    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, amountCents: pay.amountCents + 100 })).json.error).toContain('signed the release for')
-    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, method: 'chq' })).status).toBe(400)
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, checkNumber: '' })).status).toBe(400)
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, amountCents: pay.amountCents + 100 })).json.error).toContain('signed the release for')
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, { ...pay, method: 'chq' })).status).toBe(400)
+    // Only the owner marks a sub paid (Jonathan, Nov 6 2026); the office sent the release above.
+    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).status).toBe(403)
     // Two taps at the same moment: paid once.
-    const both = await Promise.all([call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay), call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)])
+    const both = await Promise.all([call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay), call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)])
     expect(both.map(r => r.status).sort()).toEqual([200, 409])
     const t = await prisma.jobTakeoff.findUniqueOrThrow({ where: { jobId } })
     expect((t.labor as any).subPaidCents).toBe(view.netCents)
-    expect((await call(office, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).status).toBe(409)
+    expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/paid`, pay)).status).toBe(409)
     expect((await prisma.subJob.findUniqueOrThrow({ where: { jobId } })).events as any[]).toSatisfy((e: any[]) => e.filter(x => x.what === 'Told: paid').length === 1)
     // The dashboard: no longer owed.
     const dash = (await call(office, 'GET', '/api/subcontractors/dashboard')).json.data

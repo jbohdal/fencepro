@@ -6,6 +6,7 @@ import AddressAutocomplete from './AddressAutocomplete'
 import { lookupPosition } from './appointmentsStore'
 import { createFreeMap, centeredIcon, aboveIcon, BaseToggle, type BaseKind, type FreeMap } from './freeMap'
 import { warmAerial } from './aerialTiles'
+import { turnsOfPoints } from './walkList'
 
 /* ───────── types ───────── */
 
@@ -16,6 +17,8 @@ export interface MapFenceData {
   corners: number
   ends: number
   totalFeet: number
+  /** Which way the line turns at each inner point: the walk list's corners (walkList.ts runsToWalk). */
+  turns: Array<'left' | 'right'>
   // For site plan
   points: LatLng[]
 }
@@ -336,6 +339,7 @@ export default function MapQuoteBuilder({ onUseData, onClose }: MapQuoteBuilderP
       corners,
       ends,
       totalFeet,
+      turns: turnsOfPoints(mapPoints),
       points: mapPoints,
     })
   }

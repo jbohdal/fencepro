@@ -447,7 +447,8 @@ router.post('/job/:jobId/lien-release', async (req: any, res) => {
   } catch (err) { fail(res, err, 'send the lien release') }
 })
 
-router.post('/job/:jobId/paid', express.json({ limit: '8kb' }), async (req: any, res) => {
+// Only the owner marks a sub paid (Jonathan, Nov 6 2026); the office may send the lien release.
+router.post('/job/:jobId/paid', requireCan('subs.pay'), express.json({ limit: '8kb' }), async (req: any, res) => {
   try {
     const b = z.object({ paidOn: z.string(), amountCents: z.number().int(), method: z.string().max(60), checkNumber: z.string().max(40).nullable().optional() }).parse(req.body)
     const actor = await actorOf(req)

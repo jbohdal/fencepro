@@ -1040,6 +1040,8 @@ function AppShell({ crmUser, onLogout, onChangePassword }: { crmUser: CrmUser; o
       runs: data.runs.map(r => Math.round(r.lengthFeet)),
       corners: data.corners,
       ends: data.ends,
+      // Which way the line turns at each point: the walk list's corners (walkList.ts newQuoteWalk).
+      layout: { mapTurns: data.turns ?? [] } as unknown as SavedQuote['layout'],
       walkGates: 0,
       dblGates: 0,
       tearOutSections: 0,

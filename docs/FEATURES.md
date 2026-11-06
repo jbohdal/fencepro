@@ -830,6 +830,16 @@ Jonathan: "the address isn't visible up front, and when I click a tab only a tin
 * Also fixed: a deleted quote's proposal link could still be opened and signed; it now says the proposal is not available. **DEV**
 * Tests: tests/subcontractors.db.test.ts (the notice on proposals and contracts; the clock, papers, owner only, callbacks, inspection, stats, CSV). e2e sub-liens.mjs: 11 checks on a phone.
 
+## 9bc. Every new quote opens on the walk list (Nov 6 2026)
+
+* Jonathan, Nov 6: "every NEW quote opens on the walk list. If it starts with a fence already in it, turn that into walk list steps (sides, feet, gates, corners) with the same price, and say 'Started from the customer's drawing, check the feet'. Old saved quotes keep opening as they do now." **LIVE**
+  * The website instant quote's draft (the customer's drawing, not yet sent or walked): opened from the board, the customer, Today's "Ready to quote" or the Quotes list, it is on the walk list with each side's feet, its gates where drawn and each corner turning left or right as drawn, under "Started from the customer's drawing, check the feet." Saved, the runs, posts, gates, sections and price are the drawing's (walkList.ts yardToWalk, priced with the quote's own section width).
+  * Map Quote (computer screen): one side per map run, the corners turning as tapped, an end post at each end, under "Started from the map, check the feet." Same runs, corners and ends as the typed run list it used to open on.
+  * A blank new quote: a blank walk list, as before. An appointment's measured feet stay in the quote's notes. There is no Copy quote button in the app today, so nothing to change there.
+  * Saved quotes (drawn, typed, walked, sent or sold) open as they did. A typed list the walk can't price the same (gates or post counts not from one line) still opens on the typed lengths.
+  * Proof: tests/walkStart.test.ts (vinyl and chain link: the same price and pull sheet both ways); e2e/walk-start.mjs as the owner and Christa on an iPhone sized screen (26 checks).
+* Mark paid on a sub's job is the owner's only (subs.pay; Jonathan, Nov 6: "Office can send the lien release request; only I can Mark paid"). The office sees "Ready for Jonathan to pay". **LIVE**
+
 ## 10. Reliability (top priority)
 
 * Nothing entered in the field can be lost or fail silently: save on the phone first, queue and retry until the server confirms, Saved / Saving / Waiting for signal / Couldn't save status everywhere; plain error messages; failed saves logged on the server; no sign out on weak signal or restarts; data compressed (7.9 MB to about 1 MB at start). **LIVE** (Oct 17)

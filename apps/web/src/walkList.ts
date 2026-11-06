@@ -344,10 +344,31 @@ export function yardToWalk(yard: YardLayout, nearIn: number): WalkList {
     const next = sidesOn[k + 1]
     const closesToFirst = end === 'corner' && yard.closed && i === yard.sides.length - 1
     if (closesToFirst) line!.steps.push({ id: walkId('s'), feetIn: rest, what: 'start' })
-    else if (end === 'corner' && next) line!.steps.push({ id: walkId('c'), feetIn: rest, what: 'corner', turn: 'left' })
+    else if (end === 'corner' && next) line!.steps.push({ id: walkId('c'), feetIn: rest, what: 'corner', turn: turnBetween(s.heading, next.s.heading) })
     else line!.steps.push({ id: walkId('e'), feetIn: rest, what: 'end' })
   }
   return { v: 1, lines: lines.filter(l => l.steps.length) }
+}
+
+/** Which way the fence turns from one drawn side to the next (headings: 0 = right, 90 = up the page); left when not drawn. */
+export function turnBetween(from: number | undefined, to: number | undefined): Turn {
+  if (typeof from !== 'number' || typeof to !== 'number') return 'left'
+  const d = (((to - from) % 360) + 360) % 360
+  return d > 180 ? 'right' : 'left'
+}
+
+/**
+ * A typed run list as one walked fence line (Map Quote: a line of points, each run the next stretch): each run is a
+ * side, a corner between runs (turns from the map when given), an end post at both ends. Only for a list the walk
+ * prices the same (one corner between each two runs, two end posts, no gates, every run measured); else null.
+ */
+export function runsToWalk(q: { runs: number[]; corners: number; ends: number; walkGates?: number; dblGates?: number }, turns: Turn[] = []): WalkList | null {
+  const runs = q.runs.filter(f => f > 0)
+  if (!runs.length || runs.length !== q.runs.length || q.corners !== runs.length - 1 || q.ends !== 2 || (q.walkGates ?? 0) > 0 || (q.dblGates ?? 0) > 0) return null
+  const steps: WalkStep[] = runs.map((f, i) => i < runs.length - 1
+    ? { id: walkId('c'), feetIn: Math.round(f * 12), what: 'corner', turn: turns[i] ?? 'left' }
+    : { id: walkId('e'), feetIn: Math.round(f * 12), what: 'end' })
+  return { v: 1, lines: [{ id: walkId('l'), steps }] }
 }
 
 // ── The rough sketch: square corners from the turns, not to scale ────────────
@@ -450,4 +471,67 @@ export function walkSheetSvg(walk: WalkList): string {
   })
   s += `<g transform="translate(0 ${tableH})">${sketchSvgBody(walk, W, sketchH)}</g></svg>`
   return s
+}
+
+// ── A new quote that starts with a fence in it (Jonathan, Nov 6 2026) ─────────
+
+/** Where a new quote's fence came from, as the walk list says it ("Started from the customer's drawing, check the feet"). */
+export type WalkStartFrom = 'drawing' | 'map' | 'lengths'
+
+export interface QuoteStart {
+  id?: string | null
+  status?: string | null
+  shareToken?: string | null
+  acceptedAt?: unknown
+  soldAt?: unknown
+  runs?: number[] | null
+  corners?: number | null
+  ends?: number | null
+  walkGates?: number | null
+  dblGates?: number | null
+  layout?: { yard?: YardLayout | null; walk?: unknown; widgetDrawing?: unknown; mapTurns?: Turn[] | null } | null
+}
+
+/**
+ * A quote not started by anyone here yet: a new one (no id), or the website's draft of the customer's own drawing
+ * that no one has sent or walked (layout.widgetDrawing, no layout.walk). Every other saved quote opens as it was saved.
+ */
+export function isNewStart(q: QuoteStart | null | undefined): boolean {
+  if (!q) return true
+  if (q.layout?.walk) return false
+  if (!q.id) return true
+  return q.status === 'DRAFT' && !q.shareToken && !q.acceptedAt && !q.soldAt && !!q.layout?.widgetDrawing
+}
+
+/**
+ * The walk list a new quote opens on: blank, or its fence turned into walk steps that price the same (a drawing:
+ * yardToWalk, priced with the quote's own section width; a typed run list: runsToWalk). Null: a saved quote with a fence, or
+ * a run list the walk can't price the same (it opens on the typed lengths, as before). A saved quote with no fence
+ * yet: a blank walk list.
+ */
+export function newQuoteWalk(q: QuoteStart | null | undefined, nearIn: number): { walk: WalkList; from: WalkStartFrom | null } | null {
+  // A saved quote with no fence yet opens on a blank walk list, as before.
+  if (!isNewStart(q)) return !q?.layout?.yard && !q?.runs?.length ? { walk: emptyWalk(), from: null } : null
+  const yard = q?.layout?.yard
+  if (yard && Array.isArray(yard.sides) && yard.sides.some(s => s.on && s.lengthIn > 0)) {
+    const walk = yardToWalk(yard, nearIn)
+    return walk.lines.length ? { walk, from: q?.layout?.widgetDrawing ? 'drawing' : 'lengths' } : { walk: emptyWalk(), from: null }
+  }
+  if (q?.runs?.some(f => f > 0)) {
+    const walk = runsToWalk({ runs: q.runs, corners: q.corners ?? 0, ends: q.ends ?? 0, walkGates: q.walkGates ?? 0, dblGates: q.dblGates ?? 0 }, q.layout?.mapTurns ?? [])
+    return walk ? { walk, from: q.layout?.mapTurns ? 'map' : 'lengths' } : null
+  }
+  return { walk: emptyWalk(), from: null }
+}
+
+/** Which way a line of map points turns at each inner point (x east, y north): for runsToWalk. */
+export function turnsOfPoints(pts: Array<{ lat: number; lng: number }>): Turn[] {
+  const out: Turn[] = []
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1], b = pts[i], c = pts[i + 1]
+    const k = Math.cos((b.lat * Math.PI) / 180)
+    const cross = (b.lng - a.lng) * k * (c.lat - b.lat) - (b.lat - a.lat) * (c.lng - b.lng) * k
+    out.push(cross < 0 ? 'right' : 'left')
+  }
+  return out
 }

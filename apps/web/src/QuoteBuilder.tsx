@@ -67,7 +67,7 @@ import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepa
 import { workOption, buildWorkProposal, pricingForMain, type MainPricingKey } from './proposal'
 import { signedInRole, can, isFullRole } from './permissions'
 import WalkListStep from './WalkListStep'
-import { emptyWalk, tapeSteps, walkToYard, type WalkList } from './walkList'
+import { newQuoteWalk, tapeSteps, walkToYard, type QuoteStart, type WalkList } from './walkList'
 import { sendJson } from './syncHttp'
 import { jobMinimumCents, newlyUnderMinimum, underMinimumWarning, type MinimumOption } from './discountMinimum'
 import { salesmanSwitchDefault, seesCommission, clearedCommission } from './salesmanCommission'
@@ -609,8 +609,11 @@ export default function QuoteBuilder({
   )
   // Layout first quoting: a new quote starts from the yard shape; a quote
   // saved with a layout reopens on it; older quotes open on the run list.
+  // Every new quote opens on the walk list (Jonathan, Nov 6 2026): one that starts with a fence in it (the website's
+  // drawing, Map Quote) has it as walk steps that price the same (walkList.ts newQuoteWalk), said at the top of the list.
+  const [startWalk] = useState(() => newQuoteWalk(init as QuoteStart | null, layoutPanelFt(FENCE_STYLES.find(s => s.name === init?.fenceStyle)) * 12))
   const [entry, setEntry]               = useState<'layout' | 'advanced'>(() =>
-    init?.layout?.yard ? 'layout' : (init?.runs?.length ? 'advanced' : 'layout'))
+    startWalk || init?.layout?.yard ? 'layout' : (init?.runs?.length ? 'advanced' : 'layout'))
   // The office site plan's change (planQuoteChange.ts) is put on the walk list and the drawing as they open; the saved quote
   // (init) stays as it was, so the save and Make change order see it as a change. Missed: said in the banner.
   const [planEditMissed, setPlanEditMissed] = useState(false)
@@ -623,7 +626,7 @@ export default function QuoteBuilder({
   // The walk list (walkList.ts; Jonathan, Nov 5 2026): a new quote is walked with the wheel, not drawn; one saved with a
   // walk list reopens on it until the office draws its plan. An older quote's drawing opens in the drawing tool as before.
   const [walk, setWalk] = useState<WalkList | null>(() => {
-    const w0 = (init?.layout as { walk?: WalkList } | undefined)?.walk ?? (!init?.layout?.yard && !init?.runs?.length ? emptyWalk() : null)
+    const w0 = (init?.layout as { walk?: WalkList } | undefined)?.walk ?? startWalk?.walk ?? null
     if (!w0 || !planChange?.edit?.walk) return w0
     return planChange.edit.walk(w0) ?? w0
   })
@@ -1843,6 +1846,11 @@ export default function QuoteBuilder({
               </div>
               {entry === 'layout' && walkMode && (
                 <>
+                  {startWalk?.from && (
+                    <p className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2" data-walk-started-from={startWalk.from}>
+                      {startWalk.from === 'drawing' ? 'Started from the customer\'s drawing, check the feet.' : startWalk.from === 'map' ? 'Started from the map, check the feet.' : 'Started from the lengths already typed in, check the feet.'}
+                    </p>
+                  )}
                   <WalkListStep
                     walk={walk}
                     onChange={setWalk}

@@ -351,7 +351,8 @@ function PaySub({ job, s, onReload }: { job: RawJob; s: JobSub; onReload: () => 
       }}>Send the final lien release to sign</button>}
       {s.lienRelease && !signed && <p className="text-xs text-amber-800" data-sub-release-waiting>Final lien release sent {usDate(s.lienRelease.sentAt.slice(0, 10))} for {money(s.netCents)}: waiting for their signature. Changing their pay withdraws it.</p>}
       {signed && <p className="text-xs text-green-800" data-sub-release-signed>Final lien release signed by {s.lienRelease!.signedName}. It is filed on their page.</p>}
-      {ready && signed && (
+      {ready && signed && !can('subs.pay') && <p className="text-xs font-semibold text-gray-800" data-sub-paid-owner>Ready for Jonathan to pay: only he marks a sub paid.</p>}
+      {ready && signed && can('subs.pay') && (
         <div className="grid gap-2" data-sub-mark-paid>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-xs text-gray-800">Paid on<input type="date" className="block w-full border border-gray-300 rounded-lg px-2 h-12 text-base mt-1" value={paidOn} max={todayFl()} onChange={e => setPaidOn(e.target.value)} /></label>
