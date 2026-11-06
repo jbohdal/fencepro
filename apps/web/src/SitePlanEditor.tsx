@@ -17,7 +17,7 @@ import { Undo2, Redo2, ZoomIn, ZoomOut, Maximize2, X } from 'lucide-react'
 import { autoTile, tileXY, AERIAL_MAX_ZOOM } from './aerialTiles'
 import { mercatorFtPerPx } from './sitePlanPhoto'
 import {
-  toFeet, fromFeet, drawnFt, planFlags, openFlags, propertyLineWarnings, postOf, withPending, planId, DEFAULT_FLAG_SETTINGS,
+  toFeet, fromFeet, drawnFt, planFlags, openFlags, propertyLineWarnings, postOf, withPending, applyChange, planId, DEFAULT_FLAG_SETTINGS,
   type LatLng, type SitePlanData, type SiteSide, type SiteGate, type PlanFlag, type FlagAnswer, type PendingChange,
 } from './sitePlanData'
 import {
@@ -386,6 +386,8 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     if (r.ok) { await reload(); await afterDone(); toast.info('Plan reopened', 'Site plan needed is on again until it is marked done.'); return }
     toast.error('Not reopened', r.error)
   }
+  const newest = [...rec.revisions].sort((x, y) => y.revision - x.revision)[0]
+  const reopenedWhy = !rec.doneAt && newest?.note?.includes('The plan needs another look:') ? `Reopened ${when(newest.at)}: ${newest.note.slice(newest.note.indexOf('The plan needs another look:'))}` : ''
   const doneWhy = !canEdit ? 'Your login reads the plan only.' : dirty ? 'Save the plan first.' : open.length ? `Answer the ${open.length} question${open.length === 1 ? '' : 's'} under Quoted against drawn first.` : rec.revision < 1 ? 'Save the plan first.' : ''
 
   // ── Answers and changes through the quote builder ──
@@ -479,7 +481,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     const gate: SiteGate = { id: planId('g'), atFt: where.atFt, widthFt: g.widthFt, type: g.type, swing: g.swing, hinge: g.type === 'double' ? null : g.hinge ?? 'left' }
     void throughBuilder(what, gateEdit(side, atIn, { widthIn: g.widthFt * 12, type: g.type, swing: g.swing, hinge: g.hinge }), how => {
       if (!how.co) return null
-      return withPendingChange(planRef.current, { id: planId('c'), coId: how.co.id, coNumber: how.co.number ?? null, kind: 'gate', sideId: side.id, gate, by: myName(), at: new Date().toISOString() })
+      return withChangeOrder(planRef.current, how.co, { id: planId('c'), coId: how.co.id, coNumber: how.co.number ?? null, kind: 'gate', sideId: side.id, gate, by: myName(), at: new Date().toISOString() })
     }, undefined, `From the site plan: ${what}.`)
   }
   function coLonger(side: SiteSide, feet: number) {
@@ -489,7 +491,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     const what = `make ${side.name} longer, ${ft1(now)} to ${ft1(feet)}`
     void throughBuilder(what, sideFeetEdit(side, Math.round(feet * 12)), how => {
       if (!how.co) return null
-      return withPendingChange(planRef.current, { id: planId('c'), coId: how.co.id, coNumber: how.co.number ?? null, kind: 'longer', sideId: side.id, newFt: feet, by: myName(), at: new Date().toISOString() })
+      return withChangeOrder(planRef.current, how.co, { id: planId('c'), coId: how.co.id, coNumber: how.co.number ?? null, kind: 'longer', sideId: side.id, newFt: feet, by: myName(), at: new Date().toISOString() })
     }, undefined, `From the site plan: ${what}.`)
   }
 
@@ -643,6 +645,8 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
         </div>
       )}
       {waiting && <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 text-sm text-blue-900" data-site-plan-waiting>{waiting}</div>}
+      {/* A signed or approved change order put its change on a done plan and it no longer agrees: the server reopened it and says why. */}
+      {reopenedWhy && <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 text-sm text-amber-950" data-site-plan-reopened>{reopenedWhy}</div>}
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* The map */}
@@ -1155,8 +1159,13 @@ function SidePanel({ plan, side, canEdit, signed, onLength, onAddGate, onRemoveG
   )
 }
 
-/** The plan with a change order's change waiting on it (saved as a revision; the posts and gates stay as they are). */
-function withPendingChange(plan: SitePlanData, c: PendingChange): SitePlanData {
+/**
+ * The plan with a change order's change: waiting on it (pending; the posts and gates stay as they are) while the change
+ * order is not signed or approved, or on the plan at once when it was made approved (approved verbally as it was
+ * made: the server takes no pending change for an approved change order).
+ */
+function withChangeOrder(plan: SitePlanData, co: Pick<ChangeOrder, 'status'>, c: PendingChange): SitePlanData {
+  if (co.status === 'approved') return applyChange(plan, c)
   return { ...plan, pending: [...(plan.pending ?? []), c] }
 }
 

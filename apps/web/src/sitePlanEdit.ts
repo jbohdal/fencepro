@@ -486,11 +486,12 @@ export function optionPairs(
 
 /**
  * The fence the plan is checked against: the job's fence now (the signed quote with its approved and signed change
- * orders, from the server), else the quote's own (its walk list, else its drawing). Never the quote as first signed
+ * orders, from the server), else the quote's own drawing. Never the quote as first signed
  * once a change order has gone through: a gate it added is the fence, not a question.
  */
 export function fenceNowYard(rec: { current?: { yard?: YardLayout | null } | null; quote?: { layout?: unknown } | null }): YardLayout | null {
-  return rec.current?.yard ?? quoteYardOf(rec.quote?.layout ?? null)
+  // As the server's done check counts them (lib/sitePlans.ts openFlagsOf): the fence now, else the quote's drawing.
+  return rec.current?.yard ?? (rec.quote?.layout as { yard?: YardLayout | null } | null | undefined)?.yard ?? null
 }
 
 // ── Labels ───────────────────────────────────────────────────────────────────

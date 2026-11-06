@@ -22,7 +22,7 @@ export interface SitePlanRecord {
   settings: { tolFt: number; tolPct: number; setbackFt: number }
   canEdit: boolean
   /** The job's fence now: the signed quote with its approved and signed change orders (the plan is checked against it). */
-  current?: { yard: YardLayout | null; runs?: number[]; runSections?: number[]; runRails?: unknown } | null
+  current?: { fenceStyle?: string; yard: YardLayout | null; runs?: number[]; runSections?: number[]; runRails?: string[] | null; changeOrders?: number[] } | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the server's error body, read field by field
