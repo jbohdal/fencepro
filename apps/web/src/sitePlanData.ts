@@ -321,11 +321,19 @@ export function openFlags(plan: SitePlanData, flags: PlanFlag[]): PlanFlag[] {
 }
 /** Some fence line ends back at its own first post. */
 export function planCloses(plan: SitePlanData): boolean {
-  const used = new Map<string, number>()
-  for (const s of plan.sides) for (const p of [s.a, s.b]) used.set(p, (used.get(p) ?? 0) + 1)
-  // A ring: every post on it is used twice; a closed line has no post used once among its sides.
-  const ends = [...used.values()].filter(n => n === 1).length
-  return plan.sides.length >= 3 && ends === 0
+  // Each fence line on its own (posts joined by sides): a line that is a ring (3 sides or more, no loose end)
+  // closes. Another open line beside a closed pool does not make the pool open.
+  const group = new Map<string, string>()
+  const root = (p: string): string => { let r = p; while (group.get(r) && group.get(r) !== r) r = group.get(r)!; return r }
+  for (const s of plan.sides) { for (const p of [s.a, s.b]) if (!group.has(p)) group.set(p, p); group.set(root(s.a), root(s.b)) }
+  const lines = new Map<string, SiteSide[]>()
+  for (const s of plan.sides) { const r = root(s.a); lines.set(r, [...(lines.get(r) ?? []), s]) }
+  for (const sides of lines.values()) {
+    const used = new Map<string, number>()
+    for (const s of sides) for (const p of [s.a, s.b]) used.set(p, (used.get(p) ?? 0) + 1)
+    if (sides.length >= 3 && ![...used.values()].some(n => n === 1)) return true
+  }
+  return false
 }
 
 // ── Posts for the crew ────────────────────────────────────────────────────────

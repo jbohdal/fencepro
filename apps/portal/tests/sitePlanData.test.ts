@@ -191,4 +191,13 @@ describe('review fixes (Nov 6 2026)', () => {
     p.answers.gates = { kind: 'keep', note: 'not paid', by: 'Office', at: '' }
     expect(openFlags(p, planFlags(p, y)).map(f => f.key)).toEqual(['gates'])
   })
+
+  test('a closed pool beside a separate open line still closes (each line on its own)', () => {
+    const w: WalkList = { v: 1, lines: [
+      { id: 'q', steps: [step(40, 'corner', { turn: 'right' }), step(40, 'corner', { turn: 'right' }), step(40, 'corner', { turn: 'right' }), step(40, 'start')] },
+      { id: 'r', steps: [step(30, 'corner', { turn: 'left' }), step(20, 'end')] },
+    ] }
+    const y = walkToYard(w), p = planFromYard(y, OCALA, w)!
+    expect(planFlags(p, y).map(f => f.key)).not.toContain('closed')
+  })
 })
