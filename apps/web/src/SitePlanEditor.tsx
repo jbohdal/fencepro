@@ -388,7 +388,8 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   }
   const newest = [...rec.revisions].sort((x, y) => y.revision - x.revision)[0]
   const reopenedWhy = !rec.doneAt && newest?.note?.includes('The plan needs another look:') ? `Reopened ${when(newest.at)}: ${newest.note.slice(newest.note.indexOf('The plan needs another look:'))}` : ''
-  const doneWhy = !canEdit ? 'Your login reads the plan only.' : dirty ? 'Save the plan first.' : open.length ? `Answer the ${open.length} question${open.length === 1 ? '' : 's'} under Quoted against drawn first.` : rec.revision < 1 ? 'Save the plan first.' : ''
+  const waitingOn = Object.values(plan.answers).filter(a => a.coId).map(a => a.note.match(/CO-\d+/)?.[0] ?? 'a change order')
+  const doneWhy = !canEdit ? 'Your login reads the plan only.' : dirty ? 'Save the plan first.' : waitingOn.length ? `Waiting on ${waitingOn.join(', ')} to be signed or approved.` : open.length ? `Answer the ${open.length} question${open.length === 1 ? '' : 's'} under Quoted against drawn first.` : rec.revision < 1 ? 'Save the plan first.' : ''
 
   // ── Answers and changes through the quote builder ──
   const [away, setAway] = useState(false)
@@ -437,6 +438,16 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     if (!ok) { setAway(false); toast.error('The quote did not load', 'Try again when you have signal.') }
   }
 
+  /**
+   * The answer "Use the drawn length / Use the plan" records: through a change order, its id and "CO-n" (it waits on
+   * that change order: the server takes the id off once it is signed or approved, and the answer once it is voided);
+   * through the quote's own save, what changed.
+   */
+  function answerFor(how: { quote?: boolean; co?: ChangeOrder }, saved: string): FlagAnswer {
+    const at = new Date().toISOString()
+    return how.co ? { kind: 'drawn', note: `CO-${how.co.number}`, coId: how.co.id, by: myName(), at } : { kind: 'drawn', note: saved, by: myName(), at }
+  }
+
   function takeDrawn(f: PlanFlag) {
     const side = f.sideId ? plan.sides.find(s => s.id === f.sideId) : null
     if (f.kind === 'length' && side) {
@@ -447,12 +458,11 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
         const p = planRef.current
         const s = p.sides.find(x => x.id === side.id)
         if (!s) return null
-        const note = how.co ? `Change order CO-${how.co.number}` : `Quote repriced at ${ft1(feet)}`
         return {
           ...p,
           // Unsigned: the quote now says the drawn feet. Signed: the change order carries them.
           sides: how.quote ? p.sides.map(x => (x.id === s.id ? { ...x, quotedFt: feet } : x)) : p.sides,
-          answers: { ...p.answers, [f.key]: { kind: 'drawn', note, by: myName(), at: new Date().toISOString() } },
+          answers: { ...p.answers, [f.key]: answerFor(how, `Quote repriced at ${ft1(feet)}`) },
         }
       }, layout => quoteSideFeetIs(layout, side, drawnIn))
       return
@@ -460,8 +470,7 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
     // A count (sides, gates, tees, closes): the office makes the quote match the plan in the builder.
     void throughBuilder(`make the quote match the plan. ${f.text}`, null, how => {
       const p = planRef.current
-      const note = how.co ? `Change order CO-${how.co.number}` : 'Quote changed to match the plan'
-      return { ...p, answers: { ...p.answers, [f.key]: { kind: 'drawn', note, by: myName(), at: new Date().toISOString() } } }
+      return { ...p, answers: { ...p.answers, [f.key]: answerFor(how, 'Quote changed to match the plan') } }
     })
   }
 
@@ -532,6 +541,9 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
   }
 
   // ── Sheets ──
+  // What each sheet shows: the crew and the permit read the plan as marked done (a frozen copy); before done, the crew no plan.
+  const sheetRevisionWords = rec.doneAt && rec.doneRevision ? `revision ${rec.doneRevision} (as marked done)` : `revision ${rec.revision} (not done yet)`
+  const crewRevisionWords = rec.doneAt && rec.doneRevision ? `revision ${rec.doneRevision} (as marked done)` : 'no plan until it is marked done'
   const [sheetSize, setSheetSize] = useState<'letter' | 'tabloid'>('letter')
   async function permitSheet(size: 'letter' | 'tabloid', aerial: boolean) {
     const w = window.open('', '_blank')
@@ -646,6 +658,14 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
       )}
       {waiting && <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 text-sm text-blue-900" data-site-plan-waiting>{waiting}</div>}
       {/* A signed or approved change order put its change on a done plan and it no longer agrees: the server reopened it and says why. */}
+      {rec.doneAt && rec.changedSinceDone && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 text-sm text-amber-950 flex flex-wrap items-center gap-3" data-site-plan-changed-since-done>
+          <span className="flex-1 min-w-[16rem]">Changed since the plan was marked done (revision {rec.doneRevision ?? '?'}). The crew and the customer still see revision {rec.doneRevision ?? '?'}. Mark done again to send the changes.</span>
+          {canEdit && <button type="button" className="btn btn-primary min-h-[44px]" disabled={!!doneWhy || busy === 'done'} onClick={() => void markDone()} title={doneWhy} data-site-plan-mark-done-again>Mark done again</button>}
+          {canEdit && doneWhy && <span className="w-full text-amber-900" data-site-plan-done-again-why>{doneWhy}</span>}
+          {doneRefused && <ul className="w-full list-disc pl-5 text-red-800">{doneRefused.map((t, i) => <li key={i}>{t}</li>)}</ul>}
+        </div>
+      )}
       {reopenedWhy && <div className="px-4 py-2 bg-amber-50 border-b border-amber-300 text-sm text-amber-950" data-site-plan-reopened>{reopenedWhy}</div>}
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
@@ -809,13 +829,13 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
               {flags.map(f => {
                 const isOpen = openKeys.has(f.key)
                 const a = isOpen ? null : plan.answers[f.key]
-                const co = a?.note.match(/^Change order CO-(\d+)/)?.[1]
+                const co = a?.coId ? (a.note.match(/CO-(\d+)/)?.[1] ?? '?') : null
                 return (
                   <li key={f.key} className={`rounded-lg border p-2 ${a ? 'border-gray-200' : 'border-red-300 bg-red-50'}`} data-site-plan-flag={f.key}>
                     <p className="text-gray-900">{f.text}</p>
                     {a ? (
                       <p className="mt-1 text-gray-700" data-site-plan-flag-answered>
-                        {co && rec.quote?.signed ? <span className="font-semibold text-amber-800" data-site-plan-flag-waiting>Waiting on CO-{co}. </span> : null}
+                        {co ? <span className="font-semibold text-amber-800" data-site-plan-flag-waiting>Waiting on CO-{co}. </span> : null}
                         {a.kind === 'keep' ? 'Kept the wheel number' : f.kind === 'length' ? 'Used the drawn length' : 'Quote changed to match the plan'}: {a.note} ({a.by}, {when(a.at)})
                         {canEdit && <> <button type="button" className="ml-1 underline text-orange-700 whitespace-nowrap" onClick={() => push(p => { const answers = { ...p.answers }; delete answers[f.key]; return { ...p, answers } })} data-site-plan-answer-again>Answer again</button></>}
                       </p>
@@ -928,8 +948,8 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
                   <label className="flex items-center gap-2 min-h-[44px]"><input type="checkbox" checked={!!plan.permitAerial} disabled={busy === 'sheet'} onChange={e => { const v = e.target.checked; push(p => ({ ...p, permitAerial: v })) }} data-site-plan-sheet-aerial /> Aerial on the sheet</label>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'sheet'} onClick={() => void permitSheet(sheetSize, !!plan.permitAerial)} data-site-plan-permit-sheet>{busy === 'sheet' ? 'Making it…' : 'Permit sheet (PDF)'}</button>
-                  <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'packet'} onClick={() => void installerSheet()} data-site-plan-installer-sheet>{busy === 'packet' ? 'Opening…' : 'Installer sheet'}</button>
+                  <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'sheet'} onClick={() => void permitSheet(sheetSize, !!plan.permitAerial)} data-site-plan-permit-sheet>{busy === 'sheet' ? 'Making it…' : `Permit sheet (PDF), ${sheetRevisionWords}`}</button>
+                  <button type="button" className="btn btn-secondary min-h-[44px]" disabled={dirty || rec.revision < 1 || busy === 'packet'} onClick={() => void installerSheet()} data-site-plan-installer-sheet>{busy === 'packet' ? 'Opening…' : `Installer sheet, ${crewRevisionWords}`}</button>
                 </div>
                 {(dirty || rec.revision < 1) && <p className="text-xs text-gray-500">Save the plan first: the sheets are made from the saved plan.</p>}
               </>
@@ -939,7 +959,8 @@ export default function SitePlanEditor({ jobId, record, plan: startPlan, fresh, 
           <Section title="Plan done">
             {rec.doneAt ? (
               <div className="space-y-2">
-                <p className="text-green-800" data-site-plan-done>Marked done {when(rec.doneAt)}{rec.doneBy ? ` by ${rec.doneBy}` : ''}.</p>
+                <p className="text-green-800" data-site-plan-done>Marked done {when(rec.doneAt)}{rec.doneBy ? ` by ${rec.doneBy}` : ''}{rec.doneRevision ? ` (revision ${rec.doneRevision})` : ''}.{rec.changedSinceDone ? ' Changed since: the crew and the customer still see that revision.' : ''}</p>
+                {canEdit && rec.changedSinceDone && <button type="button" className="btn btn-primary min-h-[44px] w-full" disabled={!!doneWhy || busy === 'done'} onClick={() => void markDone()} title={doneWhy} data-site-plan-mark-done-again-panel>Mark done again</button>}
                 {canEdit && <button type="button" className="btn btn-secondary min-h-[44px]" disabled={busy === 'done'} onClick={() => void reopen()} data-site-plan-reopen>Reopen the plan</button>}
               </div>
             ) : (
