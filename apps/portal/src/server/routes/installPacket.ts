@@ -50,6 +50,7 @@ import { crewVisitsFor } from '../lib/crewVisits.js'
 import { partWithPair } from '../lib/partNames.js'
 import { isWorkLine, installWord } from '../lib/workWords.js'
 import { jobQuoteMediaOr } from '../lib/quoteMedia.js'
+import { crewPlanFor, sitePlanSettings } from '../lib/sitePlans.js'
 const todayFl = () => floridaDay(new Date())
 /** The crew's name (Schedule > Settings), never its id ("crew1"). */
 async function crewNameFor(accountId: string, v: string): Promise<string> {
@@ -158,6 +159,68 @@ export function postsLine(posts: { corners: number; ends: number; gatePosts: num
   if (posts.corners + ends + posts.gatePosts === 0) return ''
   const n = (k: number, one: string) => `${k} ${one}${k === 1 ? '' : 's'}`
   return `<p data-packet-posts>${[n(posts.corners, 'corner post'), n(ends, 'end post'), n(posts.gatePosts, 'gate post')].join(' · ')}</p>`
+}
+
+const POST_WORD: Record<string, string> = { corner: 'Corner', end: 'End', line: 'Line', gate: 'Gate', tee: 'Tee' }
+
+/**
+ * The office site plan on the crew's packet ("Site plan (installer sheet)";
+ * lib/sitePlans.ts): the plan with every post numbered in walking order from
+ * "Start here" and typed, each side's line posts spaced as the quote counted
+ * its sections, the gates with width, swing and hinge side, the 811 locate,
+ * property line warnings, the office's notes and the pinned photos. Never a
+ * price. Null when the job has no plan.
+ */
+export async function installerPlanSection(accountId: string, job: { id: string; quoteId: string | null; fenceStyle: string }, opts: { locateText: string; photos: Array<{ url: string; caption: string; category: string }> }): Promise<{ html: string; done: boolean } | null> {
+  const row = await prisma.sitePlan.findUnique({ where: { jobId: job.id } }).catch(() => null)
+  if (!row || row.accountId !== accountId) return null
+  const plan = row.data as any
+  if (!Array.isArray(plan?.sides) || !plan.sides.length) return null
+  const quote = job.quoteId ? await prisma.savedQuote.findFirst({ where: { id: job.quoteId, accountId }, select: { layout: true, fenceStyle: true, chosenOption: true, proposal: true } }) : null
+  const { posts, sides, m } = await crewPlanFor(accountId, plan, quote as any, job.fenceStyle)
+  const warnings = m.propertyLineWarnings(plan, (await sitePlanSettings(accountId)).setbackFt)
+  const svg = m.sitePlanSvg(plan, { width: 900, height: 620, crewPosts: posts, showStart: true, neighbors: false, sideNames: true, fontSize: 13 })
+  const ft = (n: number) => m.feetLabel(n)
+  const sameSpot = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lng - b.lng) < 1e-9
+  const numberAt = (postId: string) => { const p = plan.posts.find((x: any) => x.id === postId); return p ? posts.find(c => sameSpot(c.at, p))?.n ?? null : null }
+  const kinds = ['corner', 'end', 'gate', 'tee', 'line'].map(k => ({ k, n: posts.filter(p => p.kind === k).length })).filter(x => x.n)
+  const sideRows = sides.map(cs => {
+    const side = plan.sides.find((s: any) => s.id === cs.id)
+    const flip = side.b === plan.startPostId && side.a !== plan.startPostId
+    const from = numberAt(flip ? side.b : side.a), to = numberAt(flip ? side.a : side.b)
+    const pieces = cs.pieces.filter(p => p.ft > 0).map(p => `${ft(p.ft)}: ${p.sections} section${p.sections === 1 ? '' : 's'}, posts ${ft(p.spacingFt)} apart`).join('<br>')
+    return `<tr data-site-side="${esc(cs.id)}"><td><b>${esc(forCrew(cs.name))}</b></td><td>${esc(ft(cs.ft))}</td><td>${pieces || '-'}</td><td>${from != null && to != null ? `#${from} → #${to}` : ''}</td></tr>`
+  }).join('')
+  const gateRows: string[] = []
+  for (const cs of sides) {
+    const side = plan.sides.find((s: any) => s.id === cs.id)
+    if (!side?.gates?.length) continue
+    const flip = side.b === plan.startPostId && side.a !== plan.startPostId
+    const total = cs.ft
+    const startNo = numberAt(flip ? side.b : side.a)
+    const walked = [...side.gates].map((g: any) => ({ g, at: flip ? total - g.atFt - g.widthFt : g.atFt })).sort((x, y) => x.at - y.at)
+    const gatePosts = posts.filter(p => p.sideId === side.id && p.kind === 'gate')
+    walked.forEach(({ g, at }, i) => {
+      const nums = gatePosts.slice(i * 2, i * 2 + 2).map(p => `#${p.n}`).join(' and ')
+      const single = g.type !== 'double'
+      gateRows.push(`<li data-site-gate><b>${esc(forCrew(side.name))}: ${esc(ft(g.widthFt))} ${single ? 'single' : 'double'} gate</b>, ${esc(ft(Math.max(0, at)))} from post #${startNo ?? '?'}${nums ? ` (gate posts ${nums})` : ''}. Swings ${g.swing === 'out' ? 'out of the yard' : 'into the yard'}${single ? (g.hinge ? `, hinges on the ${g.hinge} (looking from inside the yard)` : ', hinge side not set: ask the office') : ''}.</li>`)
+    })
+  }
+  const notes = forCrew(String(plan.notes || '')).trim()
+  const html = `<section data-packet-site-plan${row.doneAt ? '' : ' data-site-plan-unfinished'}><h2>Site plan (installer sheet)</h2>
+    ${row.doneAt ? '' : '<p class="unfinished" data-site-plan-not-finished><b>Site plan not finished yet.</b> The office is still drawing it, so it may change. The fence as measured is below.</p>'}
+    <div class="plan siteplan">${svg}</div>
+    <p class="small">Start at the green circle (Start here) and set the posts in number order. Filled circles: corner, end, gate and tee posts. Open circles: line posts. Feet are the fence as built.</p>
+    <p data-site-post-count><b>${posts.length} posts:</b> ${kinds.map(x => `${x.n} ${POST_WORD[x.k].toLowerCase()}`).join(' · ')}</p>
+    <table data-site-sides><thead><tr><th>Side</th><th>Feet</th><th>Sections and post spacing</th><th>Posts</th></tr></thead><tbody>${sideRows}</tbody></table>
+    ${gateRows.length ? `<h3>Gates</h3><ul>${gateRows.join('')}</ul>` : ''}
+    <h3>Posts in order</h3><ol class="postlist" data-site-posts>${posts.map(p => `<li value="${p.n}">${POST_WORD[p.kind]}</li>`).join('')}</ol>
+    ${warnings.length ? `<div class="warnbox" data-site-warnings><b>Property line</b><ul>${warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul><p class="small">Property lines are approximate, from county records, not a survey.</p></div>` : ''}
+    <p data-site-locate><b>811 locate:</b> ${esc(opts.locateText)}</p>
+    ${notes ? `<div class="notes" data-site-notes><b>Office notes</b><p>${esc(notes).replace(/\n/g, '<br>')}</p></div>` : ''}
+    ${opts.photos.length ? `<h3>Pinned photos</h3><div class="media pinned">${opts.photos.map(p => `<figure><a href="${esc(p.url)}"><img src="${esc(p.url)}" alt="${esc(p.category)}" loading="lazy"></a><figcaption>${esc(forCrew(p.caption || p.category))}</figcaption></figure>`).join('')}</div>` : ''}
+  </section>`
+  return { html, done: !!row.doneAt }
 }
 
 export const packetPublic = Router()
@@ -476,6 +539,11 @@ packetPublic.get('/:token', async (req, res) => {
   const fromCustomer = await customerNotesForJob(p.accountId, job_.crmContactId).catch(() => [] as string[])
   // A repair's packet says Repair ("Repair packet", "Repair: 1 crew day"); recheck Oct 27 2026 (lib/workWords.ts installWord).
   const W = service ? 'Service visit' : installWord(s.work)
+  // The office site plan (a service visit leaves it out, as it does the original install's sheet). Done: it is the
+  // plan, so the walk list and the older drawing are left out; not done: both, the plan marked not finished.
+  const pinned = items.filter(m => m.kind === 'photo' && m.pin).map(m => ({ url: fix(m.markupUrl ?? m.url) ?? '', caption: m.caption || '', category: m.category }))
+  const sitePlan = service ? null : await installerPlanSection(p.accountId, job_, { locateText: locateWords(loc, todayFl()).text + (loc.ticket ? ` (ticket ${loc.ticket})` : ''), photos: pinned }).catch(err => { console.error('[packet] site plan:', err); return null })
+  const oldSheet = !sitePlan?.done
   const body = `<header class="top"><img src="../logo.png" alt="" class="logo"><div><p class="co">${esc(s.companyName || 'Getter Done Fence')}</p><p class="small">${W} packet${s.companyPhone ? ` · Office <a href="tel:${esc(s.companyPhone.replace(/[^\d+]/g, ''))}">${esc(phone(s.companyPhone))}</a>` : ''}</p></div>
     <button type="button" id="print" class="printbtn noprint">Print / PDF</button></header>
   <main class="wrap">
@@ -503,11 +571,12 @@ packetPublic.get('/:token', async (req, res) => {
       <button type="button" id="saveLocate" class="btn noprint">Save locate</button></div>
       <p id="locMsg" class="small" aria-live="polite">${hasLocate(loc) ? 'This is the same locate the office sees on the job.' : 'The office sees it on the job right away.'}</p>
     </section>`}
+    ${sitePlan ? sitePlan.html : ''}
     <section data-packet-fence><h2>${s.work?.type === 'repair' || service ? 'The existing fence' : 'The fence'}</h2>
       <p class="facts">${esc(styleText)}${s.footageFt ? ` · ${Math.round(s.footageFt)} ft` : ''}${s.sections ? ` · ${s.sections} sections` : ''}</p>
       ${postsLine(s.posts, s.work?.type)}
-      ${s.walkRows?.length ? `<h3>Fence as measured (walk list), in walking order</h3><table data-packet-walk><tbody>${s.walkRows.map((r, k) => `<tr><td>${k + 1}</td><td>${esc(r)}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${safeSvg(s.planSvg) && s.walkRows?.length ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Rough sketch from the walk list, not to scale. The office draws the site plan.</p>` : safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
+      ${oldSheet && s.walkRows?.length ? `<h3>Fence as measured (walk list), in walking order</h3><table data-packet-walk><tbody>${s.walkRows.map((r, k) => `<tr><td>${k + 1}</td><td>${esc(r)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${!oldSheet ? '' : safeSvg(s.planSvg) && s.walkRows?.length ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Rough sketch from the walk list, not to scale. The office draws the site plan.</p>` : safeSvg(s.planSvg) ? `<div class="plan">${safeSvg(s.planSvg)}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Open dots: line posts. Dark arrows: where photos were taken.${s.work?.type === 'move' ? ' Brown dashed: the old fence line.' : s.work?.type === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p>` : ''}
       ${s.runs?.length && !service ? `<table><thead><tr><th>Run</th><th>Length</th><th>Sections</th><th>Posts apart</th></tr></thead><tbody>${s.runs.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.length)}</td><td>${r.sections}</td><td>${esc(r.spacing)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${s.gates?.length ? `<h3>Gates</h3><ul>${s.gates.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
       ${s.skips?.length ? `<h3>Skips (not included)</h3><ul>${s.skips.map(g => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
@@ -724,5 +793,10 @@ h3{font-size:15px;margin:14px 0 6px}.row{display:grid;grid-template-columns:1fr 
 .media img,.media video{width:100%;max-height:320px;object-fit:cover;display:block;background:#000}.media figcaption{padding:8px;font-size:13px;color:var(--g)}
 .filebtn{display:flex;align-items:center;justify-content:center}
 .unset{color:transparent}.unset::-webkit-datetime-edit{color:transparent}.unset:focus{color:inherit}.unset:focus::-webkit-datetime-edit{color:inherit}.unsethint{display:block;color:#6b7280;margin-top:2px}
-@media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
+.siteplan svg{max-height:75vh}.postlist{columns:4 7em;font-size:14px;padding-left:2.2em;margin:4px 0}.postlist li{break-inside:avoid}
+.unfinished{background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:10px 12px}
+.warnbox{background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:10px;padding:10px 12px;margin:10px 0}.warnbox ul{margin:4px 0}
+.pinned{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+@media print{.noprint{display:none!important}body{background:#fff}section{break-inside:avoid;border:0;padding:8px 0}
+[data-packet-site-plan]{break-inside:auto;break-after:page;font-size:12px}[data-packet-site-plan] h2{margin:0 0 4px}.siteplan svg{max-height:5.4in}[data-packet-site-plan] table{font-size:11px}[data-packet-site-plan] th,[data-packet-site-plan] td{padding:2px 4px}.postlist{columns:8;font-size:10px}.pinned{grid-template-columns:repeat(4,1fr)}.pinned img{max-height:1.3in}.media{grid-template-columns:repeat(2,1fr)}.media video{display:none}}
 `

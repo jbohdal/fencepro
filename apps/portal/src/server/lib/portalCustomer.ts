@@ -42,6 +42,7 @@ export function certificateDay(completedDate: string | null | undefined, complet
 }
 import { safeSvg } from '../routes/proposal.js'
 import { signedForPortal } from './signedDocuments.js'
+import { customerPlanSvg } from './sitePlans.js'
 
 /** The customer's own quotes (not deleted or archived), by their customer id and company. */
 export async function quotesOf(contact: { id: string; accountId: string | null }) {
@@ -50,7 +51,7 @@ export async function quotesOf(contact: { id: string; accountId: string | null }
     where: { accountId: contact.accountId, crmContactId: contact.id, deletedAt: null, archivedAt: null },
     orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     select: {
-      id: true, fenceStyle: true, date: true, finalPrice: true, status: true, proposal: true, chosenOption: true, acceptedAt: true, soldAt: true,
+      id: true, accountId: true, fenceStyle: true, date: true, finalPrice: true, status: true, proposal: true, chosenOption: true, acceptedAt: true, soldAt: true,
       shareToken: true, shareDisabledAt: true, shareExpiresAt: true,
     },
   })
@@ -72,6 +73,11 @@ type QuoteRow = Awaited<ReturnType<typeof quotesOf>>[number]
 /** The proposal's site plan, drawn for the customer when the proposal was saved (only our own drawing: routes/proposal.ts safeSvg). */
 export const planOf = (q: { proposal: unknown }) => safeSvg((q.proposal as any)?.planSvg)
 
+/** What the customer's portal shows: once signed and the office's site plan is done, that plan (lib/sitePlans.ts); else the proposal's drawing. */
+export async function customerPlanOf(q: { id: string; accountId: string; proposal: unknown; status: string; acceptedAt: Date | null; soldAt: Date | null }): Promise<string> {
+  return (await customerPlanSvg(q).catch(() => '')) || planOf(q)
+}
+
 export const isSigned = (q: { status: string; acceptedAt: Date | null; soldAt: Date | null }) => !!(q.acceptedAt || q.soldAt || q.status === 'SOLD')
 
 /** A quote as the customer was sent it. */
@@ -83,7 +89,7 @@ export async function quoteRowOf(q: QuoteRow, now = Date.now()) {
     priceCents: Math.round((q.finalPrice || 0) * 100),
     // The customer's own proposal link, when the office made one and it still works.
     shareToken: q.shareToken && !q.shareDisabledAt && (!q.shareExpiresAt || q.shareExpiresAt.getTime() > now) ? q.shareToken : null,
-    hasPlan: !!planOf(q),
+    hasPlan: !!(await customerPlanOf(q)),
     hasContract: signed && !!p && Array.isArray(p.options) && p.options.length > 0,
   }
 }

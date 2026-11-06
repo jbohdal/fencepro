@@ -48,6 +48,7 @@ import { currentTerms, companyAddress, termsOn, isWalkedNoPlan, type Term } from
 import { OFFICE_NOTICE_ROLE } from '../lib/notificationService.js'
 import { customerFenceName, customerIncluded, railsOf } from '../lib/customerFenceName.js'
 import { optionSeen } from '../lib/optionSeen.js'
+import { customerPlanSvg } from '../lib/sitePlans.js'
 
 /** A link that was turned off or has run out. */
 export function linkClosed(q: { shareDisabledAt: Date | null; shareExpiresAt: Date | null }): 'off' | 'expired' | null {
@@ -118,6 +119,8 @@ export interface Proposal {
   company?: { name?: string; phone?: string; email?: string; address?: string }
   customer?: { name?: string; address?: string }
   planSvg?: string
+  /** Shown only: planSvg is the office's finished site plan (lib/sitePlans.ts customerPlanSvg), never saved on the quote. */
+  sitePlanDone?: boolean
   footageFt?: number
   gatesText?: string
   included?: string[]
@@ -338,6 +341,9 @@ publicProposal.get('/:token', async (req, res) => {
   // Back from a refused signing (a page opened before it was sold or accepted): it says why, over the fence that stands.
   if (req.query.refused) pv.view.refused = true
   if (req.query.changed) pv.view.changed = true
+  // Signed, and the office's site plan is done: the finished plan in place of the quote's drawing (never before signing).
+  const finished = await customerPlanSvg(q).catch(() => '')
+  if (finished) pv.p = { ...pv.p, planSvg: finished, sitePlanDone: true }
   res.type('html').send(renderProposal(q, pv.p, token, nonce, photos, installDay, '', pv.view))
 })
 
@@ -838,7 +844,7 @@ export function renderProposal(q: any, saved: Proposal, token: string, nonce: st
     ${p.kind ? `<p class="facts" data-work-description>${esc(p.description || '')}</p>` : `<p class="facts">${p.footageFt ? `${Math.round(p.footageFt)} ft of fence` : ''}${p.gatesText ? ` · ${esc(p.gatesText)}` : ''}</p>`}
     ${refusedNote}${view.changed && canSign ? `<section class="refused" data-options-changed role="alert"><p>${esc(OPTIONS_CHANGED)}</p></section>` : ''}${doneBlock}
     ${photos.length ? `<section data-proposal-photos><h2>Photos</h2><div class="opts">${photos.map((m, i) => `<figure style="margin:0"><img class="photo" src="${esc(token)}/media/${esc(m.id)}" alt="Photo ${i + 1} of your fence" loading="lazy" style="width:100%;border-radius:10px"></figure>`).join('')}</div></section>` : ''}
-    ${plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included.${p.kind === 'move' ? ' Brown dashed: the old fence line.' : p.kind === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p></section>` : ''}
+    ${plan && p.sitePlanDone ? `<section data-finished-site-plan><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Your fence as we will build it, drawn to scale on the map. Property lines, where shown, are approximate, from county records, not a survey.</p></section>` : plan ? `<section><h2>Site plan</h2><div class="plan">${plan}</div><p class="small">Purple: new fence. Purple squares: corner posts. Dark squares: gate hinge posts. Dots: end and gate latch posts. Dashed arcs: which way each gate swings. Gray dashed: existing fence or no fence, not included.${p.kind === 'move' ? ' Brown dashed: the old fence line.' : p.kind === 'repair' ? ' Red: the sections to repair.' : ''} Not to scale for permitting.</p></section>` : ''}
     ${none ? '' : `<section><h2>${shownCount > 1 ? 'Your options' : p.kind ? 'Your price' : 'Your fence'}</h2><div class="opts${shownCount > 1 && p.options.some(o => o.tier) ? ' tiers' : ''}">${options}</div></section>`}
     ${included}${warranty}${deposit}${termsHtml}${acceptBlock}
     <p class="small foot">Questions? Call ${company.phone ? tel(company.phone) : 'us'}.</p>

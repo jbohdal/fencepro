@@ -333,6 +333,35 @@ export function crewPosts(plan: SitePlanData, sectionsOf: (sideId: string, piece
 /** Sections in a piece of fence: the quote's own per-piece count when it has one, else whole sections at the width. */
 export const sectionsAt = (pieceFt: number, widthFt: number) => (pieceFt > 0 ? Math.ceil(pieceFt / Math.max(1, widthFt) - 1e-9) : 0)
 
+/**
+ * Sections per piece for crewPosts from the quote: each quoted side's runs (the
+ * yard's runs over 0 ft, in the order layout.runSections counts them) matched
+ * to the plan's pieces by their feet (within a foot), so the crew spaces the
+ * line posts as the quote counted them (the 6 or 8 ft pick per run, farm and
+ * chain link spacing included). A piece no quoted run matches (a side added
+ * or redrawn on the plan) gets whole sections at `widthFt`.
+ */
+export function quoteSectionsOf(plan: SitePlanData, yard: YardLayout | null, runSections: number[] | null | undefined, widthFt: number): (sideId: string, pieceFt: number) => number {
+  const bySide = new Map<string, Array<{ ft: number; sections: number; used: boolean }>>()
+  if (yard && Array.isArray(runSections)) {
+    try {
+      const runs = deriveLayout(yard).runs.filter(r => r.ft > 0)
+      if (runs.length === runSections.length) runs.forEach((r, i) => {
+        const list = bySide.get(r.sideId) ?? []
+        list.push({ ft: r.ft, sections: Number(runSections[i]) || 0, used: false })
+        bySide.set(r.sideId, list)
+      })
+    } catch { /* a yard that cannot be read: whole sections */ }
+  }
+  return (sideId, pieceFt) => {
+    const side = plan.sides.find(s => s.id === sideId)
+    const list = side?.yardSideId ? bySide.get(side.yardSideId) : undefined
+    const hit = list?.find(r => !r.used && r.sections > 0 && Math.abs(r.ft - pieceFt) <= 1)
+    if (hit) { hit.used = true; return hit.sections }
+    return sectionsAt(pieceFt, widthFt)
+  }
+}
+
 // ── Property lines ────────────────────────────────────────────────────────────
 
 /** Feet from a place to the nearest edge of a ring. */
