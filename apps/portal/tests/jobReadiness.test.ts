@@ -93,6 +93,18 @@ describe('payment status from the payment schedule', () => {
       { kind: 'final', label: 'Final', amountCents: 355691, balanceCents: 355691 - Math.max(0, paid - 355692), dueOn: 'completion', dueDate: completedDate },
     ],
   })
+  it('Paid only when cleared (Nov 6 2026): received in full with a check waiting reads "Paid, not cleared yet", never Paid', () => {
+    const waiting = billingStatusOf({ ...schedule(711383, '2026-11-02'), clearedCents: 355692 }, '2026-11-06')
+    expect(waiting).toMatchObject({ state: 'paid_not_cleared', paidInFull: false, receivedInFull: true, notClearedCents: 355691, balanceCents: 0, text: 'Paid, not cleared yet ($3,556.91 waiting on the bank)' })
+    expect(waiting.text).not.toMatch(/^Paid in full/)
+    expect(billingStatusOf({ ...schedule(711383, '2026-11-02'), clearedCents: 711383 }, '2026-11-06')).toMatchObject({ state: 'paid', text: 'Paid in full', paidInFull: true, receivedInFull: true, notClearedCents: 0 })
+    // No clearedCents given (payments from before states were kept): every payment reads cleared, as it always did.
+    expect(billingStatusOf(schedule(711383, '2026-11-02'), '2026-11-06')).toMatchObject({ state: 'paid', paidInFull: true })
+    // Part paid, some of it not cleared: still the money owed first.
+    expect(billingStatusOf({ ...schedule(355692), clearedCents: 0 }, '2026-11-06')).toMatchObject({ state: 'not_due', receivedInFull: false, notClearedCents: 355692 })
+    // The Final invoice milestone: done once received in full, says it is not cleared.
+    expect(fromRecords('invoice', { ...base, billing: { finalCents: 355691, finalDue: false, balanceCents: 0, paidInFull: false, receivedInFull: true } })).toEqual({ done: true, detail: 'Paid, not cleared yet' })
+  })
   it('the deposit due, not "Not invoiced yet" (Manuel Cotrich); overdue from the day after it was due', () => {
     expect(billingStatusOf(schedule(0), '2026-10-20')).toMatchObject({ state: 'deposit_due', overdue: false, text: 'Deposit $3,556.92 due 10/20/2026' })
     expect(billingStatusOf(schedule(0), '2026-10-25')).toMatchObject({ state: 'deposit_due', overdue: true, daysOver: 5, text: 'Deposit $3,556.92 overdue since 10/20/2026 (5 days)' })

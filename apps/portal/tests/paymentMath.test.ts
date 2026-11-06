@@ -5,7 +5,20 @@
  */
 
 import { describe, test, expect } from 'vitest'
-import { depositOf, finalOf, applyPayments, moneyText, methodText } from '../src/server/lib/paymentMath'
+import { depositOf, finalOf, applyPayments, moneyText, methodText, isCleared, isNotCleared, waitsOnBank, clearSums } from '../src/server/lib/paymentMath'
+
+describe('Received and Cleared (Nov 6 2026)', () => {
+  test('cleared: tapped Cleared, or recorded before states were kept; received is not; voided and bounced are neither', () => {
+    expect([isCleared({ clearState: 'cleared' }), isCleared({ clearState: null }), isCleared({ clearState: 'received' }), isCleared({ clearState: 'cleared', voidedAt: new Date() })]).toEqual([true, true, false, false])
+    expect([isNotCleared({ clearState: 'received' }), isNotCleared({ clearState: 'bounced', voidedAt: new Date() }), isNotCleared({ clearState: null })]).toEqual([true, false, false])
+    expect(clearSums([{ amountCents: 100, clearState: 'cleared' }, { amountCents: 200, clearState: null }, { amountCents: 400, clearState: 'received' }, { amountCents: 800, clearState: 'bounced', voidedAt: new Date() }]))
+      .toEqual({ clearedCents: 300, notClearedCents: 400, notClearedCount: 1 })
+  })
+  test('what the customer reads: an uncleared check (or other) waits on the bank; cash, card and Zelle do not', () => {
+    expect(['check', 'other', 'cash', 'card', 'zelle'].map(method => waitsOnBank({ clearState: 'received', method }))).toEqual([true, true, false, false, false])
+    expect(waitsOnBank({ clearState: 'cleared', method: 'check' })).toBe(false)
+  })
+})
 
 const inv = (id: string, amountCents: number, sortOrder: number) => ({ id, amountCents, sortOrder, createdAt: '2026-10-01T00:00:00Z' })
 const pay = (id: string, amountCents: number, paidOn: string, at = '2026-10-21T12:00:00Z') => ({ id, amountCents, paidOn, createdAt: at })

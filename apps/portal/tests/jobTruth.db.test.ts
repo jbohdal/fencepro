@@ -207,9 +207,15 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('job truth (dev database)', { tim
     const { recordInstallTime } = await import('../src/server/lib/crewInstall.js')
     await recordInstallTime(ids.job, 'finish', 'Crew test', new Date(), true)
     expect(await truth.closeOutIfDone(accountId, ids.job, 'finish tapped')).toMatchObject({ moved: true })
+    // Received in full, the checks not cleared yet: Complete, not Paid (Nov 6 2026: "A job reads Paid only when cleared").
+    expect(await prisma.savedJob.findUnique({ where: { id: ids.job } })).toMatchObject({ status: 'completed', opsStage: 'completed', paymentStatus: 'partial' })
+    expect((await truth.billingViewFor(accountId, ids.job))).toMatchObject({ paidCents: 711383, clearedCents: 0 })
+    expect(truth.billingStatusOf(await truth.billingViewFor(accountId, ids.job))).toMatchObject({ state: 'paid_not_cleared', paidInFull: false, receivedInFull: true, notClearedCents: 711383 })
+    // The owner taps Cleared on both checks: on to Paid (round 2, Oct 26 2026).
+    for (const p of [d, f]) expect((await call('POST', `/api/payments/${p.json.data.payment.id}/cleared`, {})).status).toBe(200)
     const job = await prisma.savedJob.findUnique({ where: { id: ids.job } })
-    // Paid in full: on to Paid (round 2, Oct 26 2026).
     expect(job).toMatchObject({ status: 'paid', opsStage: 'paid', paymentStatus: 'paid' })
+    expect(truth.billingStatusOf(await truth.billingViewFor(accountId, ids.job))).toMatchObject({ state: 'paid', text: 'Paid in full', paidInFull: true })
     expect(job?.completedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     const leads = (await prisma.pipelineState.findUnique({ where: { accountId } }))?.leads as any[]
     // Paid in full and done: the last Sold, work done stage (Paid & Closed on the start list).

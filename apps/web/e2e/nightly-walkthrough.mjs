@@ -363,7 +363,8 @@ async function officeTakesPayment(o, jobId, which, checkNo) {
   const status = await R.locator('[data-receipt-status]').getAttribute('data-receipt-status')
   expect(status === 'saved', `the receipt says ${status}, not saved`)
   const words = `$${amount} by check #${checkNo}, receipt ${await R.locator('[data-receipt-number]').getAttribute('data-receipt-number')}`
-  const paidInFull = await R.locator('[data-receipt-paid-in-full]').isVisible().catch(() => false)
+  // A check not cleared yet reads "Payment received" with a $0 balance (Nov 6 2026); Paid in full once the owner taps Cleared.
+  const paidInFull = await R.locator('[data-receipt-paid-in-full], [data-receipt-waiting-on-bank]').first().isVisible().catch(() => false)
   await tap(o, R.locator('[data-receipt-done]'))
   return { words, paidInFull, amountCents: Math.round(Number(amount) * 100) }
 }
@@ -709,8 +710,14 @@ try {
     await step('A', 'Installer walks the job with the homeowner; both sign on his phone', I, () => installerWalksTheJob(I, C, A.job.id, { homeownerOnLink: false, homeowner: 'Pat Nightly' }))
     await step('A', 'Office takes the final payment (job page)', O, async () => {
       const r = await officeTakesPayment(O, A.job.id, 'final', '2102')
-      expect(r.paidInFull, 'the receipt does not say Paid in full')
+      expect(r.paidInFull, 'the receipt does not say Paid in full (or Payment received, the check not cleared yet)')
       return r.words
+    })
+    await step('A', 'Owner taps Cleared on the checks once the bank shows them', null, async () => {
+      const pays = (await owner('GET', `/api/payments/job/${A.job.id}`)).json?.data?.schedule?.payments ?? []
+      const open = pays.filter(p => !p.voidedAt && p.clearState === 'received')
+      for (const p of open) { const r = await owner('POST', `/api/payments/${p.id}/cleared`, {}); expect(r.status === 200, `Cleared answered ${r.status}`) }
+      return `${open.length} cleared`
     })
     await step('A', 'The job closes itself: Complete, then Paid; card Paid & Closed', null, () => closesItself(A.job.id, A.contactId))
   }
