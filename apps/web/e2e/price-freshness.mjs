@@ -101,7 +101,7 @@ try {
   const left = await page.locator('[data-price-item]').count()
   // 358 saved prices are one save: wait for the server to show it (up to 20 s) instead of reading it 2.5 s after the tap.
   let all = [], notConfirmed = []
-  for (let i = 0; i < 10; i++) { all = (await api('/api/inventory-state')).items; notConfirmed = all.filter(x => Number(x.unitCost) > 0 && !(x.priceUpdatedAt && !x.priceImported)); // a part with no price yet (the Oct 30 wood kit parts, $0) has no price to confirm
+  for (let i = 0; i < 10; i++) { all = (await api('/api/inventory-state')).items; notConfirmed = all.filter(x => Number(x.unitCost) > 0 && x.status !== 'archived' && !(x.priceUpdatedAt && !x.priceImported)); // a part with no price yet (the Oct 30 wood kit parts, $0) has no price to confirm; an archived part (an archived color's or style's, never quoted) is not shown unless asked, so not in "these prices"
     if (notConfirmed.length <= borrowedShown) break; await sleep(2000) }
   check('Bulk "Confirm these prices": every shown item confirmed but the From Black ones', toCheck - borrowedShown > 1 && left === borrowedShown && notConfirmed.every(borrowed) && notConfirmed.length === borrowedShown, `${toCheck - borrowedShown} confirmed, ${left} left, ${borrowedShown} From Black`)
   if (notConfirmed.length !== borrowedShown) console.log('      not confirmed after the bulk confirm:', notConfirmed.length, notConfirmed.filter(x => !borrowed(x)).slice(0, 6).map(x => `${x.name} (cost ${x.unitCost}, updated ${x.priceUpdatedAt}, imported ${x.priceImported})`).join('; '))

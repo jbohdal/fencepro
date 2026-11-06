@@ -9,8 +9,11 @@
 // for chain link finishes: a finish copying Galvanized, priced by part, is
 // added; its fences, kits and parts are made (parts with no price), it is not
 // available for quoting until priced, and the quote builder shows it held.
-// It is removed, then a choice (Semi privacy) is added and removed, and
-// Settings, Inventory and kits are checked to be exactly as before.
+// It is removed, then a choice (a vinyl height, E2E 7 ft) is added and removed, and
+// Settings, Inventory and kits are checked to be exactly as before. Since Nov 5 2026
+// (5fcb611) a material's style (vinyl Privacy/Bell, aluminum panel, ...) is added with
+// the style form, like a vinyl color, and archived rather than removed: + Add style is
+// checked to open that form, without saving.
 import './devOnly.mjs' // refuses the live server (port 4000, *.ts.net); dev copy only
 import './sharedLock.mjs' // tests that change shared dev data take turns
 import { chromium } from 'playwright'
@@ -28,6 +31,7 @@ const api = async (p, init = {}) => { const j = await raw(p, init); return j.dat
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }) }
 
 const FINISH = 'E2E Green', KEY = 'e2e-green', TAG = `chain:finish:${KEY}`
+const HEIGHT = 'E2E 7 ft', HKEY = 'e2e-7-ft'
 const snapshot = async () => {
   const bs = await api('/api/business-state'), inv = await api('/api/inventory-state')
   const finishes = (bs.config.fenceCatalog?.materials?.find(m => m.key === 'chain')?.dims.find(d => d.key === 'finish')?.options ?? []).map(o => o.key)
@@ -35,7 +39,7 @@ const snapshot = async () => {
 }
 const before = await snapshot()
 const GALV = before.bs.config.fenceStyles.filter(s => s.isActive !== false && (s.choices?.finish === 'galv' || /^CL - (\d'|Com 6'(\+1')?)( Galv)?$/.test(s.name)) && !/Black/.test(s.name))
-check('setup: no Semi privacy choice left from an earlier run (the test adds it and removes it)', !before.bs.config.fenceStyles.some(s => s.choices?.style === 'semi-privacy'))
+check('setup: no test height left from an earlier run (the test adds it and removes it)', !before.bs.config.fenceStyles.some(s => s.choices?.height === HKEY))
 check('setup: no test finish left from an earlier run', !before.finishes.includes(KEY) && !before.styles.some(n => n.includes(KEY)))
 
 const browser = await chromium.launch()
@@ -55,7 +59,9 @@ const wizNext = async () => { await tap('[data-wiz-next]'); await sleep(350) }
 try {
   // ── The tree ──
   await openStyles()
-  check('Settings → Fence Styles: a tree by material (vinyl, chain link, aluminum, other, wood), not a table of codes', await page.locator('[data-tree-material]').count() === 5 && await page.locator('[data-tree-option="vinyl:style:privacy"]').isVisible())
+  // One card per material in the choice tree (vinyl, two tone vinyl, chain link, aluminum, wood, other, farm since Nov 2026).
+  const materials = JSON.parse(before.catalog)?.materials?.length ?? 0
+  check('Settings → Fence Styles: a tree by material (vinyl, chain link, aluminum, wood, ...), not a table of codes', materials >= 5 && await page.locator('[data-tree-material]').count() === materials && await page.locator('[data-tree-option="vinyl:style:privacy"]').isVisible(), `${await page.locator('[data-tree-material]').count()} cards, ${materials} materials`)
   await page.locator('[data-tree-material="vinyl"]').scrollIntoViewIfNeeded(); await shot(page, 'dev-styles-tree')
 
   // ── A vinyl color: the one form in Price List ──
@@ -97,19 +103,26 @@ try {
   const removeErr = await page.locator('[data-wiz-error]').textContent().catch(() => '')
   check('removed (no saved quote uses it)', !removeErr, removeErr)
 
-  // ── Adding a choice the same way: Semi privacy, then removed ──
+  // ── A style: + Add style opens the style form for vinyl (nothing saved) ──
   await openStyles()
-  await tap('[data-add-choice="vinyl:style"]'); await page.waitForSelector('[data-choice-dialog]')
-  await page.locator('[data-choice-label]').fill('Semi privacy'); await page.locator('[data-choice-copy="privacy"]').tap()
+  await tap('[data-add-choice="vinyl:style"]'); await page.waitForSelector('[data-style-sheet]', { timeout: 15000 })
+  check('Vinyl → + Add style opens the style form for vinyl, copying a vinyl style', await page.locator('[data-style-material]').inputValue() === 'vinyl' && await page.locator('[data-style-copy-from] option[value="privacy"]').count() === 1)
+  await tap('[data-style-sheet-close]'); await sleep(300)
+  check('closing the style form saves nothing', (await page.locator('[data-style-sheet]').count()) === 0 && (await snapshot()).styles.length === before.styles.length)
+
+  // ── Adding a choice the same way: a height (E2E 7 ft), then removed ──
+  await openStyles()
+  await tap('[data-add-choice="vinyl:height"]'); await page.waitForSelector('[data-choice-dialog]')
+  await page.locator('[data-choice-label]').fill(HEIGHT); await page.locator('[data-choice-copy="6"]').tap()
   await shot(page, 'dev-add-height-or-style')
   await tap('[data-choice-save]'); await page.waitForSelector('[data-choice-dialog]', { state: 'detached', timeout: 30000 }).catch(() => {}); await sleep(2500)
   s = await snapshot()
-  const semi = s.bs.config.fenceStyles.filter(x => x.choices?.style === 'semi-privacy')
-  check('Semi privacy added: its fences copied from Privacy, turned off until checked', semi.length > 10 && (await page.locator('[data-tree-option="vinyl:style:semi-privacy"] [role="switch"]').getAttribute('aria-checked')) === 'false', `${semi.length} fences`)
-  await tap('[data-edit-option="vinyl:style:semi-privacy"]'); await page.waitForSelector('[data-choice-dialog]'); await tap('[data-choice-remove]'); await sleep(2500)
+  const tall = s.bs.config.fenceStyles.filter(x => x.choices?.height === HKEY)
+  check('E2E 7 ft added: its fences copied from 6 ft, turned off until checked', tall.length > 10 && (await page.locator(`[data-tree-option="vinyl:height:${HKEY}"] [role="switch"]`).getAttribute('aria-checked')) === 'false', `${tall.length} fences`)
+  await tap(`[data-edit-option="vinyl:height:${HKEY}"]`); await page.waitForSelector('[data-choice-dialog]'); await tap('[data-choice-remove]'); await sleep(2500)
   // The settings save is debounced and a second edit right after the first merges with it: wait for the server to show the removal (up to 30 s).
-  for (let i = 0; i < 15; i++) { s = await snapshot(); if (!s.bs.config.fenceStyles.some(x => x.choices?.style === 'semi-privacy')) break; await sleep(2000) }
-  check('Semi privacy removed with its fences and kits', !s.bs.config.fenceStyles.some(x => x.choices?.style === 'semi-privacy') && !(s.inv.kits ?? []).some(k => k.madeFor === 'vinyl:style:semi-privacy'))
+  for (let i = 0; i < 15; i++) { s = await snapshot(); if (!s.bs.config.fenceStyles.some(x => x.choices?.height === HKEY)) break; await sleep(2000) }
+  check('E2E 7 ft removed with its fences and kits', !s.bs.config.fenceStyles.some(x => x.choices?.height === HKEY) && !(s.inv.kits ?? []).some(k => k.madeFor === `vinyl:height:${HKEY}`))
 } catch (e) {
   check('test run finished', false, String(e?.stack || e).split('\n').slice(0, 14).join(' '))
 }
@@ -119,11 +132,11 @@ try {
 // but the server keeps the choice; a reload shows it again), take it out on a fresh page so the dev copy is not left with a test choice.
 // The failed check above stays failed.
 try {
-  if ((await snapshot()).bs.config.fenceStyles.some(x => x.choices?.style === 'semi-privacy')) {
+  if ((await snapshot()).bs.config.fenceStyles.some(x => x.choices?.height === HKEY)) {
     await openStyles()
-    await tap('[data-edit-option="vinyl:style:semi-privacy"]'); await page.waitForSelector('[data-choice-dialog]'); await tap('[data-choice-remove]'); await sleep(4000)
+    await tap(`[data-edit-option="vinyl:height:${HKEY}"]`); await page.waitForSelector('[data-choice-dialog]'); await tap('[data-choice-remove]'); await sleep(4000)
   }
-} catch (e) { console.log('cleanup of Semi privacy did not finish:', String(e).split('\n')[0].slice(0, 200)) }
+} catch (e) { console.log('cleanup of E2E 7 ft did not finish:', String(e).split('\n')[0].slice(0, 200)) }
 await sleep(1500)
 const after = await snapshot()
 check('nothing left: the fence styles are exactly as before', JSON.stringify(after.styles) === JSON.stringify(before.styles))

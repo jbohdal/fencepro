@@ -145,9 +145,14 @@ try {
     check('No Answer: the top imported card is the newest row (order_in_stage 1 among cards); only newer cards nobody placed are above it',
       firstRankedAt >= 0 && naIds[firstRankedAt] === imported('No Answer')[0].id && above.every(id => !ranked(id)),
       `${above.length} unplaced above; ${leadById(naIds[firstRankedAt])?.firstName ?? '?'} (want ${imported('No Answer')[0].firstName})`)
-    const fcIds = await page.locator('[data-kanban-col="First Contact"] [data-kanban-card]').evaluateAll(els => els.map(e => e.getAttribute('data-kanban-card')))
+    // First Contact shows 50 cards at a time too, and the imported ones are its oldest (Oct 2026): newer leads, and other
+    // suites' test leads on the shared dev copy, put them past the first 50 (Nov 5 2026: 62 cards). Show them all first.
+    const fcCol = page.locator('[data-kanban-col="First Contact"]')
+    if (await fcCol.getAttribute('data-collapsed') === 'true') await tap(fcCol.locator('button').first())
+    for (let i = 0; i < 20; i++) { const more = fcCol.locator('[data-kanban-more]'); if (!(await more.count())) break; await tap(more.first()); await sleep(300) }
+    const fcIds = await fcCol.locator('[data-kanban-card]').evaluateAll(els => els.map(e => e.getAttribute('data-kanban-card')))
     const wantFc = imported('First Contact').map(l => l.id)
-    check(`First Contact: the ${wantFc.length} imported cards keep the file's order`, wantFc.length > 0 && JSON.stringify(fcIds.filter(id => wantFc.includes(id))) === JSON.stringify(wantFc))
+    check(`First Contact: the ${wantFc.length} imported cards keep the file's order`, wantFc.length > 0 && JSON.stringify(fcIds.filter(id => wantFc.includes(id))) === JSON.stringify(wantFc), `${fcIds.length} cards shown, imported on screen: ${fcIds.filter(id => wantFc.includes(id)).length}`)
     check('no sideways scrolling of the page on the pipeline', phone ? await page.evaluate(() => document.body.scrollWidth <= window.innerWidth + 1) : true)
     await shot('pipeline')
 

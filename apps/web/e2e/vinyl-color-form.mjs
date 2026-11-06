@@ -127,12 +127,17 @@ async function run(engine, name, phone) {
     if (SHOTS) { await page.locator('[data-vc-pieces]').scrollIntoViewIfNeeded(); await page.locator('[data-sheet="vinyl-color-form"] > div').screenshot({ path: `${SHOTS}/${phone ? 'e2e-color-stiffeners-phone' : 'e2e-color-stiffeners'}.png` }) }
     await tap('[data-sheet-close]'); await sleep(300)
 
-    // ── The real Chai Gray (made before Nov 5): Edit shows what its kits hold; nothing is saved ──
+    // ── The real Chai Gray: Edit shows its stiffeners; nothing is saved. Made before Nov 5 in section mode, its stiffeners
+    // were in the section kit at $0 and the form said saving charges them. Jonathan saved it again on live on Nov 5 2026 (by
+    // the piece, stiffeners on the form), so a copy of live from then on has them saved and nothing to warn about. ──
+    const cgForm = JSON.parse(before.catalog)?.materials?.find(m => m.key === 'vinyl')?.dims?.find(d => d.key === 'color')?.options?.find(o => o.key === 'chai-gray')?.color?.form
+    const cgWarns = cgForm?.mode === 'section' && !cgForm?.stiffeners
     if (await page.locator('[data-vc-edit="chai-gray"]').count()) {
       await tap('[data-vc-edit="chai-gray"]'); await page.waitForSelector('[data-vc-form]')
       const cg = {}
       for (const k of ['picket:6x8', 'picket:leaf', 'rail:6x8', 'rail:leaf']) cg[k] = await page.locator(`[data-vc-stiffener-count="${k}"]`).inputValue().catch(() => '')
-      check(`${name}: Chai Gray's Edit shows its 3 picket stiffeners and 1 rail insert, a section and a leaf, and says saving charges them`, await page.locator('[data-vc-stiffener-on="picket"]').isChecked() && JSON.stringify(cg) === JSON.stringify({ 'picket:6x8': '3', 'picket:leaf': '3', 'rail:6x8': '1', 'rail:leaf': '1' }) && /saving charges it/.test(await page.locator('[data-vc-stiffener="picket"]').textContent()), JSON.stringify(cg))
+      const cgText = await page.locator('[data-vc-stiffener="picket"]').textContent()
+      check(`${name}: Chai Gray's Edit shows its 3 picket stiffeners and 1 rail insert, a section and a leaf${cgWarns ? ', and says saving charges them' : ' (saved on the form: no "saving charges it")'}`, await page.locator('[data-vc-stiffener-on="picket"]').isChecked() && JSON.stringify(cg) === JSON.stringify({ 'picket:6x8': '3', 'picket:leaf': '3', 'rail:6x8': '1', 'rail:leaf': '1' }) && /saving charges it/.test(cgText) === cgWarns, `${JSON.stringify(cg)} picket ticked: ${await page.locator('[data-vc-stiffener-on="picket"]').isChecked()}, text: ${cgText.slice(0, 160)}`)
       await tap('[data-sheet-close]'); await sleep(300)
     }
 
@@ -171,7 +176,13 @@ async function run(engine, name, phone) {
   }
   await sleep(1000)
   const after = await snapshot()
-  check(`${name}: nothing left: fence styles exactly as before`, after.styles === before.styles)
+  const styleDiff = () => {
+    const a = JSON.parse(before.styles), b = JSON.parse(after.styles), byId = l => new Map(l.map(x => [x.id, JSON.stringify(x)]))
+    const A = byId(a), B = byId(b)
+    return [`${a.length} -> ${b.length}`, ...[...B.keys()].filter(k => !A.has(k)).map(k => `added ${JSON.parse(B.get(k)).name}`), ...[...A.keys()].filter(k => !B.has(k)).map(k => `gone ${JSON.parse(A.get(k)).name}`),
+      ...[...A.keys()].filter(k => B.has(k) && A.get(k) !== B.get(k)).map(k => { const x = JSON.parse(A.get(k)), y = JSON.parse(B.get(k)); return `changed ${x.name}: ${[...new Set([...Object.keys(x), ...Object.keys(y)])].filter(f => JSON.stringify(x[f]) !== JSON.stringify(y[f])).map(f => `${f} ${JSON.stringify(x[f])} -> ${JSON.stringify(y[f])}`).join(', ')}` })].slice(0, 8).join(' | ')
+  }
+  check(`${name}: nothing left: fence styles exactly as before`, after.styles === before.styles, after.styles === before.styles ? '' : styleDiff())
   check(`${name}: nothing left: the choice tree exactly as before`, after.catalog === before.catalog)
   check(`${name}: nothing left: Inventory items and kits exactly as before`, after.items === before.items && after.kits === before.kits)
   // The server's estimates read Settings again at most every few seconds.
