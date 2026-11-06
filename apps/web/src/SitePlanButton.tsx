@@ -82,7 +82,7 @@ export default function SitePlanButton({ jobId, className = '' }: { jobId: strin
       {label ? (
         <span className="inline-flex flex-col items-start gap-1">
           <button type="button" className={`btn btn-secondary min-h-[44px] ${className}`} disabled={busy} onClick={() => void openIt()} data-site-plan-button={rec.plan ? 'open' : start.what}>
-            {busy ? 'Opening…' : label}{rec.plan ? (rec.doneAt ? ' (done)' : needed ? ' (not done)' : '') : ''}
+            {busy ? 'Opening…' : label}{rec.plan ? (rec.doneAt ? (rec.changedSinceDone ? ' (done, changed since)' : ' (done)') : needed ? ' (not done)' : '') : ''}
           </button>
         </span>
       ) : <span className="text-sm text-gray-600" data-site-plan-none>No site plan yet.</span>}

@@ -21,6 +21,9 @@ export interface SitePlanRecord {
   quote: { id: string; status: string; signed: boolean; layout: (Partial<QuoteLayoutRecord> & Record<string, unknown>) | null } | null
   settings: { tolFt: number; tolPct: number; setbackFt: number }
   canEdit: boolean
+  /** The revision marked done (the crew's, the customer's and the permit's copy), and whether the plan changed since. */
+  doneRevision?: number | null
+  changedSinceDone?: boolean
   /** The job's fence now: the signed quote with its approved and signed change orders (the plan is checked against it). */
   current?: { fenceStyle?: string; yard: YardLayout | null; runs?: number[]; runSections?: number[]; runRails?: string[] | null; changeOrders?: number[] } | null
 }
