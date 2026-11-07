@@ -53,8 +53,8 @@ export const tierSetBodySchema = z.object({
 // ── The starting sets ────────────────────────────────────────────────────────
 
 export const VINYL_STARTER: TierSpec[] = [
-  { key: 'good', name: 'Good', install: 'dig-set', width: 'cheapest', color: 'same', text: 'Posts set in concrete. A solid fence at the lowest price.' },
-  { key: 'better', name: 'Better', install: 'no-dig', width: 'cheapest', color: 'same', text: 'Steel pipe driven deep, no concrete, faster install.' },
+  { key: 'good', name: 'Good', install: 'dig-set', width: 'cheapest', color: 'same', text: 'Posts set in concrete. A solid fence at our lowest price.' },
+  { key: 'better', name: 'Better', install: 'no-dig', width: 'cheapest', color: 'same', text: 'Steel reinforced posts with no concrete to crack or heave. The stronger option, backed by our Lifetime Craftsmanship Warranty.' },
   { key: 'best', name: 'Best', install: 'no-dig', width: '6', color: 'same', text: 'More posts per foot for the strongest fence we build.' },
 ]
 /** Aluminum and chain link show two options, not Good Better Best (Jonathan, Oct 2026). */
@@ -87,7 +87,7 @@ export const FARM_STARTER: TierSpec[] = [
 /** The tier marked Most popular in the two option sets: No dig. */
 export const TWO_OPTION_POPULAR = 'better'
 
-/** The lineup before tier sets (web tiers.ts DEFAULT_TIERS as of Oct 2026). */
+/** The lineup before tier sets (web tiers.ts DEFAULT_TIERS as of Oct 2026), word for word: it tells an unedited old setting from an edited one, and is never shown. */
 const OLD_DEFAULTS: Record<string, { label: string; color: string; install: string; blurb: string }> = {
   good: { label: 'Good', color: 'white', install: 'dig-set', blurb: 'Dig set: posts set in concrete.' },
   better: { label: 'Better', color: 'white', install: 'no-dig', blurb: 'No dig: steel pipe driven deep, no concrete, faster install.' },

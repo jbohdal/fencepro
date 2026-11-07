@@ -1278,6 +1278,8 @@ export default function QuoteBuilder({
   const minimumHeld = underMinimum.length > 0 && !minimumOverride
   // A sketched fence with a side not measured (or a gate that does not fit) is not saved: the price would be short (review, Nov 6 2026).
   const [sketchFocus, setSketchFocus] = useState(0)
+  // Which view of the Yard step shows (Sketch or List): the change order banner names it.
+  const [sketchView, setSketchView] = useState<'sketch' | 'list'>('sketch')
   const sketchHeld = useMemo(() => {
     if (!walkMode || !walk || signedQuote) return null
     const sk = sketchFor(walk)
@@ -1525,7 +1527,7 @@ export default function QuoteBuilder({
       const direct = directCo.current
       directCo.current = false
       if (changed.filter(k => k !== 'status').length) { setPending({ quote, kind: 'locked' }); if (direct) startChangeOrder(quote); return }
-      if (direct) { toast.info('Nothing changed yet', `Change the ${walkMode ? 'walk list' : 'drawing'} first (footage, gates, style or height), then tap Make change order. Or type the change from the job's Change order button.`); return }
+      if (direct) { toast.info('Nothing changed yet', `Change the ${walkMode ? (sketchView === 'sketch' ? 'sketch' : 'walk list') : 'drawing'} first (footage, gates, style or height), then tap Make change order. Or type the change from the job's Change order button.`); return }
       // The quote as signed is what is saved (the builder may show the work as changed by approved change orders).
       onSave(keepPrices(signedQuoteOf(init), { ...quote, date: init.date }))
       return
@@ -1742,7 +1744,7 @@ export default function QuoteBuilder({
           <div>
             <h2 className="text-xl font-bold text-gray-900">{init?.id ? 'Edit quote' : 'New quote'}</h2>
             <p className="text-sm text-gray-500 mt-0.5 hidden md:block">Quote builder</p>
-            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? `Change order: change the ${jobType === 'repair' ? 'repair list' : entry === 'layout' ? (walkMode ? 'walk list' : 'drawing') : 'list of lengths'}, then tap Make change order.` : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
+            {signedQuote && <p className="text-xs font-semibold text-amber-800 mt-0.5" data-quote-locked-banner>{changeOrder ? `Change order: change the ${jobType === 'repair' ? 'repair list' : entry === 'layout' ? (walkMode ? (sketchView === 'sketch' ? 'sketch' : 'walk list') : 'drawing') : 'list of lengths'}, then tap Make change order.` : 'Signed: the price is locked. Changes to the fence go on a change order.'}</p>}
             {/* Another change order still open is in this drawing and its price: said, not only in a passing toast (round 3 recheck). */}
             {signedQuote && changeOrder && openChangesNote(init) && <p className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-open-in-drawing>{openChangesNote(init)}</p>}
             {coNoWorkNote && <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-1 max-w-xl" data-co-no-work-note>{coNoWorkNote}</p>}
@@ -1863,6 +1865,7 @@ export default function QuoteBuilder({
                   )}
                   {/* Sketch and measure (Jonathan, Nov 6 2026): the finger sketch with typed feet, written as the walk list; List view inside. */}
                   <SketchStep
+                    onView={setSketchView}
                     focusProblem={sketchFocus}
                     walk={walk}
                     onChange={setWalk}

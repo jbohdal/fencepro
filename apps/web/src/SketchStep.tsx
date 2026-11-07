@@ -70,8 +70,10 @@ const targetDone = (sk: Sketch, t: Target) => {
   return t.kind === 'tee' ? l.tee?.atIn != null : (l.feetIn[t.side] ?? 0) > 0
 }
 
-export default function SketchStep({ walk, onChange, onDone, locked = false, voice = false, address = '', tape, focusProblem = 0 }: {
+export default function SketchStep({ walk, onChange, onDone, locked = false, voice = false, address = '', tape, focusProblem = 0, onView }: {
   walk: WalkList | null
+  /** Told which view shows (Sketch or List), so the change order banner names it. */
+  onView?: (view: 'sketch' | 'list') => void
   /** Changed by the Price step's "Not saved yet": go to the first thing to fix (a side's feet, a gate, a tee). */
   focusProblem?: number
   onChange: (w: WalkList) => void
@@ -83,6 +85,7 @@ export default function SketchStep({ walk, onChange, onDone, locked = false, voi
 }) {
   const sk = useMemo(() => sketchFor(walk), [walk])
   const [view, setView] = useState<'sketch' | 'list'>('sketch')
+  useEffect(() => { onView?.(view) }, [view])  // eslint-disable-line react-hooks/exhaustive-deps
   const [mode, setMode] = useState<Mode>(() => (sk.lines.length ? 'feet' : 'draw'))
   const [sel, setSel] = useState<Sel>(null)
   const [target, setTarget] = useState<Target | null>(null)

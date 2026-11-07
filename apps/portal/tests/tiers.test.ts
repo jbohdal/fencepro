@@ -105,8 +105,8 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
 
   test('the words for the proposal are the new lineup', () => {
     expect(tiers.map(t => t.spec.text)).toEqual([
-      'Posts set in concrete. A solid fence at the lowest price.',
-      'Steel pipe driven deep, no concrete, faster install.',
+      'Posts set in concrete. A solid fence at our lowest price.',
+      'Steel reinforced posts with no concrete to crack or heave. The stronger option, backed by our Lifetime Craftsmanship Warranty.',
       'More posts per foot for the strongest fence we build.',
     ])
   })
@@ -127,7 +127,7 @@ describe('the vinyl set on a white quote (300 ft backyard)', () => {
     expect(p.options.slice(0, 3).map(o => o.tier?.label)).toEqual(['Good', 'Better', 'Best'])
     expect(p.recommended).toBe(1)
     expect(p.options[1].badge).toBe('Most popular')
-    expect(p.options[0].tier!.blurb).toBe('Posts set in concrete. A solid fence at the lowest price.')
+    expect(p.options[0].tier!.blurb).toBe('Posts set in concrete. A solid fence at our lowest price.')
     expect(p.tierSet!.tiers.map(t => t.key)).toEqual(['good', 'better', 'best'])
   })
 

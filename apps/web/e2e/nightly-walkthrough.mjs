@@ -816,6 +816,8 @@ try {
       await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
       // A walked job's drawing is its sketch (Nov 7 2026): Feet, tap the back (Side 3, 150 ft), type 160, Make change order.
       if (!(await page.locator('[data-sketch-canvas]').isVisible().catch(() => false))) await tap(J, page.locator('[data-quote-builder] [data-step="yard"]'))
+      const banner = await page.locator('[data-quote-locked-banner]').innerText().catch(() => '')
+      expect(/Change order: change the sketch, then tap Make change order\./.test(banner), `the banner says "${banner}"`)
       await tap(J, page.locator('[data-sketch-mode="feet"]'))
       const sides = await page.locator('[data-sketch-side]').evaluateAll(els => els.map(e => e.getAttribute('data-sketch-side')))
       expect(sides.includes('3'), `the sketch's sides are ${sides.join(', ') || 'none'} (${await page.locator('[data-sketch-prompt]').innerText().catch(() => 'no prompt')})`)
