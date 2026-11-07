@@ -177,7 +177,7 @@ try {
     // ── The walkthrough signed and paid in full before the crew is done ──
     sql(`INSERT INTO "Walkthrough" (id, "accountId", "jobId", status, "homeownerSig", "repSig", "signedAt", "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 'completed', '{"name":"Maria"}'::jsonb, '{"name":"Jonathan","role":"Owner"}'::jsonb, now(), now(), now() FROM "SavedJob" WHERE id = ${lit(A.jobId)}`)
     const sched = (await owner('GET', `/api/payments/job/${A.jobId}`)).json.data?.schedule
-    const paid = await owner('POST', '/api/payments', { id: `e2er2${stamp}a`, jobId: A.jobId, amountCents: sched?.contractCents ?? 500000, method: 'check', checkNumber: '4242' })
+    const paid = await owner('POST', '/api/payments', { id: `e2er2${stamp}a`, jobId: A.jobId, amountCents: sched?.contractCents ?? 500000, method: 'zelle' }) // cleared when taken (a check waits for Cleared, Nov 6 2026)
     const mid = await jobRow(A.jobId)
     check('signed off and paid in full, crew not done: still In Progress', paid.status === 201 && mid?.status === 'in_progress', `${paid.status} ${mid?.status}`)
     // The crew: "We finished the whole job".

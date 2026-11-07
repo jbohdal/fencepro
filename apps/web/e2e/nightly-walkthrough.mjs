@@ -814,10 +814,19 @@ try {
       await tap(J, coBtn)
       if (await page.locator('[data-co-from-drawing-start]').count()) await tap(J, page.locator('[data-co-from-drawing-start]'))
       await page.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
-      await tap(J, page.locator('[data-plan-label="Back"]').first())
-      await page.waitForSelector('[data-ftin-pad]', { timeout: 10000 })
-      for (const d of '160') await tap(J, page.locator(`[data-ftin-pad] [data-pad-key="${d}"]`))
-      await tap(J, page.locator('[data-ftin-pad] [data-pad-action]'))
+      // A walked job's drawing is its sketch (Nov 7 2026): Feet, tap the back (Side 3, 150 ft), type 160, Make change order.
+      if (!(await page.locator('[data-sketch-canvas]').isVisible().catch(() => false))) await tap(J, page.locator('[data-quote-builder] [data-step="yard"]'))
+      await tap(J, page.locator('[data-sketch-mode="feet"]'))
+      const sides = await page.locator('[data-sketch-side]').evaluateAll(els => els.map(e => e.getAttribute('data-sketch-side')))
+      expect(sides.includes('3'), `the sketch's sides are ${sides.join(', ') || 'none'} (${await page.locator('[data-sketch-prompt]').innerText().catch(() => 'no prompt')})`)
+      // A level side is a line with no height (never "visible" to the browser driver): tap its middle on the screen.
+      const r3 = await page.locator('[data-sketch-side="3"]').first().evaluate(e => { e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
+      await page.mouse.click(r3.x, r3.y); await sleep(400)
+      const asked = await page.locator('[data-sketch-question]').innerText({ timeout: 10000 })
+      expect(/Side 3/.test(asked), `the feet box asks "${asked}", not Side 3`)
+      await page.locator('[data-sketch-feet-input]').fill('160')
+      await tap(J, page.locator('[data-sketch-feet-next]'))
+      await tap(J, page.locator('[data-quote-bar] [data-co-make]'))
       await page.waitForSelector('[data-co-modal]', { timeout: 15000 })
       const line = await page.locator('[data-co-line-description]').first().inputValue()
       expect(/Add 10 ft/.test(line), `the change order says "${line}", not "Add 10 ft"`)
@@ -893,6 +902,12 @@ try {
         if (r.paidInFull) return words.join('; ')
       }
       throw new StepFail(`not paid in full after ${words.length} payments: ${words.join('; ')}`)
+    })
+    await step('C', 'Owner taps Cleared on the checks once the bank shows them', null, async () => {
+      const pays = (await owner('GET', `/api/payments/job/${R.job.id}`)).json?.data?.schedule?.payments ?? []
+      const open = pays.filter(p => !p.voidedAt && p.clearState === 'received')
+      for (const p of open) { const r = await owner('POST', `/api/payments/${p.id}/cleared`, {}); expect(r.status === 200, `Cleared answered ${r.status}`) }
+      return `${open.length} cleared`
     })
     await step('C', 'The repair closes itself: Paid; card Paid & Closed', null, () => closesItself(R.job.id, R.contactId))
   }

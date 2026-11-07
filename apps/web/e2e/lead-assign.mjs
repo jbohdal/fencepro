@@ -59,7 +59,7 @@ try {
   intakeId = sql(`SELECT id FROM "IntakeLead" WHERE "sourceRef" = ${lit(ref)}`)
   const pushed = await until(async () => fs.readFileSync(OUTBOX, 'utf8').split('\n').filter(Boolean).slice(before).map(l => JSON.parse(l)).find(l => l.title === `New lead: ${name}`))
   check(!!pushed && pushed.channel === 'push', `one push to the owner, held in the dev outbox: "${pushed?.title}" / "${pushed?.body}"`)
-  check(!!pushed && /^Website quote · Ocala · Vinyl, Privacy, 6ft, White, 152 ft\. Tap to assign\./.test(pushed.body), 'it says where from, the town and what they asked for')
+  check(!!pushed && /^Website quote · Ocala · Vinyl, Privacy, 6ft, White, 152 ft\. Tap to (text them thanks and )?assign\./.test(pushed.body), 'it says where from, the town and what they asked for')
   check(!!pushed && pushed.body.includes(`/assign-lead?customer=${contactId}`), 'a tap opens the Assign screen for this lead')
 
   // The Salesman cannot see it yet, and cannot assign.

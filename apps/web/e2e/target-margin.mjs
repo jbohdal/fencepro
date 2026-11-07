@@ -52,8 +52,10 @@ try {
   const ds = await page.locator(`[data-style-profit="WV-DS 6'x6' Privacy"]`).inputValue()
   const cl = await page.locator(`[data-style-profit="CL - 4' Galv"]`).inputValue()
   // Target Margin = overhead in use + profit (30% + 14% = 44% when the typed overhead is used; 36.9% + 14% = 50.9% with live overhead).
-  const wantTM = `${Math.round((expectedOverhead + 14) * 10) / 10}%`
-  check(`Styles: no dig vinyl 14% profit, ${wantTM} Target Margin (overhead in use + profit)`, nd === '14%' && ndTM.trim() === wantTM, `${nd} / ${ndTM}`)
+  // The profit is the owner's (14% when this test was written; 17% on live from Nov 2026), so read it.
+  const ndProfit = Number(String(nd).replace('%', ''))
+  const wantTM = `${Math.round((expectedOverhead + ndProfit) * 10) / 10}%`
+  check(`Styles: no dig vinyl ${nd} profit, ${wantTM} Target Margin (overhead in use + profit)`, /^\d+(\.\d+)?%$/.test(nd) && ndTM.trim() === wantTM, `${nd} / ${ndTM}`)
   check('Styles: dig set vinyl 10%, chain link 12%', ds === '10%' && cl === '12%', `${ds} / ${cl}`)
   const body = await page.locator('[data-page-scroll]').textContent()
   // The Fence Styles page has no table since Nov 2 2026 (a tree per material, rates per fence): its tree is checked.

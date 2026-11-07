@@ -47,7 +47,7 @@ if (salesLogin) SALES = salesLogin.token
 const salesMe = (await call('GET', '/api/crm-auth/me', undefined, SALES)).json?.data
 const SALES_NAME = salesMe ? `${salesMe.firstName} ${salesMe.lastName}` : ''
 const sql = q => execFileSync('psql', ['-d', 'ezbiz_dev', '-At', '-c', q]).toString().trim()
-const theSide = n => `the ${/(^|\s)(side|return|run)$/i.test(n) ? n : `${n} side`}`
+const theSide = n => (/^side \d+$/i.test(n) ? n : `the ${/(^|\s)(side|return|run)$/i.test(n) ? n : `${n} side`}`) // as lib/changeOrderMerge.ts theSide: "Side 2", "the Back side"
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/r4-${name}.png`, fullPage: false }).catch(() => {}) }
 const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120"><rect x="10" y="10" width="180" height="100" fill="none" stroke="#5E28A1" stroke-width="4"/><text x="100" y="65" font-size="14" text-anchor="middle">New layout</text></svg>'

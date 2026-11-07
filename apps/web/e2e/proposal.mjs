@@ -137,7 +137,8 @@ try {
   check('saved: Better and Best first, then the tan option ticked (3 options)', q.proposal.options.slice(0, 2).map(o => o.tier?.label).join(',') === 'Better,Best' && offered.length === 3 && offered.includes(OWN) && offered.includes(TAN) && offered.includes(SIX), offered.join(' | '))
   const rec = q.proposal.recommended
   check('saved: Most popular (Better) is the recommended option', q.proposal.options[rec]?.tier?.label === 'Better' && q.proposal.options[rec].badge === 'Most popular', `${rec}`)
-  check('walked: the proposal carries no site plan picture (until the office draws it), the deposit and financing', !q?.proposal.planSvg && q.proposal.depositPct === 50 && q.proposal.financing?.months === 60)
+  // A walked quote's proposal shows the sketch (Nov 7 2026, Settings > Proposals switch, on by default) until the office draws the site plan.
+  check('walked: the proposal carries the sketch (not the site plan), the deposit and financing', /Sketch, not to scale\. Measurements as listed\./.test(q?.proposal.planSvg ?? '') && q.proposal.depositPct === 50 && q.proposal.financing?.months === 60)
   const sixIndex = offered.indexOf(SIX), tanIndex = offered.indexOf(TAN)
   const sixOpt = q.proposal.options[sixIndex]
   const token = (await api(`/api/saved-quotes/${quoteId}/share-token`, { method: 'POST' })).shareToken
@@ -154,7 +155,9 @@ try {
   const pageText = (await c.page.locator('body').textContent()).replace(/\s+/g, ' ')
   const opts = await c.page.locator('.opt').count()
   check('customer page: every option offered, tiers side by side, Better marked Most popular', opts === offered.length && await c.page.locator('.opts.tiers').count() === 1 && (await c.page.locator('.opt').nth(rec).textContent()).includes('Most popular'))
-  check('customer page: each tier says what makes it better', ['Steel pipe driven deep, no concrete, faster install.', 'More posts per foot for the strongest fence we build.'].every(t => pageText.includes(t)))
+  // Each tier's words are the owner's (Settings > Proposals tiers), so read them from the saved options.
+  const blurbs = q.proposal.options.map(o => o.tier?.blurb).filter(Boolean)
+  check('customer page: each tier says what makes it better', blurbs.length >= 2 && blurbs.every(t => pageText.includes(t.replace(/\s+/g, ' '))), blurbs.join(' | '))
   check('customer page: no site plan picture yet; monthly payment, deposit, warranty, what is included', !pageText.includes('Site plan') && ['As low as $', '/month for 60 months', 'Deposit', '50% to schedule', 'Warranty', "What's included", '446 ft of new fence'].every(t => pageText.includes(t)), pageText.slice(0, 200))
   check('customer page: the tan option shows its style photo', await c.page.locator('.opt').nth(tanIndex).locator('img.photo').count() === 1)
   if (SHOTS) await c.page.screenshot({ path: `${SHOTS}/3-customer-proposal-top.png` })

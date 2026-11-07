@@ -121,7 +121,7 @@ try {
   // A: the walkthrough signed; everything paid but the final.
   sql(`INSERT INTO "Walkthrough" (id, "accountId", "jobId", status, "homeownerSig", "repSig", "signedAt", "createdAt", "updatedAt") SELECT ${lit(crypto.randomUUID())}, "accountId", id, 'completed', '{"name":"Brooks"}'::jsonb, '{"name":"Jonathan","role":"Owner"}'::jsonb, now(), now(), now() FROM "SavedJob" WHERE id = ${lit(A.jobId)}`)
   const invA = (await owner('GET', `/api/payments/job/${A.jobId}`)).json.data?.schedule?.invoices ?? []
-  for (const [i, inv] of invA.slice(0, -1).entries()) await owner('POST', '/api/payments', { id: `e2er2b${stamp}${i}`, jobId: A.jobId, amountCents: inv.amountCents, method: 'check', checkNumber: `70${i}` })
+  for (const [i, inv] of invA.slice(0, -1).entries()) await owner('POST', '/api/payments', { id: `e2er2b${stamp}${i}`, jobId: A.jobId, amountCents: inv.amountCents, method: 'zelle' }) // cleared when taken (a check waits for Cleared, Nov 6 2026)
   check('setup: six sold jobs (one day, two day, two repairs, one dated the old way, one waiting), Office and Installer logins; A signed off, all but the final paid',
     [A, C, R, R2, M, E].every(x => x.ok) && !!office.token && !!crew.token && invA.length > 1 && (await jobRow(A.jobId))?.paymentStatus !== 'paid')
 
@@ -178,8 +178,7 @@ try {
     await recv.scrollIntoViewIfNeeded().catch(() => {})
     await recv.click()
     const sheet = o.page.locator('[data-payment-sheet]')
-    await sheet.locator('[data-payment-method="check"]').click()
-    await sheet.locator('[data-payment-check-number]').fill('7799')
+    await sheet.locator('[data-payment-method="cash"]').click() // cleared when taken; a check waits for Cleared
     await sheet.locator('[data-payment-save]').click()
     await o.page.locator('[data-receipt-done]').click({ timeout: 20000 }).catch(() => {})
     const pill = await until(async () => (await panel.locator('[data-ops-stage-pill]').getAttribute('data-ops-stage-pill')) === 'paid', 30000)

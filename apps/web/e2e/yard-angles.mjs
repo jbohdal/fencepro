@@ -457,34 +457,8 @@ try {
   await dp.locator('[data-packet-off]').click().catch(() => {}); await sleep(500)
   await crew.close()
 
-  // Draw on photo: a new quote, three corners tapped on the photo; the sides fill in; an exact length typed keeps the angles.
-  const q2 = await api('/api/saved-quotes', { method: 'POST', body: JSON.stringify({
-    crmContactId: made.contact, customerName: CUSTOMER, customerPhone: '3525550178', customerAddress: ADDRESS,
-    fenceStyle: "WV-ND 6'x8' Privacy", runs: [], corners: 0, ends: 0, sections: 0, status: 'DRAFT', finalPrice: 0, date: new Date().toISOString().slice(0, 10), layout: null,
-  }) })
-  made.quote2 = q2.id
-  await dp.goto(`${APP}/quotes?quote=${made.quote2}`)
-  await dp.locator('[data-quote-builder] [data-step="yard"]').click({ timeout: 30000 }); await sleep(800)
-  await dp.locator('[data-draw-on-photo-open]').first().click()
-  await dp.waitForSelector('[data-draw-on-photo] [data-w-map] .leaflet-container', { timeout: 30000 }); await sleep(1500)
-  const mb = await dp.locator('[data-draw-on-photo] [data-w-map] .leaflet-container').boundingBox()
-  const c = { x: mb.x + mb.width / 2, y: mb.y + mb.height / 2 }
-  for (const [x, y] of [[-150, 60], [-150, -80], [120, -80]]) { await dp.mouse.click(c.x + x, c.y + y); await sleep(450) }
-  await dp.locator('[data-draw-on-photo] [data-w-done]').click(); await sleep(500)
-  await shot(dp, 'dev-yard-draw-on-photo', '[data-draw-on-photo]')
-  await dp.locator('[data-draw-on-photo-use]').click(); await sleep(1500)
-  const rows = await dp.locator('[data-side-list] [data-side-len]').allTextContents()
-  check('Draw on photo: two sides filled in with their measured lengths', rows.length === 2 && rows.every(t => /^\d+' /.test(t)), rows.join(', '))
-  await dp.waitForSelector(svgSel, { timeout: 30000 }); await sleep(800)
-  const dInfo0 = await planInfo(dp)
-  check('Draw on photo: the corner as drawn (square: the tool snaps straight and square)', dInfo0.angles.length === 1 && Math.abs(dInfo0.angles[0].deg - 90) < 1.5, angleKey(dInfo0))
-  await dp.locator('[data-side-row="Side 1"]').click(); await sleep(300)
-  await dp.locator('[data-side="Side 1"] [data-side-length]').click(); await sleep(300)
-  for (const k of ['back', 'back', 'back', 'back']) await dp.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click().catch(() => {})
-  for (const k of ['5', '0']) await dp.locator(`[data-ftin-pad] [data-pad-key="${k}"]`).click()
-  await dp.locator('[data-ftin-pad] [data-pad-done]').click(); await sleep(600)
-  const dInfo1 = await planInfo(dp)
-  check('an exact length typed after: the typed length wins, the angle stays', Math.abs(dInfo1.sides.find(s => s.name === 'Side 1').ft - 50) < 0.05 && Math.abs(dInfo1.angles[0].deg - dInfo0.angles[0].deg) < 0.01, `${lengthsText(dInfo1)} ${angleKey(dInfo1)}`)
+  // Draw on photo was the old drawing tool's start for a new quote. A new quote opens on the sketch now (Nov 7 2026,
+  // e2e/sketch-measure.mjs; its aerial photo is under the sketch), so the drawing tool only opens saved drawn quotes.
   check('desktop: no page errors', dErrors.length === 0, dErrors.join(' | '))
   await d.close()
 } catch (e) {

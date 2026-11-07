@@ -134,7 +134,10 @@ async function run(phone) {
     check(`${size}: merged: the card and the quote are K's`, !!moved && q1?.crmContactId === kId, JSON.stringify({ card: (await leads()).find(l => l.id === card.id)?.customerId, quote: q1?.crmContactId }))
     const nNow = (await contacts(true)).find(c => c.id === N.id)
     check(`${size}: N is kept, archived, merged into K`, !!nNow && !!nNow.archivedAt && nNow.mergedIntoId === kId && !(await contact(N.id)))
-    check(`${size}: K's record is unchanged by the merge`, JSON.stringify(await contact(kId)) === snapK)
+    // The merge moves N's property to K (K's page lists "Moved: 1 property"), so K's property list grows by it; the rest of K stays.
+    const kAfter = await contact(kId), kBefore = JSON.parse(snapK)
+    const noProps = c => JSON.stringify({ ...c, propertyAddresses: undefined, activeProperties: undefined })
+    check(`${size}: K's record is unchanged by the merge (only N's property added)`, noProps(kAfter) === noProps(kBefore) && (kAfter?.activeProperties ?? 0) === (kBefore.activeProperties ?? 0) + 1, Object.keys({ ...kBefore, ...kAfter }).filter(k => JSON.stringify(kBefore[k]) !== JSON.stringify(kAfter?.[k])).map(k => `${k}: ${JSON.stringify(kBefore[k])} → ${JSON.stringify(kAfter?.[k])}`).join('; '))
     const gone = await until(async () => (await s.page.locator(`[data-card-window="${card.id}"] [data-possible-match-notice]`).count()) === 0, 15000)
     check(`${size}: the notice is gone from the card`, !!gone)
     // The card window's own reads finish before the page moves on (WebKit reports a fetch cut off by leaving as a page error).
@@ -167,9 +170,11 @@ async function run(phone) {
     const offered = await again.waitFor({ timeout: 30000 }).then(() => true, () => false)
     check(`${size}: after the undo the possible match is offered again`, offered)
     await s.press(again.locator('[data-dismiss-match]'))
-    const hidden = await until(async () => (await s.page.locator('[data-possible-match-notice]').count()) === 0, 15000)
+    // K's notice only: other customers at the same test address (an earlier run cut short) can have their own.
+    const kNotice = `[data-possible-match-notice][data-match-customer="${kId}"]`
+    const hidden = await until(async () => (await s.page.locator(kNotice).count()) === 0, 15000)
     await s.page.reload(); await s.page.locator('[data-customer-detail]').waitFor({ timeout: 30000 }); await sleep(2500)
-    check(`${size}: Not the same person: gone, and still gone after a reload`, !!hidden && (await s.page.locator('[data-possible-match-notice]').count()) === 0)
+    check(`${size}: Not the same person: gone, and still gone after a reload`, !!hidden && (await s.page.locator(kNotice).count()) === 0, `hidden at once: ${!!hidden}; after reload: ${await s.page.locator(kNotice).count()}`)
     check(`${size}: K is still unchanged`, JSON.stringify(await contact(kId)) === snapK)
     await s.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}); await sleep(1000)
     check(`${size}: no page errors`, s.errors.length === 0, s.errors.slice(0, 3).join(' | '))

@@ -183,6 +183,13 @@ async function main() {
     await sleep(1000)
     check(await b.locator('[data-from-black]').count() === 0, `${nd}: no "Price may be low" in the Price step`)
     await shot(page, '1-salesman-green-no-dig-price-no-warning')
+    // Green parts still at Black's price (priceAge.ts borrowedPrice). Once every one has its own price (the green dig
+    // set pipe got its prices Nov 5 2026), no option warns, and there is nothing left to show.
+    const borrowed = Number(sql(`SELECT count(*) FROM "InventoryState" t, jsonb_array_elements(t.items::jsonb) i WHERE i->>'madeFor' LIKE 'chain:finish:green%' AND i ? 'priceFrom' AND round((i->>'unitCost')::numeric * 100) = (i->'priceFrom'->>'cents')::numeric AND (i->>'priceUpdatedAt' IS NULL OR (i->>'priceImported')::boolean)`))
+    if (borrowed === 0) {
+      check(await b.locator('[data-tier-from-black]').count() === 0, 'every green part has its own price now: no option says its price may be low')
+      return
+    }
     // The Dig set option offered on the same proposal still has its posts from Black: its card says so.
     const tierWarn = b.locator('[data-tier-from-black]')
     const tierText = await tierWarn.first().innerText().catch(() => '')

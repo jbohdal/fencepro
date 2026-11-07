@@ -60,6 +60,7 @@ const ADDRESS_TYPED = '110 SE Watula'
 const HOUSE = { w: 60, d: 40 }                          // centered on the point
 const LOT = [[-70, -60], [70, -60], [70, 120], [-70, 120]]
 const NAME = `E2E Drawn ${ENGINE}${IFRAME ? ' Frame' : ''}`
+const RUN_START = new Date().toISOString() // this run's records only (an earlier run cut short can leave one behind)
 const PHONE = '352-555-01' + String(40 + ['webkit', 'chromium', 'android'].indexOf(ENGINE) * 3 + (IFRAME ? 1 : 0)).padStart(2, '0')
 
 const R = 6378137
@@ -307,7 +308,7 @@ try {
   check('the visit id is in the page\'s memory only: not in the page address', /^[A-Za-z0-9_-]{20,40}$/.test(made.draft) && !new URL(frameUrl).searchParams.get('draft'), made.draft)
   made.contact = psql(`select id from "CrmContact" where "firstName"='E2E' and "lastName"='${NAME.slice(4)}' and "archivedAt" is null order by "createdAt" desc limit 1`)
   const count = () => ({
-    contacts: psql(`select count(*) from "CrmContact" where "firstName"='E2E' and "lastName"='${NAME.slice(4)}'`),
+    contacts: psql(`select count(*) from "CrmContact" where "firstName"='E2E' and "lastName"='${NAME.slice(4)}' and "createdAt" >= '${RUN_START}'`),
     quotes: psql(`select count(*) from "SavedQuote" where "crmContactId"='${made.contact}'`),
     cards: psql(`select count(*) from "PipelineState", jsonb_array_elements(leads::jsonb) l where l->>'customerId'='${made.contact}'`),
     intake: psql(`select count(*) from "IntakeLead" where "sourceRef"='${made.draft}'`),
@@ -357,11 +358,13 @@ try {
   const builder = Number((await sp.locator('[data-quote-price]').first().textContent()).replace(/[$,]/g, ''))
   check('the quote builder prices it the same, to the cent', Math.round(builder * 100) === Math.round(opts[0].price * 100), `builder $${builder}, widget $${opts[0].price}`)
   await sp.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(2500)
-  check('the builder opens on the yard already drawn, on the aerial photo', (await sp.locator('[data-plan-wrap] svg[data-photo-rotation]').count()) === 1 && (await sp.locator('[data-side-row]').count()) === 5)
-  const builderPieces = await sp.locator('[data-plan-wrap] svg').textContent()
-  check('the builder draws the gate in the same place: 11\' / 6\' walk gate / 63\'', /11'/.test(builderPieces) && /6' walk gate/.test(builderPieces) && /63'/.test(builderPieces))
+  // The Yard step is the sketch (Nov 7 2026): the customer's drawing opens as a sketch to check the feet.
+  check('the builder opens on the yard already sketched: 5 sides, the gate, "check the feet"', await sp.locator('[data-sketch-canvas]').isVisible() && (await sp.locator('[data-sketch-side]').count()) === 5 && (await sp.locator('[data-sketch-gate]').count()) === 1 && /Started from the customer's drawing, check the feet/.test(await sp.locator('[data-walk-started-from]').textContent().catch(() => '') ?? ''))
+  const builderPieces = await sp.locator('[data-sketch-canvas]').textContent()
+  // Each side's feet include its gate (11 + 6 + 63 = 80 ft), the gate labelled with its width.
+  check('the sketch shows the gate and the feet: the 80 ft side, its 6 ft gate', /(^|\D)80 ft/.test(builderPieces) && /6 ft gate/.test(builderPieces), builderPieces)
   check('and shows the customer\'s drawing as they drew it (measured / typed)', (await sp.locator('[data-customer-drawing]').count()) === 1 && (await sp.locator('[data-side-how="typed"]').count()) === 1)
-  await sp.locator('[data-plan-wrap]').scrollIntoViewIfNeeded()
+  await sp.locator('[data-sketch-canvas]').scrollIntoViewIfNeeded()
   await shot(sp, `dev-widget-10-in-app${IFRAME ? '-iframe' : ''}.png`)
   // The builder saves: the customer's drawing stays as drawn.
   const before2 = psql(`select layout::jsonb->'widgetDrawing'->>'drawnAt' from "SavedQuote" where id='${made.quote}'`)

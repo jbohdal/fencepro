@@ -84,7 +84,7 @@ try {
   }
   const ds = page.locator('[data-tree-option="chain:install:ds"]')
   const dsText = (await ds.textContent()) || ''
-  check('Dig set names the fences available for quoting and the ones waiting, not a pooled count', /Available for quoting: .*Galvanized Chain Link, 4 ft/.test(dsText) && /Waiting for prices in Inventory: |Switched off, and waiting for prices: /.test(dsText) && !/waiting for prices on \d+ parts in Inventory\. It switches on by itself/.test(dsText), dsText.slice(0, 400))
+  check('Dig set names the fences available for quoting and the ones waiting, not a pooled count', (/Fully priced: available for quoting/.test(dsText) || (/Available for quoting: .*Galvanized Chain Link, 4 ft/.test(dsText) && /Waiting for prices in Inventory: |Switched off, and waiting for prices: /.test(dsText))) && !/waiting for prices on \d+ parts in Inventory\. It switches on by itself/.test(dsText), dsText.slice(0, 400))
   await ds.scrollIntoViewIfNeeded(); if (SHOTS) await page.screenshot({ path: `${SHOTS}/settings-dig-set-per-fence.png` })
   check('no page errors', errs.length === 0, errs.join(' | '))
 } catch (e) {

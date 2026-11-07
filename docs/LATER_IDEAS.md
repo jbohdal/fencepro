@@ -191,3 +191,15 @@ Not money, lost data or a customer-facing error, so not fixed tonight (Jonathan,
 - Nightly copy: the deploy-check copy's web app must be built too (apps/web pnpm build); on Nov 5 it served a Nov 3 build until 23:15, so that night's earlier browser results were against old code.
 - Test timing: back-button checks the note on the server 1.2 s after Save; under load the save takes longer (the note does arrive). Wait for it instead.
 - customer-links: when a quote moves to another customer, the first customer keeps the property it was first quoted at in their property list. Jonathan to say if it should be taken off when no record of theirs is there.
+
+## Nightly Nov 7 2026 triage
+
+- The first run lost its dev sign in about 22:30, so most suites never really ran. A rerun with fresh sign ins: 107 of 126 passed. None of the 19 failures was a money, lost data or customer-facing fault in the app; each was a test behind a deliberate change.
+- Checks wait for Cleared (Nov 6): round2, round2b and the walkthrough's repair (C) paid by check and expected the job to close itself. round2 and round2b now pay by Zelle and cash, and the walkthrough taps Cleared on the repair's checks as it already did for job A. money-screens now expects the P&L's cash basis to be payments cleared, with its "Payments cleared (cash)" wording.
+- Sketch and measure (Nov 7): widget-draw, yard-angles, proposal and the walkthrough's change order expected the old drawing tool on the Yard step. Each now uses the sketch. yard-angles' "Draw on photo" section was taken out, because that tool now opens only on saved drawn quotes.
+- Test wording behind the app: round4-co ("Side 2", not "the Side 2 side"), lead-assign ("Tap to text them thanks and assign."), proposal (the owner's own tier words, read from the quote), target-margin (no dig vinyl profit is 17% on live now, read from the screen), typed-gate-widths and green-from-black (every green and dig set chain link part has its own price since Nov 5, so nothing waits and nothing warns).
+- possible-match: a merge moves N's property onto K, as the merge history says, so K's property list grows. Extra notices on N's page came from test customers that the cut-short run left at the same test address (110 SE Watula Ave). The test now checks only K's notice.
+- booking: the address-mismatch warning and "Use typed address" steps are from before properties (11448c8). The booking dialog now picks one of the customer's properties. The test needs rewriting for property picking.
+- discount-options, make-main-saved, salesman-picks and lien-notice-addendum need SALES_COOKIE, JOB_ID, E2E_OWNER_COOKIE or E2E_OFFICE_COOKIE, and `run-heavy.sh all` sets none of them, so they never run at night. Make run-heavy create those sign ins.
+- sales-orders still needs its dev-only "AUD Web Chainlink" audit job (Nov 2 note).
+- Dev leftovers from the cut-short run: "E2E Drawn webkit" and "Nate Match New …5vmvir" customers at 110 SE Watula Ave. The next refresh-dev-db clears them.

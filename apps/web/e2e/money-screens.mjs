@@ -39,7 +39,10 @@ const attr = (sel, a) => page.locator(sel).first().getAttribute(a)
 const api = async p => (await (await ctx.request.get(`${API}${p}`, { headers: { 'X-Staff-Request': '1' } })).json()).data
 const year = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric' }).format(new Date())
 const received = await api('/api/payments/received')
-const cashYtd = received.filter(p => p.paidOn.startsWith(`${year}-`)).reduce((t, p) => t + p.amountCents, 0)
+// The P&L's cash basis is payments cleared, by the day cleared (Nov 6 2026); received and not cleared yet is left out.
+const clearedDay = p => p.clearState === 'cleared' && p.clearedOn ? p.clearedOn : p.paidOn
+const counts = p => !p.voidedAt && p.clearState !== 'bounced' && p.clearState !== 'received'
+const cashYtd = received.filter(p => counts(p) && clearedDay(p).startsWith(`${year}-`)).reduce((t, p) => t + p.amountCents, 0)
 check('payments received load (owner)', Array.isArray(received), `${received.length} payments, ${year}: $${(cashYtd / 100).toFixed(2)}`)
 
 // Billing and the Balance Sheet (read Billing again after, as other tests may add a job in between)
@@ -74,8 +77,8 @@ await page.locator('[data-pl-basis="cash"]').click()
 await sleep(800)
 const plCash = Number(await attr('[data-pl-revenue]', 'data-pl-revenue'))
 await shot('pl-cash')
-check('P&L cash revenue YTD = payments received this year', plCash === cashYtd && plCashShown === cashYtd, `P&L ${plCash} (shown under installed: ${plCashShown}), payments ${cashYtd}`)
-check('P&L says its revenue basis', /Payments received \(cash\)/.test(await page.locator('body').innerText()))
+check('P&L cash revenue YTD = payments cleared this year', plCash === cashYtd && plCashShown === cashYtd, `P&L ${plCash} (shown under installed: ${plCashShown}), payments ${cashYtd}`)
+check('P&L says its revenue basis', /Payments cleared \(cash\)/.test(await page.locator('body').innerText()))
 
 // Dashboard
 await open('/')
