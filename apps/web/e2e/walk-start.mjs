@@ -61,7 +61,9 @@ const quoteRow = id => {
 const toYard = async page => {
   const b = page.locator('[data-quote-builder]')
   await b.waitFor({ timeout: 30000 })
-  if (!(await page.locator('[data-walk]').isVisible().catch(() => false))) { await b.locator('[data-step="yard"]').click().catch(() => {}); await sleep(500) }
+  if (!(await page.locator('[data-walk], [data-sketch-step]').first().isVisible().catch(() => false))) { await b.locator('[data-step="yard"]').click().catch(() => {}); await sleep(500) }
+  // The Yard step opens on the sketch (Nov 6 2026); these checks read its List view, the walk list.
+  const t = page.locator('[data-sketch-toggle-to="list"]'); if (await t.count()) { await t.first().click(); await sleep(250) }
 }
 const stepTexts = page => page.locator('[data-walk-step]').allTextContents().then(a => a.map(t => t.replace(/\s+/g, ' ').trim()))
 async function saveQuote(page, { name } = {}) {

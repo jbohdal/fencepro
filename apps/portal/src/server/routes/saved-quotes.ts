@@ -145,6 +145,19 @@ const quoteSchema = z.object({
           gate: z.object({ widthIn: z.number().min(0).max(1200), type: z.enum(['walk', 'double']) }).optional().nullable(),
         })).max(200),
       })).max(40),
+      // The finger sketch it was measured on (web sketch.ts, Nov 6 2026): shape and rough angles only, never the price.
+      sketch: z.object({
+        v: z.literal(1),
+        lines: z.array(z.object({
+          id: z.string().max(64),
+          pts: z.array(z.object({ x: z.number().finite(), y: z.number().finite() })).max(200),
+          closed: z.boolean(),
+          feetIn: z.array(z.number().min(0).max(1_000_000).nullable()).max(200),
+          gates: z.array(z.object({ id: z.string().max(64), side: z.number().int().min(0).max(200), atIn: z.number().min(0).max(1_000_000).nullable(), widthIn: z.number().min(0).max(1200), type: z.enum(['walk', 'double']) })).max(100),
+          tee: z.object({ lineId: z.string().max(64), side: z.number().int().min(0).max(200), atIn: z.number().min(0).max(1_000_000).nullable() }).optional().nullable(),
+        })).max(40),
+        house: z.object({ x: z.number().finite(), y: z.number().finite(), w: z.number().finite(), h: z.number().finite() }).optional().nullable(),
+      }).optional().nullable(),
     }).optional().nullable(),
     planDone: z.boolean().optional(),
   }).optional().nullable(),

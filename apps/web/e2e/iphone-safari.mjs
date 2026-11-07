@@ -818,6 +818,8 @@ async function drawYard() {
   await D.tap(bar)
   // The walk list (Nov 5 2026): 20 ft with a 4 ft walk gate in its middle, a corner; 95; 128 with a 10 ft double
   // gate in its middle; 95; 20 to the end post at the house.
+  // The Yard step opens on the sketch (Nov 6 2026; e2e/sketch-measure.mjs): this walks its List view.
+  await D.tap('[data-sketch-toggle-to="list"]')
   await waitFor('[data-walk-feet]', 15000)
   const steps = [[8, 'gate', 4, 'walk'], [8, 'corner'], [95, 'corner'], [59, 'gate', 10, 'double'], [59, 'corner'], [95, 'corner'], [20, 'end']]
   for (const [feet, what, w, kind] of steps) {

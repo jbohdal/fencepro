@@ -88,7 +88,7 @@ async function bigScreen(browser, size, tag) {
   const list = await box(page.locator('[data-walk-list]')), sketch = await box(page.locator('[data-walk-sketch]')), qw = await box(b)
   check(`${tag}: Yard step: the walk list and its sketch fit the window`, list && sketch && qw && list.x >= qw.x - 1 && list.x + list.width <= qw.x + qw.width + 1 && sketch.x + sketch.width <= qw.x + qw.width + 1, JSON.stringify({ list, sketch, qw }))
   const bb2 = await box(bar)
-  check(`${tag}: the footer has not moved`, Math.abs(bb2.y - bb.y) <= 2 && Math.abs(bb2.height - bb.height) <= 30)
+  check(`${tag}: the footer has not moved (its bottom edge; the Yard step's bigger buttons make it a little taller)`, Math.abs((bb2.y + bb2.height) - (bb.y + bb.height)) <= 2 && Math.abs(bb2.height - bb.height) <= 30, JSON.stringify({ before: bb, after: bb2 }))
   if (SHOTS && tag === 'computer') await page.screenshot({ path: `${SHOTS}/dev-quote-window-desktop-yard.png` })
 
   await b.locator('[data-step="style"]').click(); await sleep(300)

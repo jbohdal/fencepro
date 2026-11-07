@@ -141,7 +141,8 @@ export default function WalkListStep({ walk: walk0, onChange, onDone, locked = f
       )}
       {list.length > 0 && (
         <figure className="rounded-xl border border-gray-300 bg-white p-2" data-walk-sketch>
-          <svg viewBox="0 0 340 220" className="w-full h-auto" role="img" aria-label="Rough sketch, not to scale" dangerouslySetInnerHTML={{ __html: sketchSvgBody(walk, 340, 220) }} />
+          <svg viewBox="0 0 340 220" className="w-full max-w-md mx-auto h-auto block" role="img" aria-label="Sketch, not to scale" dangerouslySetInnerHTML={{ __html: sketchSvgBody(walk, 340, 220, { label: false }) }} />
+          <figcaption className="text-xs text-gray-600 text-center">Sketch, not to scale</figcaption>
         </figure>
       )}
 

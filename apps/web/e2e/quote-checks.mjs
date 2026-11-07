@@ -45,6 +45,7 @@ try {
   await go('yard')
   const w1 = await warnings()
   check('80 ft at 8 ft wide asks for a tape measure check', w1.includes("Side 1 (80' 0\"): Check this length with a tape measure. A few inches either way changes the number of sections."), w1.slice(0, 160))
+  await page.locator('[data-sketch-toggle-to="list"]').first().click().catch(() => {}); await sleep(200)
   check('and marks the step on the walk list', await b.locator('[data-walk-step] [data-tape-flag]').count() === 1)
   if (SHOTS) { await b.locator('[data-tape-flag]').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${SHOTS}/1-phone-tape-check.png` }) }
 

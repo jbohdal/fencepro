@@ -53,6 +53,9 @@ try {
   await b.locator('input[placeholder^="Customer name"]').fill('Steps test (e2e)')
   await shot('1-customer')
   await tap(bar.locator('[data-bar-next]'), 'Next: Yard')
+  // The Yard step opens on the sketch (Nov 6 2026; e2e/sketch-measure.mjs); this walks its List view.
+  check('Yard: opens on the sketch, "Draw the fence with your finger."', /Draw the fence with your finger/.test(await b.locator('[data-sketch-prompt]').innerText().catch(() => '')))
+  await tap(b.locator('[data-sketch-toggle-to="list"]'), 'List')
 
   // The walk list (Nov 5 2026): no drawing at the house, each side walked and typed.
   check('Yard: the walk list, "Stand where the fence starts.", the feet box ready', /Stand where the fence starts/.test(await b.locator('[data-walk-prompt]').innerText()) && (await b.locator('[data-walk-feet]').count()) === 1)

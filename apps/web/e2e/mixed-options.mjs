@@ -138,7 +138,8 @@ try {
   check('saved: two options, the server\'s prices', q?.proposal?.options?.length === 2 && Math.round(q.proposal.options[0].finalPrice) === Math.round(clPrice), JSON.stringify(q?.proposal?.options?.map(o => [o.tier?.label, o.fenceStyle, o.finalPrice, o.warranty?.name, o.badge])))
   const chain = q.proposal.options.find(o => /^CL/.test(o.fenceStyle) || o.fenceStyle.startsWith('chain'))
   check('saved: the chain link option has its own pull sheet, snapshot from the server', chain.snapshot?.pullSheet?.length > 3 && chain.snapshot.totalCOGS > 0 && !chain.snapshot.pullSheet.some(l => /Emily/.test(l.item)))
-  check('walked: no site plan picture on the mixed proposal yet (so no one style\'s section count)', !q.proposal.planSvg)
+  // Sketch and measure (Nov 6 2026): a walked quote shows its sketch (feet and gates, no sections), not a site plan.
+  check('walked: no site plan picture on the mixed proposal yet, only the sketch (no one style\'s section count)', !q.proposal.planSvg || (/Sketch, not to scale/.test(q.proposal.planSvg) && !/sections/i.test(q.proposal.planSvg)))
   const ta = (await (await christa.ctx.request.post(`${API}/api/saved-quotes/${q.id}/share-token`, { headers: { 'X-Staff-Request': '1' } })).json()).data
   check('the Salesman gets the link', !!ta?.shareToken)
   await christa.ctx.request.patch(`${API}/api/saved-quotes/${q.id}`, { headers: { 'X-Staff-Request': '1', 'Content-Type': 'application/json' }, data: { status: 'SENT' } })
@@ -209,6 +210,7 @@ try {
     await pg.waitForSelector('[data-quote-builder] [data-bar-price]', { timeout: 30000 }); await sleep(1200)
     // The walk list (Nov 5 2026): the back's stretch after its gate, 59 ft → 79 ft (the back 128 → 148 ft).
     await pg.locator('[data-quote-builder] [data-step="yard"]').tap().catch(() => {}); await sleep(400)
+    await pg.locator('[data-sketch-toggle-to="list"]').first().tap().catch(() => {}); await sleep(300)
     await pg.locator('[data-walk-step]', { hasText: 'Side 3: 59 ft, Corner' }).first().tap(); await sleep(300)
     await pg.locator('[data-walk-edit-feet]').fill('79')
     await pg.locator('[data-walk-edit-save]').tap(); await sleep(500)

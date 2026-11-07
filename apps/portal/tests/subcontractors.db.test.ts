@@ -478,7 +478,9 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('subcontractors (dev database)', 
     await billing.ensureSchedule(accountId, jobId, 'test', { userId: null, name: 'Test' }, { force: true })
     await call(owner, 'POST', '/api/subcontractors/assign', { jobId, subId, start: nextMonday(), override: true })
     // Installed 31 days ago, nothing paid: day 31 of 90.
-    const ffd = new Date(Date.now() - 31 * 86_400_000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+    // 31 Florida calendar days back (not 31 × 24 hours: across the clock change that lands a day off late in the evening).
+    const [ty, tm, td] = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).split('-').map(Number)
+    const ffd = new Date(Date.UTC(ty, tm - 1, td - 31)).toISOString().slice(0, 10)
     await prisma.subJob.update({ where: { jobId }, data: { submittedAt: new Date(), report: { finishedOn: ffd } } })
     expect((await call(owner, 'POST', `/api/subcontractors/job/${jobId}/confirm`, { finalFurnishingDate: ffd })).status).toBe(200)
     // The owner only.

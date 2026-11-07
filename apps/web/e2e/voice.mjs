@@ -100,6 +100,7 @@ try {
     check('the Voice switch is remembered for this user', (await b.locator('[data-voice-switch]').getAttribute('aria-checked')) === 'true')
     check('the voice panel says where to talk: the mic by the feet box', (await b.locator('[data-voice-walk-list]').textContent().catch(() => '')).includes('tap the mic by the feet box') && (await b.locator('[data-voice-walk]').isDisabled().catch(() => true)))
     await go(b, 'yard')
+    await page.locator('[data-sketch-toggle-to="list"]').first().click().catch(() => {}); await sleep(200)
     const feet = async () => b.locator('[data-walk-feet]').inputValue()
     const msg = async () => (await b.locator('[data-walk-msg]').textContent().catch(() => '')) || ''
     await b.locator('[data-walk-voice]').click(); await sleep(900)

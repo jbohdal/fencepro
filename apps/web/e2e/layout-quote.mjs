@@ -65,6 +65,8 @@ try {
   const b = p.locator('[data-quote-builder]')
   await b.locator('input[placeholder^="Customer name"]').fill('Layout test (e2e)')
   await tap(b.locator('[data-step="yard"]'))
+  // The Yard step opens on the sketch (Nov 6 2026): this test walks its List view (one tap more).
+  await tap(b.locator('[data-sketch-toggle-to="list"]'))
   // The walk: 13 ft, a 4 ft walk gate, 13 ft to the corner; 120; 150; 120; 10 ft, a 10 ft double gate, 10 ft to the
   // end post at the house. Each digit on the keypad counts as a tap.
   for (const [ft, what, w] of [[13, 'gate', 4], [13, 'corner'], [120, 'corner'], [150, 'corner'], [120, 'corner'], [10, 'gate', 10], [10, 'end']]) {
@@ -100,6 +102,7 @@ try {
   check('advanced view gets exactly the layout\'s runs', typed.join(',') === '13,13,120,150,120,10,10', typed.join(','))
   check('and the same price', typedPrice === layoutPrice, `${layoutPrice} vs ${typedPrice}`)
   await b.locator('[data-to-layout]').click(); await sleep(300)
+  await b.locator('[data-sketch-toggle-to="list"]').first().click().catch(() => {}); await sleep(200)
   check('back to the walk list keeps the steps', (await total()) === '57' && (await b.locator('[data-walk-step]').count()) === 7)
 
   // Pinned totals on the phone.
@@ -130,6 +133,7 @@ try {
   await sleep(800)
   const b2 = d.page.locator('[data-quote-builder]')
   await b2.locator('[data-step="yard"]').click(); await sleep(400)
+  await b2.locator('[data-sketch-toggle-to="list"]').first().click().catch(() => {}); await sleep(200)
   const reopened = await b2.locator('[data-walk-step]').count()
   check('the saved quote reopens on its walk list', reopened === 7, `${reopened} steps`)
   // The office draws the plan on the job's site plan once sold, never in the old drawing tool (Jonathan, Nov 6 2026).

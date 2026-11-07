@@ -7,6 +7,7 @@
 import SitePlan from './SitePlan'
 import { deriveLayout, sitePlanNeeded, type YardLayout } from './yardLayout'
 import { walkSheetSvg } from './walkList'
+import { sketchSvg } from './sketch'
 import { gateWhereText, layoutPanelFt, savedQuoteNearIn } from './gateSlide'
 import { DEFAULT_FENCE_STYLES } from './configDefaults'
 import type { SavedQuote } from './QuotesPage'
@@ -15,8 +16,9 @@ import type { SavedQuote } from './QuotesPage'
  * Has a plan to show. A walked quote whose plan the office has not drawn yet ("Site plan needed"): the customer sees
  * no picture (price and options only); staff see the walk list sheet (QuotePlan).
  */
-export function quoteHasPlan(quote: Pick<SavedQuote, 'layout'>, opts: { customer?: boolean } = {}): boolean {
-  if (sitePlanNeeded(quote.layout)) return !opts.customer
+export function quoteHasPlan(quote: Pick<SavedQuote, 'layout'> & { proposal?: { planSvg?: string } | null }, opts: { customer?: boolean } = {}): boolean {
+  // The customer sees the sketch (feet and gates) when it was saved on the proposal (Settings → Proposals, on by default).
+  if (sitePlanNeeded(quote.layout)) return !opts.customer || !!quote.proposal?.planSvg
   return !!quote.layout?.yard
 }
 
@@ -33,8 +35,11 @@ export function quotePlanWidth(yard: YardLayout, quote: { fenceStyle?: string; r
   return { widthFt, nearIn: savedQuoteNearIn(yard, quote.runs, widthFt) }
 }
 
-export default function QuotePlan({ quote, style, caption = true }: { quote: Pick<SavedQuote, 'layout' | 'runs'> & { fenceStyle?: string }; style?: PlanStyle | null; caption?: boolean }) {
-  // Walked, not drawn yet: the walk list as measured (table and rough sketch, not to scale).
+export default function QuotePlan({ quote, style, caption = true, customer = false }: { quote: Pick<SavedQuote, 'layout' | 'runs'> & { fenceStyle?: string }; style?: PlanStyle | null; caption?: boolean; customer?: boolean }) {
+  // Walked, not drawn yet. The customer: the sketch with its feet and gates. Staff: the walk list as measured (table and sketch).
+  if (sitePlanNeeded(quote.layout) && quote.layout?.walk && customer) {
+    return <figure style={{ margin: 0 }} data-quote-plan data-walk-sketch dangerouslySetInnerHTML={{ __html: sketchSvg(quote.layout.walk).replace('<svg ', '<svg style="width:100%;height:auto" ') }} />
+  }
   if (sitePlanNeeded(quote.layout) && quote.layout?.walk) {
     return <figure style={{ margin: 0 }} data-quote-plan data-walk-sheet dangerouslySetInnerHTML={{ __html: walkSheetSvg(quote.layout.walk).replace('<svg ', '<svg style="width:100%;height:auto" ') }} />
   }

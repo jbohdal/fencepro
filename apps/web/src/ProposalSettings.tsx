@@ -56,6 +56,16 @@ export default function ProposalSettings({ config, onChange, onOpenTiers }: { co
         </label>
       </div>
 
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 mb-1">The fence sketch</h3>
+        <label className="flex items-start gap-3 text-sm">
+          <input type="checkbox" className="w-5 h-5 mt-0.5 accent-orange-500" checked={p.sketch !== false} onChange={e => set({ sketch: e.target.checked })} data-proposal-sketch />
+          <span>Show the sketch on the proposal and contract
+            <span className="block text-xs text-gray-600">A measured quote shows the salesperson's sketch with the feet of each side and where the gates go, labeled "Sketch, not to scale. Measurements as listed." Until the office draws the site plan. Applies to quotes saved after the change.</span>
+          </span>
+        </label>
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 flex flex-wrap items-center gap-3" data-tiers-moved>
         <p className="text-sm text-gray-700 flex-1 min-w-[240px]"><span className="font-semibold">Good, Better, Best</span> have their own page now: tiers for each fence category, with a price preview.</p>
         <button type="button" className="btn btn-secondary" onClick={onOpenTiers} data-open-tiers>Open Good Better Best</button>

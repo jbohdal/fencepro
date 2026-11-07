@@ -23,6 +23,7 @@
  */
 
 import { deriveLayout, type GateType, type SideGate, type TeePost, type YardLayout, type YardSide } from './yardLayout'
+import { sketchDirections, sketchFor, sketchPictureBody, type Sketch } from './sketch'
 
 export type WalkWhat = 'corner' | 'gate' | 'tee' | 'end' | 'start'
 export type Turn = 'left' | 'right'
@@ -50,6 +51,8 @@ export interface WalkLine {
 export interface WalkList {
   v: 1
   lines: WalkLine[]
+  /** The finger sketch it was measured on (sketch.ts): its shape and rough angles, never the price. */
+  sketch?: Sketch | null
 }
 
 let seq = 0
@@ -260,7 +263,8 @@ export function tapeSteps(w: WalkList, runs: Array<{ inches: number }>, flags: b
  * back to the start ends on the line's first post. The office site plan lays a walk list out with this.
  */
 export function walkSideEnds(w: WalkList): Map<string, { a: { x: number; y: number }; b: { x: number; y: number }; steps: string[] }> {
-  const sk = sketchOf(w)
+  // The sketch's rough angles when it has one (Nov 6 2026), else square corners from the turns.
+  const sk = sketchOf(w, sketchDirections(w))
   const sketch = new Map(w.lines.map((l, i) => [l.id, sk[i]]))
   const out = new Map<string, { a: { x: number; y: number }; b: { x: number; y: number }; steps: string[] }>()
   let n = 0
@@ -375,8 +379,11 @@ export function runsToWalk(q: { runs: number[]; corners: number; ends: number; w
 
 export interface SketchLine { points: Array<{ x: number; y: number }>; gates: Array<{ x: number; y: number }>; tees: Array<{ x: number; y: number; n: number }> }
 
-/** Points of each fence line walked with square corners (feet, y up), gates and tees marked. */
-export function sketchOf(w: WalkList): SketchLine[] {
+/**
+ * Points of each fence line walked at its feet (feet, y up), gates and tees marked: square corners from the turns, or
+ * with `dirs` each side in its direction as sketched (degrees, y up, by line id and side).
+ */
+export function sketchOf(w: WalkList, dirs?: Map<string, number[]> | null): SketchLine[] {
   const out: SketchLine[] = []
   const teePos = new Map<string, { x: number; y: number; dir: number }>()
   const nums = new Map(teesOf(w).map(t => [t.step.id, t.n]))
@@ -385,6 +392,9 @@ export function sketchOf(w: WalkList): SketchLine[] {
     let x = 0, y = 0, dir = 0
     const t = line.fromTee ? teePos.get(line.fromTee) : undefined
     if (t) { x = t.x; y = t.y; dir = (t.dir + (line.branchTurn === 'right' ? 270 : 90)) % 360 } else { x = offsetX; y = 0 }
+    const own = dirs?.get(line.id)
+    let side = 0
+    if (own?.length) dir = own[0]
     const pts = [{ x, y }]
     const gates: SketchLine['gates'] = [], tees: SketchLine['tees'] = []
     const go = (d: number) => { const r = (dir * Math.PI) / 180; x += Math.cos(r) * d; y += Math.sin(r) * d }
@@ -393,7 +403,7 @@ export function sketchOf(w: WalkList): SketchLine[] {
       if (s.what === 'gate') { const w2 = (s.gate?.widthIn ?? 0) / 12; go(w2 / 2); gates.push({ x, y }); go(w2 / 2) }
       pts.push({ x, y })
       if (s.what === 'tee') { teePos.set(s.id, { x, y, dir }); tees.push({ x, y, n: nums.get(s.id) ?? 0 }) }
-      if (s.what === 'corner') dir = (dir + (s.turn === 'right' ? 270 : 90)) % 360
+      if (s.what === 'corner') { side += 1; dir = own && typeof own[side] === 'number' ? own[side] : (dir + (s.turn === 'right' ? 270 : 90)) % 360 }
       if (s.what === 'start') pts.push({ ...pts[0] })
     }
     out.push({ points: pts, gates, tees })
@@ -416,34 +426,9 @@ export function walkTable(w: WalkList): Array<{ side: string; feet: string; end:
 
 const esc = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!))
 
-/** The rough sketch as an SVG body fitted into w × h (square corners, gates as gaps, tees numbered), and its label. */
+/** The sketch as an SVG body fitted into w × h (sketch.ts: the drawn shape, or square corners from the turns; feet, gates, tees). */
 export function sketchSvgBody(walk: WalkList, w: number, h: number, opts: { label?: boolean } = {}): string {
-  const lines = sketchOf(walk)
-  const pts = lines.flatMap(l => l.points)
-  if (!pts.length) return ''
-  const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
-  // Words grow with the picture: the install packet's sketch is drawn wide and shown phone width.
-  const fs = Math.max(12, Math.round(w / 30))
-  const pad = Math.max(24, fs * 2), lab = opts.label === false ? 0 : fs + 10
-  const sx = (w - pad * 2) / Math.max(1, maxX - minX), sy = (h - pad * 2 - lab) / Math.max(1, maxY - minY)
-  const k = Math.min(sx, sy)
-  const X = (x: number) => pad + (x - minX) * k, Y = (y: number) => h - pad - (y - minY) * k
-  let out = ''
-  for (const l of lines) {
-    out += `<polyline points="${l.points.map(p => `${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(' ')}" fill="none" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>`
-    for (const p of l.points) out += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3.5" fill="#111827"/>`
-    for (const g of l.gates) out += `<rect x="${(X(g.x) - 7).toFixed(1)}" y="${(Y(g.y) - 7).toFixed(1)}" width="14" height="14" fill="#fff" stroke="#c2410c" stroke-width="2.5"/>`
-    for (const t of l.tees) out += `<text x="${(X(t.x) + 6).toFixed(1)}" y="${(Y(t.y) - 6).toFixed(1)}" font-size="${fs}" font-family="Arial" fill="#1d4ed8">Tee ${t.n}</text>`
-  }
-  // Where each fence line was started (a branch starts at its tee): so the sketch reads in the table's order.
-  for (const [i, l] of lines.entries()) {
-    if (walk.lines[i]?.fromTee || !l.points.length) continue
-    const p = l.points[0]
-    out += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${(fs / 2).toFixed(1)}" fill="#15803d"/><text x="${(X(p.x) - fs * 0.6).toFixed(1)}" y="${(Y(p.y) - fs * 0.8).toFixed(1)}" font-size="${fs}" font-weight="bold" font-family="Arial" fill="#15803d" paint-order="stroke" stroke="#fff" stroke-width="4">Start</text>`
-  }
-  if (lab) out += `<text x="${w / 2}" y="${h - 6}" text-anchor="middle" font-size="${fs}" font-family="Arial" fill="#4b5563">Rough sketch, not to scale</text>`
-  return out
+  return sketchPictureBody(sketchFor(walk), w, h, opts)
 }
 
 /** The walk list sheet (install packet, permit area): the table of sides and the rough sketch, as one SVG. */

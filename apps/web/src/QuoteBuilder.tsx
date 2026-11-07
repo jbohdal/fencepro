@@ -66,8 +66,9 @@ import {
 import { JobTypePicker, MovePanel, RepairPanel, WorkBreakdown } from './MoveRepairPanels'
 import { workOption, buildWorkProposal, pricingForMain, type MainPricingKey } from './proposal'
 import { signedInRole, can, isFullRole } from './permissions'
-import WalkListStep from './WalkListStep'
+import SketchStep from './SketchStep'
 import { newQuoteWalk, tapeSteps, walkToYard, type QuoteStart, type WalkList } from './walkList'
+import { sketchFor, sketchProblems, sketchSvg } from './sketch'
 import { sendJson } from './syncHttp'
 import { jobMinimumCents, newlyUnderMinimum, underMinimumWarning, type MinimumOption } from './discountMinimum'
 import { salesmanSwitchDefault, seesCommission, clearedCommission } from './salesmanCommission'
@@ -1275,7 +1276,14 @@ export default function QuoteBuilder({
   const [overrideFor, setOverrideFor] = useState<string | null>(null)
   const minimumOverride = underMinimum.length > 0 && mayGoUnder && overrideFor === underKey
   const minimumHeld = underMinimum.length > 0 && !minimumOverride
-  const canSave = !minimumHeld && !subRateMissing && !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
+  // A sketched fence with a side not measured (or a gate that does not fit) is not saved: the price would be short (review, Nov 6 2026).
+  const [sketchFocus, setSketchFocus] = useState(0)
+  const sketchHeld = useMemo(() => {
+    if (!walkMode || !walk || signedQuote) return null
+    const sk = sketchFor(walk)
+    return sk.lines.length ? sketchProblems(sk)[0]?.text ?? null : null
+  }, [walk, walkMode, signedQuote])
+  const canSave = !sketchHeld && !minimumHeld && !subRateMissing && !heldChanged && !!styleId && (internal || heldSaved || (!!sv && !svPricing && !svError)) && (jobType === 'new' ? sections > 0
     : jobType === 'move' ? moveIn.oldFt > 0 && !!work && work.sections > 0
     : REPAIR_ITEMS.some(k => (chargedRepairItems(repairIn)[k] ?? 0) > 0))
 
@@ -1391,9 +1399,11 @@ export default function QuoteBuilder({
       photoOverride: init?.work?.photoOverride ?? null,
     }) : undefined
     const runSecs = calc.perRunSections.filter((_, i) => effRuns[i].ft > 0)
+    // Walked (Nov 6 2026): the sketch with its feet and gates, "Sketch, not to scale. Measurements as listed." (Settings switch, on by default).
+    const walkPlanSvg = fromLayout && walkMode && walk && cfg.proposal?.sketch !== false ? sketchSvg(walk) : undefined
     const workPlan = fromLayout && yard && !walkMode ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo}
       oldLine={jobType === 'move' && moveIn.oldLinePlan ? { ...moveIn.oldLinePlan, ft: moveIn.oldFt, label: `Old line ${Math.round(moveIn.oldFt)} ft` } : null}
-      damaged={jobType === 'repair' ? repairIn.tapped : undefined} />) : undefined
+      damaged={jobType === 'repair' ? repairIn.tapped : undefined} />) : walkPlanSvg
     const workProposal = work && style && savedWork ? (() => {
       const options = []
       if (!internal) options.push(...viewProposalOptions(sv))
@@ -1441,7 +1451,7 @@ export default function QuoteBuilder({
       // the crew sees post spacing exactly as priced.
       layout: { yard: fromLayout ? yard : null, runSections: calc.perRunSections.filter((_, i) => effRuns[i].ft > 0), ...(effTeeLines ? { teeLinePosts: effTeeLines } : {}), ...(keptTypedWidths ? { gateWidths: keptTypedWidths } : {}),
         // The walk list as measured (kept as the salesperson's record), and whether the office has drawn the plan from it.
-        ...(walk && fromLayout ? { walk } : {}), ...(walk && fromLayout && planDone ? { planDone: true } : {}) },
+        ...(walk && fromLayout ? { walk: walkMode ? { ...walk, sketch: sketchFor(walk) } : walk } : {}), ...(walk && fromLayout && planDone ? { planDone: true } : {}) },
       corners: effCorners,
       ends: effEnds,
       walkGates: effWalk,
@@ -1487,7 +1497,7 @@ export default function QuoteBuilder({
         wholeDollar: !keepCents,
         company: { name: cfg.company?.name || 'Getter Done Fence', phone: cfg.company?.phone || '', email: cfg.company?.email || '' },
         customer: { name: data.customerName, address: data.customerAddress },
-        planSvg: fromLayout && yard && !walkMode ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} noSections={tiers.some(t => (t.added || t.ownWords) && !t.off && !!t.option && t.option.sections !== sections)} />) : undefined,
+        planSvg: fromLayout && yard && !walkMode ? renderToStaticMarkup(<SitePlan layout={yard} result={layoutResult!} runSections={calc.perRunSections} widthFt={widthFt} aerial={photo} noSections={tiers.some(t => (t.added || t.ownWords) && !t.off && !!t.option && t.option.sections !== sections)} />) : walkPlanSvg,
         warranty: getContractSections().find(x => x.key === 'warranty' && x.visible !== false)?.body ?? '',
         settings: cfg.proposal ?? {},
         photoIds,
@@ -1851,7 +1861,9 @@ export default function QuoteBuilder({
                       {startWalk.from === 'drawing' ? 'Started from the customer\'s drawing, check the feet.' : startWalk.from === 'map' ? 'Started from the map, check the feet.' : 'Started from the lengths already typed in, check the feet.'}
                     </p>
                   )}
-                  <WalkListStep
+                  {/* Sketch and measure (Jonathan, Nov 6 2026): the finger sketch with typed feet, written as the walk list; List view inside. */}
+                  <SketchStep
+                    focusProblem={sketchFocus}
                     walk={walk}
                     onChange={setWalk}
                     onDone={() => goStep(style ? 'price' : 'style')}
@@ -2235,6 +2247,11 @@ export default function QuoteBuilder({
           </div>
 
           <div className={step === 'price' ? 'space-y-3' : 'hidden'} data-step-panel="price">
+            {sketchHeld && (
+              <button type="button" onClick={() => { goStep('yard'); setSketchFocus(n => n + 1) }} className="w-full text-left text-base font-semibold text-red-800 bg-red-50 border-2 border-red-200 rounded-xl px-3 py-2 !min-h-[56px]" data-sketch-price-held>
+                Not saved yet: {sketchHeld} The price below is missing it. Tap to go to the sketch.
+              </button>
+            )}
               {droppedStyle && (
                 <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2" data-style-off>
                   <p className="text-sm font-semibold text-amber-900" data-style-off-line>{droppedStyle}</p>
@@ -2780,7 +2797,8 @@ export default function QuoteBuilder({
               {heldChanged && <p className="text-xs font-semibold text-amber-800 text-center" data-held-no-save>{heldNotSaved(style!.label || style!.name, style!.held!, canPrice)}</p>}
               {subRateMissing && <p className="text-xs text-red-700 text-center" data-sub-rate-missing-save>{subRateMissing}</p>}
               {minimumHeld && <p className="text-xs text-red-700 text-center" data-below-minimum-save>{underMinimumWarning(underMinimum, minimumCents, mayGoUnder)}</p>}
-              {!canSave && !heldChanged && !subRateMissing && !minimumHeld && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? `Select a style, ${walkMode ? 'walk' : 'draw'} the new line and enter the old line footage` : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
+              {sketchHeld && <p className="text-sm font-semibold text-red-800 text-center" data-sketch-save-held>Not saved yet: {sketchHeld}</p>}
+              {!canSave && !sketchHeld && !heldChanged && !subRateMissing && !minimumHeld && <p className="text-xs text-gray-400 text-center">{jobType === 'move' ? `Select a style, ${walkMode ? 'walk' : 'draw'} the new line and enter the old line footage` : jobType === 'repair' ? 'Select a style and add at least one repair item' : 'Select a style and enter at least one run'}</p>}
             {showPullSheet && shownItems.length > 0 && (
               <div className="flex-1 overflow-y-auto px-6 py-4" data-pull-sheet>
                 <div className="flex items-center justify-between mb-3">

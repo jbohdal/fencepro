@@ -32,6 +32,8 @@ export interface ProposalSettings {
   linkDays?: number
   /** Push to the card's owner when a customer opens a proposal (first open, and again after 2+ days). On unless false. */
   notifyOpened?: boolean
+  /** A walked quote's sketch (feet and gates, "Sketch, not to scale. Measurements as listed.") on the proposal and contract. On unless false. */
+  sketch?: boolean
   // Good, Better, Best used to be set here (tiers, popular); they now live in
   // their own tier sets on the server (Settings → Good Better Best). The server
   // carried any old settings over when it made the sets.

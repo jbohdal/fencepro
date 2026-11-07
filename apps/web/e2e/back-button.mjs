@@ -100,7 +100,7 @@ async function pipelineFlow(browser, phone) {
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
   await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
   // A new quote opens on the walk list; the customer's draft already has its sides: change a length instead.
-  if (await page.locator('[data-walk]').count()) await walkFence(page, [[30, 'corner']])
+  if (await page.locator('[data-walk], [data-sketch-step]').count()) await walkFence(page, [[30, 'corner']])
   else { const len = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first(); await len.fill(String((parseFloat(await len.inputValue()) || 50) + 5)) }
   await sleep(500)
   let asked = ''
@@ -114,7 +114,7 @@ async function pipelineFlow(browser, phone) {
   // The close button asks too.
   await page.locator('[data-card-new-quote]').click(); await sleep(1200)
   await page.locator('[data-quote-builder] [data-step="yard"]').click(); await sleep(300)
-  if (await page.locator('[data-walk]').count()) await walkFence(page, [[57, 'end']])
+  if (await page.locator('[data-walk], [data-sketch-step]').count()) await walkFence(page, [[57, 'end']])
   else { const len = page.locator('[data-quote-builder] input[placeholder="Length in feet"]').first(); await len.fill(String((parseFloat(await len.inputValue()) || 50) + 7)) }
   await sleep(400)
   asked = ''

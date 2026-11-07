@@ -162,7 +162,8 @@ try {
   check('Move saved: job type, inputs and every cost line kept with it', !!saved && saved.work.move.oldFt === 100 && saved.work.priced.lines.length >= 10 && Math.abs(saved.finalPrice - movePrice) < 0.01)
   check('Move saved: the pull sheet is only NEW material (no tear out, no panels beyond the damage allowance)', saved.pullSheet.every(i => !/Tear Out/.test(i.item)) && saved.pullSheet.some(i => /Post, Line/.test(i.item)))
   check('Move saved: the proposal is a move with one option at the price', saved.proposal.kind === 'move' && saved.proposal.options.length === 1 && saved.proposal.options[0].finalPrice === saved.finalPrice)
-  check('Move saved: walked, so no site plan picture for the customer until the office draws it', !!saved.layout?.walk && !saved.layout?.planDone && !saved.proposal.planSvg)
+  // Sketch and measure (Nov 6 2026): until the office draws it, the customer sees the sketch with its feet, not a site plan.
+  check('Move saved: walked, so the customer sees the sketch (not a site plan) until the office draws it', !!saved.layout?.walk && !saved.layout?.planDone && /Sketch, not to scale\. Measurements as listed\./.test(saved.proposal.planSvg || ''))
 
   // Sending: 2 photos first, or Send anyway with a reason.
   await page.goto(`${APP}/?customer=${saved.crmContactId}`); await page.waitForSelector('[data-global-appointment]'); await sleep(1200)
@@ -190,7 +191,7 @@ try {
   await cp.setViewportSize({ width: 412, height: 915 })
   await cp.goto(`${API}/p/${token}`); await sleep(1500)
   check('Customer page: the 2 photos marked Customer show (the internal one does not), and load', await cp.locator('img[src*="/media/"]').count() === 2 && await cp.locator('img[src*="/media/"]').first().evaluate(i => i.complete && i.naturalWidth > 0))
-  check('Customer page: no site plan picture (the plan is not drawn yet), no rough sketch, one price', await cp.locator('.plan svg').count() === 0 && !/Rough sketch/.test(await cp.content()) && await cp.locator('.opt').count() === 1)
+  check('Customer page: the sketch with its feet (the plan is not drawn yet), "Sketch, not to scale. Measurements as listed.", one price', await cp.locator('.plan svg').count() === 1 && /Sketch, not to scale\. Measurements as listed\./.test(await cp.content()) && await cp.locator('.opt').count() === 1)
   if (SHOTS) await cp.screenshot({ path: path.join(SHOTS, 'dev-move-5-customer-proposal.png'), fullPage: true })
   // Accept: the job is made, then its crew packet.
   await cp.locator('#name').fill(CUSTOMER)
@@ -213,7 +214,7 @@ try {
     const t = (await crew.locator('body').textContent()).replace(/\s+/g, ' ')
     check('Crew packet: label and stack the sections in order, which posts come out and how, gate hardware', t.includes('Fence move: what to do') && t.includes('number each section and gate in order') && t.includes('Pull all 20 old posts (no dig: pull the pipe and donuts)') && t.includes('Gate hardware') && t.includes('Hinge'))
     check('Crew packet: 811 ticket needed, the pull sheet is only the NEW material, no prices', t.includes('an 811 locate ticket is needed') && t.includes('only the NEW material') && !/\$\d/.test(t.replace(/Office[^·]*/, '')))
-    check('Crew packet: post spacing on the new line and the fence as walked (table and rough sketch)', t.includes('Posts apart') && t.includes('Rough sketch, not to scale') && t.includes('Side 1'))
+    check('Crew packet: post spacing on the new line and the fence as walked (table and rough sketch)', t.includes('Posts apart') && t.includes('Sketch, not to scale') && t.includes('Side 1'))
     if (SHOTS) await crew.screenshot({ path: path.join(SHOTS, 'dev-move-6-crew-packet.png'), fullPage: true })
     await crew.close()
   }
@@ -247,7 +248,7 @@ try {
   const rp = await ctx.newPage(); await rp.setViewportSize({ width: 412, height: 915 })
   await rp.goto(`${API}/p/${rtoken}`); await sleep(1200)
   const rt = (await rp.locator('body').textContent()).replace(/\s+/g, ' ')
-  check('Repair customer page: plain words, two prices, no cost lines', rt.includes('Fence repair proposal') && /replace 3 sections/i.test(rt) && await rp.locator('.opt').count() === 2 && !/disposal|labor/i.test(rt))
+  check('Repair customer page: plain words, two prices, no cost lines', rt.includes('Fence repair proposal') && /replace 3 sections/i.test(rt) && await rp.locator('.opt').count() === 2 && !/disposal|\blabor\b|Labor\b/.test(rt), `${rt.includes('Fence repair proposal')} ${/replace 3 sections/i.test(rt)} ${await rp.locator('.opt').count()} ${(rt.match(/.{0,60}(disposal|labor).{0,60}/i) || [''])[0]}`)
   if (SHOTS) await rp.screenshot({ path: path.join(SHOTS, 'dev-repair-3-customer-proposal.png'), fullPage: true })
   await rp.locator('.opt').nth(1).click()
   await rp.locator('#name').fill(CUSTOMER)

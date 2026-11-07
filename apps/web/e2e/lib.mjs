@@ -233,6 +233,12 @@ export async function pickFence(page, material, picks = {}) {
  */
 export const BACKYARD_WALK = [[30, 'corner'], [120, 'corner'], [150, 'corner'], [120, 'corner'], [30, 'end']]
 
+/** The Yard step opens on the sketch (Nov 6 2026): its List view is the walk list. */
+export async function toWalkList(page) {
+  const t = page.locator('[data-sketch-toggle-to="list"]')
+  if (await t.count()) { await t.first().click(); await sleep(250) }
+}
+
 /**
  * Walks a fence on the Yard step's walk list: each step is [feet, what, extra], what one of corner (extra 'left' or
  * 'right', right by default), gate (extra { w: feet, kind: 'walk' | 'double' }), tee, end, start (back to start).
@@ -240,7 +246,8 @@ export const BACKYARD_WALK = [[30, 'corner'], [120, 'corner'], [150, 'corner'], 
  */
 export async function walkFence(page, steps) {
   const b = page.locator('[data-quote-builder]')
-  if (!(await page.locator('[data-walk]').isVisible().catch(() => false))) { await b.locator('[data-step="yard"]').click(); await sleep(300) }
+  if (!(await page.locator('[data-walk], [data-sketch-step]').first().isVisible().catch(() => false))) { await b.locator('[data-step="yard"]').click(); await sleep(300) }
+  await toWalkList(page)
   await page.locator('[data-walk]').waitFor({ timeout: 15000 })
   for (const [feet, what, extra] of steps) {
     await page.locator('[data-walk-feet]').fill(String(feet)); await sleep(120)
