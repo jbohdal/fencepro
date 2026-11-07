@@ -106,6 +106,9 @@ async function reopenPaidJob(accountId: string, jobId: string, by: Actor) {
     await recordJobChanges(accountId, job, row, tx)
   })
   await logBilling(accountId, jobId, `A payment bounced: the job is back to Complete, money owed (by ${by.name}).`, by)
+  // Its card leaves Paid & Closed with it (review Nov 6 2026).
+  const { cardFollowsJob } = await import('./jobTruth.js')
+  await cardFollowsJob(accountId, jobId).catch(e => console.error('[billing] card after bounce:', e))
 }
 
 /** The job's contract and what cleared payments cover; null when it has no payment schedule. */

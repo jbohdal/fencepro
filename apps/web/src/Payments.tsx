@@ -404,9 +404,11 @@ export function ReceiptScreen({ paymentId, jobId, onClose }: { paymentId: string
           <div className="rounded-xl bg-green-50 border border-green-200 p-4 text-center" data-receipt-waiting-on-bank>
             <p className="text-2xl font-bold text-green-800">Payment received</p>
             <p className="text-base text-gray-800">Thank you! Your balance is $0.00. It reads paid in full once your check clears.</p>
+            {snap.lienRelease && <p className="text-xs text-amber-800 mt-2" data-receipt-lien-held>The Final Release of Lien goes on the receipt once the check clears.</p>}
           </div>
         )}
-        {snap.paidInFull && !bankWait && (
+        {/* A voided receipt (a bounced check) is never Paid in full and never shows the lien release (review Nov 6 2026). */}
+        {snap.paidInFull && !bankWait && !voided && (
           <div className="rounded-xl bg-green-50 border border-green-200 p-4 text-center" data-receipt-paid-in-full>
             <p className="text-2xl font-bold text-green-800">Paid in full</p>
             <p className="text-base text-gray-800" data-receipt-warranty>Warranty: {snap.warrantyName || 'as written on your contract'}</p>

@@ -159,7 +159,7 @@ export default function PLStatementPage() {
           <p className="text-xs text-gray-400 mt-1">{period.label} · {pl.revenue.basis === 'cash' ? `${pl.revenue.count} ${pl.revenue.count === 1 ? 'payment' : 'payments'} cleared` : `${pl.revenue.count} ${pl.revenue.count === 1 ? 'job' : 'jobs'} installed`}</p>
           <p className="text-xs text-gray-500 mt-1" data-pl-other-basis={pl.revenue.otherBasisCents}>{pl.revenue.basis === 'cash' ? 'Installed' : 'Payments cleared'}: {fmt(pl.revenue.otherBasisCents)}</p>
           {/* Received and not cleared yet: not in the P&L until the owner taps Cleared (Jonathan, Nov 6 2026: "The P&L goes by cleared date"). */}
-          {waiting.count > 0 && <p className="text-xs text-amber-700 mt-1" data-pl-not-cleared={waiting.cents}>Not cleared yet: {fmt(waiting.cents)} ({waiting.count} {waiting.count === 1 ? 'payment' : 'payments'}), not in the P&L until cleared</p>}
+          {basis === 'cash' && waiting.count > 0 && <p className="text-xs text-amber-700 mt-1" data-pl-not-cleared={waiting.cents}>Not cleared yet: {fmt(waiting.cents)} ({waiting.count} {waiting.count === 1 ? 'payment' : 'payments'}), not in the P&L until cleared</p>}
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <p className="text-xs font-semibold text-gray-400">Gross Profit</p>

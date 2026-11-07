@@ -147,7 +147,7 @@ export function receiptPdf({ s, voided, dayWords, installDay }: ReceiptPdfInput)
 
     if (s.waitingOnBank) {
       heading('Payment received', 70)
-      doc.font('Helvetica-Bold').fontSize(14).fillColor(voided ? GRAY : GREEN).text('Payment received. Thank you!', L, doc.y, { width: W })
+      doc.font('Helvetica-Bold').fontSize(14).fillColor(voided ? GRAY : GREEN).text('Thank you!', L, doc.y, { width: W })
       doc.moveDown(0.3)
       doc.font('Helvetica').fontSize(11).fillColor(INK).text('Your balance is $0.00. It reads paid in full once your check clears.', L, doc.y, { width: W })
     }

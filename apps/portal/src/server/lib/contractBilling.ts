@@ -42,7 +42,7 @@ import path from 'path'
 import prisma from './prisma.js'
 import { isSignedQuote } from './quoteLock.js'
 import { approvedTotalCents } from './changeOrders.js'
-import { applyPayments, clearSums, isCleared, waitsOnBank, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, shownDollarCents, customerDepositCents, askedDepositPct, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
+import { applyPayments, clearSums, isCleared, waitsOnBank, INSTANT_METHODS, depositOf, finalOf, moneyText, methodText, pricedWholeDollar, shownDollarCents, customerDepositCents, askedDepositPct, DEFAULT_DEPOSIT_PCT, METHODS } from './paymentMath.js'
 import { customerDollarsFrom, onCustomerDollars, signedAtOf } from './customerDollars.js'
 import { receiptPdf, receiptName, type ReceiptSnapshot } from './receiptPdf.js'
 import { effectiveQuoteWarranty, installDateOf } from './warranties.js'
@@ -555,8 +555,10 @@ export async function recordPayment(accountId: string, p: NewPayment, by: Actor,
       if (raced) return { payment: raced, receipt: await tx.receipt.findUnique({ where: { paymentId: raced.id } }), created: false }
       const payment = await tx.contractPayment.create({
         data: {
-          // Received when logged; the owner marks it Cleared when the bank shows it (lib/paymentClearing.ts).
-          clearState: 'received',
+          // A check (or "other") is Received when logged; the owner marks it Cleared when the bank shows it
+          // (lib/paymentClearing.ts). Cash, card and Zelle are cleared when taken, as the starting status he OK'd
+          // treats them and as the customer already reads them (review Nov 6 2026); Bounced still undoes one.
+          ...(INSTANT_METHODS.includes(p.method) ? { clearState: 'cleared', clearedOn: paidOn, clearedAt: new Date(), clearedBy: `${by.name} (${p.method === 'zelle' ? 'Zelle' : p.method}, cleared when taken)` } : { clearState: 'received' }),
           id: p.id, accountId, jobId: p.jobId, quoteId: schedule.quoteId, crmContactId: schedule.crmContactId,
           amountCents: p.amountCents, method: p.method, checkNumber: p.method === 'check' ? (p.checkNumber?.trim().slice(0, 40) || null) : null,
           reference: p.reference?.trim().slice(0, 200) || null, paidOn, note: (p.note ?? '').slice(0, 1000), photoKey,
@@ -648,7 +650,9 @@ export async function makeReceiptIn(tx: any, accountId: string, paymentId: strin
  */
 export async function receiptNow(r: { snapshot: unknown; voidedAt: Date | null; jobId: string }): Promise<ReceiptSnapshot> {
   const s = r.snapshot as ReceiptSnapshot
-  if (!s.paidInFull || r.voidedAt) return { ...s, waitingOnBank: false }
+  // Voided (a bounced check, a payment taken back): never Paid in full, never the lien release (review Nov 6 2026).
+  if (r.voidedAt) return { ...s, paidInFull: false, lienRelease: false, warrantyName: null, waitingOnBank: false }
+  if (!s.paidInFull) return { ...s, waitingOnBank: false }
   const pays = await prisma.contractPayment.findMany({ where: { jobId: r.jobId, voidedAt: null }, select: { amountCents: true, clearState: true, method: true, voidedAt: true } })
   return pays.some(waitsOnBank) ? { ...s, paidInFull: false, lienRelease: false, warrantyName: null, waitingOnBank: true } : { ...s, waitingOnBank: false }
 }

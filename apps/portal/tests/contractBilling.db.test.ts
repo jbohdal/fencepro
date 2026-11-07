@@ -196,18 +196,16 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     expect(job!.amountPaid).toBe(9000)
     // Received in full, not cleared yet (Nov 6 2026: "A job reads Paid only when cleared"): Partial, and the schedule says so.
     expect(job!.paymentStatus).toBe('partial')
-    expect([s.clearedCents, s.notClearedCents, s.notClearedCount]).toEqual([0, 900000, 2])
-    expect(byKind(s, 'final').clearedBalanceCents).toBe(445700)
+    // The Zelle is cleared when taken (cash, card and Zelle; review Nov 6 2026); the check waits.
+    expect([s.clearedCents, s.notClearedCents, s.notClearedCount]).toEqual([500000, 400000, 1])
     // The customer's receipt (Zelle, but the first check has not cleared): "Payment received", never Paid in full, no lien release.
     const tok = b.r.json.data.receipt.token
     let page = (await call('', 'GET', `/p/r/${tok}`)).text
     expect(page).toContain('data-receipt-waiting-on-bank')
     expect(page).not.toContain('data-receipt-paid-in-full')
     expect(pdfText((await call('', 'GET', `/p/r/${tok}.pdf`)).buf)).toContain('Payment received')
-    // The owner taps Cleared on both: Paid, and the receipt reads Paid in full.
+    // The owner taps Cleared on the check: Paid, and the receipt reads Paid in full.
     expect((await call(owner, 'POST', `/api/payments/${a.id}/cleared`, {})).status).toBe(200)
-    expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.paymentStatus).toBe('partial')
-    expect((await call(owner, 'POST', `/api/payments/${b.id}/cleared`, {})).status).toBe(200)
     expect((await prisma.savedJob.findUnique({ where: { id: jobId } }))!.paymentStatus).toBe('paid')
     const s2 = await view(jobId)
     expect([s2.clearedCents, s2.notClearedCents, byKind(s2, 'final').clearedBalanceCents]).toEqual([900000, 0, 0])
@@ -449,5 +447,11 @@ describe.skipIf(!process.env.DEV_DB || !onDev)('payment schedules, payments and 
     expect((r.snapshot as any).paidInFull).toBe(false)
     expect((r.snapshot as any).balanceCents).toBe(445700)
     expect((r.snapshot as any).methodText).toBe('Check (Cashiers check)')
+  })
+
+  test('a voided receipt (a bounced check) never reads Paid in full and never carries the lien release', async () => {
+    const { receiptNow } = await import('../src/server/lib/contractBilling.js')
+    const now = await receiptNow({ snapshot: { paidInFull: true, lienRelease: true, warrantyName: 'Lifetime' }, voidedAt: new Date(), jobId: 'none' })
+    expect([now.paidInFull, now.lienRelease, now.warrantyName]).toEqual([false, false, null])
   })
 })
