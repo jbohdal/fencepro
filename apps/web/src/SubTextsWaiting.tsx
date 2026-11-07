@@ -38,20 +38,20 @@ export default function SubTextsWaiting({ jobId, version, onOpenJob }: { jobId?:
   return (
     <section className="rounded-2xl border border-orange-300 bg-orange-50 p-3 space-y-2" data-sub-texts-waiting={list.length}>
       <h2 className="text-sm font-semibold text-gray-900">{list.length === 1 ? '1 text to a sub waiting' : `${list.length} texts to subs waiting`}</h2>
-      {list.map(t => (
+      {list.map(t => { const text = t.text /* to a sub, not a customer: no opt out line (the server wrote it whole) */; return (
         <div key={t.textId} className="bg-white rounded-xl border border-orange-200 p-3 space-y-2" data-sub-text={t.textId}>
           <p className="text-xs text-gray-600">
             {!jobId && onOpenJob ? <button type="button" className="underline" onClick={() => onOpenJob(t.jobId)}>{t.customerName}</button> : t.customerName} · {t.what} · {when(t.at)}
           </p>
           <p className="text-sm text-gray-800 break-words">{t.text}</p>
           <div className="flex flex-wrap gap-2">
-            <a href={smsLink(t.phone, t.text)} className="btn btn-primary !min-h-[44px]" onClick={() => { void mark(t, 'texted') }} data-sub-text-send={t.textId}>
+            <a href={smsLink(t.phone, text)} className="btn btn-primary !min-h-[44px]" onClick={() => { void mark(t, 'texted') }} data-sub-text-send={t.textId}>
               <MessageSquare size={18} aria-hidden="true" /> Text {t.subName} now
             </a>
             <button type="button" className="btn btn-secondary !min-h-[44px]" onClick={() => void mark(t, 'dismissed')} data-sub-text-dismiss={t.textId}>Not needed</button>
           </div>
         </div>
-      ))}
+      ) })}
     </section>
   )
 }
